@@ -1,11 +1,13 @@
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
-# from mcps import tools
+# from mcps import tools #暂时不启用tools
 
 # 加载.env文件中的环境变量
 load_dotenv(".env")
-tools=[]
+
+tools=[] #暂时让tools为空,mcp完成后删掉本行
+
 client = OpenAI(
     api_key=os.environ.get("API_KEY"),
     base_url="https://api.siliconflow.cn/v1",# 记得改模型服务商url
