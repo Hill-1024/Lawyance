@@ -53,19 +53,19 @@ app = FastAPI(lifespan=lifespan)
 async def heartbeat():
     global last_heartbeat_time
     last_heartbeat_time = time.time()
+    # print("[心跳] 收到前端活跃信号")
     return {"status": "ok"}
 
 
 async def check_heartbeat():
     global last_heartbeat_time
     # 给前端更多时间进行初始连接（特别是在开发模式下 Vite 编译较慢时）
-    last_heartbeat_time = time.time() + 60
+    last_heartbeat_time = time.time() + 120
     while True:
         await asyncio.sleep(5)
-        # 如果超过 60 秒没有收到心跳，则认为前端已关闭
-        # Windows 环境下增加容错
-        if time.time() - last_heartbeat_time > 60:
-            print("检测到长时间无页面活动（60秒内无心跳），正在自动关闭后端服务以节省资源...")
+        # 如果超过 120 秒没有收到心跳，则认为前端已关闭
+        if time.time() - last_heartbeat_time > 120:
+            print("检测到长时间无页面活动（120秒内无心跳），正在自动关闭后端服务以节省资源...")
             try:
                 save_sessions()
                 print("会话数据已保存。")
@@ -192,11 +192,14 @@ def build_agent(mode: str, memory: list):
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     global last_heartbeat_time
-    last_heartbeat_time = time.time()  # 收到请求也算作心跳，防止长请求超时
+    last_heartbeat_time = time.time()
     content = request.message
     session_id = request.conversation_id
     stream = request.stream
     agent_mode = request.agent_mode
+
+    print(f"\n[收到请求] 会话ID: {session_id}, 模式: {agent_mode}, 流式: {stream}")
+    print(f"[用户消息]: {content}")
 
     mem = get_session_memory(session_id)
     mem.append({"role": "user", "content": content})
@@ -207,18 +210,21 @@ async def chat_endpoint(request: ChatRequest):
     if agent:
         if stream:
             async def generate_agent():
-                # yield "Agent is thinking...\n\n"  # 移除手动 yield，由前端处理状态
+                print(f"[Agent模式] 开始运行: {agent_mode}")
                 try:
                     loop = asyncio.get_event_loop()
                     result = await loop.run_in_executor(None, agent.run, content)
                     if result:
+                        print(f"[Agent回复]: {result[:50]}...")
                         yield result
                         mem.append({"role": "assistant", "content": result})
                     else:
+                        print("[Agent错误]: 未生成结果")
                         yield "Agent failed to produce a result."
                         mem.append({"role": "assistant", "content": "Agent failed to produce a result."})
                     save_sessions()
                 except Exception as e:
+                    print(f"[Agent异常]: {e}")
                     yield f"Error: {e}"
 
             return StreamingResponse(
@@ -244,10 +250,11 @@ async def chat_endpoint(request: ChatRequest):
 
     if stream:
         async def generate():
-            # yield "思考中...\n\n" # 暂时移除，看看是否是这个 yield 导致的问题
+            print("[默认模式] 开始流式生成...")
             try:
                 current_mem = mem
                 while True:
+                    print("[调用LLM] 发送上下文...")
                     response = await call(current_mem, True)
 
                     tool_calls = []
@@ -273,11 +280,12 @@ async def chat_endpoint(request: ChatRequest):
                                     tool_calls[tc.index]["function"]["name"] += tc.function.name
                                 if tc.function.arguments:
                                     tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
-                        elif delta.content:
+                        elif delta.content is not None:
                             content_str += delta.content
                             yield delta.content
 
                     if is_tool_call:
+                        print(f"[工具调用]: {len(tool_calls)} 个请求")
                         # 保存助手发出的工具调用请求
                         assistant_msg = {
                             "role": "assistant",
@@ -290,8 +298,12 @@ async def chat_endpoint(request: ChatRequest):
                         # 执行工具调用
                         for tc in tool_calls:
                             func_name = tc["function"]["name"]
-                            args = json.loads(tc["function"]["arguments"])
-                            print(f"执行工具: {func_name}, 参数: {args}")
+                            args_str = tc["function"]["arguments"]
+                            try:
+                                args = json.loads(args_str)
+                            except:
+                                args = {}
+                            print(f"  - 执行: {func_name}, 参数: {args}")
                             result = use_tools(func_name, args)
                             current_mem.append({
                                 "role": "tool",
@@ -305,13 +317,15 @@ async def chat_endpoint(request: ChatRequest):
                     else:
                         # 最终回复完成
                         if content_str:
-                            print("模型回复:", content_str)
+                            print(f"[模型回复]: {content_str[:50]}...")
                             current_mem.append({"role": "assistant", "content": content_str})
                             save_sessions()
+                        else:
+                            print("[警告]: 模型输出了空内容")
                         break
             except Exception as e:
                 error_msg = f"\n\n[后端错误]: {str(e)}"
-                print(error_msg)
+                print(f"[后端异常]: {e}")
                 yield error_msg
 
         return StreamingResponse(
@@ -371,6 +385,7 @@ async def chat_endpoint(request: ChatRequest):
 @app.get("/api/conversations")
 async def get_conversations():
     # 返回所有会话的摘要信息和消息
+    print(f"[获取会话] 当前共有 {len(sessions)} 个会话")
     result = {}
     for session_id, mem in sessions.items():
         result[session_id] = {
@@ -389,7 +404,7 @@ async def summarize_endpoint(request: SummarizeRequest):
     temp_mem.append({"role": "user",
                      "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号或其他说明。"})
 
-    response = call(temp_mem, stream=False)
+    response = await call(temp_mem, stream=False)
     title = response.content.strip()
     if title.startswith('"') and title.endswith('"'):
         title = title[1:-1]
