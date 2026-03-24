@@ -1,23 +1,25 @@
-import atexit
-import copy
-import json
-import os
-import signal
-import subprocess
-import sys
-import time
-from contextlib import asynccontextmanager
-
-import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import uvicorn
+import json
+import subprocess
+import sys
+import atexit
+import os
+import copy
+import time
+import asyncio
+import signal
+import shutil
 
-from agents import ReActAgent, PlanAndSolveAgent
 from function_calling import call, memory as system_memory
 from mcps import use_tools
+from agents import ReActAgent, PlanAndSolveAgent
+
+from contextlib import asynccontextmanager
 
 last_heartbeat_time = time.time()
 
@@ -194,74 +196,85 @@ async def chat_endpoint(request: ChatRequest):
             return {"reply": result}
 
     if stream:
-        def generate():
-            response = call(mem, stream=True)
+        async def generate():
+            yield "思考中...\n\n"
+            try:
+                # 使用 loop.run_in_executor 处理同步的 OpenAI 调用，避免阻塞事件循环
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(None, call, mem, True)
 
-            tool_calls = []
-            content_str = ""
-            is_tool_call = False
+                tool_calls = []
+                content_str = ""
+                is_tool_call = False
 
-            for chunk in response:
-                delta = chunk.choices[0].delta
-                if delta.tool_calls:
-                    is_tool_call = True
-                    for tc in delta.tool_calls:
-                        while len(tool_calls) <= tc.index:
-                            tool_calls.append({
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {"name": "", "arguments": ""}
-                            })
-                        if tc.id:
-                            tool_calls[tc.index]["id"] = tc.id
-                        if tc.function.name:
-                            tool_calls[tc.index]["function"]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
-                elif delta.content:
-                    content_str += delta.content
-                    yield delta.content
-
-            if is_tool_call:
-                print("模型请求调用工具:", [tc["function"]["name"] for tc in tool_calls])
-                mem.append({
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": tool_calls
-                })
-                save_sessions()
-
-                for tc in tool_calls:
-                    func_name = tc["function"]["name"]
-                    args = json.loads(tc["function"]["arguments"])
-                    result = use_tools(func_name, args)
-                    mem.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "name": func_name,
-                        "content": str(result)
-                    })
-                save_sessions()
-
-                # 第二次调用，流式返回最终结果
-                second_response = call(mem, stream=True)
-
-                final_content = ""
-                for chunk in second_response:
+                for chunk in response:
+                    if not chunk.choices: continue
                     delta = chunk.choices[0].delta
-                    if delta.content:
-                        final_content += delta.content
+                    if delta.tool_calls:
+                        is_tool_call = True
+                        for tc in delta.tool_calls:
+                            while len(tool_calls) <= tc.index:
+                                tool_calls.append({
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {"name": "", "arguments": ""}
+                                })
+                            if tc.id:
+                                tool_calls[tc.index]["id"] = tc.id
+                            if tc.function.name:
+                                tool_calls[tc.index]["function"]["name"] += tc.function.name
+                            if tc.function.arguments:
+                                tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                    elif delta.content:
+                        content_str += delta.content
                         yield delta.content
 
-                print("最终回复:", final_content)
-                mem.append({"role": "assistant", "content": final_content})
-                save_sessions()
-            else:
-                print("模型回复:", content_str)
-                mem.append({"role": "assistant", "content": content_str})
-                save_sessions()
+                if is_tool_call:
+                    print("模型请求调用工具:", [tc["function"]["name"] for tc in tool_calls])
+                    mem.append({
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": tool_calls
+                    })
+                    save_sessions()
 
-        return StreamingResponse(generate(), media_type="text/plain")
+                    for tc in tool_calls:
+                        func_name = tc["function"]["name"]
+                        args = json.loads(tc["function"]["arguments"])
+                        result = use_tools(func_name, args)
+                        mem.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "name": func_name,
+                            "content": str(result)
+                        })
+                    save_sessions()
+
+                    # 第二次调用
+                    second_response = await loop.run_in_executor(None, call, mem, True)
+
+                    final_content = ""
+                    for chunk in second_response:
+                        if not chunk.choices: continue
+                        delta = chunk.choices[0].delta
+                        if delta.content:
+                            final_content += delta.content
+                            yield delta.content
+
+                    print("最终回复:", final_content)
+                    mem.append({"role": "assistant", "content": final_content})
+                    save_sessions()
+                else:
+                    if content_str:
+                        print("模型回复:", content_str)
+                        mem.append({"role": "assistant", "content": content_str})
+                        save_sessions()
+            except Exception as e:
+                error_msg = f"\n\n[后端错误]: {str(e)}"
+                print(error_msg)
+                yield error_msg
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
     else:
         res = call(mem, stream=False)
 
@@ -360,34 +373,82 @@ else:
     async def root():
         return {"message": "Agent is running. Send POST requests to /api/chat"}
 
+
 # Agent
+def setup():
+    """检查并安装必要的依赖"""
+    print("\n" + "=" * 40)
+    print("正在检查项目环境...")
+    print("=" * 40 + "\n")
+
+    # 1. 检查 Node.js 环境
+    node_cmd = "node.exe" if sys.platform == "win32" else "node"
+    if not shutil.which(node_cmd):
+        print("错误: 未检测到 Node.js。请先安装 Node.js (https://nodejs.org/)。")
+        return False
+
+    npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+    if not shutil.which(npm_cmd):
+        print("错误: 未检测到 npm。请先安装 Node.js (https://nodejs.org/)。")
+        return False
+
+    # 2. 检查 node_modules
+    if not os.path.exists("node_modules"):
+        print("未检测到 node_modules，正在执行 npm install...")
+        try:
+            subprocess.run([npm_cmd, "install"], check=True)
+            print("npm install 执行成功。")
+        except subprocess.CalledProcessError as e:
+            print(f"npm install 执行失败: {e}")
+            return False
+
+    # 3. 检查 Python 依赖
+    if os.path.exists("requirements.txt"):
+        print("正在检查 Python 依赖...")
+        try:
+            # 使用列表形式避免路径空格问题
+            subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
+            print("Python 依赖检查/安装完成。")
+        except subprocess.CalledProcessError as e:
+            print(f"Python 依赖安装失败: {e}")
+            # 继续执行，可能已经安装过了
+
+    return True
+
+
 if __name__ == '__main__':
-    print("正在初始化 Agent...")
+    if not setup():
+        print("\n环境检查失败，请手动解决上述问题后重试。")
+        sys.exit(1)
+
+    print("\n正在启动 GDUT-Lawver 系统...")
 
     # 尝试自动启动前端开发服务器
     if not os.path.exists("dist"):
-        print("\n========================================")
-        print("未检测到 dist 目录，正在启动前端开发服务器 (npm run dev)...")
-        print("========================================\n")
+        print("\n" + "-" * 40)
+        print("正在启动前端开发服务器 (Vite)...")
+        print("-" * 40 + "\n")
         npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
         try:
-            frontend_process = subprocess.Popen([npm_cmd, "run", "dev"])
+            # 在 Windows 上使用 shell=True 启动 npm 脚本更稳定
+            is_win = sys.platform == "win32"
+            frontend_process = subprocess.Popen([npm_cmd, "run", "dev:frontend"], shell=is_win)
 
 
             def cleanup():
-                print("正在关闭前端服务...")
+                print("\n正在关闭系统...")
                 save_sessions()
-                frontend_process.terminate()
+                if 'frontend_process' in locals():
+                    frontend_process.terminate()
+                print("系统已关闭。")
 
 
             atexit.register(cleanup)
         except Exception as e:
-            print(f"前端启动失败，请确保已安装 Node.js 并在项目根目录执行过 npm install。错误: {e}")
+            print(f"前端启动失败: {e}")
     else:
-        print("\n========================================")
-        print("检测到 dist 目录，将直接通过 8000 端口提供前端页面访问。")
-        print("========================================\n")
+        print("\n检测到 dist 目录，将直接提供静态文件服务。")
 
-    print("\n启动 Web 服务，监听 8000 端口...")
-    # 启动 FastAPI 服务，提供 HTTP 接口给 React
+    print(f"\n后端服务启动中，监听 8000 端口...")
+    # 启动 FastAPI 服务
     uvicorn.run(app, host="0.0.0.0", port=8000)
