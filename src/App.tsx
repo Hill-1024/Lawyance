@@ -43,6 +43,19 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasInitialized = useRef(false);
 
+  useEffect(() => {
+    const sendHeartbeat = async () => {
+      try {
+        await fetch('/api/heartbeat', { method: 'POST' });
+      } catch (e) {
+        console.error('Heartbeat failed', e);
+      }
+    };
+    const interval = setInterval(sendHeartbeat, 10000); // 每 10 秒发送一次心跳
+    sendHeartbeat();
+    return () => clearInterval(interval);
+  }, []);
+
   const currentConversation = conversations.find(c => c.id === currentId) || conversations[0] || { id: 'default', title: 'New Chat', messages: [] };
   const messages = currentConversation.messages;
 
@@ -53,27 +66,6 @@ export default function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  useEffect(() => {
-    let failCount = 0;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch('/api/heartbeat', { method: 'POST' });
-        if (!res.ok) throw new Error('Backend disconnected');
-        failCount = 0; // Reset on success
-      } catch (e) {
-        failCount++;
-        console.error(`Heartbeat failed (${failCount}/3)`, e);
-        if (failCount >= 3) {
-          document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#1F1F1F;color:#fff;font-family:sans-serif;text-align:center;"><div><h1 style="font-size:24px;margin-bottom:16px;">后端已断开连接</h1><p style="color:#A0A0A0;">前端已自动关闭空转状态，您可以安全地关闭此窗口。</p></div></div>';
-          setTimeout(() => window.close(), 1000);
-          clearInterval(interval);
-        }
-      }
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
 
   const updateMessages = (convId: string, updater: (prev: Message[]) => Message[]) => {
     setConversations(prev => prev.map(c =>
@@ -136,7 +128,7 @@ export default function App() {
       const errorMessage: Message = {
         id: Date.now().toString(),
         role: 'agent',
-        content: '抱歉，连接到 Agent 时发生错误。\n\n在本地运行 `npm install` 和 `npm run dev` 即可正常使用。\n\n请检查 Python 后端服务是否正常启动。'
+        content: '抱歉，连接到 Agent 时发生错误。\n\n**如果你在 AI Studio 云端预览**：云端环境不支持运行 Python 后端。请点击右上角的“Export”下载代码，然后在本地运行 `npm install` 和 `npm run dev` 即可正常使用。\n\n**如果你在本地运行**：请检查 Python 后端服务是否正常启动。'
       };
       updateMessages(newId, prev => [...prev, errorMessage]);
       setIsLoading(false);

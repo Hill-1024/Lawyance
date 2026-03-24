@@ -16,8 +16,24 @@ import signal
 import shutil
 
 from function_calling import call, memory as system_memory
-from mcps import use_tools
 from agents import ReActAgent, PlanAndSolveAgent
+
+
+def use_tools(function_name, arguments):
+    """
+    处理模型发来的工具请求。
+    目前包含模拟的法律数据库查询工具。
+    """
+    if function_name == "query_legal_db":
+        # 模拟接口数据
+        mock_result = {
+            "source": "《中华人民共和国刑法》",
+            "article": "第二百六十四条",
+            "content": "盗窃公私财物，数额较大的，或者多次盗窃、入户盗窃、携带凶器盗窃、扒窃的，处三年以下有期徒刑、拘役或者管制..."
+        }
+        return json.dumps(mock_result, ensure_ascii=False)
+    return f"工具 '{function_name}' 不存在，请重新检查。"
+
 
 from contextlib import asynccontextmanager
 
@@ -42,12 +58,14 @@ async def heartbeat():
 
 async def check_heartbeat():
     global last_heartbeat_time
-    # Give frontend 30 seconds to connect initially
-    last_heartbeat_time = time.time() + 30
+    # 给前端更多时间进行初始连接（特别是在开发模式下 Vite 编译较慢时）
+    last_heartbeat_time = time.time() + 60
     while True:
         await asyncio.sleep(5)
-        if time.time() - last_heartbeat_time > 15:
-            print("No heartbeat received from frontend for 15 seconds. Shutting down backend...")
+        # 如果超过 30 秒没有收到心跳，则认为前端已关闭
+        # 增加一个 60 秒的启动宽限期，防止刚启动时因为加载慢而关闭
+        if time.time() - last_heartbeat_time > 30:
+            print("检测到长时间无页面活动（30秒内无心跳），正在自动关闭后端服务以节省资源...")
             save_sessions()
             os.kill(os.getpid(), signal.SIGTERM)
 
@@ -434,18 +452,31 @@ def setup():
 
 
 if __name__ == '__main__':
-    # 实战项目建议通过环境变量控制端口，默认 8000
-    port = int(os.getenv("PORT", 8000))
+    # 执行环境检查与依赖安装
+    setup()
 
-    print("\n正在启动 GDUT-Lawver 系统...")
+    # 默认端口
+    env_port = int(os.getenv("PORT", 3000))
+
+    print("\n" + "=" * 50)
+    print(f"系统启动中...")
+    print(f"本地访问地址: http://127.0.0.1:{env_port}")
+    print(f"外部访问地址: http://0.0.0.0:{env_port}")
+    print("=" * 50 + "\n")
 
     # 只有在开发模式（无 dist）下才尝试启动 Vite
     if not os.path.exists("dist"):
         print("\n检测到开发环境，正在尝试启动前端开发服务器...")
+        # 开发模式下：
+        # 1. 后端监听 8000 端口
+        # 2. 前端 (Vite) 监听 3000 端口并代理到 8000
+        backend_port = 8000
+
         npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
         if shutil.which(npm_cmd):
             try:
                 is_win = sys.platform == "win32"
+                # 强制 Vite 使用 3000 端口（AI Studio 的外部访问端口）
                 frontend_process = subprocess.Popen([npm_cmd, "run", "dev:frontend"], shell=is_win)
 
 
@@ -461,6 +492,8 @@ if __name__ == '__main__':
                 print(f"前端启动失败: {e}")
     else:
         print("\n检测到生产环境 (dist)，将由 FastAPI 提供全栈服务。")
+        # 生产模式下：后端直接监听 AI Studio 提供的端口 (3000)
+        backend_port = env_port
 
-    print(f"\n后端服务启动中，监听 {port} 端口...")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    print(f"\n后端服务启动中，监听 {backend_port} 端口...")
+    uvicorn.run(app, host="0.0.0.0", port=backend_port)
