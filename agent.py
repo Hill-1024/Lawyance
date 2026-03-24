@@ -1,7 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 import uvicorn
 import json
@@ -367,7 +367,24 @@ async def delete_conversation(request: DeleteRequest):
 
 # 挂载 React 编译后的静态文件（用于生产环境）
 if os.path.exists("dist"):
-    app.mount("/", StaticFiles(directory="dist", html=True), name="static")
+    # API 路由必须在静态文件挂载之前定义（FastAPI 按顺序匹配）
+    # 挂载静态资源目录（js, css, images 等）
+    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
+
+
+    # 处理 SPA 路由：所有非 /api 开头的请求如果找不到文件，都返回 index.html
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        if full_path.startswith("api/"):
+            return {"error": "API route not found"}, 404
+
+        # 检查文件是否存在
+        file_path = os.path.join("dist", full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+
+        # 默认返回 index.html
+        return FileResponse("dist/index.html")
 else:
     @app.get("/")
     async def root():
@@ -417,41 +434,33 @@ def setup():
 
 
 if __name__ == '__main__':
-    if not setup():
-        print("\n环境检查失败，请手动解决上述问题后重试。")
-        sys.exit(1)
+    # 实战项目建议通过环境变量控制端口，默认 8000
+    port = int(os.getenv("PORT", 8000))
 
     print("\n正在启动 GDUT-Lawver 系统...")
 
-    # 尝试自动启动前端开发服务器
+    # 只有在开发模式（无 dist）下才尝试启动 Vite
     if not os.path.exists("dist"):
-        print("\n" + "-" * 40)
-        print("正在启动前端开发服务器 (Vite)...")
-        print("-" * 40 + "\n")
+        print("\n检测到开发环境，正在尝试启动前端开发服务器...")
         npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
-        try:
-            # 在 Windows 上使用 shell=True 启动 npm 脚本更稳定
-            is_win = sys.platform == "win32"
-            frontend_process = subprocess.Popen([npm_cmd, "run", "dev:frontend"], shell=is_win)
+        if shutil.which(npm_cmd):
+            try:
+                is_win = sys.platform == "win32"
+                frontend_process = subprocess.Popen([npm_cmd, "run", "dev:frontend"], shell=is_win)
 
 
-            def cleanup():
-                print("\n正在关闭系统...")
-                save_sessions()
-                if 'frontend_process' in locals():
-                    frontend_process.terminate()
-                print("系统已关闭。")
+                def cleanup():
+                    print("\n正在关闭系统...")
+                    save_sessions()
+                    if 'frontend_process' in locals():
+                        frontend_process.terminate()
 
 
-            atexit.register(cleanup)
-        except Exception as e:
-            print(f"前端启动失败: {e}")
-
-        port = 8000
+                atexit.register(cleanup)
+            except Exception as e:
+                print(f"前端启动失败: {e}")
     else:
-        print("\n检测到 dist 目录，将直接提供静态文件服务。")
-        port = 3000
+        print("\n检测到生产环境 (dist)，将由 FastAPI 提供全栈服务。")
 
     print(f"\n后端服务启动中，监听 {port} 端口...")
-    # 启动 FastAPI 服务
     uvicorn.run(app, host="0.0.0.0", port=port)
