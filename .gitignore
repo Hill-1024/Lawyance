@@ -3,4 +3,8 @@
 .idea
 node_modules
 dist
-package-lock.json
+__pycache__/
+*.pyc
+*.pyo
+
+.python-version
