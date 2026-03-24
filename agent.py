@@ -446,9 +446,12 @@ if __name__ == '__main__':
             atexit.register(cleanup)
         except Exception as e:
             print(f"前端启动失败: {e}")
+
+        port = 8000
     else:
         print("\n检测到 dist 目录，将直接提供静态文件服务。")
+        port = 3000
 
-    print(f"\n后端服务启动中，监听 8000 端口...")
+    print(f"\n后端服务启动中，监听 {port} 端口...")
     # 启动 FastAPI 服务
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)
