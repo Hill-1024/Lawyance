@@ -8,12 +8,25 @@ load_dotenv(".env")
 
 tools=[] #暂时让tools为空,mcp完成后删掉本行
 
+API_KEY = os.getenv("API_KEY")
+BASE_URL = os.getenv("BASE_URL")
+LLM_MODEL = os.getenv("LLM_MODEL")
+
+# 异常检测
+if not API_KEY:
+    raise ValueError("API_KEY is not set in the environment variables.")
+if not BASE_URL:
+    raise ValueError("BASE_URL is not set in the environment variables.")
+if not LLM_MODEL:
+    raise ValueError("LLM_MODEL is not set in the environment variables.")
+
 client = OpenAI(
-    api_key=os.environ.get("API_KEY"),
-    base_url="https://api.siliconflow.cn/v1",# 记得改模型服务商url
+    api_key=API_KEY,
+    base_url=BASE_URL,
     # api_key=os.environ.get("GEMINI_KEY"),
     # base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
 )
+
 memory = [{
     "role": "system",
     "content": "你是由广东工业大学工大法智团队开发的名为Lawver的AI助手\n"
@@ -51,13 +64,14 @@ memory = [{
 def call(context, stream=False):
     response = client.chat.completions.create(
         # 记得在此处修改使用的模型!
-        model="deepseek-ai/DeepSeek-V3.2",
-        # model="gemini-2.5-flash",
+        model=LLM_MODEL,
         messages=context,
         tools=tools,
         tool_choice="auto",
         stream=stream,
     )
+    # print(f"LLM 调用成功，模型: {LLM_MODEL}")
+    # print(response)
     if stream:
         return response
     return response.choices[0].message

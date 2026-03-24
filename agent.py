@@ -16,6 +16,7 @@ import signal
 
 from function_calling import call, memory as system_memory
 from mcps import use_tools
+from agents import ReActAgent, PlanAndSolveAgent
 
 app = FastAPI()
 
@@ -61,6 +62,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: str = "default"
     stream: bool = True
+    agent_mode: str= "default"
 
 
 class SummarizeRequest(BaseModel):
@@ -122,6 +124,17 @@ def get_session_memory(session_id: str):
         save_sessions()
     return sessions[session_id]
 
+# Agent 构建函数，根据前端传来的 agent_mode 返回对应的 Agent 实例
+def build_agent(mode: str, memory: list):
+    """
+    根据 agent_mode 字段返回对应的 Agent 实例。
+    mode 不合法时退回 None（走原有 default 逻辑）。
+    """
+    if mode == "react":
+        return ReActAgent(memory)
+    if mode == "plan_and_solve":
+        return PlanAndSolveAgent(memory)
+    return None
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
