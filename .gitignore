@@ -4,3 +4,5 @@
 node_modules
 dist
 package-lock.json
+sessions.json
+titles.json
