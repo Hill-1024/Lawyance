@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import uvicorn
 import json
@@ -8,11 +9,42 @@ import subprocess
 import sys
 import atexit
 import os
+import copy
+import time
+import asyncio
+import signal
 
-from function_calling import call, memory
+from function_calling import call, memory as system_memory
 from mcps import use_tools
 
 app = FastAPI()
+
+last_heartbeat_time = time.time()
+
+
+@app.post("/api/heartbeat")
+async def heartbeat():
+    global last_heartbeat_time
+    last_heartbeat_time = time.time()
+    return {"status": "ok"}
+
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(check_heartbeat())
+
+
+async def check_heartbeat():
+    global last_heartbeat_time
+    # Give frontend 30 seconds to connect initially
+    last_heartbeat_time = time.time() + 30
+    while True:
+        await asyncio.sleep(5)
+        if time.time() - last_heartbeat_time > 15:
+            print("No heartbeat received from frontend for 15 seconds. Shutting down backend...")
+            save_sessions()
+            os.kill(os.getpid(), signal.SIGTERM)
+
 
 # 配置 CORS，允许 React 前端跨域访问
 app.add_middleware(
@@ -27,41 +59,237 @@ app.add_middleware(
 # 定义前端请求的数据格式
 class ChatRequest(BaseModel):
     message: str
+    conversation_id: str = "default"
+    stream: bool = True
+
+
+class SummarizeRequest(BaseModel):
+    conversation_id: str
+
+
+class DeleteRequest(BaseModel):
+    conversation_id: str
+
+
+SESSIONS_FILE = "sessions.json"
+TITLES_FILE = "titles.json"
+sessions = {}
+titles = {}
+
+
+def load_sessions():
+    global sessions, titles
+    if os.path.exists(SESSIONS_FILE):
+        try:
+            with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+                sessions = json.load(f)
+                print(f"已加载 {len(sessions)} 个历史会话。")
+        except Exception as e:
+            print(f"加载历史会话失败: {e}")
+            sessions = {}
+    else:
+        sessions = {}
+
+    if os.path.exists(TITLES_FILE):
+        try:
+            with open(TITLES_FILE, "r", encoding="utf-8") as f:
+                titles = json.load(f)
+        except Exception as e:
+            print(f"加载标题失败: {e}")
+            titles = {}
+    else:
+        titles = {}
+
+
+def save_sessions():
+    try:
+        with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, ensure_ascii=False, indent=2)
+        with open(TITLES_FILE, "w", encoding="utf-8") as f:
+            json.dump(titles, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存会话失败: {e}")
+
+
+atexit.register(save_sessions)
+
+load_sessions()
+
+
+def get_session_memory(session_id: str):
+    if session_id not in sessions:
+        sessions[session_id] = copy.deepcopy(system_memory)
+        save_sessions()
+    return sessions[session_id]
 
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     content = request.message
-    memory.append({"role": "user", "content": content})
+    session_id = request.conversation_id
+    stream = request.stream
 
-    res = call(memory)
+    mem = get_session_memory(session_id)
+    mem.append({"role": "user", "content": content})
+    save_sessions()
 
-    if res.tool_calls:
-        print("模型请求调用工具:", [t.function.name for t in res.tool_calls])
-        # 把模型的调用请求先存入上下文，保持对话历史完整
-        memory.append(res)
-        # 遍历大模型请求调用的工具（可能会同时调用多个）
-        for tool_call in res.tool_calls:
-            function_name = tool_call.function.name
-            # 解析大模型提取出来的参数
-            arguments = json.loads(tool_call.function.arguments)
-            # 转交工具请求给mcps.py
-            result = use_tools(function_name, arguments)
-            memory.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "name": function_name,
-                "content": result
-            })
-        # 携带查询到的结果，再次调用大模型
-        final_message = call(memory)
-        print("最终回复:", final_message.content)
-        memory.append({"role": "assistant", "content": final_message.content})
-        return {"reply": final_message.content}
+    if stream:
+        def generate():
+            response = call(mem, stream=True)
+
+            tool_calls = []
+            content_str = ""
+            is_tool_call = False
+
+            for chunk in response:
+                delta = chunk.choices[0].delta
+                if delta.tool_calls:
+                    is_tool_call = True
+                    for tc in delta.tool_calls:
+                        while len(tool_calls) <= tc.index:
+                            tool_calls.append({
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""}
+                            })
+                        if tc.id:
+                            tool_calls[tc.index]["id"] = tc.id
+                        if tc.function.name:
+                            tool_calls[tc.index]["function"]["name"] += tc.function.name
+                        if tc.function.arguments:
+                            tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                elif delta.content:
+                    content_str += delta.content
+                    yield delta.content
+
+            if is_tool_call:
+                print("模型请求调用工具:", [tc["function"]["name"] for tc in tool_calls])
+                mem.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": tool_calls
+                })
+                save_sessions()
+
+                for tc in tool_calls:
+                    func_name = tc["function"]["name"]
+                    args = json.loads(tc["function"]["arguments"])
+                    result = use_tools(func_name, args)
+                    mem.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "name": func_name,
+                        "content": str(result)
+                    })
+                save_sessions()
+
+                # 第二次调用，流式返回最终结果
+                second_response = call(mem, stream=True)
+
+                final_content = ""
+                for chunk in second_response:
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        final_content += delta.content
+                        yield delta.content
+
+                print("最终回复:", final_content)
+                mem.append({"role": "assistant", "content": final_content})
+                save_sessions()
+            else:
+                print("模型回复:", content_str)
+                mem.append({"role": "assistant", "content": content_str})
+                save_sessions()
+
+        return StreamingResponse(generate(), media_type="text/plain")
     else:
-        print("模型回复:", res.content)
-        memory.append({"role": "assistant", "content": res.content})
-        return {"reply": res.content}
+        res = call(mem, stream=False)
+
+        if res.tool_calls:
+            print("模型请求调用工具:", [t.function.name for t in res.tool_calls])
+            mem.append({
+                "role": "assistant",
+                "content": res.content,
+                "tool_calls": [
+                    {
+                        "id": t.id,
+                        "type": "function",
+                        "function": {
+                            "name": t.function.name,
+                            "arguments": t.function.arguments
+                        }
+                    } for t in res.tool_calls
+                ]
+            })
+            save_sessions()
+
+            for tool_call in res.tool_calls:
+                function_name = tool_call.function.name
+                arguments = json.loads(tool_call.function.arguments)
+                result = use_tools(function_name, arguments)
+                mem.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": function_name,
+                    "content": str(result)
+                })
+            save_sessions()
+
+            final_message = call(mem, stream=False)
+            print("最终回复:", final_message.content)
+            mem.append({"role": "assistant", "content": final_message.content})
+            save_sessions()
+            return {"reply": final_message.content}
+        else:
+            print("模型回复:", res.content)
+            mem.append({"role": "assistant", "content": res.content})
+            save_sessions()
+            return {"reply": res.content}
+
+
+@app.get("/api/conversations")
+async def get_conversations():
+    # 返回所有会话的摘要信息和消息
+    result = {}
+    for session_id, mem in sessions.items():
+        result[session_id] = {
+            "title": titles.get(session_id, "New Chat"),
+            "messages": mem
+        }
+    return result
+
+
+@app.post("/api/summarize")
+async def summarize_endpoint(request: SummarizeRequest):
+    session_id = request.conversation_id
+    mem = get_session_memory(session_id)
+
+    temp_mem = copy.deepcopy(mem)
+    temp_mem.append({"role": "user",
+                     "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号或其他说明。"})
+
+    response = call(temp_mem, stream=False)
+    title = response.content.strip()
+    if title.startswith('"') and title.endswith('"'):
+        title = title[1:-1]
+    if title.startswith("'") and title.endswith("'"):
+        title = title[1:-1]
+
+    titles[session_id] = title
+    save_sessions()
+
+    return {"title": title}
+
+
+@app.post("/api/delete_conversation")
+async def delete_conversation(request: DeleteRequest):
+    session_id = request.conversation_id
+    if session_id in sessions:
+        del sessions[session_id]
+    if session_id in titles:
+        del titles[session_id]
+    save_sessions()
+    return {"status": "success"}
 
 
 # 挂载 React 编译后的静态文件（用于生产环境）
@@ -88,6 +316,7 @@ if __name__ == '__main__':
 
             def cleanup():
                 print("正在关闭前端服务...")
+                save_sessions()
                 frontend_process.terminate()
 
 
