@@ -379,7 +379,7 @@ export default function App() {
           >
             <Menu size={24} className="text-gray-600" />
           </button>
-          <h1 className="text-[20px] font-medium tracking-tight ml-1">GDUT-lawver</h1>
+          <h1 className="text-[20px] font-medium tracking-tight ml-1">GDUT-Lawver</h1>
         </div>
         <div className="flex items-center gap-1 relative">
           <button
