@@ -111,17 +111,12 @@ export default function App() {
 
       if (!response.ok) throw new Error('Network response was not ok');
 
-      const agentMessageId = Date.now().toString();
-      updateMessages(newId, prev => [...prev, { id: agentMessageId, role: 'agent', content: '' }]);
-      // setIsLoading(false); // 暂时不设置 false，等流开始后再设置
-
       if (isStreaming) {
-        await processStream(response, agentMessageId, newId);
+        await processStream(response, null, newId);
       } else {
         const data = await response.json();
-        updateMessages(newId, prev => prev.map(msg =>
-          msg.id === agentMessageId ? { ...msg, content: data.reply } : msg
-        ));
+        const agentMessageId = Date.now().toString();
+        updateMessages(newId, prev => [...prev, { id: agentMessageId, role: 'agent', content: data.reply }]);
         setIsLoading(false);
       }
     } catch (error) {
@@ -161,7 +156,7 @@ export default function App() {
     }
   };
 
-  const processStream = async (response: Response, messageId: string, convId: string) => {
+  const processStream = async (response: Response, existingMessageId: string | null, convId: string) => {
     console.log('开始处理流式响应...');
     const reader = response.body?.getReader();
     if (!reader) {
@@ -172,19 +167,22 @@ export default function App() {
     const decoder = new TextDecoder();
     let done = false;
     let text = '';
+    let messageId = existingMessageId;
 
     try {
-      let isFirstChunk = true;
       while (!done) {
         const { value, done: readerDone } = await reader.read();
         done = readerDone;
         if (value) {
-          if (isFirstChunk) {
-            setIsLoading(false);
-            isFirstChunk = false;
-          }
           const chunk = decoder.decode(value, { stream: true });
           console.log('收到数据块:', chunk);
+
+          if (!messageId) {
+            messageId = Date.now().toString();
+            updateMessages(convId, prev => [...prev, { id: messageId!, role: 'agent', content: '' }]);
+            setIsLoading(false);
+          }
+
           text += chunk;
           updateMessages(convId, prev => prev.map(msg =>
             msg.id === messageId ? { ...msg, content: text } : msg
@@ -275,8 +273,14 @@ export default function App() {
       content: input.trim()
     };
 
-    const convId = currentId;
-    const isFirstUserMessage = currentConversation.messages.filter(m => m.role === 'user').length === 0;
+    // 确保有有效的会话 ID
+    let convId = currentId;
+    if (!convId || !conversations.find(c => c.id === convId)) {
+      convId = conversations[0]?.id || 'default';
+      setCurrentId(convId);
+    }
+
+    const isFirstUserMessage = (conversations.find(c => c.id === convId)?.messages.filter(m => m.role === 'user').length || 0) === 0;
 
     updateMessages(convId, prev => [...prev, userMessage]);
     setInput('');
@@ -296,17 +300,12 @@ export default function App() {
 
       if (!response.ok) throw new Error('Network response was not ok');
 
-      const agentMessageId = (Date.now() + 1).toString();
-      updateMessages(convId, prev => [...prev, { id: agentMessageId, role: 'agent', content: '' }]);
-      // setIsLoading(false); // 暂时不设置 false，等流开始后再设置
-
       if (isStreaming) {
-        await processStream(response, agentMessageId, convId);
+        await processStream(response, null, convId);
       } else {
         const data = await response.json();
-        updateMessages(convId, prev => prev.map(msg =>
-          msg.id === agentMessageId ? { ...msg, content: data.reply } : msg
-        ));
+        const agentMessageId = (Date.now() + 1).toString();
+        updateMessages(convId, prev => [...prev, { id: agentMessageId, role: 'agent', content: data.reply }]);
         setIsLoading(false);
       }
 
