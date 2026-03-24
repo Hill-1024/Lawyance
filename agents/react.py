@@ -11,6 +11,7 @@ ReAct 范式：Reasoning + Acting
 import json
 import re
 from typing import Generator
+import asyncio
 
 try:
     # 作为包的一部分被导入时
@@ -30,7 +31,7 @@ from tools import ToolExecutor, search
 
 #  Prompt 模板
 REACT_PROMPT_TEMPLATE = """
-请注意，你是一个有能力调用外部工具的智能助手。
+请注意，你是由广东工业大学工大法智团队开发的，有能力调用外部工具的名为Lawver的AI助手。
 
 可用工具如下：
 {tools}
@@ -62,7 +63,7 @@ class ReActAgent:
         self.history = []
         self.memory = memory or []
 
-    def run(self, question: str):
+    async def run(self, question: str):
         self.history = []
         current_step = 0
 
@@ -75,7 +76,7 @@ class ReActAgent:
             prompt = REACT_PROMPT_TEMPLATE.format(tools=tools_desc, question=question, history=history_str)
 
             messages = self.memory + [{"role": "user", "content": prompt}]
-            response = call(context=messages)
+            response = await call(context=messages, stream=False)
 
             if response.tool_calls:
                 # 触发了 function calling
@@ -135,4 +136,4 @@ if __name__ == '__main__':
     tool_executor.registerTool("Search", search_desc, search)
     agent = ReActAgent(tool_executor=tool_executor)
     question = "美伊以战争最新报道"
-    agent.run(question)
+    asyncio.run(agent.run(question))

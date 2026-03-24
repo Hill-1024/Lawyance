@@ -193,6 +193,21 @@ def build_agent(mode: str, memory: list):
         return PlanAndSolveAgent(memory=memory)
     return None
 
+async def run_agent(agent, content: str):
+    """
+    统一执行 Agent.run，兼容同步/异步两种实现：
+    - async def run(...)：直接 await
+    - def run(...)：放到线程池执行，避免阻塞事件循环
+    - 若错误地返回 coroutine 对象，也会二次 await 兜底
+    """
+    if asyncio.iscoroutinefunction(agent.run):
+        return await agent.run(content)
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, agent.run, content)
+    if asyncio.iscoroutine(result):
+        return await result
+    return result
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
@@ -222,9 +237,10 @@ async def chat_endpoint(request: ChatRequest):
             async def generate_agent():
                 print(f"[Agent模式] 开始运行: {agent_mode}")
                 try:
-                    loop = asyncio.get_event_loop()
+                    # loop = asyncio.get_event_loop()
                     print(f"[Agent模式] 执行 agent.run...")
-                    result = await loop.run_in_executor(None, agent.run, content)
+                    # result = await loop.run_in_executor(None, agent.run, content)
+                    result = await run_agent(agent, content)
                     if result:
                         print(f"[Agent模式] 得到结果: {result[:50]}...")
                         yield result
@@ -249,8 +265,9 @@ async def chat_endpoint(request: ChatRequest):
             )
         else:
             try:
+                # loop = asyncio.get_event_loop()
+                # result = await loop.run_in_executor(None, agent.run, content)
                 loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(None, agent.run, content)
                 if not result:
                     result = "Agent failed to produce a result."
             except Exception as e:
