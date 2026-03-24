@@ -136,7 +136,7 @@ export default function App() {
       const errorMessage: Message = {
         id: Date.now().toString(),
         role: 'agent',
-        content: '抱歉，连接到 Agent 时发生错误。\n\n**如果你在 AI Studio 云端预览**：云端环境不支持运行 Python 后端。请点击右上角的“Export”下载代码，然后在本地运行 `npm install` 和 `npm run dev` 即可正常使用。\n\n**如果你在本地运行**：请检查 Python 后端服务是否正常启动。'
+        content: '抱歉，连接到 Agent 时发生错误。\n\n在本地运行 `npm install` 和 `npm run dev` 即可正常使用。\n\n请检查 Python 后端服务是否正常启动。'
       };
       updateMessages(newId, prev => [...prev, errorMessage]);
       setIsLoading(false);
