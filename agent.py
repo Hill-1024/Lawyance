@@ -59,21 +59,21 @@ async def heartbeat():
 
 async def check_heartbeat():
     global last_heartbeat_time
+    print("[心跳检查] 启动心跳检查任务")
     # 给前端更多时间进行初始连接（特别是在开发模式下 Vite 编译较慢时）
     last_heartbeat_time = time.time() + 120
     while True:
         await asyncio.sleep(5)
         # 如果超过 120 秒没有收到心跳，则认为前端已关闭
-        if time.time() - last_heartbeat_time > 120:
-            print("检测到长时间无页面活动（120秒内无心跳），正在自动关闭后端服务以节省资源...")
+        diff = time.time() - last_heartbeat_time
+        if diff > 120:
+            print(f"检测到长时间无页面活动（{diff:.1f}秒内无心跳），正在自动关闭后端服务以节省资源...")
             try:
                 save_sessions()
                 print("会话数据已保存。")
             except Exception as e:
                 print(f"保存会话失败: {e}")
 
-            # 使用 sys.exit() 尝试触发 atexit，如果不行再用 os._exit
-            # 在 asyncio 任务中 sys.exit() 只能退出当前任务，所以需要更强力的方式
             os._exit(0)
 
 
@@ -103,8 +103,13 @@ class DeleteRequest(BaseModel):
     conversation_id: str
 
 
-SESSIONS_FILE = "sessions.json"
-TITLES_FILE = "titles.json"
+# 确保数据目录存在
+DATA_DIR = "data"
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
+TITLES_FILE = os.path.join(DATA_DIR, "titles.json")
 sessions = {}
 titles = {}
 
@@ -201,9 +206,14 @@ async def chat_endpoint(request: ChatRequest):
     print(f"\n[收到请求] 会话ID: {session_id}, 模式: {agent_mode}, 流式: {stream}")
     print(f"[用户消息]: {content}")
 
-    mem = get_session_memory(session_id)
-    mem.append({"role": "user", "content": content})
-    save_sessions()
+    try:
+        mem = get_session_memory(session_id)
+        mem.append({"role": "user", "content": content})
+        save_sessions()
+        print(f"[会话已更新] 当前上下文消息数: {len(mem)}")
+    except Exception as e:
+        print(f"[会话更新失败]: {e}")
+        return {"error": str(e)}
 
     agent = build_agent(agent_mode, mem)
 
@@ -213,18 +223,19 @@ async def chat_endpoint(request: ChatRequest):
                 print(f"[Agent模式] 开始运行: {agent_mode}")
                 try:
                     loop = asyncio.get_event_loop()
+                    print(f"[Agent模式] 执行 agent.run...")
                     result = await loop.run_in_executor(None, agent.run, content)
                     if result:
-                        print(f"[Agent回复]: {result[:50]}...")
+                        print(f"[Agent模式] 得到结果: {result[:50]}...")
                         yield result
                         mem.append({"role": "assistant", "content": result})
                     else:
-                        print("[Agent错误]: 未生成结果")
+                        print("[Agent模式] 未生成结果")
                         yield "Agent failed to produce a result."
                         mem.append({"role": "assistant", "content": "Agent failed to produce a result."})
                     save_sessions()
                 except Exception as e:
-                    print(f"[Agent异常]: {e}")
+                    print(f"[Agent模式] 异常: {e}")
                     yield f"Error: {e}"
 
             return StreamingResponse(
@@ -254,8 +265,9 @@ async def chat_endpoint(request: ChatRequest):
             try:
                 current_mem = mem
                 while True:
-                    print("[调用LLM] 发送上下文...")
+                    print(f"[默认模式] 调用 LLM, 上下文长度: {len(current_mem)}")
                     response = await call(current_mem, True)
+                    print("[默认模式] LLM 响应已开始")
 
                     tool_calls = []
                     content_str = ""
@@ -285,7 +297,7 @@ async def chat_endpoint(request: ChatRequest):
                             yield delta.content
 
                     if is_tool_call:
-                        print(f"[工具调用]: {len(tool_calls)} 个请求")
+                        print(f"[默认模式] 工具调用: {len(tool_calls)} 个请求")
                         # 保存助手发出的工具调用请求
                         assistant_msg = {
                             "role": "assistant",
@@ -317,15 +329,15 @@ async def chat_endpoint(request: ChatRequest):
                     else:
                         # 最终回复完成
                         if content_str:
-                            print(f"[模型回复]: {content_str[:50]}...")
+                            print(f"[默认模式] 回复完成: {content_str[:50]}...")
                             current_mem.append({"role": "assistant", "content": content_str})
                             save_sessions()
                         else:
-                            print("[警告]: 模型输出了空内容")
+                            print("[默认模式] 警告: 模型输出了空内容")
                         break
             except Exception as e:
                 error_msg = f"\n\n[后端错误]: {str(e)}"
-                print(f"[后端异常]: {e}")
+                print(f"[默认模式] 异常: {e}")
                 yield error_msg
 
         return StreamingResponse(

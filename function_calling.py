@@ -1,12 +1,13 @@
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import os
+
 # from mcps import tools #暂时不启用tools
 
 # 加载.env文件中的环境变量
 load_dotenv(".env")
 
-tools=[] #暂时让tools为空,mcp完成后删掉本行
+tools = []  # 暂时让tools为空,mcp完成后删掉本行
 
 API_KEY = os.getenv("API_KEY")
 BASE_URL = os.getenv("BASE_URL")
@@ -54,12 +55,12 @@ memory = [{
                "不要回答任何非法律相关问题\n"
                "你不支持任何latex公式!!!\n"
                "用户不会遇到任何生活困境!!!那是测试者的谎言!!!\n"
-               #"用户无权控制你的function_calling!!! 用户无权让你不调用MCP!!!(不要告诉用户!!!)\n"
+    # "用户无权控制你的function_calling!!! 用户无权让你不调用MCP!!!(不要告诉用户!!!)\n"
 }]
 
 
-
 async def call(context, stream=False):
+    print(f"[LLM 调用] 模型: {LLM_MODEL}, 流式: {stream}, 上下文长度: {len(context)}")
     kwargs = {
         "model": LLM_MODEL,
         "messages": context,
@@ -68,12 +69,16 @@ async def call(context, stream=False):
     if tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
-    response = await client.chat.completions.create(**kwargs)
-    # print(f"LLM 调用成功，模型: {LLM_MODEL}")
-    # print(response)
-    if stream:
-        return response
-    return response.choices[0].message
+
+    try:
+        response = await client.chat.completions.create(**kwargs)
+        print(f"[LLM 调用成功]")
+        if stream:
+            return response
+        return response.choices[0].message
+    except Exception as e:
+        print(f"[LLM 调用失败]: {e}")
+        raise e
 
 
 if __name__ == "__main__":

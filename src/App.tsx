@@ -32,6 +32,7 @@ export default function App() {
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
@@ -157,7 +158,7 @@ export default function App() {
   };
 
   const processStream = async (response: Response, existingMessageId: string | null, convId: string) => {
-    console.log('开始处理流式响应...');
+    console.log(`开始处理流式响应... 会话ID: ${convId}, 消息ID: ${existingMessageId}`);
     const reader = response.body?.getReader();
     if (!reader) {
       console.error('无法获取响应流 reader');
@@ -175,10 +176,11 @@ export default function App() {
         done = readerDone;
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
-          console.log('收到数据块:', chunk);
+          console.log(`收到数据块 (长度: ${chunk.length}):`, chunk.substring(0, 20) + (chunk.length > 20 ? '...' : ''));
 
           if (!messageId) {
             messageId = Date.now().toString();
+            console.log(`创建新的助手消息气泡, ID: ${messageId}`);
             updateMessages(convId, prev => [...prev, { id: messageId!, role: 'agent', content: '' }]);
             setIsLoading(false);
           }
@@ -189,7 +191,7 @@ export default function App() {
           ));
         }
       }
-      console.log('流式响应处理完成');
+      console.log('流式响应处理完成，总长度:', text.length);
     } catch (err) {
       console.error('读取流时发生错误:', err);
       setIsLoading(false);
@@ -246,6 +248,7 @@ export default function App() {
             setConversations(loadedConversations);
             setCurrentId(loadedConversations[0].id);
             setIsLoading(false);
+            setIsInitialized(true);
             return;
           } else {
             console.log('未发现有效会话，准备创建新会话');
@@ -259,13 +262,17 @@ export default function App() {
 
       console.log('执行 handleNewChat 创建初始会话');
       await handleNewChat('default');
+      setIsInitialized(true);
     };
 
     initChat();
   }, []);
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || !isInitialized) {
+      console.log('handleSend 被拦截:', { hasInput: !!input.trim(), isLoading, isInitialized });
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -273,10 +280,13 @@ export default function App() {
       content: input.trim()
     };
 
+    console.log('准备发送消息:', userMessage);
+
     // 确保有有效的会话 ID
     let convId = currentId;
     if (!convId || !conversations.find(c => c.id === convId)) {
       convId = conversations[0]?.id || 'default';
+      console.log(`修正会话 ID: ${currentId} -> ${convId}`);
       setCurrentId(convId);
     }
 
@@ -287,6 +297,7 @@ export default function App() {
     setIsLoading(true);
 
     try {
+      console.log(`请求后端 /api/chat, 会话: ${convId}, 模式: ${agentMode}`);
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -298,12 +309,16 @@ export default function App() {
         })
       });
 
-      if (!response.ok) throw new Error('Network response was not ok');
+      if (!response.ok) {
+        console.error('后端响应错误:', response.status, response.statusText);
+        throw new Error('Network response was not ok');
+      }
 
       if (isStreaming) {
         await processStream(response, null, convId);
       } else {
         const data = await response.json();
+        console.log('收到非流式响应:', data);
         const agentMessageId = (Date.now() + 1).toString();
         updateMessages(convId, prev => [...prev, { id: agentMessageId, role: 'agent', content: data.reply }]);
         setIsLoading(false);
