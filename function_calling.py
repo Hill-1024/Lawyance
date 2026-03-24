@@ -63,7 +63,6 @@ memory = [{
 
 def call(context, stream=False):
     response = client.chat.completions.create(
-        # 记得在此处修改使用的模型!
         model=LLM_MODEL,
         messages=context,
         tools=tools,

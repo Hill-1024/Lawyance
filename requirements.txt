@@ -3,3 +3,5 @@ uvicorn
 pydantic
 openai
 python-dotenv
+
+google-search-results

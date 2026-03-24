@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2 } from 'lucide-react';
 import Markdown from 'react-markdown';
@@ -41,6 +36,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [isStreaming, setIsStreaming] = useState(true);
+  const [agentMode, setAgentMode] = useState('default');
   const [themeColor, setThemeColor] = useState('#1F1F1F');
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
 
@@ -118,7 +114,7 @@ export default function App() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: '介绍自己', conversation_id: newId, stream: isStreaming })
+        body: JSON.stringify({ message: '介绍自己', conversation_id: newId, stream: isStreaming, agent_mode: agentMode })
       });
 
       if (!response.ok) throw new Error('Network response was not ok');
@@ -273,7 +269,8 @@ export default function App() {
         body: JSON.stringify({
           message: userMessage.content,
           conversation_id: convId,
-          stream: isStreaming
+          stream: isStreaming,
+          agent_mode: agentMode
         })
       });
 
@@ -477,19 +474,37 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
-              className="bg-gray-50 rounded-2xl p-4 border border-gray-200 flex items-center justify-between overflow-hidden"
+              className="bg-gray-50 rounded-2xl p-4 border border-gray-200 flex flex-col gap-4 overflow-hidden"
             >
-              <div className="flex items-center gap-3">
-                <Settings2 size={20} className="text-gray-500" />
-                <span className="text-sm font-medium text-gray-700">Enable Streaming Output</span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Settings2 size={20} className="text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700">Enable Streaming Output</span>
+                </div>
+                <button
+                  onClick={() => setIsStreaming(!isStreaming)}
+                  className={`w-12 h-6 rounded-full transition-colors relative ${isStreaming ? '' : 'bg-gray-300'}`}
+                  style={isStreaming ? { backgroundColor: themeColor } : {}}
+                >
+                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${isStreaming ? 'left-7' : 'left-1'}`} />
+                </button>
               </div>
-              <button
-                onClick={() => setIsStreaming(!isStreaming)}
-                className={`w-12 h-6 rounded-full transition-colors relative ${isStreaming ? '' : 'bg-gray-300'}`}
-                style={isStreaming ? { backgroundColor: themeColor } : {}}
-              >
-                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${isStreaming ? 'left-7' : 'left-1'}`} />
-              </button>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Sparkles size={20} className="text-gray-500" />
+                  <span className="text-sm font-medium text-gray-700">Agent Mode</span>
+                </div>
+                <select
+                  value={agentMode}
+                  onChange={(e) => setAgentMode(e.target.value)}
+                  className="text-sm border-gray-300 rounded-lg focus:ring-0 cursor-pointer bg-white px-3 py-1.5 outline-none border"
+                >
+                  <option value="default">Default</option>
+                  <option value="plan_and_solve">Plan & Solve</option>
+                  <option value="react">ReAct</option>
+                </select>
+              </div>
             </motion.div>
           )}
 

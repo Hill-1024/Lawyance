@@ -56,10 +56,11 @@ History: {history}
 """
 
 class ReActAgent:
-    def __init__(self, tool_executor: ToolExecutor, max_steps: int = 3):
+    def __init__(self, tool_executor: ToolExecutor, memory: list = None, max_steps: int = 3):
         self.tool_executor = tool_executor
         self.max_steps = max_steps
         self.history = []
+        self.memory = memory or []
 
     def run(self, question: str):
         self.history = []
@@ -73,7 +74,7 @@ class ReActAgent:
             history_str = "\n".join(self.history) # 将历史记录中的每条信息换行分隔，形成一个清晰的历史记录字符串 (Action -> Observation -> Action -> Observation ...)
             prompt = REACT_PROMPT_TEMPLATE.format(tools=tools_desc, question=question, history=history_str)
 
-            messages = [{"role": "user", "content": prompt}]
+            messages = self.memory + [{"role": "user", "content": prompt}]
             response = call(context=messages)
 
             if response.tool_calls:

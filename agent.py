@@ -62,7 +62,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: str = "default"
     stream: bool = True
-    agent_mode: str= "default"
+    agent_mode: str = "default"
 
 
 class SummarizeRequest(BaseModel):
@@ -124,6 +124,11 @@ def get_session_memory(session_id: str):
         save_sessions()
     return sessions[session_id]
 
+
+import asyncio
+from tools import ToolExecutor, search
+
+
 # Agent 构建函数，根据前端传来的 agent_mode 返回对应的 Agent 实例
 def build_agent(mode: str, memory: list):
     """
@@ -131,20 +136,59 @@ def build_agent(mode: str, memory: list):
     mode 不合法时退回 None（走原有 default 逻辑）。
     """
     if mode == "react":
-        return ReActAgent(memory)
+        tool_executor = ToolExecutor()
+        tool_executor.registerTool("Search",
+                                   "一个网页搜索引擎。当你需要回答关于时事、事实以及在你的知识库中找不到的信息时，应使用此工具。",
+                                   search)
+        return ReActAgent(tool_executor=tool_executor, memory=memory)
     if mode == "plan_and_solve":
-        return PlanAndSolveAgent(memory)
+        return PlanAndSolveAgent(memory=memory)
     return None
+
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     content = request.message
     session_id = request.conversation_id
     stream = request.stream
+    agent_mode = request.agent_mode
 
     mem = get_session_memory(session_id)
     mem.append({"role": "user", "content": content})
     save_sessions()
+
+    agent = build_agent(agent_mode, mem)
+
+    if agent:
+        if stream:
+            async def generate_agent():
+                yield "Agent is thinking...\n\n"
+                await asyncio.sleep(0.1)
+                try:
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(None, agent.run, content)
+                    if result:
+                        yield result
+                        mem.append({"role": "assistant", "content": result})
+                    else:
+                        yield "Agent failed to produce a result."
+                        mem.append({"role": "assistant", "content": "Agent failed to produce a result."})
+                    save_sessions()
+                except Exception as e:
+                    yield f"Error: {e}"
+
+            return StreamingResponse(generate_agent(), media_type="text/plain")
+        else:
+            try:
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(None, agent.run, content)
+                if not result:
+                    result = "Agent failed to produce a result."
+            except Exception as e:
+                result = f"Error: {e}"
+            mem.append({"role": "assistant", "content": result})
+            save_sessions()
+            return {"reply": result}
 
     if stream:
         def generate():
