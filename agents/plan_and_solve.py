@@ -45,10 +45,10 @@ class Planner:
     def __init__(self):
         pass
 
-    def plan(self, question: str) -> list[str]:
+    def plan(self, question: str, memory: list = None) -> list[str]:
         prompt = PLANNER_PROMPT_TEMPLATE.format(question=question)
-        messages = [{"role": "user", "content": prompt}]
-        
+        messages = (memory or []) + [{"role": "user", "content": prompt}]
+
         print("--- 正在生成计划 ---")
         response = call(context=messages)
 
@@ -59,7 +59,7 @@ class Planner:
             # 普通文本回复
             response_text = response.content
         print(f"✅ 计划已生成:\n{response_text}")
-        
+
         try:
             plan_str = response_text.split("```python")[1].split("```")[0].strip()
             plan = ast.literal_eval(plan_str)
@@ -71,7 +71,7 @@ class Planner:
         except Exception as e:
             print(f"❌ 解析计划时发生未知错误: {e}")
             return []
-        
+
 # --- 3. 执行器 (Executor) 定义 ---
 EXECUTOR_PROMPT_TEMPLATE = """
 你是一位顶级的AI执行专家。你的任务是严格按照给定的计划，一步步地解决问题。
@@ -97,18 +97,18 @@ class Executor:
     def __init__(self):
         pass
 
-    def execute(self, question: str, plan: list[str]) -> str:
+    def execute(self, question: str, plan: list[str], memory: list = None) -> str:
         history = ""
         final_answer = ""
-        
+
         print("\n--- 正在执行计划 ---")
         for i, step in enumerate(plan, 1):
             print(f"\n-> 正在执行步骤 {i}/{len(plan)}: {step}")
             prompt = EXECUTOR_PROMPT_TEMPLATE.format(
                 question=question, plan=plan, history=history if history else "无", current_step=step
             )
-            messages = [{"role": "user", "content": prompt}]
-            
+            messages = (memory or []) + [{"role": "user", "content": prompt}]
+
             response = call(context=messages)
 
             if response.tool_calls:
@@ -117,27 +117,29 @@ class Executor:
             else:
                 # 普通文本回复
                 response_text = response.content
-            
+
             history += f"步骤 {i}: {step}\n结果: {response_text}\n\n"
             final_answer = response_text
             print(f"✅ 步骤 {i} 已完成，结果: {final_answer}")
-            
+
         return final_answer
 
 # --- 4. 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
-    def __init__(self):
+    def __init__(self, memory: list = None):
         self.planner = Planner()
         self.executor = Executor()
+        self.memory = memory or []
 
     def run(self, question: str):
         print(f"\n--- 开始处理问题 ---\n问题: {question}")
-        plan = self.planner.plan(question)
+        plan = self.planner.plan(question, memory=self.memory)
         if not plan:
             print("\n--- 任务终止 --- \n无法生成有效的行动计划。")
-            return
-        final_answer = self.executor.execute(question, plan)
+            return "无法生成有效的行动计划。"
+        final_answer = self.executor.execute(question, plan, memory=self.memory)
         print(f"\n--- 任务完成 ---\n最终答案: {final_answer}")
+        return final_answer
 
 # --- 5. 主函数入口 ---
 if __name__ == '__main__':
