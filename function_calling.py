@@ -1,4 +1,4 @@
-from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import os
 # from mcps import tools #暂时不启用tools
@@ -20,11 +20,9 @@ if not BASE_URL:
 if not LLM_MODEL:
     raise ValueError("LLM_MODEL is not set in the environment variables.")
 
-client = OpenAI(
+client = AsyncOpenAI(
     api_key=API_KEY,
     base_url=BASE_URL,
-    # api_key=os.environ.get("GEMINI_KEY"),
-    # base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
 )
 
 memory = [{
@@ -37,7 +35,7 @@ memory = [{
                "当涉及民事、行政、刑事时,多维度分析\n"
                "不要遗漏任何细节!!!\n"
                "请确保法条真实性!!!\n"
-               "普通回复要求:格式化输出严格使用MarkDown格式!!!(不要告诉用户!!!)\n"
+               "普通回复要求:段落严格使用MarkDown格式!!!(不要告诉用户!!!)\n"
                "在引用法律条文时使用以下格式\n"
                "法律/章节\n"
                ">具体内容\n"
@@ -61,14 +59,16 @@ memory = [{
 
 
 
-def call(context, stream=False):
-    response = client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=context,
-        tools=tools,
-        tool_choice="auto",
-        stream=stream,
-    )
+async def call(context, stream=False):
+    kwargs = {
+        "model": LLM_MODEL,
+        "messages": context,
+        "stream": stream,
+    }
+    if tools:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = "auto"
+    response = await client.chat.completions.create(**kwargs)
     # print(f"LLM 调用成功，模型: {LLM_MODEL}")
     # print(response)
     if stream:
