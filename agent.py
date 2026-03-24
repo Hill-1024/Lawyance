@@ -1,26 +1,34 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-import uvicorn
+import atexit
+import copy
 import json
+import os
+import signal
 import subprocess
 import sys
-import atexit
-import os
-import copy
 import time
-import asyncio
-import signal
+from contextlib import asynccontextmanager
 
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from agents import ReActAgent, PlanAndSolveAgent
 from function_calling import call, memory as system_memory
 from mcps import use_tools
-from agents import ReActAgent, PlanAndSolveAgent
-
-app = FastAPI()
 
 last_heartbeat_time = time.time()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    asyncio.create_task(check_heartbeat())
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/api/heartbeat")
@@ -28,11 +36,6 @@ async def heartbeat():
     global last_heartbeat_time
     last_heartbeat_time = time.time()
     return {"status": "ok"}
-
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(check_heartbeat())
 
 
 async def check_heartbeat():
