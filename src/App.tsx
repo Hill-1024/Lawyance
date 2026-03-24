@@ -113,7 +113,7 @@ export default function App() {
 
       const agentMessageId = Date.now().toString();
       updateMessages(newId, prev => [...prev, { id: agentMessageId, role: 'agent', content: '' }]);
-      setIsLoading(false);
+      // setIsLoading(false); // 暂时不设置 false，等流开始后再设置
 
       if (isStreaming) {
         await processStream(response, agentMessageId, newId);
@@ -122,6 +122,7 @@ export default function App() {
         updateMessages(newId, prev => prev.map(msg =>
           msg.id === agentMessageId ? { ...msg, content: data.reply } : msg
         ));
+        setIsLoading(false);
       }
     } catch (error) {
       console.error('Error connecting to Python agent:', error);
@@ -161,22 +162,41 @@ export default function App() {
   };
 
   const processStream = async (response: Response, messageId: string, convId: string) => {
+    console.log('开始处理流式响应...');
     const reader = response.body?.getReader();
-    if (!reader) throw new Error('No reader available');
+    if (!reader) {
+      console.error('无法获取响应流 reader');
+      throw new Error('No reader available');
+    }
 
     const decoder = new TextDecoder();
     let done = false;
     let text = '';
 
-    while (!done) {
-      const { value, done: readerDone } = await reader.read();
-      done = readerDone;
-      if (value) {
-        text += decoder.decode(value, { stream: true });
-        updateMessages(convId, prev => prev.map(msg =>
-          msg.id === messageId ? { ...msg, content: text } : msg
-        ));
+    try {
+      let isFirstChunk = true;
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          if (isFirstChunk) {
+            setIsLoading(false);
+            isFirstChunk = false;
+          }
+          const chunk = decoder.decode(value, { stream: true });
+          console.log('收到数据块:', chunk);
+          text += chunk;
+          updateMessages(convId, prev => prev.map(msg =>
+            msg.id === messageId ? { ...msg, content: text } : msg
+          ));
+        }
       }
+      console.log('流式响应处理完成');
+    } catch (err) {
+      console.error('读取流时发生错误:', err);
+      setIsLoading(false);
+    } finally {
+      reader.releaseLock();
     }
   };
 
@@ -185,12 +205,14 @@ export default function App() {
     hasInitialized.current = true;
 
     const initChat = async () => {
+      console.log('初始化会话...');
       setIsLoading(true);
 
       try {
         const res = await fetch('/api/conversations');
         if (res.ok) {
           const data = await res.json();
+          console.log('从后端加载的原始数据:', data);
           const loadedConversations: Conversation[] = [];
 
           for (const [id, sessionData] of Object.entries(data)) {
@@ -221,17 +243,23 @@ export default function App() {
           }
 
           if (loadedConversations.length > 0) {
+            console.log('成功解析的会话列表:', loadedConversations);
             loadedConversations.sort((a, b) => b.id.localeCompare(a.id));
             setConversations(loadedConversations);
             setCurrentId(loadedConversations[0].id);
             setIsLoading(false);
             return;
+          } else {
+            console.log('未发现有效会话，准备创建新会话');
           }
+        } else {
+          console.error('获取会话失败，状态码:', res.status);
         }
       } catch (e) {
-        console.error("Failed to load conversations", e);
+        console.error("加载会话时发生异常:", e);
       }
 
+      console.log('执行 handleNewChat 创建初始会话');
       await handleNewChat('default');
     };
 
@@ -270,7 +298,7 @@ export default function App() {
 
       const agentMessageId = (Date.now() + 1).toString();
       updateMessages(convId, prev => [...prev, { id: agentMessageId, role: 'agent', content: '' }]);
-      setIsLoading(false);
+      // setIsLoading(false); // 暂时不设置 false，等流开始后再设置
 
       if (isStreaming) {
         await processStream(response, agentMessageId, convId);
@@ -279,6 +307,7 @@ export default function App() {
         updateMessages(convId, prev => prev.map(msg =>
           msg.id === agentMessageId ? { ...msg, content: data.reply } : msg
         ));
+        setIsLoading(false);
       }
 
       if (isFirstUserMessage) {

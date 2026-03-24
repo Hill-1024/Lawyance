@@ -1,7 +1,6 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
 openai
 python-dotenv
-
-google-search-results
+websockets

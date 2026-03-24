@@ -62,12 +62,19 @@ async def check_heartbeat():
     last_heartbeat_time = time.time() + 60
     while True:
         await asyncio.sleep(5)
-        # 如果超过 30 秒没有收到心跳，则认为前端已关闭
-        # 增加一个 60 秒的启动宽限期，防止刚启动时因为加载慢而关闭
-        if time.time() - last_heartbeat_time > 30:
-            print("检测到长时间无页面活动（30秒内无心跳），正在自动关闭后端服务以节省资源...")
-            save_sessions()
-            os.kill(os.getpid(), signal.SIGTERM)
+        # 如果超过 60 秒没有收到心跳，则认为前端已关闭
+        # Windows 环境下增加容错
+        if time.time() - last_heartbeat_time > 60:
+            print("检测到长时间无页面活动（60秒内无心跳），正在自动关闭后端服务以节省资源...")
+            try:
+                save_sessions()
+                print("会话数据已保存。")
+            except Exception as e:
+                print(f"保存会话失败: {e}")
+
+            # 使用 sys.exit() 尝试触发 atexit，如果不行再用 os._exit
+            # 在 asyncio 任务中 sys.exit() 只能退出当前任务，所以需要更强力的方式
+            os._exit(0)
 
 
 # 配置 CORS，允许 React 前端跨域访问
@@ -132,9 +139,22 @@ def save_sessions():
             json.dump(sessions, f, ensure_ascii=False, indent=2)
         with open(TITLES_FILE, "w", encoding="utf-8") as f:
             json.dump(titles, f, ensure_ascii=False, indent=2)
+        print("会话数据已保存。")
     except Exception as e:
         print(f"保存会话失败: {e}")
 
+
+def signal_handler(sig, frame):
+    print(f"\n接收到信号 {sig}，正在保存数据并退出...")
+    save_sessions()
+    sys.exit(0)
+
+
+# 注册信号处理程序
+signal.signal(signal.SIGINT, signal_handler)
+if sys.platform == "win32":
+    # SIGBREAK 在 Windows 上用于处理控制台窗口关闭
+    signal.signal(signal.SIGBREAK, signal_handler)
 
 atexit.register(save_sessions)
 
@@ -171,6 +191,8 @@ def build_agent(mode: str, memory: list):
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
+    global last_heartbeat_time
+    last_heartbeat_time = time.time()  # 收到请求也算作心跳，防止长请求超时
     content = request.message
     session_id = request.conversation_id
     stream = request.stream
@@ -185,8 +207,7 @@ async def chat_endpoint(request: ChatRequest):
     if agent:
         if stream:
             async def generate_agent():
-                yield "Agent is thinking...\n\n"
-                await asyncio.sleep(0.1)
+                # yield "Agent is thinking...\n\n"  # 移除手动 yield，由前端处理状态
                 try:
                     loop = asyncio.get_event_loop()
                     result = await loop.run_in_executor(None, agent.run, content)
@@ -200,7 +221,15 @@ async def chat_endpoint(request: ChatRequest):
                 except Exception as e:
                     yield f"Error: {e}"
 
-            return StreamingResponse(generate_agent(), media_type="text/plain")
+            return StreamingResponse(
+                generate_agent(),
+                media_type="text/plain",
+                headers={
+                    "X-Content-Type-Options": "nosniff",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
+            )
         else:
             try:
                 loop = asyncio.get_event_loop()
@@ -215,86 +244,87 @@ async def chat_endpoint(request: ChatRequest):
 
     if stream:
         async def generate():
-            yield "思考中...\n\n"
+            # yield "思考中...\n\n" # 暂时移除，看看是否是这个 yield 导致的问题
             try:
-                # 使用 loop.run_in_executor 处理同步的 OpenAI 调用，避免阻塞事件循环
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(None, call, mem, True)
+                current_mem = mem
+                while True:
+                    response = await call(current_mem, True)
 
-                tool_calls = []
-                content_str = ""
-                is_tool_call = False
+                    tool_calls = []
+                    content_str = ""
+                    is_tool_call = False
 
-                for chunk in response:
-                    if not chunk.choices: continue
-                    delta = chunk.choices[0].delta
-                    if delta.tool_calls:
-                        is_tool_call = True
-                        for tc in delta.tool_calls:
-                            while len(tool_calls) <= tc.index:
-                                tool_calls.append({
-                                    "id": tc.id,
-                                    "type": "function",
-                                    "function": {"name": "", "arguments": ""}
-                                })
-                            if tc.id:
-                                tool_calls[tc.index]["id"] = tc.id
-                            if tc.function.name:
-                                tool_calls[tc.index]["function"]["name"] += tc.function.name
-                            if tc.function.arguments:
-                                tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
-                    elif delta.content:
-                        content_str += delta.content
-                        yield delta.content
-
-                if is_tool_call:
-                    print("模型请求调用工具:", [tc["function"]["name"] for tc in tool_calls])
-                    mem.append({
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": tool_calls
-                    })
-                    save_sessions()
-
-                    for tc in tool_calls:
-                        func_name = tc["function"]["name"]
-                        args = json.loads(tc["function"]["arguments"])
-                        result = use_tools(func_name, args)
-                        mem.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "name": func_name,
-                            "content": str(result)
-                        })
-                    save_sessions()
-
-                    # 第二次调用
-                    second_response = await loop.run_in_executor(None, call, mem, True)
-
-                    final_content = ""
-                    for chunk in second_response:
+                    async for chunk in response:
                         if not chunk.choices: continue
                         delta = chunk.choices[0].delta
-                        if delta.content:
-                            final_content += delta.content
+
+                        if delta.tool_calls:
+                            is_tool_call = True
+                            for tc in delta.tool_calls:
+                                while len(tool_calls) <= tc.index:
+                                    tool_calls.append({
+                                        "id": tc.id,
+                                        "type": "function",
+                                        "function": {"name": "", "arguments": ""}
+                                    })
+                                if tc.id:
+                                    tool_calls[tc.index]["id"] = tc.id
+                                if tc.function.name:
+                                    tool_calls[tc.index]["function"]["name"] += tc.function.name
+                                if tc.function.arguments:
+                                    tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+                        elif delta.content:
+                            content_str += delta.content
                             yield delta.content
 
-                    print("最终回复:", final_content)
-                    mem.append({"role": "assistant", "content": final_content})
-                    save_sessions()
-                else:
-                    if content_str:
-                        print("模型回复:", content_str)
-                        mem.append({"role": "assistant", "content": content_str})
+                    if is_tool_call:
+                        # 保存助手发出的工具调用请求
+                        assistant_msg = {
+                            "role": "assistant",
+                            "content": content_str or None,
+                            "tool_calls": tool_calls
+                        }
+                        current_mem.append(assistant_msg)
                         save_sessions()
+
+                        # 执行工具调用
+                        for tc in tool_calls:
+                            func_name = tc["function"]["name"]
+                            args = json.loads(tc["function"]["arguments"])
+                            print(f"执行工具: {func_name}, 参数: {args}")
+                            result = use_tools(func_name, args)
+                            current_mem.append({
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "name": func_name,
+                                "content": str(result)
+                            })
+                        save_sessions()
+                        # 继续循环，让模型根据工具结果生成回复
+                        continue
+                    else:
+                        # 最终回复完成
+                        if content_str:
+                            print("模型回复:", content_str)
+                            current_mem.append({"role": "assistant", "content": content_str})
+                            save_sessions()
+                        break
             except Exception as e:
                 error_msg = f"\n\n[后端错误]: {str(e)}"
                 print(error_msg)
                 yield error_msg
 
-        return StreamingResponse(generate(), media_type="text/event-stream")
+        return StreamingResponse(
+            generate(),
+            media_type="text/plain",
+            headers={
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
+        )
     else:
-        res = call(mem, stream=False)
+        res = await call(mem, stream=False)
 
         if res.tool_calls:
             print("模型请求调用工具:", [t.function.name for t in res.tool_calls])
@@ -326,7 +356,7 @@ async def chat_endpoint(request: ChatRequest):
                 })
             save_sessions()
 
-            final_message = call(mem, stream=False)
+            final_message = await call(mem, stream=False)
             print("最终回复:", final_message.content)
             mem.append({"role": "assistant", "content": final_message.content})
             save_sessions()
