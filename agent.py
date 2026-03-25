@@ -221,22 +221,25 @@ async def chat_endpoint(request: ChatRequest):
         if stream:
             async def generate_agent():
                 print(f"[Agent模式] 开始运行: {agent_mode}")
+                full_result = ""
                 try:
-                    loop = asyncio.get_event_loop()
                     print(f"[Agent模式] 执行 agent.run...")
-                    result = await loop.run_in_executor(None, agent.run, content)
-                    if result:
-                        print(f"[Agent模式] 得到结果: {result[:50]}...")
-                        yield result
-                        mem.append({"role": "assistant", "content": result})
+                    async for chunk in agent.run(content):
+                        if chunk:
+                            full_result += chunk
+                            yield chunk
+
+                    if full_result:
+                        print(f"[Agent模式] 任务完成，结果长度: {len(full_result)}")
+                        mem.append({"role": "assistant", "content": full_result})
                     else:
                         print("[Agent模式] 未生成结果")
-                        yield "Agent failed to produce a result."
+                        yield "\nAgent未能生成有效结果。\n"
                         mem.append({"role": "assistant", "content": "Agent failed to produce a result."})
                     save_sessions()
                 except Exception as e:
                     print(f"[Agent模式] 异常: {e}")
-                    yield f"Error: {e}"
+                    yield f"\n[Agent 错误]: {e}\n"
 
             return StreamingResponse(
                 generate_agent(),
@@ -249,10 +252,10 @@ async def chat_endpoint(request: ChatRequest):
             )
         else:
             try:
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(None, agent.run, content)
-                if not result:
-                    result = "Agent failed to produce a result."
+                full_result = ""
+                async for chunk in agent.run(content):
+                    full_result += chunk
+                result = full_result if full_result else "Agent failed to produce a result."
             except Exception as e:
                 result = f"Error: {e}"
             mem.append({"role": "assistant", "content": result})
@@ -298,6 +301,9 @@ async def chat_endpoint(request: ChatRequest):
 
                     if is_tool_call:
                         print(f"[默认模式] 工具调用: {len(tool_calls)} 个请求")
+                        # 提示用户正在调用工具
+                        yield "\n\n> ⚙️ **正在调用工具处理中...**\n\n"
+
                         # 保存助手发出的工具调用请求
                         assistant_msg = {
                             "role": "assistant",
@@ -316,6 +322,7 @@ async def chat_endpoint(request: ChatRequest):
                             except:
                                 args = {}
                             print(f"  - 执行: {func_name}, 参数: {args}")
+                            yield f"> 🛠️ 执行: `{func_name}`\n"
                             result = use_tools(func_name, args)
                             current_mem.append({
                                 "role": "tool",
@@ -324,6 +331,7 @@ async def chat_endpoint(request: ChatRequest):
                                 "content": str(result)
                             })
                         save_sessions()
+                        yield "\n> ✅ **工具执行完毕，正在生成最终回复...**\n\n"
                         # 继续循环，让模型根据工具结果生成回复
                         continue
                     else:
@@ -533,7 +541,6 @@ if __name__ == '__main__':
         if shutil.which(npm_cmd):
             try:
                 is_win = sys.platform == "win32"
-                # 强制 Vite 使用 3000 端口（AI Studio 的外部访问端口）
                 frontend_process = subprocess.Popen([npm_cmd, "run", "dev:frontend"], shell=is_win)
 
 
@@ -549,7 +556,7 @@ if __name__ == '__main__':
                 print(f"前端启动失败: {e}")
     else:
         print("\n检测到生产环境 (dist)，将由 FastAPI 提供全栈服务。")
-        # 生产模式下：后端直接监听 AI Studio 提供的端口 (3000)
+        # 生产模式下：
         backend_port = env_port
 
     print(f"\n后端服务启动中，监听 {backend_port} 端口...")
