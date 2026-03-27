@@ -17,23 +17,7 @@ import shutil
 
 from function_calling import call, memory as system_memory
 from agents import ReActAgent, PlanAndSolveAgent
-
-
-def use_tools(function_name, arguments):
-    """
-    处理模型发来的工具请求。
-    目前包含模拟的法律数据库查询工具。
-    """
-    if function_name == "query_legal_db":
-        # 模拟接口数据
-        mock_result = {
-            "source": "《中华人民共和国刑法》",
-            "article": "第二百六十四条",
-            "content": "盗窃公私财物，数额较大的，或者多次盗窃、入户盗窃、携带凶器盗窃、扒窃的，处三年以下有期徒刑、拘役或者管制..."
-        }
-        return json.dumps(mock_result, ensure_ascii=False)
-    return f"工具 '{function_name}' 不存在，请重新检查。"
-
+from mcps import use_tools
 
 from contextlib import asynccontextmanager
 
@@ -302,7 +286,7 @@ async def chat_endpoint(request: ChatRequest):
                     if is_tool_call:
                         print(f"[默认模式] 工具调用: {len(tool_calls)} 个请求")
                         # 提示用户正在调用工具
-                        yield "\n\n> ⚙️ **正在调用工具处理中...**\n\n"
+                        yield "\n<think>\n⚙️ **正在调用工具处理中...**\n"
 
                         # 保存助手发出的工具调用请求
                         assistant_msg = {
@@ -322,7 +306,7 @@ async def chat_endpoint(request: ChatRequest):
                             except:
                                 args = {}
                             print(f"  - 执行: {func_name}, 参数: {args}")
-                            yield f"> 🛠️ 执行: `{func_name}`\n"
+                            yield f"🛠️ 执行: `{func_name}`\n"
                             result = use_tools(func_name, args)
                             current_mem.append({
                                 "role": "tool",
@@ -331,7 +315,7 @@ async def chat_endpoint(request: ChatRequest):
                                 "content": str(result)
                             })
                         save_sessions()
-                        yield "\n> ✅ **工具执行完毕，正在生成最终回复...**\n\n"
+                        yield "✅ **工具执行完毕，正在生成最终回复...**\n</think>\n"
                         # 继续循环，让模型根据工具结果生成回复
                         continue
                     else:

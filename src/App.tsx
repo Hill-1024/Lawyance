@@ -470,15 +470,54 @@ export default function App() {
               <div className={`px-5 py-3.5 text-[15px] leading-relaxed shadow-sm ${
                 msg.role === 'user'
                   ? 'text-white rounded-3xl rounded-tr-sm'
-                  : 'bg-gray-50 border border-gray-100 text-gray-900 rounded-3xl rounded-tl-sm'
+                  : 'bg-white border border-gray-100 text-gray-900 rounded-3xl rounded-tl-sm'
               }`}
               style={msg.role === 'user' ? { backgroundColor: themeColor } : {}}
               >
                 {msg.role === 'user' ? (
                   <p className="whitespace-pre-wrap">{msg.content}</p>
                 ) : (
-                  <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-headings:text-gray-900 prose-headings:font-medium prose-strong:text-gray-900 prose-strong:font-medium prose-a:text-blue-600 prose-code:text-gray-800 prose-code:bg-gray-200 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-100 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200">
-                    <Markdown>{msg.content}</Markdown>
+                  <div className="flex flex-col gap-3">
+                    {(() => {
+                      const thinks: string[] = [];
+                      let mainContent = msg.content;
+
+                      mainContent = mainContent.replace(/<think>([\s\S]*?)<\/think>/g, (match, p1) => {
+                        thinks.push(p1);
+                        return '';
+                      });
+
+                      const unclosedMatch = mainContent.match(/<think>([\s\S]*)$/);
+                      if (unclosedMatch) {
+                        thinks.push(unclosedMatch[1]);
+                        mainContent = mainContent.replace(/<think>([\s\S]*)$/, '');
+                      }
+
+                      return (
+                        <>
+                          {thinks.length > 0 && (
+                            <details className="group border border-gray-200 rounded-xl bg-gray-50 overflow-hidden">
+                              <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors list-none [&::-webkit-details-marker]:hidden select-none">
+                                <ChevronDown size={16} className="transform group-open:-rotate-180 transition-transform duration-200" />
+                                思考过程
+                              </summary>
+                              <div className="px-4 py-3 text-sm text-gray-600 border-t border-gray-200 bg-white whitespace-pre-wrap prose prose-sm max-w-none prose-p:leading-relaxed prose-a:text-blue-600 prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">
+                                {thinks.map((think, i) => (
+                                  <div key={i} className={i > 0 ? "mt-4 pt-4 border-t border-gray-100" : ""}>
+                                    <Markdown>{think}</Markdown>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          )}
+                          {mainContent.trim() && (
+                            <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-headings:text-gray-900 prose-headings:font-medium prose-strong:text-gray-900 prose-strong:font-medium prose-a:text-blue-600 prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-50 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200">
+                              <Markdown>{mainContent}</Markdown>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
