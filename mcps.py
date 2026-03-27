@@ -1,5 +1,7 @@
+import json
 from deli_client import match_legal_case, match_legal
-
+from pkulaw_client import get_article, search_article
+import os
 tools = [
     {
         "type": "function",
@@ -44,15 +46,58 @@ tools = [
                 "required": ["keywords"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_article",
+            "description": "查询法律知识库。当需要根据法律名称和条号，精确获取指定法条的完整内容时，必须调用此工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "具体的法律名称，应提取自用户查询的核心意图"
+                    },
+                    "number":{
+                        "type": "string",
+                        "description": "具体的法条号，应提取自用户查询的核心意图，形式如['第九条','第十七条']"
+                    }
+                },
+                "required": ["title","number"]
+            }
+        }
+
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_article",
+            "description": "查询法律知识库。当需要通过自然语言描述，语义检索相关的法律条文时，必须调用此工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "语义检索关键词或自然语言描述，应提取自用户查询的核心意图"
+                    },
+                },
+                "required": ["query"]
+            }
+        }
+
     }
 ]
-
 #在此处处理agent发来的工具请求
 def use_tools(function_name,arguments):
     if function_name == "match_legal":
         return match_legal(arguments.get("keywords"))
     if function_name == "match_legal_case":
         return match_legal_case(arguments.get("keywords"),arguments.get("start_year"),arguments.get("end_year"))
+    if function_name == "get_article":
+        return get_article(arguments.get("title","number"))
+    if function_name == "search_article":
+        return search_article(arguments.get("query"))
     return function_name+"工具不存在,请重新检查"
 if __name__ == "__main__":
     # match_legal(["深圳市房地产相关的法律规定有哪些？"])
