@@ -5,3 +5,4 @@ openai
 python-dotenv
 websockets
 google-search-results
+requests
