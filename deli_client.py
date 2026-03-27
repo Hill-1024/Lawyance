@@ -5,11 +5,17 @@ from dotenv import load_dotenv
 
 load_dotenv(".env")
 # 1. 准备您的认证信息（请替换为实际值）
-DELI_APPID = os.getenv("DELI_APPID") # 示例ID，请使用您自己的
+DELI_APPID = os.getenv("DELI_APPID")  # 示例ID，请使用您自己的
 DELI_SECRET = os.getenv("DELI_SECRET")  # 示例Secret，请使用您自己的
+# 异常检测
+if not DELI_APPID:
+    raise ValueError("DELI_APPID is not set in the environment variables.")
+if not DELI_SECRET:
+    raise ValueError("DELI_SECRET is not set in the environment variables.")
+
 
 class DELIClient:
-    def __init__(self, appid = DELI_APPID, secret = DELI_SECRET):
+    def __init__(self, appid=DELI_APPID, secret=DELI_SECRET):
         self.appid = appid
         self.secret = secret
         self.session = requests.Session()
@@ -67,6 +73,7 @@ class DELIClient:
             request_body["condition"].update(extra_conditions)
 
         return request_body
+
     def _send_request(self, api_url, request_body):
         """
         将POST请求发送给服务端
@@ -90,13 +97,86 @@ class DELIClient:
         except json.JSONDecodeError as e:
             print(f"响应JSON解析错误: {e}")
 
-if __name__ == "__main__":
-    DELIClient = DELIClient(
-        appid = DELI_APPID,
-        secret = DELI_SECRET
+
+Client = DELIClient(
+    appid=DELI_APPID,
+    secret=DELI_SECRET
+)
+
+
+def match_legal(
+        keywords: list[str],
+
+):
+    """根据查询语义，精准查询对应法规"""
+    print("正在调用match_legal\n")
+
+    request_body = Client._build_request_body(
+        keywords=keywords,  # 搜索关键词数组
+        page_no=1,  # 查询第一页
+        page_size=5,  # 每页5条结果
+        sort_field="correlation",  # 按相关度排序
+        sort_order="desc",  # 降序排列（相关性高的在前）
+        # longText="在上下班途中发生非本人主要责任的交通事故是否属于工伤",  # 长文本语义查询
+        # caseYearStart=2020,  # 案例起始年份：2020年
+        # courtLevelArr=["中级", "高级"]  # 法院层级：中级和高级法院
     )
+    # 向法规查询的url发送请求
+    result_data = Client._send_request(
+        "https://openapi.delilegal.com/api/qa/v3/search/queryListLaw",
+        request_body
+    )
+    # print(json.dumps(result_data, indent=2, ensure_ascii=False))
+
+    # 下方是测试用模拟接口数据
+    mock_result = {
+        "source": result_data["body"]["data"][0]["title"],
+        # "article": "第二百六十四条",
+        # "content": "盗窃公私财物，数额较大的，或者多次盗窃、入户盗窃、携带凶器盗窃、扒窃的，处三年以下有期徒刑、拘役或者管制..."
+    }
+    print(json.dumps(mock_result, indent=2, ensure_ascii=False))
+    return json.dumps(mock_result, ensure_ascii=False)
+
+
+def match_legal_case(
+        keywords: list[str],
+        start_year: str = "2020-12-22",
+        end_year: str = "2025-12-22",
+):
+    """根据查询语义和时间，精准查询相关的案例"""
+    print("正在调用match_legal_case\n")
+    request_body = Client._build_request_body(
+        keywords=keywords,  # 搜索关键词数组
+        caseYearStart=start_year,
+        caseYearEnd=end_year,
+        page_no=1,  # 查询第一页
+        page_size=5,  # 每页5条结果
+        sort_field="correlation",  # 按相关度排序
+        sort_order="desc",  # 降序排列（相关性高的在前）
+        # longText="在上下班途中发生非本人主要责任的交通事故是否属于工伤",  # 长文本语义查询
+        # caseYearStart=2020,  # 案例起始年份：2020年
+        # courtLevelArr=["中级", "高级"]  # 法院层级：中级和高级法院
+    )
+    # 向法规查询的url发送请求
+    result_data = Client._send_request(
+        "https://openapi.delilegal.com/api/qa/v3/search/queryListCase",
+        request_body
+    )
+    # print(json.dumps(result_data, indent=2, ensure_ascii=False))
+
+    # 下方是测试用模拟接口数据
+    mock_result = {
+        "source": result_data["body"]["data"][0]["title"],
+        "judgementDate": result_data["body"]["data"][0]["judgementDate"],
+        "content": result_data["body"]["data"][0]["content"],
+    }
+    print(json.dumps(mock_result, indent=2, ensure_ascii=False))
+    return json.dumps(mock_result, ensure_ascii=False)
+
+
+if __name__ == "__main__":
     # 请求体构建测试
-    request_body = DELIClient._build_request_body(
+    request_body = Client._build_request_body(
         keywords=["工伤保险"],  # 搜索关键词数组
         page_no=1,  # 查询第一页
         page_size=5,  # 每页5条结果
@@ -106,11 +186,11 @@ if __name__ == "__main__":
         # caseYearStart=2020,  # 案例起始年份：2020年
         # courtLevelArr=["中级", "高级"]  # 法院层级：中级和高级法院
     )
-    import json
+
     print(json.dumps(request_body, indent=2, ensure_ascii=False))
     # 请求包发送测试
-    result_data = DELIClient._send_request(
-        "https://openapi.delilegal.com/api/qa/v3/search/queryListCase",
-        request_body
+    result_data = Client._send_request(
+        api_url="https://openapi.delilegal.com/api/qa/v3/search/queryListCase",
+        request_body=request_body
     )
     print(json.dumps(result_data, indent=2, ensure_ascii=False))  # 美化打印JSON
