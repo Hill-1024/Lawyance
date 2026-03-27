@@ -67,6 +67,8 @@ class ReActAgent:
         self.history = []
         current_step = 0
 
+        yield "<think>\n"
+
         while current_step < self.max_steps:
             current_step += 1
             yield f"\n\n--- 第 {current_step} 步推理 ---\n\n"
@@ -100,8 +102,8 @@ class ReActAgent:
             if action.startswith("Finish"):
                 # 提取最终答案
                 final_answer = self._parse_action_input(action)
-                # 注意：这里不需要 yield final_answer，因为在上面的循环中已经 yield 过了内容
-                # 但为了逻辑清晰，我们可以返回它作为最终结果的标志
+                yield "\n</think>\n\n"
+                yield f"{final_answer}"
                 return
 
             tool_name, tool_input = self._parse_action(action)
@@ -121,7 +123,7 @@ class ReActAgent:
             self.history.append(f"Action: {action}")
             self.history.append(f"Observation: {observation}")
 
-        yield "\n已达到最大步数，流程终止。\n"
+        yield "\n已达到最大步数，流程终止。\n</think>\n"
 
     def _parse_output(self, text: str):
         # Thought: 匹配到 Action: 或文本末尾

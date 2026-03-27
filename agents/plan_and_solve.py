@@ -141,10 +141,10 @@ EXECUTOR_PROMPT_TEMPLATE = """
 
 class Executor:
     def __init__(self):
-        pass
+        self.history = ""
 
     async def execute(self, question: str, plan: list[str], memory: list = None):
-        history = ""
+        self.history = ""
 
         yield "\n\n🚀 **开始执行计划...**\n"
 
@@ -152,7 +152,7 @@ class Executor:
             yield f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"
 
             prompt = EXECUTOR_PROMPT_TEMPLATE.format(
-                question=question, plan=plan, history=history if history else "无", current_step=step
+                question=question, plan=plan, history=self.history if self.history else "无", current_step=step
             )
             messages = (memory or []) + [{"role": "user", "content": prompt}]
 
@@ -164,7 +164,7 @@ class Executor:
                     step_result += content
                     yield content
 
-            history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
+            self.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
         yield "\n\n✅ **任务执行完毕。**\n"
 
@@ -176,18 +176,29 @@ class PlanAndSolveAgent:
         self.memory = memory or []
 
     async def run(self, question: str):
+        yield "<think>\n"
         # 1. 制定计划
         async for chunk in self.planner.plan(question, memory=self.memory):
             yield chunk
 
         plan = getattr(self.planner, "current_plan", [])
         if not plan:
-            yield "\n\n❌ 无法生成有效的行动计划。\n"
+            yield "\n\n❌ 无法生成有效的行动计划。\n</think>\n"
             return
 
         # 2. 执行计划
         async for chunk in self.executor.execute(question, plan, memory=self.memory):
             yield chunk
+
+        yield "</think>\n\n"
+
+        # 3. 最终总结
+        summary_prompt = f"请根据以下执行过程，给出最终的详细回答：\n\n问题：{question}\n\n执行过程：\n{self.executor.history}"
+        messages = (self.memory or []) + [{"role": "user", "content": summary_prompt}]
+        response_stream = await call(context=messages, stream=True)
+        async for chunk in response_stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
 
 # --- 5. 主函数入口 ---
 if __name__ == '__main__':
