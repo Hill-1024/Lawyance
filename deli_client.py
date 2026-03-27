@@ -8,6 +8,12 @@ load_dotenv(".env")
 DELI_APPID = os.getenv("DELI_APPID") # 示例ID，请使用您自己的
 DELI_SECRET = os.getenv("DELI_SECRET")  # 示例Secret，请使用您自己的
 
+# 异常检测
+if not DELI_APPID:
+    raise ValueError("DELI_APPID is not set in the environment variables.")
+if not DELI_SECRET:
+    raise ValueError("DELI_SECRET is not set in the environment variables.")
+
 class DELIClient:
     def __init__(self, appid = DELI_APPID, secret = DELI_SECRET):
         self.appid = appid
@@ -89,6 +95,13 @@ class DELIClient:
             print(f"请求发生错误: {e}")
         except json.JSONDecodeError as e:
             print(f"响应JSON解析错误: {e}")
+
+def build_client():
+    Client = DELIClient(
+        appid=DELI_APPID,
+        secret=DELI_SECRET
+    )
+    return Client
 
 if __name__ == "__main__":
     DELIClient = DELIClient(
