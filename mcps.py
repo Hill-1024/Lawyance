@@ -1,5 +1,6 @@
-from deli_client import match_legal, match_legal_case
-
+import json
+from deli_client import match_legal_case, match_legal
+import os
 tools = [
     {
         "type": "function",
@@ -12,7 +13,7 @@ tools = [
                     "keywords": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "用于法律检索的关键语句列表，应提取自用户查询的核心意图，且关键语句数量应小于三个!!!"
+                        "description": "用于法律检索的关键语句列表，应提取自用户查询的核心意图，且关键语句数量应小于三个"
                     }
                 },
                 "required": ["keywords"]
@@ -30,7 +31,7 @@ tools = [
                     "keywords": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "用于案例检索的关键语句列表，应提取自用户查询的核心意图，如['案件类型'、'争议焦点']，关键语句数量应小于三个!!!"
+                        "description": "用于案例检索的关键语句列表，应提取自用户查询的核心意图，如['案件类型'、'争议焦点']，关键语句数量应小于三个"
                     },
                     "start_year": {
                       "type": "string",
@@ -46,13 +47,12 @@ tools = [
         }
     }
 ]
-
 #在此处处理agent发来的工具请求
 def use_tools(function_name,arguments):
     if function_name == "match_legal":
         return match_legal(arguments.get("keywords"))
     if function_name == "match_legal_case":
-        return match_legal_case(arguments.get("keywords"))
+        return match_legal_case(arguments.get("keywords"),arguments.get("start_year"),arguments.get("end_year"))
     return function_name+"工具不存在,请重新检查"
 if __name__ == "__main__":
     # match_legal(["深圳市房地产相关的法律规定有哪些？"])
