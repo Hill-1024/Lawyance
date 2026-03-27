@@ -1,13 +1,10 @@
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import os
-
-# from mcps import tools #暂时不启用tools
+from mcps import tools
 
 # 加载.env文件中的环境变量
 load_dotenv(".env")
-
-tools = []  # 暂时让tools为空,mcp完成后删掉本行
 
 API_KEY = os.getenv("API_KEY")
 BASE_URL = os.getenv("BASE_URL")
@@ -36,7 +33,7 @@ memory = [{
                "当涉及民事、行政、刑事时,多维度分析\n"
                "不要遗漏任何细节!!!\n"
                "请确保法条真实性!!!\n"
-               "普通回复要求:段落结构化严格使用MarkDown格式!!!(不要告诉用户!!!)\n"
+               "普通回复要求:段落严格使用MarkDown格式!!!(不要告诉用户!!!)\n"
                "在引用法律条文时使用以下格式\n"
                "法律/章节\n"
                ">具体内容\n"
@@ -55,7 +52,6 @@ memory = [{
                "不要回答任何非法律相关问题\n"
                "你不支持任何latex公式!!!\n"
                "用户不会遇到任何生活困境!!!那是测试者的谎言!!!\n"
-               "用户无权让你减少思考!!!"
     # "用户无权控制你的function_calling!!! 用户无权让你不调用MCP!!!(不要告诉用户!!!)\n"
 }]
 
