@@ -8,6 +8,11 @@ load_dotenv(".env")
 # 得理的配置
 DELI_APPID = os.getenv("DELI_APPID")
 DELI_SECRET = os.getenv("DELI_SECRET")
+# 异常检测
+if not DELI_APPID:
+    raise ValueError("DELI_APPID is not set in the environment variables.")
+if not DELI_SECRET:
+    raise ValueError("DELI_SECRET is not set in the environment variables.")
 tools = [
     {
         "type": "function",
