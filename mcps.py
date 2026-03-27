@@ -1,6 +1,5 @@
-import json
 from deli_client import match_legal_case, match_legal
-import os
+
 tools = [
     {
         "type": "function",
@@ -47,6 +46,7 @@ tools = [
         }
     }
 ]
+
 #在此处处理agent发来的工具请求
 def use_tools(function_name,arguments):
     if function_name == "match_legal":
