@@ -1,4 +1,4 @@
-from mcps.deli_client import match_legal_case, match_legal
+from deli_client import match_legal_case, match_legal
 
 tools = [
     {
