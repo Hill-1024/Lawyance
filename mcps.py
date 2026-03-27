@@ -1,7 +1,6 @@
-import json
-from deli_client import match_legal_case, match_legal
-from pkulaw_client import get_article, search_article
-import os
+from mcps.deli_client import match_legal_case, match_legal
+from mcps.pkulaw_client import get_article, search_article
+
 tools = [
     {
         "type": "function",
