@@ -94,7 +94,7 @@ def use_tools(function_name,arguments):
     if function_name == "match_legal_case":
         return match_legal_case(arguments.get("keywords"),arguments.get("start_year"),arguments.get("end_year"))
     if function_name == "get_article":
-        return get_article(arguments.get("title","number"))
+        return get_article(arguments.get("title"),arguments.get("number"))
     if function_name == "search_article":
         return search_article(arguments.get("query"))
     return function_name+"工具不存在,请重新检查"
