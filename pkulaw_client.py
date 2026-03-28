@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-load_dotenv("../.env")
+load_dotenv(".env")
 
 PKU_ACCESS_TOKEN = os.getenv("PKU_ACCESS_TOKEN")
 # 异常检测

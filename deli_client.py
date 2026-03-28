@@ -3,7 +3,7 @@ import json
 import os
 from dotenv import load_dotenv
 
-load_dotenv("../.env")
+load_dotenv(".env")
 # 1. 准备您的认证信息（请替换为实际值）
 DELI_APPID = os.getenv("DELI_APPID") # 示例ID，请使用您自己的
 DELI_SECRET = os.getenv("DELI_SECRET")  # 示例Secret，请使用您自己的
