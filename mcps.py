@@ -1,5 +1,5 @@
-from deli_client import match_legal_case, match_legal
-from pkulaw_client import get_article, search_article
+from mcps.deli_client import match_legal_case, match_legal
+from mcps.pkulaw_client import get_article, search_article
 
 tools = [
     {
@@ -100,4 +100,5 @@ def use_tools(function_name,arguments):
     return function_name+"工具不存在,请重新检查"
 if __name__ == "__main__":
     # match_legal(["深圳市房地产相关的法律规定有哪些？"])
-    match_legal_case(["上班途中车祸工伤案例"], "2020-08-05","2025-08-05")
+    # match_legal_case(["上班途中车祸工伤案例"], "2020-08-05","2025-08-05")
+    get_article("民法典", "第七条")
