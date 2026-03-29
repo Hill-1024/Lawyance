@@ -206,7 +206,7 @@ def get_article(title:str, number:str):
         "title": title,
         "number": number
     })
-    # print(f"法条内容: {json.dumps(article_result, ensure_ascii=False)}")
+    print(f"法条内容: {json.dumps(article_result, ensure_ascii=False)}")
     return json.dumps(article_result, ensure_ascii=False)
 def search_article(text:str):
     """根据语义检索相关的法律条文，适用于不确定具体法条、需要查找相关规定的场景"""
