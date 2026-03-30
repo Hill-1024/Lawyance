@@ -14,7 +14,8 @@ tools = [
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "用于法律检索的关键语句列表，应提取自用户查询的核心意图，且关键语句数量应小于三个"
-                    }
+                    },
+
                 },
                 "required": ["keywords"]
             }
@@ -99,6 +100,7 @@ def use_tools(function_name,arguments):
         return search_article(arguments.get("query"))
     return function_name+"工具不存在,请重新检查"
 if __name__ == "__main__":
-    # match_legal(["深圳市房地产相关的法律规定有哪些？"])
+    match_legal(["深圳市房地产相关的法律规定有哪些？"])
     # match_legal_case(["上班途中车祸工伤案例"], "2020-08-05","2025-08-05")
-    get_article("民法典", "第七条")
+    # get_article("民法典", "第七条")
+    # match_legal(["啊我死了"])

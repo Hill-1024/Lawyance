@@ -104,15 +104,15 @@ def build_client():
     return Client
 def match_legal(
         keywords: list[str],
-
+        page_no: int = 1,
 ):
     """根据查询语义，精准查询对应法规"""
     print("正在调用tool:match_legal\n")
     client = build_client()
     request_body = client._build_request_body(
         keywords=keywords,  # 搜索关键词数组
-        page_no=1,  # 查询第一页
-        page_size=5,  # 每页5条结果
+        page_no=page_no,  # 查询对应页码
+        page_size=8,  # 每页8条结果
         sort_field="correlation",  # 按相关度排序
         sort_order="desc",  # 降序排列（相关性高的在前）
     )
@@ -121,21 +121,44 @@ def match_legal(
         "https://openapi.delilegal.com/api/qa/v3/search/queryListLaw",
         request_body
     )
-    print(json.dumps(result_data, indent=2, ensure_ascii=False))
+    # print(json.dumps(result_data, indent=2, ensure_ascii=False))
 
     # 下方是返回的数据
     # 还没有过滤掉法律失效的情况，暂时取第一个检索结果
     if not result_data.get("body") or not result_data["body"].get("data") or len(result_data["body"]["data"]) == 0:
         return json.dumps({"error": "未找到相关法律法规，请尝试更换关键词。"}, ensure_ascii=False)
 
+    result = []
+    for i in range(8):
+        if result_data["body"]["data"][i]["timelinessName"] == "失效":
+            continue
+        if result_data["body"]["data"][i]["timelinessName"] == "已被修改":
+            continue
+        search_result = {
+            "source": result_data["body"]["data"][i].get("title", "未知标题"),
+            "publishDate": result_data["body"]["data"][i].get("publishDate", "未知日期"),
+            "timelinessName": result_data["body"]["data"][i].get("timelinessName", "未知状态"),
+            "levelName": result_data["body"]["data"][i].get("levelName", "未知层级"),
+        }
+        result.append(search_result)
+    # 检查是否为空
+    if not result:
+        # print("查询结果为空，请检查您的关键词")
+        mock_result = {
+            "success": False,
+            "message": "未找到有效法律",
+            "query": keywords,
+        }
+        print(json.dumps(mock_result, indent=2, ensure_ascii=False))
+        return mock_result
     mock_result = {
-        "source": result_data["body"]["data"][0].get("title", "未知标题"),
-        "publishDate": result_data["body"]["data"][0].get("publishDate", "未知日期"),
-        "timelinessName": result_data["body"]["data"][0].get("timelinessName", "未知状态"),
-        "levelName": result_data["body"]["data"][0].get("levelName", "未知层级"),
+        "success": True,
+        "data": result,
+        "query": keywords,
+        # "totalCount": result_data["body"]["totalCount"],
     }
     # print("检索结果")
-    # print(json.dumps(mock_result, indent=2, ensure_ascii=False))
+    print(json.dumps(mock_result, indent=2, ensure_ascii=False))
     return json.dumps(mock_result, ensure_ascii=False)
 def match_legal_case(
         keywords: list[str],
