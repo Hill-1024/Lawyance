@@ -513,11 +513,7 @@ export default function App() {
 
               while (i < content.length) {
                 if (content.startsWith("<think>", i)) {
-                  if (!hasFoundFirstThink) {
-                    hasFoundFirstThink = true;
-                    // Discard any fluff before the first think tag
-                    mainContent = "";
-                  }
+                  hasFoundFirstThink = true;
                   thinkDepth++;
                   i += 7;
                   if (thinkDepth === 1) {
@@ -538,16 +534,16 @@ export default function App() {
                   if (thinkDepth > 0) {
                     currentThink += content[i];
                   } else {
-                    // Only add to mainContent if we've already seen at least one think block
-                    // OR if there's no think block at all (to handle models that don't support it)
-                    mainContent += content[i];
+                    // Collect content outside of think tags.
+                    // We trim leading whitespace only if mainContent is empty.
+                    if (mainContent.length > 0 || !content[i].match(/\s/)) {
+                      mainContent += content[i];
+                    }
                   }
                   i++;
                 }
               }
 
-              // If we found a think tag, we should have cleared the fluff.
-              // If we didn't find any think tag, mainContent will contain the whole message.
               mainContent = mainContent.trim();
 
               if (thinkDepth > 0) {
