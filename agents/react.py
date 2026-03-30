@@ -84,10 +84,15 @@ class ReActAgent:
 
             full_response_text = ""
             async for chunk in response_stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    full_response_text += content
-                    yield content  # 实时回传 Thought 和 Action 文本
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    reasoning = getattr(delta, 'reasoning_content', None)
+                    if reasoning:
+                        full_response_text += reasoning
+                        yield reasoning
+                    if delta.content:
+                        full_response_text += delta.content
+                        yield delta.content
 
             if not full_response_text:
                 yield "\n错误：LLM未能返回有效响应。\n"
@@ -113,12 +118,12 @@ class ReActAgent:
                 yield f"\n{obs_err}\n"
                 continue
 
-            yield f"\n\n **行动**: `{tool_name}[{tool_input}]`"
+            yield f"\n\n🎬 **行动**: `{tool_name}[{tool_input}]`"
 
             tool_function = self.tool_executor.getTool(tool_name)
             observation = tool_function(tool_input) if tool_function else f"错误：未找到名为 '{tool_name}' 的工具。"
 
-            yield f"\n\n **观察**: {observation}\n"
+            yield f"\n\n👀 **观察**: {observation}\n"
 
             self.history.append(f"Action: {action}")
             self.history.append(f"Observation: {observation}")
