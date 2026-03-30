@@ -1,5 +1,5 @@
-from mcps.deli_client import match_legal_case, match_legal
-from mcps.pkulaw_client import get_article, search_article
+from mcp.deli_client import match_legal_case, match_legal
+from mcp.pkulaw_client import get_article, search_article
 
 tools = [
     {

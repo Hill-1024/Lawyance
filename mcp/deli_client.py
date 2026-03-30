@@ -125,11 +125,14 @@ def match_legal(
 
     # 下方是返回的数据
     # 还没有过滤掉法律失效的情况，暂时取第一个检索结果
+    if not result_data.get("body") or not result_data["body"].get("data") or len(result_data["body"]["data"]) == 0:
+        return json.dumps({"error": "未找到相关法律法规，请尝试更换关键词。"}, ensure_ascii=False)
+
     mock_result = {
-        "source": result_data["body"]["data"][0]["title"],
-        "publishDate": result_data["body"]["data"][0]["publishDate"],
-        "timelinessName": result_data["body"]["data"][0]["timelinessName"],
-        "levelName": result_data["body"]["data"][0]["levelName"],
+        "source": result_data["body"]["data"][0].get("title", "未知标题"),
+        "publishDate": result_data["body"]["data"][0].get("publishDate", "未知日期"),
+        "timelinessName": result_data["body"]["data"][0].get("timelinessName", "未知状态"),
+        "levelName": result_data["body"]["data"][0].get("levelName", "未知层级"),
     }
     # print("检索结果")
     # print(json.dumps(mock_result, indent=2, ensure_ascii=False))
@@ -160,10 +163,13 @@ def match_legal_case(
 
     # 下方是返回的数据
     # 没有筛选，暂时取第一个检索结果，后续增加返回案例数量
+    if not result_data.get("body") or not result_data["body"].get("data") or len(result_data["body"]["data"]) == 0:
+        return json.dumps({"error": "未找到相关案例，请尝试更换关键词或时间范围。"}, ensure_ascii=False)
+
     mock_result = {
-        "source": result_data["body"]["data"][0]["title"],
-        "judgementDate": result_data["body"]["data"][0]["judgementDate"],
-        "content": result_data["body"]["data"][0]["content"],
+        "source": result_data["body"]["data"][0].get("title", "未知标题"),
+        "judgementDate": result_data["body"]["data"][0].get("judgementDate", "未知日期"),
+        "content": result_data["body"]["data"][0].get("content", "无内容"),
     }
     # print("检索结果")
     # print(json.dumps(mock_result, indent=2, ensure_ascii=False))

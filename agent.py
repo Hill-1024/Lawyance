@@ -286,7 +286,7 @@ async def chat_endpoint(request: ChatRequest):
                     if is_tool_call:
                         print(f"[默认模式] 工具调用: {len(tool_calls)} 个请求")
                         # 提示用户正在调用工具
-                        yield "\n<think>\n⚙️ **正在调用工具处理中...**\n"
+                        yield "\n<think>\n️ **正在调用工具处理中...**\n"
 
                         # 保存助手发出的工具调用请求
                         assistant_msg = {
@@ -306,7 +306,7 @@ async def chat_endpoint(request: ChatRequest):
                             except:
                                 args = {}
                             print(f"  - 执行: {func_name}, 参数: {args}")
-                            yield f"🛠️ 执行: `{func_name}`\n"
+                            yield f"️ 执行: `{func_name}`\n"
                             result = use_tools(func_name, args)
                             current_mem.append({
                                 "role": "tool",
@@ -315,7 +315,7 @@ async def chat_endpoint(request: ChatRequest):
                                 "content": str(result)
                             })
                         save_sessions()
-                        yield "✅ **工具执行完毕，正在生成最终回复...**\n</think>\n"
+                        yield " **工具执行完毕，正在生成最终回复...**\n</think>\n"
                         # 继续循环，让模型根据工具结果生成回复
                         continue
                     else:

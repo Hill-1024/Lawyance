@@ -234,7 +234,12 @@ export default function App() {
                 messages.push({ id: `${id}-${msgIdCounter++}`, role: 'user', content: m.content || '' });
               } else if (m.role === 'assistant') {
                 if (m.content) {
-                  messages.push({ id: `${id}-${msgIdCounter++}`, role: 'agent', content: m.content });
+                  const lastMsg = messages[messages.length - 1];
+                  if (lastMsg && lastMsg.role === 'agent') {
+                    lastMsg.content += '\n' + m.content;
+                  } else {
+                    messages.push({ id: `${id}-${msgIdCounter++}`, role: 'agent', content: m.content });
+                  }
                 }
               }
             }
@@ -452,77 +457,110 @@ export default function App() {
       {/* Chat Area */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth" onClick={() => setIsColorPickerOpen(false)}>
         <div className="max-w-3xl mx-auto flex flex-col gap-6">
-          {messages.map((msg) => (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              key={msg.id}
-              className={`flex gap-3 max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'self-end flex-row-reverse' : 'self-start'}`}
-            >
-              {/* Agent Avatar */}
-              {msg.role === 'agent' && (
-                <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 shadow-sm text-white" style={{ backgroundColor: themeColor }}>
-                  <Sparkles size={16} />
-                </div>
-              )}
+          {messages.map((msg) => {
+            let thinks: string[] = [];
+            let mainContent = "";
 
-              {/* Message Bubble */}
-              <div className={`px-5 py-3.5 text-[15px] leading-relaxed shadow-sm ${
-                msg.role === 'user'
-                  ? 'text-white rounded-3xl rounded-tr-sm'
-                  : 'bg-white border border-gray-100 text-gray-900 rounded-3xl rounded-tl-sm'
-              }`}
-              style={msg.role === 'user' ? { backgroundColor: themeColor } : {}}
+            if (msg.role === 'agent') {
+              let thinkDepth = 0;
+              let currentThink = "";
+              let i = 0;
+              const content = msg.content || "";
+
+              while (i < content.length) {
+                if (content.startsWith("<think>", i)) {
+                  thinkDepth++;
+                  i += 7;
+                  if (thinkDepth === 1) {
+                    currentThink = "";
+                  }
+                } else if (content.startsWith("</think>", i)) {
+                  if (thinkDepth > 0) {
+                    thinkDepth--;
+                    i += 8;
+                    if (thinkDepth === 0) {
+                      thinks.push(currentThink);
+                      currentThink = "";
+                    }
+                  } else {
+                    i += 8; // Ignore stray </think>
+                  }
+                } else {
+                  if (thinkDepth > 0) {
+                    currentThink += content[i];
+                  } else {
+                    mainContent += content[i];
+                  }
+                  i++;
+                }
+              }
+
+              if (thinkDepth > 0) {
+                thinks.push(currentThink);
+              }
+            } else {
+              mainContent = msg.content;
+            }
+
+            // Hide empty agent messages (e.g., tool calls with only whitespace content)
+            if (msg.role === 'agent' && thinks.length === 0 && mainContent.trim() === '') {
+              return null;
+            }
+
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                key={msg.id}
+                className={`flex gap-3 max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'self-end flex-row-reverse' : 'self-start'}`}
               >
-                {msg.role === 'user' ? (
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {(() => {
-                      const thinks: string[] = [];
-                      let mainContent = msg.content;
-
-                      mainContent = mainContent.replace(/<think>([\s\S]*?)<\/think>/g, (match, p1) => {
-                        thinks.push(p1);
-                        return '';
-                      });
-
-                      const unclosedMatch = mainContent.match(/<think>([\s\S]*)$/);
-                      if (unclosedMatch) {
-                        thinks.push(unclosedMatch[1]);
-                        mainContent = mainContent.replace(/<think>([\s\S]*)$/, '');
-                      }
-
-                      return (
-                        <>
-                          {thinks.length > 0 && (
-                            <details className="group border border-gray-200 rounded-xl bg-gray-50 overflow-hidden">
-                              <summary className="flex items-center gap-2 px-4 py-2.5 cursor-pointer text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors list-none [&::-webkit-details-marker]:hidden select-none">
-                                <ChevronDown size={16} className="transform group-open:-rotate-180 transition-transform duration-200" />
-                                思考过程
-                              </summary>
-                              <div className="px-4 py-3 text-sm text-gray-600 border-t border-gray-200 bg-white whitespace-pre-wrap prose prose-sm max-w-none prose-p:leading-relaxed prose-a:text-blue-600 prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">
-                                {thinks.map((think, i) => (
-                                  <div key={i} className={i > 0 ? "mt-4 pt-4 border-t border-gray-100" : ""}>
-                                    <Markdown>{think}</Markdown>
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
-                          )}
-                          {mainContent.trim() && (
-                            <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-headings:text-gray-900 prose-headings:font-medium prose-strong:text-gray-900 prose-strong:font-medium prose-a:text-blue-600 prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-50 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200">
-                              <Markdown>{mainContent}</Markdown>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                {/* Agent Avatar */}
+                {msg.role === 'agent' && (
+                  <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 shadow-sm text-white" style={{ backgroundColor: themeColor }}>
+                    <Sparkles size={16} />
                   </div>
                 )}
-              </div>
-            </motion.div>
-          ))}
+
+                <div className="flex flex-col gap-1.5 min-w-0 w-full">
+                  {/* Thinking Process */}
+                  {msg.role === 'agent' && thinks.length > 0 && (
+                    <details className="group mb-1">
+                      <summary className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors list-none [&::-webkit-details-marker]:hidden select-none w-fit">
+                        <ChevronDown size={14} className="transform group-open:-rotate-180 transition-transform duration-200" />
+                        思考过程
+                      </summary>
+                      <div className="mt-2 mb-2 px-4 py-3 text-sm text-gray-500 border-l-2 border-gray-200 bg-transparent whitespace-pre-wrap prose prose-sm max-w-none prose-p:leading-relaxed prose-a:text-blue-500 prose-code:text-gray-600 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">
+                        {thinks.map((think, i) => (
+                          <div key={i} className={i > 0 ? "mt-3 pt-3 border-t border-gray-100" : ""}>
+                            <Markdown>{think}</Markdown>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
+                  {/* Message Bubble */}
+                  {mainContent.trim() || msg.role === 'user' ? (
+                    <div className={`px-5 py-3.5 text-[15px] leading-relaxed shadow-sm w-fit ${
+                      msg.role === 'user'
+                        ? 'text-white rounded-3xl rounded-tr-sm'
+                        : 'bg-white border border-gray-100 text-gray-900 rounded-3xl rounded-tl-sm'
+                    }`}
+                    style={msg.role === 'user' ? { backgroundColor: themeColor } : {}}
+                    >
+                      {msg.role === 'user' ? (
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      ) : (
+                        <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-headings:text-gray-900 prose-headings:font-medium prose-strong:text-gray-900 prose-strong:font-medium prose-a:text-blue-600 prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-50 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200">
+                          <Markdown>{mainContent}</Markdown>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </motion.div>
+            );
+          })}
 
           {/* Loading Indicator */}
           {isLoading && (
