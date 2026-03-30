@@ -118,12 +118,12 @@ class ReActAgent:
                 yield f"\n{obs_err}\n"
                 continue
 
-            yield f"\n\n🎬 **行动**: `{tool_name}[{tool_input}]`"
+            yield f"\n\n **行动**: `{tool_name}[{tool_input}]`"
 
             tool_function = self.tool_executor.getTool(tool_name)
             observation = tool_function(tool_input) if tool_function else f"错误：未找到名为 '{tool_name}' 的工具。"
 
-            yield f"\n\n👀 **观察**: {observation}\n"
+            yield f"\n\n **观察**: {observation}\n"
 
             self.history.append(f"Action: {action}")
             self.history.append(f"Observation: {observation}")
