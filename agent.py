@@ -259,12 +259,35 @@ async def chat_endpoint(request: ChatRequest):
                     tool_calls = []
                     content_str = ""
                     is_tool_call = False
+                    has_started_reasoning = False
+                    has_finished_reasoning = False
 
                     async for chunk in response:
                         if not chunk.choices: continue
                         delta = chunk.choices[0].delta
 
+                        reasoning = getattr(delta, 'reasoning_content', None)
+                        if reasoning:
+                            if not has_started_reasoning:
+                                yield "<think>\n"
+                                content_str += "<think>\n"
+                                has_started_reasoning = True
+                            content_str += reasoning
+                            yield reasoning
+
+                        if delta.content is not None:
+                            if has_started_reasoning and not has_finished_reasoning:
+                                yield "\n</think>\n"
+                                content_str += "\n</think>\n"
+                                has_finished_reasoning = True
+                            content_str += delta.content
+                            yield delta.content
+
                         if delta.tool_calls:
+                            if has_started_reasoning and not has_finished_reasoning:
+                                yield "\n</think>\n"
+                                content_str += "\n</think>\n"
+                                has_finished_reasoning = True
                             is_tool_call = True
                             for tc in delta.tool_calls:
                                 while len(tool_calls) <= tc.index:
@@ -279,13 +302,17 @@ async def chat_endpoint(request: ChatRequest):
                                     tool_calls[tc.index]["function"]["name"] += tc.function.name
                                 if tc.function.arguments:
                                     tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
-                        elif delta.content is not None:
-                            content_str += delta.content
-                            yield delta.content
+
+                    if has_started_reasoning and not has_finished_reasoning:
+                        yield "\n</think>\n"
+                        content_str += "\n</think>\n"
+                        has_finished_reasoning = True
 
                     if is_tool_call:
                         print(f"[默认模式] 工具调用: {len(tool_calls)} 个请求")
                         # 提示用户正在调用工具
+                        if "<think>" in content_str and "</think>" not in content_str.split("<think>")[-1]:
+                            yield "\n</think>\n"
                         yield "\n<think>\n️ **正在调用工具处理中...**\n"
 
                         # 保存助手发出的工具调用请求
@@ -344,11 +371,16 @@ async def chat_endpoint(request: ChatRequest):
     else:
         res = await call(mem, stream=False)
 
+        content = res.content or ""
+        reasoning = getattr(res, 'reasoning_content', None)
+        if reasoning:
+            content = f"<think>\n{reasoning}\n</think>\n" + content
+
         if res.tool_calls:
             print("模型请求调用工具:", [t.function.name for t in res.tool_calls])
             mem.append({
                 "role": "assistant",
-                "content": res.content,
+                "content": content,
                 "tool_calls": [
                     {
                         "id": t.id,
@@ -375,15 +407,19 @@ async def chat_endpoint(request: ChatRequest):
             save_sessions()
 
             final_message = await call(mem, stream=False)
-            print("最终回复:", final_message.content)
-            mem.append({"role": "assistant", "content": final_message.content})
+            final_content = final_message.content or ""
+            final_reasoning = getattr(final_message, 'reasoning_content', None)
+            if final_reasoning:
+                final_content = f"<think>\n{final_reasoning}\n</think>\n" + final_content
+            print("最终回复:", final_content)
+            mem.append({"role": "assistant", "content": final_content})
             save_sessions()
-            return {"reply": final_message.content}
+            return {"reply": final_content}
         else:
-            print("模型回复:", res.content)
-            mem.append({"role": "assistant", "content": res.content})
+            print("模型回复:", content)
+            mem.append({"role": "assistant", "content": content})
             save_sessions()
-            return {"reply": res.content}
+            return {"reply": content}
 
 
 @app.get("/api/conversations")
@@ -409,7 +445,9 @@ async def summarize_endpoint(request: SummarizeRequest):
                      "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号或其他说明。"})
 
     response = await call(temp_mem, stream=False)
-    title = response.content.strip()
+    title = (response.content or "").strip()
+    if not title:
+        title = "New Chat"
     if title.startswith('"') and title.endswith('"'):
         title = title[1:-1]
     if title.startswith("'") and title.endswith("'"):

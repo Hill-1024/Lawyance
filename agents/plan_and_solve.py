@@ -97,15 +97,20 @@ class Planner:
         prompt = PLANNER_PROMPT_TEMPLATE.format(question=question)
         messages = (memory or []) + [{"role": "user", "content": prompt}]
 
-        yield "\n\n **正在制定计划...**\n\n"
+        yield "\n\n📝 **正在制定计划...**\n\n"
 
         response_stream = await call(context=messages, stream=True)
         full_plan_text = ""
         async for chunk in response_stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                content = chunk.choices[0].delta.content
-                full_plan_text += content
-                yield content
+            if chunk.choices:
+                delta = chunk.choices[0].delta
+                reasoning = getattr(delta, 'reasoning_content', None)
+                if reasoning:
+                    full_plan_text += reasoning
+                    yield reasoning
+                if delta.content:
+                    full_plan_text += delta.content
+                    yield delta.content
 
         # 解析计划
         try:
@@ -146,7 +151,7 @@ class Executor:
     async def execute(self, question: str, plan: list[str], memory: list = None):
         self.history = ""
 
-        yield "\n\n **开始执行计划...**\n"
+        yield "\n\n🚀 **开始执行计划...**\n"
 
         for i, step in enumerate(plan, 1):
             yield f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"
@@ -159,14 +164,19 @@ class Executor:
             response_stream = await call(context=messages, stream=True)
             step_result = ""
             async for chunk in response_stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    step_result += content
-                    yield content
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    reasoning = getattr(delta, 'reasoning_content', None)
+                    if reasoning:
+                        step_result += reasoning
+                        yield reasoning
+                    if delta.content:
+                        step_result += delta.content
+                        yield delta.content
 
             self.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
-        yield "\n\n **任务执行完毕。**\n"
+        yield "\n\n✅ **任务执行完毕。**\n"
 
 # --- 4. 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
@@ -196,9 +206,24 @@ class PlanAndSolveAgent:
         summary_prompt = f"请根据以下执行过程，给出最终的详细回答：\n\n问题：{question}\n\n执行过程：\n{self.executor.history}"
         messages = (self.memory or []) + [{"role": "user", "content": summary_prompt}]
         response_stream = await call(context=messages, stream=True)
+        has_started_reasoning = False
+        has_finished_reasoning = False
         async for chunk in response_stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            if chunk.choices:
+                delta = chunk.choices[0].delta
+                reasoning = getattr(delta, 'reasoning_content', None)
+                if reasoning:
+                    if not has_started_reasoning:
+                        yield "<think>\n"
+                        has_started_reasoning = True
+                    yield reasoning
+                if delta.content:
+                    if has_started_reasoning and not has_finished_reasoning:
+                        yield "\n</think>\n"
+                        has_finished_reasoning = True
+                    yield delta.content
+        if has_started_reasoning and not has_finished_reasoning:
+            yield "\n</think>\n"
 
 # --- 5. 主函数入口 ---
 if __name__ == '__main__':
