@@ -97,7 +97,7 @@ class Planner:
         prompt = PLANNER_PROMPT_TEMPLATE.format(question=question)
         messages = (memory or []) + [{"role": "user", "content": prompt}]
 
-        yield "\n\n📝 **正在制定计划...**\n\n"
+        yield "\n\n **正在制定计划...**\n\n"
 
         response_stream = await call(context=messages, stream=True)
         full_plan_text = ""
@@ -146,7 +146,7 @@ class Executor:
     async def execute(self, question: str, plan: list[str], memory: list = None):
         self.history = ""
 
-        yield "\n\n🚀 **开始执行计划...**\n"
+        yield "\n\n **开始执行计划...**\n"
 
         for i, step in enumerate(plan, 1):
             yield f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"
@@ -166,7 +166,7 @@ class Executor:
 
             self.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
-        yield "\n\n✅ **任务执行完毕。**\n"
+        yield "\n\n **任务执行完毕。**\n"
 
 # --- 4. 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
