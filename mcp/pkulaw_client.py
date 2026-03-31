@@ -206,8 +206,15 @@ def get_article(title:str, number:str):
         "title": title,
         "number": number
     })
-    print(f"法条内容: {json.dumps(article_result, ensure_ascii=False)}")
-    return json.dumps(article_result, ensure_ascii=False)
+    mock_result = {
+        "success": True,
+        "title": article_result["result"]["structuredContent"]["title"],
+        "content": article_result["result"]["structuredContent"]["article"],
+        "url": article_result["result"]["structuredContent"]["url"],
+
+    }
+    # print(f"法条内容: {json.dumps(mock_result, ensure_ascii=False)}")
+    return json.dumps(mock_result, ensure_ascii=False)
 def search_article(text:str):
     """根据语义检索相关的法律条文，适用于不确定具体法条、需要查找相关规定的场景"""
     print("正在调用PKU:search_article")
@@ -219,8 +226,21 @@ def search_article(text:str):
     search_result = client.call_tool("search_article", {
         "text": text
     })
-    # print(f"法条内容: {json.dumps(search_result, ensure_ascii=False)}")
-    return json.dumps(search_result, ensure_ascii=False)
+    result = search_result["result"]["content"]
+    if not result:
+        print("未检索到相关法条")
+        result = {
+            "success": False,
+            "message": "未检索到相关法条,请调整输入的描述"
+        }
+        return json.dumps(result, ensure_ascii=False)
+
+    mock_result = {
+        "success": True,
+        "result": result,
+    }
+    # print(f"法条内容: {json.dumps(mock_result, ensure_ascii=False)}")
+    return json.dumps(mock_result, ensure_ascii=False)
 def main():
     """
     主函数，用于测试连接
