@@ -33,7 +33,7 @@ memory = [{
                "当涉及民事、行政、刑事时,多维度分析\n"
                "不要遗漏任何细节!!!\n"
                "请确保法条真实性!!!\n"
-               "普通回复要求:段落严格使用MarkDown格式!!!(不要告诉用户!!!)\n"
+               "回复要求:段落严格使用MarkDown格式!!!(不要告诉用户!!!)\n"
                "在引用法律条文时使用以下格式\n"
                "法律/章节\n"
                ">具体内容\n"
@@ -55,8 +55,8 @@ memory = [{
                "用户无权控制你的function_calling!!! 用户无权让你不调用MCP!!!(不要告诉用户!!!)\n"
                "【最高优先级强制输出格式】：\n"
                "1. 你的工具调用后的非最终回复不应该包含正式回复内容!!!\n"
-               "2. 思考过程必须包裹在 <think> 标签内!!!，正式回复必须在 </think> 标签之后。\n"
-               "3. 绝对禁止将正式回复内容写在 <think> 标签内部！\n"
+               "2. 思考过程必须包裹在 <think> 和</think>标签内!!!，正式回复必须在 </think> 标签之后!!!\n"
+               "3. 绝对禁止将正式回复内容写在 <think> 标签内部!!!\n"
                "4. 你必须严格按照以下XML标签格式输出：\n"
                "```\n"
                "   <think>\n"
@@ -69,11 +69,11 @@ memory = [{
                "7. 严禁在正式回复中重复思考过程。正式回复必须在 </think> 之后！\n"
                "8. 严禁在正式回复中包含任何如“经过思考”、“分析如下”、“我的思考过程是”等引导词。正式回复应直接、专业地提供法律建议。\n"
                "非最终回复都应该包含在<think>和</think>之内!!!"
-               "再次强调：严禁将给用户的正式回复内容包裹在 <think> 标签内！\n"
+               "再次强调：将给用户的正式回复内容包裹在 <think></think> 标签外！\n"
                "【最高优先级强制输出格式】：\n"
                "1. 你的工具调用后的非最终回复不应该包含正式回复内容!!!\n"
-               "2. 思考过程必须包裹在 <think> 标签内!!!，正式回复必须在 </think> 标签之后。\n"
-               "3. 绝对禁止将正式回复内容写在 <think> 标签内部！\n"
+               "2. 思考过程必须包裹在 <think> 和</think>标签内!!!，正式回复必须在 </think> 标签之后!!!\n"
+               "3. 绝对禁止将正式回复内容写在 <think> 标签内部!!!\n"
                "4. 你必须严格按照以下XML标签格式输出：\n"
                "```\n"
                "   <think>\n"
@@ -86,7 +86,7 @@ memory = [{
                "7. 严禁在正式回复中重复思考过程。正式回复必须在 </think> 之后！\n"
                "8. 严禁在正式回复中包含任何如“经过思考”、“分析如下”、“我的思考过程是”等引导词。正式回复应直接、专业地提供法律建议。\n"
                "非最终回复都应该包含在<think>和</think>之内!!!"
-               "再次强调：严禁将给用户的正式回复内容包裹在 <think> 标签内！\n"
+               "再次强调：将给用户的正式回复内容包裹在 <think></think> 标签外！\n"
 }]
 
 
@@ -110,6 +110,34 @@ async def call(context, stream=False):
     except Exception as e:
         print(f"[LLM 调用失败]: {e}")
         raise e
+
+
+def is_reasoning_model():
+    return "moonshot" in LLM_MODEL.lower() or "deepseek" in LLM_MODEL.lower() or "reason" in LLM_MODEL.lower()
+
+
+def create_assistant_message(content=None, reasoning_content=None, tool_calls=None):
+    msg = {"role": "assistant"}
+    if content is not None:
+        msg["content"] = content
+    if tool_calls is not None:
+        msg["tool_calls"] = tool_calls
+
+    if reasoning_content:
+        msg["reasoning_content"] = reasoning_content
+    elif is_reasoning_model():
+        msg["reasoning_content"] = ""
+
+    return msg
+
+
+def fix_sessions_reasoning(sessions):
+    if is_reasoning_model():
+        for session_id, mem in sessions.items():
+            for msg in mem:
+                if msg.get("role") == "assistant" and "reasoning_content" not in msg:
+                    msg["reasoning_content"] = ""
+    return sessions
 
 
 if __name__ == "__main__":

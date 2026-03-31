@@ -15,7 +15,7 @@ import asyncio
 import signal
 import shutil
 
-from function_calling import call, memory as system_memory
+from function_calling import call, memory as system_memory, create_assistant_message, fix_sessions_reasoning
 from agents import ReActAgent, PlanAndSolveAgent
 from mcps import use_tools
 
@@ -104,6 +104,9 @@ def load_sessions():
         try:
             with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
                 sessions = json.load(f)
+
+                sessions = fix_sessions_reasoning(sessions)
+
                 print(f"已加载 {len(sessions)} 个历史会话。")
         except Exception as e:
             print(f"加载历史会话失败: {e}")
@@ -215,11 +218,13 @@ async def chat_endpoint(request: ChatRequest):
 
                     if full_result:
                         print(f"[Agent模式] 任务完成，结果长度: {len(full_result)}")
-                        mem.append({"role": "assistant", "content": full_result})
+                        msg = create_assistant_message(content=full_result)
+                        mem.append(msg)
                     else:
                         print("[Agent模式] 未生成结果")
                         yield "\nAgent未能生成有效结果。\n"
-                        mem.append({"role": "assistant", "content": "Agent failed to produce a result."})
+                        msg = create_assistant_message(content="Agent failed to produce a result.")
+                        mem.append(msg)
                     save_sessions()
                 except Exception as e:
                     print(f"[Agent模式] 异常: {e}")
@@ -242,7 +247,8 @@ async def chat_endpoint(request: ChatRequest):
                 result = full_result if full_result else "Agent failed to produce a result."
             except Exception as e:
                 result = f"Error: {e}"
-            mem.append({"role": "assistant", "content": result})
+            msg = create_assistant_message(content=result)
+            mem.append(msg)
             save_sessions()
             return {"reply": result}
 
@@ -258,6 +264,7 @@ async def chat_endpoint(request: ChatRequest):
 
                     tool_calls = []
                     content_str = ""
+                    reasoning_str = ""
                     is_tool_call = False
                     has_started_reasoning = False
                     has_finished_reasoning = False
@@ -273,6 +280,7 @@ async def chat_endpoint(request: ChatRequest):
                                 content_str += "<think>\n"
                                 has_started_reasoning = True
                             content_str += reasoning
+                            reasoning_str += reasoning
                             yield reasoning
 
                         if delta.content is not None:
@@ -316,11 +324,11 @@ async def chat_endpoint(request: ChatRequest):
                         yield "\n<think>\n️ **正在调用工具处理中...**\n"
 
                         # 保存助手发出的工具调用请求
-                        assistant_msg = {
-                            "role": "assistant",
-                            "content": content_str or None,
-                            "tool_calls": tool_calls
-                        }
+                        assistant_msg = create_assistant_message(
+                            content=content_str or None,
+                            reasoning_content=reasoning_str,
+                            tool_calls=tool_calls
+                        )
                         current_mem.append(assistant_msg)
                         save_sessions()
 
@@ -349,7 +357,11 @@ async def chat_endpoint(request: ChatRequest):
                         # 最终回复完成
                         if content_str:
                             print(f"[默认模式] 回复完成: {content_str[:50]}...")
-                            current_mem.append({"role": "assistant", "content": content_str})
+                            assistant_msg = create_assistant_message(
+                                content=content_str,
+                                reasoning_content=reasoning_str
+                            )
+                            current_mem.append(assistant_msg)
                             save_sessions()
                         else:
                             print("[默认模式] 警告: 模型输出了空内容")
@@ -378,20 +390,22 @@ async def chat_endpoint(request: ChatRequest):
 
         if res.tool_calls:
             print("模型请求调用工具:", [t.function.name for t in res.tool_calls])
-            mem.append({
-                "role": "assistant",
-                "content": content,
-                "tool_calls": [
-                    {
-                        "id": t.id,
-                        "type": "function",
-                        "function": {
-                            "name": t.function.name,
-                            "arguments": t.function.arguments
-                        }
-                    } for t in res.tool_calls
-                ]
-            })
+            tool_calls = [
+                {
+                    "id": t.id,
+                    "type": "function",
+                    "function": {
+                        "name": t.function.name,
+                        "arguments": t.function.arguments
+                    }
+                } for t in res.tool_calls
+            ]
+            assistant_msg = create_assistant_message(
+                content=content,
+                reasoning_content=reasoning,
+                tool_calls=tool_calls
+            )
+            mem.append(assistant_msg)
             save_sessions()
 
             for tool_call in res.tool_calls:
@@ -412,12 +426,20 @@ async def chat_endpoint(request: ChatRequest):
             if final_reasoning:
                 final_content = f"<think>\n{final_reasoning}\n</think>\n" + final_content
             print("最终回复:", final_content)
-            mem.append({"role": "assistant", "content": final_content})
+            final_msg = create_assistant_message(
+                content=final_content,
+                reasoning_content=final_reasoning
+            )
+            mem.append(final_msg)
             save_sessions()
             return {"reply": final_content}
         else:
             print("模型回复:", content)
-            mem.append({"role": "assistant", "content": content})
+            msg = create_assistant_message(
+                content=content,
+                reasoning_content=reasoning
+            )
+            mem.append(msg)
             save_sessions()
             return {"reply": content}
 
