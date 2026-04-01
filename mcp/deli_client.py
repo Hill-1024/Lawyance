@@ -127,6 +127,7 @@ def match_legal(
         print(result_data["msg"])
         return None
     # 下方是返回的数据
+    # 这里的迭代可能会导致list out of range，后面想启用的时候要加count的判断
     result = []
     for i in range(8):
         if result_data["body"]["data"][i]["timelinessName"] == "失效":
@@ -153,7 +154,7 @@ def match_legal(
         # "totalCount": result_data["body"]["totalCount"],
     }
     # print("检索结果")
-    print(json.dumps(mock_result, indent=2, ensure_ascii=False))
+    # print(json.dumps(mock_result, indent=2, ensure_ascii=False))
     return json.dumps(mock_result, ensure_ascii=False)
 def match_legal_case(
         keywords: list[str],
@@ -179,9 +180,21 @@ def match_legal_case(
     )
     # print(json.dumps(result_data, indent=2, ensure_ascii=False))
 
+    if result_data["body"]["totalCount"] == 0:
+        mock_result = {
+            "success": False,
+            "message": "没有找到匹配的案例，请修改关键词"
+        }
+        # print(json.dumps(mock_result, indent=2, ensure_ascii=False))
+        return mock_result
+    else:
+        if result_data["body"]["totalCount"] <= 8:
+            count = result_data["body"]["totalCount"]
+        else:
+            count = 8
     # 下方是返回的数据
     result = []
-    for i in range(8):
+    for i in range(count):
         search_result = {
             "source": result_data["body"]["data"][i]["title"],
             "judgementDate": result_data["body"]["data"][i]["judgementDate"],

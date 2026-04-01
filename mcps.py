@@ -1,5 +1,5 @@
 from mcp.deli_client import match_legal_case, match_legal
-from mcp.pkulaw_client import get_article, search_article
+from mcp.pkulaw_client import get_article, search_article, adjust_provisions,get_linked_content
 
 tools = [
     {
@@ -67,6 +67,24 @@ tools = [
             }
         }
 
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_linked_content",
+            "description": "获取相关法规信息的来源链接，当出现法规条文、法律概念和相关术语，必须调用此工具确认来源!!!",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "包含法规条文、法律概念和相关术语的文本"
+                    },
+                },
+                "required": ["message"]
+            }
+        }
+
     }
 ]
 #在此处处理agent发来的工具请求
@@ -77,9 +95,15 @@ def use_tools(function_name,arguments):
         return get_article(arguments.get("title"),arguments.get("number"))
     if function_name == "search_article":
         return search_article(arguments.get("query"))
+    if function_name == "get_linked_content":
+        return get_linked_content(arguments.get("message"))
     return function_name+"工具不存在,请重新检查"
 if __name__ == "__main__":
     # match_legal(["深圳市房地产相关的法律规定有哪些？"])
-    match_legal_case(["上班途中车祸工伤案例"], "2020-08-05","2025-08-05")
-    # get_article("民法典", "第七条")
-    # match_legal(["啊我死了"])
+    # match_legal_case(["偷窃","研究生","老师"], "2020-08-05","2025-08-05")
+    get_article("治安管理处罚法", "第四十九条")
+    # get_article("法律", "第四十九条")
+    # adjust_provisions("中华人民共和国民法典",
+    #                   "第二条",
+    #                   "民法调整平等主体的人组织之间的人身关系和财产关系。")
+    # get_linked_content("根据《中华人民共和国长江保护法》第九十三条和《中华人民共和国民法典》第一千一百六十八条、第一千二百三十五条的规定")
