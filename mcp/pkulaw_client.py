@@ -206,8 +206,21 @@ def get_article(title:str, number:str):
         "title": title,
         "number": number
     })
-    print(f"法条内容: {json.dumps(article_result, ensure_ascii=False)}")
-    return json.dumps(article_result, ensure_ascii=False)
+    mock_result = {
+        "success": True,
+        "title": article_result["result"]["structuredContent"]["title"],
+        "content": article_result["result"]["structuredContent"]["article"],
+        "url": article_result["result"]["structuredContent"]["url"],
+
+    }
+    if mock_result["title"] == "":
+        return {
+            "success": False,
+            "message": "未找到匹配的条，请修改查询关键词"
+        }
+
+    print(f"法条内容: {json.dumps(mock_result, ensure_ascii=False)}")
+    return json.dumps(mock_result, ensure_ascii=False)
 def search_article(text:str):
     """根据语义检索相关的法律条文，适用于不确定具体法条、需要查找相关规定的场景"""
     print("正在调用PKU:search_article")
@@ -219,8 +232,76 @@ def search_article(text:str):
     search_result = client.call_tool("search_article", {
         "text": text
     })
-    # print(f"法条内容: {json.dumps(search_result, ensure_ascii=False)}")
-    return json.dumps(search_result, ensure_ascii=False)
+    result = search_result["result"]["content"]
+    if not result:
+        print("未检索到相关法条")
+        result = {
+            "success": False,
+            "message": "未检索到相关法条,请调整输入的描述"
+        }
+        return json.dumps(result, ensure_ascii=False)
+
+    mock_result = {
+        "success": True,
+        "result": result,
+    }
+    # print(f"法条内容: {json.dumps(mock_result, ensure_ascii=False)}")
+    return json.dumps(mock_result, ensure_ascii=False)
+# 幻觉修正函数能正常发包并返回包，但是返回内容为空，不知道原因，暂时没有写在mcps中
+def adjust_provisions(title:str, article_number:str, text:str):
+    """分析大模型在回答用户问题时引用的具体法条和司法解释条款，返回更加权威、准确的法律条文以及司法解释的内容及原文引用地址"""
+    print("正在调用PKU:adjust_provisions")
+    service_url = "https://apim-gateway.pkulaw.com/pku_citation_validator"
+    client = PkulawMCPClient(service_url, PKU_ACCESS_TOKEN)
+    user_law = [
+        {
+            "title":title,
+            "article_number": article_number
+        }
+    ]
+    answer_law = [
+        {
+            "title": title,
+            "article_number": article_number,
+            "text": text,
+        }
+    ]
+    param = {
+        "user_law": user_law,
+        "answer_law": answer_law,
+    }
+    print(param)
+    # 发送请求寻找tools列表
+    tools_result = client.list_tools()
+
+    adjust_result = client.call_tool("adjust_provisions", {
+        "param": param
+    })
+    mock_result = {
+        "success": True,
+        "title": adjust_result["result"]["content"],
+    }
+    print(json.dumps(mock_result, ensure_ascii=False))
+    return json.dumps(adjust_result, ensure_ascii=False)
+def get_linked_content(message:str):
+    """根据输入的语义返回相关信息的超链接"""
+    service_url = "https://apim-gateway.pkulaw.com/add-doc-link"
+    print("正在调用PKU:get_linked_content")
+    client = PkulawMCPClient(service_url, PKU_ACCESS_TOKEN)
+    # 发送请求寻找tools列表
+    tools_result = client.list_tools()
+    link_result = client.call_tool("get_linked_content", {
+        "message": message,
+    })
+    # print(json.dumps(link_result, ensure_ascii=False))
+    mock_result = {
+        "success": True,
+        "text": link_result["result"]["content"],
+
+    }
+    print(f"法条内容: {json.dumps(mock_result, ensure_ascii=False)}")
+    return json.dumps(mock_result, ensure_ascii=False)
+
 def main():
     """
     主函数，用于测试连接
