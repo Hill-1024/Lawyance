@@ -2,6 +2,94 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Superscript badge styles */
+.prose sup {
+  font-size: 0.75em;
+  line-height: 1;
+  margin-left: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8em;
+  height: 1.8em;
+  background-color: rgba(156, 163, 175, 0.2); /* Foggy background */
+  backdrop-filter: blur(4px); /* Foggy effect */
+  -webkit-backdrop-filter: blur(4px);
+  color: #4b5563; /* text-gray-600 */
+  border-radius: 50%; /* Perfect circle */
+  text-decoration: none !important;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+  top: -0.5em;
+  position: relative;
+}
+
+.dark .prose sup {
+  background-color: rgba(156, 163, 175, 0.15);
+  color: #d1d5db; /* text-gray-300 */
+  border-color: rgba(156, 163, 175, 0.2);
+}
+
+.prose sup:hover {
+  background-color: rgba(156, 163, 175, 0.3);
+  color: #1f2937; /* text-gray-800 */
+  border-color: rgba(156, 163, 175, 0.4);
+}
+
+.dark .prose sup:hover {
+  background-color: rgba(156, 163, 175, 0.25);
+  color: #f3f4f6; /* text-gray-100 */
+  border-color: rgba(156, 163, 175, 0.3);
+}
+
+.prose sup a {
+  color: inherit !important;
+  text-decoration: none !important;
+  font-weight: inherit !important;
+}
+
+.prose sup a:hover {
+  color: inherit !important;
+}
+
+/* Pale source list styles */
+.source-list-container {
+  background-color: rgba(249, 250, 251, 0.5);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-top: 12px;
+  border: 1px solid rgba(243, 244, 246, 0.8);
+}
+
+.dark .source-list-container {
+  background-color: rgba(31, 41, 55, 0.5); /* gray-800 */
+  border-color: rgba(55, 65, 81, 0.8); /* gray-700 */
+}
+
+.source-list-container .prose a {
+  color: rgba(59, 130, 246, 0.8) !important; /* blue-500 */
+  text-decoration: none !important;
+  transition: color 0.2s ease;
+  border-bottom: 1px dashed rgba(59, 130, 246, 0.4);
+}
+
+.dark .source-list-container .prose a {
+  color: rgba(96, 165, 250, 0.8) !important; /* blue-400 */
+  border-bottom-color: rgba(96, 165, 250, 0.4);
+}
+
+.source-list-container .prose a:hover {
+  color: rgba(37, 99, 235, 1) !important; /* blue-600 */
+  border-bottom-style: solid;
+}
+
+.dark .source-list-container .prose a:hover {
+  color: rgba(147, 197, 253, 1) !important; /* blue-300 */
 }

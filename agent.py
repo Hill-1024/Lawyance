@@ -107,6 +107,11 @@ def load_sessions():
 
                 sessions = fix_sessions_reasoning(sessions)
 
+                # Update system prompt for all loaded sessions to ensure they have the latest instructions
+                for session_id, memory in sessions.items():
+                    if memory and len(memory) > 0 and memory[0].get("role") == "system":
+                        memory[0]["content"] = system_memory[0]["content"]
+
                 print(f"已加载 {len(sessions)} 个历史会话。")
         except Exception as e:
             print(f"加载历史会话失败: {e}")

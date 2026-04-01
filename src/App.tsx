@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2 } from 'lucide-react';
+import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -18,15 +18,6 @@ type Conversation = {
   messages: Message[];
 };
 
-const MD3_COLORS = [
-  { name: 'Default Black', value: '#1F1F1F' },
-  { name: 'Blue', value: '#0B57D0' },
-  { name: 'Green', value: '#146C2E' },
-  { name: 'Purple', value: '#65558F' },
-  { name: 'Orange', value: '#8C5000' },
-  { name: 'Red', value: '#B3261E' },
-];
-
 export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>([
     { id: 'default', title: 'New Chat', messages: [] }
@@ -41,8 +32,28 @@ export default function App() {
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [isStreaming, setIsStreaming] = useState(true);
   const [agentMode, setAgentMode] = useState('default');
-  const [themeColor, setThemeColor] = useState('#1F1F1F');
-  const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
+
+  const [themeMode, setThemeMode] = useState<'light' | 'system' | 'dark'>('system');
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    const applyTheme = () => {
+      if (themeMode === 'dark' || (themeMode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        root.classList.add('dark');
+      } else {
+        root.classList.remove('dark');
+      }
+    };
+
+    applyTheme();
+
+    if (themeMode === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const listener = () => applyTheme();
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
+    }
+  }, [themeMode]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLElement>(null);
@@ -369,6 +380,10 @@ export default function App() {
   };
 
   const markdownComponents: any = {
+    a(props: any) {
+      const { node, ...rest } = props;
+      return <a target="_blank" rel="noopener noreferrer" {...rest} />;
+    },
     pre(props: any) {
       const { children, ...rest } = props;
       const childrenArray = React.Children.toArray(children);
@@ -390,35 +405,34 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-white text-gray-900 font-sans selection:bg-gray-200 selection:text-black" style={{ '--theme-color': themeColor } as React.CSSProperties}>
+    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans selection:bg-blue-200 dark:selection:bg-blue-900 selection:text-blue-900 dark:selection:text-blue-100">
 
       {/* Sidebar Overlay */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/20 z-40 transition-opacity"
+          className="fixed inset-0 bg-black/20 dark:bg-black/40 z-40 transition-opacity backdrop-blur-sm"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <div className={`fixed top-0 left-0 h-full w-72 bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} flex flex-col`}>
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="font-medium text-lg">Conversations</h2>
-          <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-            <X size={20} className="text-gray-600" />
+      <div className={`fixed top-0 left-0 h-full w-80 bg-gray-50 dark:bg-gray-900 shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} flex flex-col rounded-r-3xl border-r border-gray-200 dark:border-gray-800`}>
+        <div className="p-6 pb-4 flex items-center justify-between">
+          <h2 className="font-medium text-xl text-gray-900 dark:text-gray-100">Conversations</h2>
+          <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-600 dark:text-gray-400">
+            <X size={24} />
           </button>
         </div>
-        <div className="p-3">
+        <div className="px-4 pb-4">
           <button
             onClick={() => handleNewChat()}
-            className="w-full py-3 px-4 text-white rounded-xl flex items-center gap-2 transition-colors font-medium shadow-sm"
-            style={{ backgroundColor: themeColor }}
+            className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-full flex items-center justify-center gap-2 transition-all font-medium shadow-md hover:shadow-lg active:scale-[0.98]"
           >
-            <Plus size={18} />
+            <Plus size={20} />
             New Chat
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1">
+        <div className="flex-1 overflow-y-auto px-3 pb-4 flex flex-col gap-1">
           {conversations.map(conv => (
             <div
               key={conv.id}
@@ -426,18 +440,17 @@ export default function App() {
                 setCurrentId(conv.id);
                 setIsSidebarOpen(false);
               }}
-              className={`w-full text-left px-4 py-3 rounded-xl transition-colors flex items-center justify-between group cursor-pointer ${
-                conv.id === currentId ? 'font-medium' : 'hover:bg-gray-50 text-gray-700'
+              className={`w-full text-left px-4 py-3.5 rounded-full transition-colors flex items-center justify-between group cursor-pointer ${
+                conv.id === currentId ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium' : 'hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400'
               }`}
-              style={conv.id === currentId ? { backgroundColor: `${themeColor}15`, color: themeColor } : {}}
             >
-              <span className="truncate pr-2">{conv.title}</span>
+              <span className="truncate pr-2 text-[15px]">{conv.title}</span>
               <button
                 onClick={(e) => deleteConversation(conv.id, e)}
-                className={`p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-200 ${conv.id === currentId ? 'hover:bg-white/50' : ''}`}
+                className={`p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-300 dark:hover:bg-gray-700 ${conv.id === currentId ? 'hover:bg-blue-200 dark:hover:bg-blue-800' : ''}`}
                 title="Delete chat"
               >
-                <Trash2 size={16} className={conv.id === currentId ? '' : 'text-gray-500'} style={conv.id === currentId ? { color: themeColor } : {}} />
+                <Trash2 size={18} className={conv.id === currentId ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-400'} />
               </button>
             </div>
           ))}
@@ -445,49 +458,48 @@ export default function App() {
       </div>
 
       {/* Top App Bar */}
-      <header className="flex items-center justify-between px-2 py-2 bg-white text-gray-900 shrink-0 z-10 border-b border-gray-100">
-        <div className="flex items-center gap-1">
+      <header className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 shrink-0 z-10 sticky top-0 border-b border-gray-200 dark:border-gray-800">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setIsSidebarOpen(true)}
-            className="p-3 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-3 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-600 dark:text-gray-400"
           >
-            <Menu size={24} className="text-gray-600" />
+            <Menu size={24} />
           </button>
-          <h1 className="text-[20px] font-medium tracking-tight ml-1">GDUT-Lawver</h1>
+          <h1 className="text-[22px] font-medium tracking-tight ml-1">GDUT-Lawver</h1>
         </div>
         <div className="flex items-center gap-1 relative">
-          <button
-            onClick={() => setIsColorPickerOpen(!isColorPickerOpen)}
-            className="p-3 hover:bg-gray-100 rounded-full transition-colors"
-          >
-            <Info size={24} className="text-gray-600" />
-          </button>
-
-          {isColorPickerOpen && (
-            <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 z-50">
-              <h3 className="font-medium text-gray-900 mb-3">Theme Color</h3>
-              <div className="grid grid-cols-3 gap-2 mb-4">
-                {MD3_COLORS.map(color => (
-                  <button
-                    key={color.value}
-                    onClick={() => setThemeColor(color.value)}
-                    className={`h-10 rounded-full border-2 transition-all ${themeColor === color.value ? 'border-gray-900 scale-110' : 'border-transparent'}`}
-                    style={{ backgroundColor: color.value }}
-                    title={color.name}
-                  />
-                ))}
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-600">Custom:</span>
-                <input
-                  type="color"
-                  value={themeColor}
-                  onChange={(e) => setThemeColor(e.target.value)}
-                  className="w-full h-8 rounded cursor-pointer border-0 p-0"
-                />
-              </div>
-            </div>
-          )}
+          <div className="flex items-center bg-gray-200 dark:bg-gray-800 rounded-full p-1 relative">
+            <motion.div
+              className="absolute top-1 bottom-1 w-9 bg-white dark:bg-gray-600 rounded-full shadow-sm"
+              initial={false}
+              animate={{
+                x: themeMode === 'light' ? 0 : themeMode === 'system' ? 36 : 72
+              }}
+              transition={{ type: "spring", stiffness: 500, damping: 30 }}
+            />
+            <button
+              onClick={() => setThemeMode('light')}
+              className={`relative z-10 w-9 h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'light' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              title="Light Mode"
+            >
+              <Sun size={18} />
+            </button>
+            <button
+              onClick={() => setThemeMode('system')}
+              className={`relative z-10 w-9 h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'system' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              title="System Mode"
+            >
+              <Monitor size={18} />
+            </button>
+            <button
+              onClick={() => setThemeMode('dark')}
+              className={`relative z-10 w-9 h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'dark' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              title="Dark Mode"
+            >
+              <Moon size={18} />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -496,7 +508,6 @@ export default function App() {
         ref={scrollContainerRef as any}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth"
-        onClick={() => setIsColorPickerOpen(false)}
       >
         <div className="max-w-3xl mx-auto flex flex-col gap-6">
           {messages.map((msg) => {
@@ -554,8 +565,18 @@ export default function App() {
               mainContent = msg.content;
             }
 
+            let sourceContent = "";
+            if (msg.role === 'agent') {
+              const sourceRegex = /(?:---\s*\n)?\s*\*\*参考信源[：:]\*\*\s*\n([\s\S]*)$/;
+              const sourceMatch = mainContent.match(sourceRegex);
+              if (sourceMatch) {
+                sourceContent = sourceMatch[1];
+                mainContent = mainContent.replace(sourceMatch[0], "").trim();
+              }
+            }
+
             // Hide empty agent messages (e.g., tool calls with only whitespace content)
-            if (msg.role === 'agent' && thinks.length === 0 && mainContent.trim() === '') {
+            if (msg.role === 'agent' && thinks.length === 0 && mainContent.trim() === '' && !sourceContent) {
               return null;
             }
 
@@ -564,35 +585,35 @@ export default function App() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 key={msg.id}
-                className={`flex gap-3 max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'self-end flex-row-reverse' : 'self-start'}`}
+                className={`flex gap-4 max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'self-end flex-row-reverse' : 'self-start'}`}
               >
                 {/* Agent Avatar */}
                 {msg.role === 'agent' && (
-                  <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 shadow-sm text-white" style={{ backgroundColor: themeColor }}>
-                    <Sparkles size={16} />
+                  <div className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center mt-1 shadow-sm text-white bg-blue-600 dark:bg-blue-500">
+                    <Sparkles size={20} />
                   </div>
                 )}
 
-                <div className="flex flex-col gap-1.5 min-w-0 w-full">
+                <div className="flex flex-col gap-2 min-w-0 w-full">
                   {/* Thinking Process */}
                   {msg.role === 'agent' && thinks.length > 0 && (
                     <details className="group mb-1">
-                      <summary className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors list-none [&::-webkit-details-marker]:hidden select-none w-fit">
-                        <ChevronDown size={14} className="transform group-open:-rotate-180 transition-transform duration-200" />
+                      <summary className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors list-none [&::-webkit-details-marker]:hidden select-none w-fit bg-gray-200/50 dark:bg-gray-800/50 px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700">
+                        <ChevronDown size={16} className="transform group-open:-rotate-180 transition-transform duration-200" />
                         {isThinking ? (
-                          <span className="flex items-center gap-1.5">
-                            思考中
-                            <span className="flex gap-0.5">
-                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0 }} className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
-                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.2 }} className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
-                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.4 }} className="w-0.5 h-0.5 bg-gray-400 rounded-full" />
+                          <span className="flex items-center gap-2">
+                            Thinking
+                            <span className="flex gap-1">
+                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0 }} className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full" />
+                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.2 }} className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full" />
+                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.4 }} className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full" />
                             </span>
                           </span>
-                        ) : "思考过程"}
+                        ) : "Thought Process"}
                       </summary>
-                      <div className="mt-2 mb-2 px-4 py-3 text-sm text-gray-500 border-l-2 border-gray-200 bg-transparent whitespace-pre-wrap prose prose-sm max-w-none prose-p:leading-relaxed prose-a:text-blue-500 prose-code:text-gray-600 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">
+                      <div className="mt-3 mb-2 px-5 py-4 text-[15px] text-gray-600 dark:text-gray-300 border-l-4 border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800/50 whitespace-pre-wrap prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-code:text-gray-900 dark:prose-code:text-gray-100 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none rounded-r-2xl">
                         {thinks.map((think, i) => (
-                          <div key={i} className={i > 0 ? "mt-3 pt-3 border-t border-gray-100" : ""}>
+                          <div key={i} className={i > 0 ? "mt-4 pt-4 border-t border-gray-200 dark:border-gray-700" : ""}>
                             <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{think}</Markdown>
                           </div>
                         ))}
@@ -601,19 +622,33 @@ export default function App() {
                   )}
 
                   {/* Message Bubble */}
-                  {mainContent.trim() || msg.role === 'user' ? (
-                    <div className={`px-5 py-3.5 text-[15px] leading-relaxed shadow-sm w-fit ${
+                  {mainContent.trim() || msg.role === 'user' || sourceContent ? (
+                    <div className={`px-6 py-4 text-[16px] leading-relaxed shadow-sm w-fit ${
                       msg.role === 'user'
-                        ? 'text-white rounded-3xl rounded-tr-sm'
-                        : 'bg-white border border-gray-100 text-gray-900 rounded-3xl rounded-tl-sm'
+                        ? 'bg-blue-600 dark:bg-blue-500 text-white rounded-[28px] rounded-tr-[8px]'
+                        : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-[28px] rounded-tl-[8px] border border-gray-200 dark:border-gray-700'
                     }`}
-                    style={msg.role === 'user' ? { backgroundColor: themeColor } : {}}
                     >
                       {msg.role === 'user' ? (
                         <p className="whitespace-pre-wrap">{msg.content}</p>
                       ) : (
-                        <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-headings:text-gray-900 prose-headings:font-medium prose-strong:text-gray-900 prose-strong:font-medium prose-a:text-blue-600 prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-50 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200">
-                          <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{mainContent}</Markdown>
+                        <div className="flex flex-col gap-4">
+                          {mainContent.trim() && (
+                            <div className="prose prose-base dark:prose-invert max-w-none prose-p:leading-relaxed prose-headings:text-gray-900 dark:prose-headings:text-gray-100 prose-headings:font-medium prose-strong:text-gray-900 dark:prose-strong:text-gray-100 prose-strong:font-medium prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-code:text-gray-900 dark:prose-code:text-gray-100 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-100 dark:prose-pre:bg-gray-900 prose-pre:text-gray-900 dark:prose-pre:text-gray-100 prose-pre:border prose-pre:border-gray-200 dark:prose-pre:border-gray-700 prose-pre:rounded-2xl">
+                              <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{mainContent}</Markdown>
+                            </div>
+                          )}
+                          {sourceContent && (
+                            <div className="source-list-container text-[14px] text-gray-600 dark:text-gray-400">
+                              <div className="font-medium mb-2 text-gray-900 dark:text-gray-100 flex items-center gap-2 uppercase tracking-wider text-[13px]">
+                                <Info size={16} />
+                                Sources
+                              </div>
+                              <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-li:my-1 prose-ol:pl-4 prose-ul:pl-4">
+                                <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{sourceContent}</Markdown>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -625,13 +660,13 @@ export default function App() {
 
           {/* Loading Indicator */}
           {isLoading && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-3 max-w-[85%] self-start">
-              <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 shadow-sm text-white" style={{ backgroundColor: themeColor }}>
-                <Sparkles size={16} />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex gap-4 max-w-[85%] self-start">
+              <div className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center mt-1 shadow-sm text-white bg-blue-600 dark:bg-blue-500">
+                <Sparkles size={20} />
               </div>
-              <div className="bg-gray-50 border border-gray-100 text-gray-900 rounded-3xl rounded-tl-sm px-5 py-4 flex items-center gap-3 shadow-sm">
-                <Loader2 size={18} className="animate-spin text-gray-500" />
-                <span className="text-[14px] font-medium text-gray-500">Agent is typing...</span>
+              <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-[28px] rounded-tl-[8px] px-6 py-4 flex items-center gap-3 shadow-sm border border-gray-200 dark:border-gray-700">
+                <Loader2 size={20} className="animate-spin text-gray-500 dark:text-gray-400" />
+                <span className="text-[15px] font-medium text-gray-500 dark:text-gray-400">Agent is typing...</span>
               </div>
             </motion.div>
           )}
@@ -640,38 +675,42 @@ export default function App() {
       </main>
 
       {/* Bottom App Bar / Input Area */}
-      <footer className="bg-white p-4 shrink-0 pb-6 border-t border-gray-100" onClick={() => setIsColorPickerOpen(false)}>
-        <div className="max-w-3xl mx-auto relative flex flex-col gap-2">
+      <footer className="bg-gray-50 dark:bg-gray-900 p-4 shrink-0 pb-8 border-t border-gray-200 dark:border-gray-800">
+        <div className="max-w-3xl mx-auto relative flex flex-col gap-3">
 
           {isInputExpanded && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
-              className="bg-gray-50 rounded-2xl p-4 border border-gray-200 flex flex-col gap-4 overflow-hidden"
+              className="bg-white dark:bg-gray-800 rounded-3xl p-5 flex flex-col gap-5 overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Settings2 size={20} className="text-gray-500" />
-                  <span className="text-sm font-medium text-gray-700">Enable Streaming Output</span>
+                  <Settings2 size={24} className="text-gray-600 dark:text-gray-400" />
+                  <span className="text-[15px] font-medium text-gray-900 dark:text-gray-100">Enable Streaming Output</span>
                 </div>
                 <button
                   onClick={() => setIsStreaming(!isStreaming)}
-                  className={`w-12 h-6 rounded-full transition-colors relative ${isStreaming ? '' : 'bg-gray-300'}`}
-                  style={isStreaming ? { backgroundColor: themeColor } : {}}
+                  className={`w-14 h-8 rounded-full transition-colors relative flex items-center px-1 ${isStreaming ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`}
                 >
-                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${isStreaming ? 'left-7' : 'left-1'}`} />
+                  <motion.div
+                    className="w-6 h-6 rounded-full bg-white shadow-sm"
+                    initial={false}
+                    animate={{ x: isStreaming ? 24 : 0 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                  />
                 </button>
               </div>
 
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Sparkles size={20} className="text-gray-500" />
-                  <span className="text-sm font-medium text-gray-700">Agent Mode</span>
+                  <Sparkles size={24} className="text-gray-600 dark:text-gray-400" />
+                  <span className="text-[15px] font-medium text-gray-900 dark:text-gray-100">Agent Mode</span>
                 </div>
                 <select
                   value={agentMode}
                   onChange={(e) => setAgentMode(e.target.value)}
-                  className="text-sm border-gray-300 rounded-lg focus:ring-0 cursor-pointer bg-white px-3 py-1.5 outline-none border"
+                  className="text-[15px] border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 cursor-pointer px-4 py-2 outline-none font-medium"
                 >
                   <option value="default">Default</option>
                   <option value="plan_and_solve">Plan & Solve</option>
@@ -681,10 +720,10 @@ export default function App() {
             </motion.div>
           )}
 
-          <div className="flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-[28px] p-2 focus-within:bg-white focus-within:border-gray-300 focus-within:shadow-sm transition-all duration-300">
+          <div className="flex items-end gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[32px] p-2 focus-within:border-blue-500 dark:focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-500 dark:focus-within:ring-blue-400 transition-all duration-300 shadow-sm">
             <button
               onClick={() => setIsInputExpanded(!isInputExpanded)}
-              className="p-3 text-gray-500 hover:bg-gray-200 rounded-full shrink-0 transition-colors"
+              className="p-3.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full shrink-0 transition-colors"
             >
               {isInputExpanded ? <ChevronDown size={24} /> : <ChevronUp size={24} />}
             </button>
@@ -693,20 +732,19 @@ export default function App() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Reply to Agent..."
-              className="flex-1 max-h-32 min-h-12 bg-transparent border-none focus:ring-0 resize-none py-3 text-gray-900 placeholder:text-gray-400 text-[15px] leading-relaxed outline-none"
+              className="flex-1 max-h-32 min-h-[56px] bg-transparent border-none focus:ring-0 resize-none py-4 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 text-[16px] leading-relaxed outline-none"
               rows={1}
             />
             {input.trim() ? (
               <button
                 onClick={handleSend}
                 disabled={isLoading}
-                className="p-3 text-white rounded-full shrink-0 hover:opacity-90 transition-opacity disabled:opacity-50 shadow-sm flex items-center justify-center"
-                style={{ backgroundColor: themeColor }}
+                className="p-4 text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 rounded-full shrink-0 transition-colors disabled:opacity-50 shadow-sm flex items-center justify-center"
               >
-                <Send size={20} />
+                <Send size={24} />
               </button>
             ) : (
-              <button className="p-3 text-gray-500 hover:bg-gray-100 rounded-full shrink-0 transition-colors">
+              <button className="p-3.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full shrink-0 transition-colors">
                 <Mic size={24} />
               </button>
             )}
