@@ -4,3 +4,6 @@ pydantic
 openai
 python-dotenv
 websockets
+fitz
+docx
+traits
