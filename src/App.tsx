@@ -35,11 +35,10 @@ export default function App() {
 
   const [themeMode, setThemeMode] = useState<'light' | 'system' | 'dark'>('system');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<{name: string, path: string}[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const handleFileUpload = async (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('conversation_id', currentId);
@@ -52,16 +51,45 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         const filePath = data.file_path;
-        setInput(prev => prev + `\n[已上传文件: ${file.name}, 路径: ${filePath}]\n`);
+        setUploadedFiles(prev => [...prev, { name: file.name, path: filePath }]);
       } else {
         console.error('Upload failed');
       }
     } catch (err) {
       console.error('Upload error', err);
     }
+  };
 
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileUpload(file);
+    }
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  const removeUploadedFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handleFileUpload(file);
     }
   };
 
@@ -328,18 +356,24 @@ export default function App() {
   }, []);
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading || !isInitialized) {
-      console.log('handleSend 被拦截:', { hasInput: !!input.trim(), isLoading, isInitialized });
+    if ((!input.trim() && uploadedFiles.length === 0) || isLoading || !isInitialized) {
+      console.log('handleSend 被拦截:', { hasInput: !!input.trim(), hasFiles: uploadedFiles.length > 0, isLoading, isInitialized });
       return;
     }
 
     // Force scroll to bottom when user sends a message
     setIsAtBottom(true);
 
+    let messageContent = input.trim();
+    if (uploadedFiles.length > 0) {
+      const fileInfo = uploadedFiles.map(f => `- ${f.name} (路径: ${f.path})`).join('\n');
+      messageContent += messageContent ? `\n\n[用户已上传以下文件，请根据需要进行读取和处理]\n${fileInfo}` : `[用户已上传以下文件，请根据需要进行读取和处理]\n${fileInfo}`;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: input.trim()
+      content: messageContent
     };
 
     console.log('准备发送消息:', userMessage);
@@ -356,6 +390,7 @@ export default function App() {
 
     updateMessages(convId, prev => [...prev, userMessage]);
     setInput('');
+    setUploadedFiles([]);
     setIsLoading(true);
 
     try {
@@ -537,7 +572,10 @@ export default function App() {
       <main
         ref={scrollContainerRef as any}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth transition-colors ${isDragging ? 'bg-blue-50/50 dark:bg-blue-900/20 border-2 border-dashed border-blue-400 dark:border-blue-600' : ''}`}
       >
         <div className="max-w-3xl mx-auto flex flex-col gap-6">
           {messages.map((msg) => {
@@ -660,7 +698,35 @@ export default function App() {
                     }`}
                     >
                       {msg.role === 'user' ? (
-                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                        <div className="flex flex-col gap-2">
+                          {(() => {
+                            const fileInfoRegex = /\[用户已上传以下文件，请根据需要进行读取和处理\]\n([\s\S]*)$/;
+                            const match = msg.content.match(fileInfoRegex);
+                            if (match) {
+                              const textContent = msg.content.replace(match[0], '').trim();
+                              const files = match[1].split('\n').filter(line => line.startsWith('- ')).map(line => {
+                                const nameMatch = line.match(/^- (.*?) \(路径:/);
+                                return nameMatch ? nameMatch[1] : line;
+                              });
+                              return (
+                                <>
+                                  {textContent && <p className="whitespace-pre-wrap">{textContent}</p>}
+                                  {files.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mt-1">
+                                      {files.map((file, i) => (
+                                        <div key={i} className="flex items-center gap-1.5 bg-blue-700/50 dark:bg-blue-600/50 rounded-full px-3 py-1 text-sm">
+                                          <Paperclip size={14} />
+                                          <span className="truncate max-w-[200px]">{file}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            }
+                            return <p className="whitespace-pre-wrap">{msg.content}</p>;
+                          })()}
+                        </div>
                       ) : (
                         <div className="flex flex-col gap-4">
                           {mainContent.trim() && (
@@ -750,6 +816,28 @@ export default function App() {
             </motion.div>
           )}
 
+          {uploadedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-2 pb-1">
+              {uploadedFiles.map((file, index) => (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  key={index}
+                  className="flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full px-4 py-1.5 shadow-sm"
+                >
+                  <Paperclip size={14} className="text-blue-600 dark:text-blue-400" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300 max-w-[200px] truncate">{file.name}</span>
+                  <button
+                    onClick={() => removeUploadedFile(index)}
+                    className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full text-gray-500 hover:text-red-500 transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-end gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-[32px] p-2 focus-within:border-blue-500 dark:focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-500 dark:focus-within:ring-blue-400 transition-all duration-300 shadow-sm">
             <button
               onClick={() => setIsInputExpanded(!isInputExpanded)}
@@ -760,7 +848,7 @@ export default function App() {
             <input
               type="file"
               ref={fileInputRef}
-              onChange={handleFileUpload}
+              onChange={handleFileInputChange}
               className="hidden"
               accept=".pdf,.doc,.docx"
             />
@@ -779,7 +867,7 @@ export default function App() {
               className="flex-1 max-h-32 min-h-[56px] bg-transparent border-none focus:ring-0 resize-none py-4 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 text-[16px] leading-relaxed outline-none"
               rows={1}
             />
-            {input.trim() ? (
+            {input.trim() || uploadedFiles.length > 0 ? (
               <button
                 onClick={handleSend}
                 disabled={isLoading}
