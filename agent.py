@@ -58,7 +58,12 @@ async def check_heartbeat():
             except Exception as e:
                 print(f"保存会话失败: {e}")
 
-            os._exit(0)
+            # 发送信号以触发优雅退出流程，确保 atexit 处理程序运行
+            if sys.platform == "win32":
+                # Windows 上使用 SIGBREAK 触发 signal_handler
+                os.kill(os.getpid(), signal.SIGBREAK)
+            else:
+                os.kill(os.getpid(), signal.SIGINT)
 
 
 # 配置 CORS，允许 React 前端跨域访问
@@ -102,6 +107,7 @@ SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 TITLES_FILE = os.path.join(DATA_DIR, "titles.json")
 sessions = {}
 titles = {}
+frontend_process = None
 
 
 def load_sessions():
@@ -147,9 +153,30 @@ def save_sessions():
         print(f"保存会话失败: {e}")
 
 
-def signal_handler(sig, frame):
-    print(f"\n接收到信号 {sig}，正在保存数据并退出...")
+def cleanup():
+    global frontend_process
+    print("\n正在关闭系统...")
     save_sessions()
+    if frontend_process:
+        print(f"正在关闭前端开发服务器 (PID: {frontend_process.pid})...")
+        if sys.platform == "win32":
+            try:
+                # 在 Windows 上，使用 taskkill 强制终止整个进程树 (/T)
+                # /F 表示强制终止，/T 表示终止子进程
+                subprocess.run(['taskkill', '/F', '/T', '/PID', str(frontend_process.pid)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e:
+                print(f"关闭前端进程失败: {e}")
+        else:
+            frontend_process.terminate()
+            try:
+                frontend_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                frontend_process.kill()
+
+
+def signal_handler(sig, frame):
+    # sys.exit(0) 会触发 atexit 注册的 cleanup
     sys.exit(0)
 
 
@@ -159,7 +186,7 @@ if sys.platform == "win32":
     # SIGBREAK 在 Windows 上用于处理控制台窗口关闭
     signal.signal(signal.SIGBREAK, signal_handler)
 
-atexit.register(save_sessions)
+atexit.register(cleanup)
 
 load_sessions()
 
@@ -715,16 +742,6 @@ if __name__ == '__main__':
             try:
                 is_win = sys.platform == "win32"
                 frontend_process = subprocess.Popen([npm_cmd, "run", "dev:frontend"], shell=is_win)
-
-
-                def cleanup():
-                    print("\n正在关闭系统...")
-                    save_sessions()
-                    if 'frontend_process' in locals():
-                        frontend_process.terminate()
-
-
-                atexit.register(cleanup)
             except Exception as e:
                 print(f"前端启动失败: {e}")
     else:
