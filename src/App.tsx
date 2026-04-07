@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor, Paperclip } from 'lucide-react';
+import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor, Paperclip, Download } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -438,7 +438,10 @@ export default function App() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const isSendTriggered = isMac ? (e.metaKey && e.key === 'Enter') : (e.ctrlKey && e.key === 'Enter');
+
+    if (isSendTriggered) {
       e.preventDefault();
       handleSend();
     }
@@ -627,11 +630,17 @@ export default function App() {
 
               if (thinkDepth > 0) {
                 thinks.push(currentThink);
+              }
+
+              if (thinkDepth > 0 || (mainContent === "" && msg.id === messages[messages.length - 1].id && isLoading)) {
                 isThinking = true;
               }
             } else {
               mainContent = msg.content;
             }
+
+            // Strip XML tags used for Constrained Decoding
+            mainContent = mainContent.replace(/<\/?response>/g, '').replace(/<\/?final_answer>/g, '').trim();
 
             let sourceContent = "";
             if (msg.role === 'agent') {
@@ -734,6 +743,25 @@ export default function App() {
                               <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{mainContent}</Markdown>
                             </div>
                           )}
+                          {(() => {
+                            const downloadMatch = (msg.content || "").match(/(Result\/[a-zA-Z0-9_-]+\/[^\s"'`\)\]<>\*。，！？,\?]+)/);
+                            const downloadPath = downloadMatch ? downloadMatch[1] : null;
+                            if (downloadPath) {
+                              return (
+                                <div className="mt-1 pt-3 border-t border-gray-200 dark:border-gray-700">
+                                  <a
+                                    href={`/api/download?file_path=${encodeURIComponent(downloadPath)}`}
+                                    download
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                                  >
+                                    <Download size={16} />
+                                    下载文件
+                                  </a>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                           {sourceContent && (
                             <div className="source-list-container text-[14px] text-gray-600 dark:text-gray-400">
                               <div className="font-medium mb-2 text-gray-900 dark:text-gray-100 flex items-center gap-2 uppercase tracking-wider text-[13px]">
@@ -776,9 +804,9 @@ export default function App() {
 
           {isInputExpanded && (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="bg-white dark:bg-gray-800 rounded-3xl p-5 flex flex-col gap-5 overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="absolute bottom-full mb-3 left-0 right-0 bg-white dark:bg-gray-800 rounded-3xl p-5 flex flex-col gap-5 border border-gray-200 dark:border-gray-700 shadow-lg z-10"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -863,23 +891,21 @@ export default function App() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Reply to Agent..."
+              placeholder={`Reply to Agent... (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? 'Cmd' : 'Ctrl'} + Enter to send)`}
               className="flex-1 max-h-32 min-h-[56px] bg-transparent border-none focus:ring-0 resize-none py-4 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 text-[16px] leading-relaxed outline-none"
               rows={1}
             />
-            {input.trim() || uploadedFiles.length > 0 ? (
-              <button
-                onClick={handleSend}
-                disabled={isLoading}
-                className="p-4 text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 rounded-full shrink-0 transition-colors disabled:opacity-50 shadow-sm flex items-center justify-center"
-              >
-                <Send size={24} />
-              </button>
-            ) : (
-              <button className="p-3.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full shrink-0 transition-colors">
-                <Mic size={24} />
-              </button>
-            )}
+            <button
+              onClick={handleSend}
+              disabled={isLoading || (!input.trim() && uploadedFiles.length === 0)}
+              className={`p-4 rounded-full shrink-0 transition-colors shadow-sm flex items-center justify-center ${
+                input.trim() || uploadedFiles.length > 0
+                  ? 'text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
+                  : 'text-gray-400 bg-gray-100 dark:bg-gray-800 dark:text-gray-600 cursor-not-allowed'
+              }`}
+            >
+              <Send size={24} />
+            </button>
           </div>
         </div>
       </footer>

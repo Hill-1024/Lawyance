@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, UploadFile, File, Form
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, FileResponse
@@ -504,6 +504,19 @@ async def summarize_endpoint(request: SummarizeRequest):
 
 
 import subprocess
+from fastapi.responses import FileResponse
+
+
+@app.get("/api/download")
+async def download_file(file_path: str):
+    safe_path = os.path.abspath(file_path)
+    current_dir = os.path.abspath(".")
+    if not safe_path.startswith(current_dir):
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    if os.path.exists(safe_path) and os.path.isfile(safe_path):
+        return FileResponse(path=safe_path, filename=os.path.basename(safe_path))
+    raise HTTPException(status_code=404, detail="File not found")
 
 
 @app.post("/api/upload")
