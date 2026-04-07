@@ -102,60 +102,7 @@ def build_client():
         secret=DELI_SECRET
     )
     return Client
-def match_legal(
-        keywords: list[str],
-        page_no: int = 1
-):
-    """根据查询语义，精准查询对应法规"""
-    print("正在调用tool:match_legal\n")
-    client = build_client()
-    request_body = client._build_request_body(
-        keywords=keywords,  # 搜索关键词数组
-        page_no=page_no,  # 查询对应页码
-        page_size=8,  # 每页5条结果
-        sort_field="correlation",  # 按相关度排序
-        sort_order="desc",  # 降序排列（相关性高的在前）
-    )
-    # 向法规查询的url发送请求
-    result_data = client._send_request(
-        "https://openapi.delilegal.com/api/qa/v3/search/queryListLaw",
-        request_body
-    )
-    print(json.dumps(result_data, indent=2, ensure_ascii=False))
-    # 请求检查
-    if not result_data["success"]:
-        print(result_data["msg"])
-        return None
-    # 下方是返回的数据
-    # 这里的迭代可能会导致list out of range，后面想启用的时候要加count的判断
-    result = []
-    for i in range(8):
-        if result_data["body"]["data"][i]["timelinessName"] == "失效":
-            continue
-        if result_data["body"]["data"][i]["timelinessName"] == "已被修改":
-            continue
 
-        search_result = {
-            "source": result_data["body"]["data"][i]["title"],
-            "publishDate": result_data["body"]["data"][i]["publishDate"],
-            "timelinessName": result_data["body"]["data"][i]["timelinessName"],
-            "levelName": result_data["body"]["data"][i]["levelName"],
-        }
-        result.append(search_result)
-    # 检查是否为空
-    if not result:
-        print("查询结果为空，请检查您的关键词")
-        return None
-
-    mock_result = {
-        "success": True,
-        "data": result,
-        "query": keywords,
-        # "totalCount": result_data["body"]["totalCount"],
-    }
-    # print("检索结果")
-    # print(json.dumps(mock_result, indent=2, ensure_ascii=False))
-    return json.dumps(mock_result, ensure_ascii=False)
 def match_legal_case(
         keywords: list[str],
         start_year: str="2020-12-22",

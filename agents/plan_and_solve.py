@@ -9,6 +9,7 @@ Plan & Solve 范式（两阶段）：
 
 import os
 import ast
+import re
 
 import asyncio
 from dotenv import load_dotenv
@@ -97,7 +98,7 @@ class Planner:
         prompt = PLANNER_PROMPT_TEMPLATE.format(question=question)
         messages = (memory or []) + [{"role": "user", "content": prompt}]
 
-        yield "\n\n **正在制定计划...**\n\n"
+        yield "\n\n📝 **正在制定计划...**\n\n"
 
         response_stream = await call(context=messages, stream=True)
         full_plan_text = ""
@@ -151,7 +152,7 @@ class Executor:
     async def execute(self, question: str, plan: list[str], memory: list = None):
         self.history = ""
 
-        yield "\n\n **开始执行计划...**\n"
+        yield "\n\n🚀 **开始执行计划...**\n"
 
         for i, step in enumerate(plan, 1):
             yield f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"
@@ -176,14 +177,15 @@ class Executor:
 
             self.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
-        yield "\n\n **任务执行完毕。**\n"
+        yield "\n\n✅ **任务执行完毕。**\n"
 
 # --- 4. 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
-    def __init__(self, memory: list = None):
+    def __init__(self, tool_executor: ToolExecutor = None, memory: list = None):
         self.planner = Planner()
         self.executor = Executor()
         self.memory = memory or []
+        self.tool_executor = tool_executor
 
     async def run(self, question: str):
         yield "<think>\n"
@@ -193,12 +195,75 @@ class PlanAndSolveAgent:
 
         plan = getattr(self.planner, "current_plan", [])
         if not plan:
-            yield "\n\n 无法生成有效的行动计划。\n</think>\n"
+            yield "\n\n❌ 无法生成有效的行动计划。\n</think>\n"
             return
 
         # 2. 执行计划
-        async for chunk in self.executor.execute(question, plan, memory=self.memory):
-            yield chunk
+        yield "\n\n🚀 **开始执行计划...**\n"
+
+        for i, step in enumerate(plan, 1):
+            yield f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"
+
+            # 在执行每个步骤前，先让模型判断是否需要调用工具
+            thought_prompt = f"""
+原始问题: {question}
+当前步骤: {step}
+历史执行结果: {self.executor.history if self.executor.history else "无"}
+
+可用工具:
+{self.tool_executor.getAvailableTools() if self.tool_executor else "无"}
+
+请分析当前步骤，如果需要调用工具，请输出：
+Action: {{tool_name}}[{{tool_input}}]
+否则直接输出你的分析和结果。
+"""
+            messages = (self.memory or []) + [{"role": "user", "content": thought_prompt}]
+
+            response_stream = await call(context=messages, stream=True)
+            step_result = ""
+            async for chunk in response_stream:
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    reasoning = getattr(delta, 'reasoning_content', None)
+                    if reasoning:
+                        step_result += reasoning
+                        yield reasoning
+                    if delta.content:
+                        step_result += delta.content
+                        yield delta.content
+
+            # 检查是否有 Action 调用
+            action_match = re.search(r"Action:\s*(\w+)\[(.*?)\]", step_result, re.DOTALL)
+            if action_match and self.tool_executor:
+                tool_name = action_match.group(1)
+                tool_input = action_match.group(2)
+                yield f"\n\n🎬 **执行工具**: `{tool_name}[{tool_input}]`"
+
+                tool_function = self.tool_executor.getTool(tool_name)
+                if tool_function:
+                    try:
+                        observation = tool_function(tool_input)
+                        yield f"\n\n👀 **观察**: {observation}\n"
+                        # 将工具结果喂回模型进行总结
+                        summary_prompt = f"工具执行结果如下：\n{observation}\n请根据此结果完成当前步骤：{step}"
+                        messages.append({"role": "assistant", "content": step_result})
+                        messages.append({"role": "user", "content": summary_prompt})
+
+                        final_step_stream = await call(context=messages, stream=True)
+                        final_step_result = ""
+                        async for chunk in final_step_stream:
+                            if chunk.choices:
+                                delta = chunk.choices[0].delta
+                                if delta.content:
+                                    final_step_result += delta.content
+                                    yield delta.content
+                        step_result = final_step_result
+                    except Exception as e:
+                        yield f"\n\n❌ **工具执行失败**: {e}\n"
+                else:
+                    yield f"\n\n❌ **未找到工具**: {tool_name}\n"
+
+            self.executor.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
         yield "</think>\n\n"
 

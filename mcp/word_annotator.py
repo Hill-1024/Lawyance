@@ -39,30 +39,62 @@ class WordAnnotator:
     def writer(self, index, text, output_path=None):
         if output_path is None:
             base_name, ext = os.path.splitext(self.file_path)
-            output_path = f"{base_name}_gdutlawver{ext}"
+            if not base_name.endswith('_gdutlawver'):
+                base_name = f"{base_name}_gdutlawver"
+            output_path = f"{base_name}{ext}"
 
         if not exists(output_path):
             doc = Document(self.file_path)
         else:
             doc = Document(output_path)
-        print("正在批注……")
-        comment = doc.add_comment(
-            runs=doc.paragraphs[index].runs,
-            text=text,
-            author="工大法智",
-            initials="GDUTlaw",
-        )
-        doc.save(output_path)
-        return True
+
+        print(f"正在批注段落 {index}……")
+
+        # 范围检查
+        if index < 0 or index >= len(doc.paragraphs):
+            print(f"错误：索引 {index} 超出范围 (总段落数: {len(doc.paragraphs)})")
+            return False
+
+        target_para = doc.paragraphs[index]
+
+        # 确保段落有 runs，否则 add_comment 可能会失败
+        if not target_para.runs:
+            target_para.add_run("")
+
+        try:
+            # 注意：标准 python-docx 可能不支持 add_comment，这里假设环境已提供此功能
+            comment = doc.add_comment(
+                runs=target_para.runs,
+                text=text,
+                author="工大法智",
+                initials="GDUTlaw",
+            )
+            doc.save(output_path)
+            return True
+        except Exception as e:
+            print(f"批注写入失败: {e}")
+            return False
+
 def word_reader(file_path):
-    word = WordAnnotator(file_path)
-    words = word.reader()
-    # print(words)
-    return words
+    try:
+        word = WordAnnotator(file_path)
+        if not hasattr(word, 'doc'):
+            return []
+        words = word.reader()
+        return words
+    except Exception as e:
+        print(f"读取 Word 失败: {e}")
+        return []
+
 def word_writer(file_path, index, text, output_path=None):
-    word = WordAnnotator(file_path)
-    word.writer(index, text, output_path)
-    return True
+    try:
+        word = WordAnnotator(file_path)
+        if not hasattr(word, 'doc'):
+            return False
+        return word.writer(index, text, output_path)
+    except Exception as e:
+        print(f"写入 Word 失败: {e}")
+        return False
 
 # 最简测试用例
 if __name__ == "__main__":

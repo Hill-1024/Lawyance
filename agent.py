@@ -87,6 +87,12 @@ class DeleteRequest(BaseModel):
     conversation_id: str
 
 
+class RecallRequest(BaseModel):
+    conversation_id: str
+    user_msg_index: int
+    content: str
+
+
 # 确保数据目录存在
 DATA_DIR = "data"
 if not os.path.exists(DATA_DIR):
@@ -175,14 +181,29 @@ def build_agent(mode: str, memory: list):
     根据 agent_mode 字段返回对应的 Agent 实例。
     mode 不合法时退回 None（走原有 default 逻辑）。
     """
-    if mode == "react":
+    if mode in ["react", "plan_and_solve"]:
+        from mcps import tools as all_tools, use_tools
         tool_executor = ToolExecutor()
-        tool_executor.registerTool("Search",
-                                   "一个网页搜索引擎。当你需要回答关于时事、事实以及在你的知识库中找不到的信息时，应使用此工具。",
-                                   search)
-        return ReActAgent(tool_executor=tool_executor, memory=memory)
-    if mode == "plan_and_solve":
-        return PlanAndSolveAgent(memory=memory)
+
+        # 注册所有在 mcps.py 中定义的工具
+        for tool_def in all_tools:
+            name = tool_def["function"]["name"]
+            desc = tool_def["function"]["description"]
+
+            # 这里的 func 需要是一个能接受参数并返回结果的函数
+            # 我们创建一个闭包来调用 use_tools
+            def create_tool_func(n):
+                return lambda args_str: use_tools(n, json.loads(args_str) if isinstance(args_str,
+                                                                                        str) and args_str.strip().startswith(
+                    '{') else args_str)
+
+            tool_executor.registerTool(name, desc, create_tool_func(name))
+
+        if mode == "react":
+            return ReActAgent(tool_executor=tool_executor, memory=memory)
+        if mode == "plan_and_solve":
+            return PlanAndSolveAgent(tool_executor=tool_executor, memory=memory)
+
     return None
 
 
@@ -531,6 +552,46 @@ async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(
         return {"status": "success", "file_path": file_path.replace("\\", "/")}
     except Exception as e:
         return {"error": str(e)}, 500
+
+
+@app.post("/api/recall")
+async def recall_message(request: RecallRequest):
+    session_id = request.conversation_id
+    if session_id not in sessions:
+        return {"status": "error", "message": "Session not found"}
+
+    mem = sessions[session_id]
+
+    is_first_user_msg = True
+    user_count = 0
+    target_idx = -1
+
+    for i, msg in enumerate(mem):
+        if msg.get("role") == "user":
+            if is_first_user_msg and msg.get("content") == "介绍自己":
+                is_first_user_msg = False
+                continue
+
+            is_first_user_msg = False
+
+            if user_count == request.user_msg_index and msg.get("content") == request.content:
+                target_idx = i
+                break
+            user_count += 1
+
+    if target_idx != -1:
+        sessions[session_id] = mem[:target_idx]
+        save_sessions()
+        return {"status": "success"}
+    else:
+        # Fallback: find by content from the end
+        for i in range(len(mem) - 1, -1, -1):
+            if mem[i].get("role") == "user" and mem[i].get("content") == request.content:
+                sessions[session_id] = mem[:i]
+                save_sessions()
+                return {"status": "success", "note": "fallback matched"}
+
+        return {"status": "error", "message": "Message not found"}
 
 
 @app.post("/api/delete_conversation")

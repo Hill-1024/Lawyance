@@ -1,8 +1,10 @@
-from mcp.deli_client import match_legal_case, match_legal
-from mcp.pkulaw_client import get_article, search_article
+from mcp.deli_client import match_legal_case
+from mcp.pkulaw_client import get_article, search_article, get_linked_content
 from mcp.PDF_processor import pdf_text_reader, pdf_commit_by_sentence
 from mcp.word_annotator import word_reader, word_writer
 import os
+import json
+
 
 def get_result_path(input_path):
     parts = input_path.replace('\\', '/').split('/')
@@ -12,31 +14,17 @@ def get_result_path(input_path):
         base, ext = os.path.splitext(filename)
         result_dir = os.path.join('Result', conv_id)
         os.makedirs(result_dir, exist_ok=True)
-        return os.path.join(result_dir, f"{base}_gdutlawver{ext}")
+        if not base.endswith('_gdutlawver'):
+            base = f"{base}_gdutlawver"
+        return os.path.join(result_dir, f"{base}{ext}")
     else:
         base, ext = os.path.splitext(input_path)
-        return f"{base}_gdutlawver{ext}"
+        if not base.endswith('_gdutlawver'):
+            base = f"{base}_gdutlawver"
+        return f"{base}{ext}"
+
 
 tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "match_legal",
-            "description": "查询法律知识库。当需要根据用户语义获取具体的法律条文、量刑标准或处理案件的法律事实依据时，必须调用此工具。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "keywords": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "用于法律检索的关键语句列表，应提取自用户查询的核心意图，且关键语句数量应小于三个"
-                    },
-
-                },
-                "required": ["keywords"]
-            }
-        }
-    },
     {
         "type": "function",
         "function": {
@@ -51,12 +39,12 @@ tools = [
                         "description": "用于案例检索的关键语句列表，应提取自用户查询的核心意图，如['案件类型'、'争议焦点']，关键语句数量应小于三个"
                     },
                     "start_year": {
-                      "type": "string",
-                      "description": "案例查询的起始时间，格式为YYYY-MM-DD，用于筛选此日期之后判决的案例。如不指定，默认为2020-12-22。"
+                        "type": "string",
+                        "description": "案例查询的起始时间，格式为YYYY-MM-DD，用于筛选此日期之后判决的案例。如不指定，默认为2020-12-22。"
                     },
                     "end_year": {
-                      "type": "string",
-                      "description": "案例查询的截止时间，格式为YYYY-MM-DD，用于筛选此日期之前判决的案例。如不指定，默认为2025-12-22。"
+                        "type": "string",
+                        "description": "案例查询的截止时间，格式为YYYY-MM-DD，用于筛选此日期之前判决的案例。如不指定，默认为2025-12-22。"
                     },
                 },
                 "required": ["keywords"]
@@ -75,12 +63,12 @@ tools = [
                         "type": "string",
                         "description": "具体的法律名称，应提取自用户查询的核心意图"
                     },
-                    "number":{
+                    "number": {
                         "type": "string",
                         "description": "具体的法条号，应提取自用户查询的核心意图，形式如['第九条','第十七条']"
                     }
                 },
-                "required": ["title","number"]
+                "required": ["title", "number"]
             }
         }
 
@@ -99,6 +87,24 @@ tools = [
                     },
                 },
                 "required": ["query"]
+            }
+        }
+
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_linked_content",
+            "description": "获取相关法规信息的来源链接，当出现法规条文、法律概念和相关术语，必须调用此工具确认来源!!!",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "包含法规条文、法律概念和相关术语的文本"
+                    },
+                },
+                "required": ["message"]
             }
         }
 
@@ -192,16 +198,40 @@ tools = [
         }
     }
 ]
-#在此处处理agent发来的工具请求
-def use_tools(function_name,arguments):
-    if function_name == "match_legal":
-        return match_legal(arguments.get("keywords"))
+
+
+# 在此处处理agent发来的工具请求
+def use_tools(function_name, arguments):
+    # 如果 arguments 是字符串，尝试将其转换为字典（针对 ReAct 模式）
+    if isinstance(arguments, str):
+        try:
+            # 尝试解析为 JSON
+            arguments = json.loads(arguments)
+        except:
+            # 如果不是 JSON，则根据函数名构造字典
+            if function_name == "search_article":
+                arguments = {"query": arguments}
+            elif function_name == "get_linked_content":
+                arguments = {"message": arguments}
+            elif function_name == "pdf_text_reader":
+                arguments = {"pdf_path": arguments}
+            elif function_name == "word_reader":
+                arguments = {"file_path": arguments}
+            elif function_name == "match_legal_case":
+                arguments = {"keywords": [arguments]}
+            # 其他工具可能需要更复杂的参数，这里先做基础兼容
+
+    if not isinstance(arguments, dict):
+        arguments = {}
+
     if function_name == "match_legal_case":
-        return match_legal_case(arguments.get("keywords"),arguments.get("start_year"),arguments.get("end_year"))
+        return match_legal_case(arguments.get("keywords"), arguments.get("start_year"), arguments.get("end_year"))
     if function_name == "get_article":
-        return get_article(arguments.get("title"),arguments.get("number"))
+        return get_article(arguments.get("title"), arguments.get("number"))
     if function_name == "search_article":
         return search_article(arguments.get("query"))
+    if function_name == "get_linked_content":
+        return get_linked_content(arguments.get("message"))
     if function_name == "pdf_text_reader":
         return pdf_text_reader(arguments.get("pdf_path"))
     if function_name == "pdf_commit_by_sentence":
@@ -218,11 +248,13 @@ def use_tools(function_name,arguments):
         return word_reader(arguments.get("file_path"))
     if function_name == "word_writer":
         output_path = get_result_path(arguments.get("file_path"))
-        success = word_writer(arguments.get("file_path"), arguments.get("index"), arguments.get("text"), output_path=output_path)
+        success = word_writer(arguments.get("file_path"), arguments.get("index"), arguments.get("text"),
+                              output_path=output_path)
         return f"批注成功，文件保存在: {output_path}" if success else "批注失败"
-    return function_name+"工具不存在,请重新检查"
+    return function_name + "工具不存在,请重新检查"
+
+
 if __name__ == "__main__":
-    match_legal(["深圳市房地产相关的法律规定有哪些？"])
-    # match_legal_case(["上班途中车祸工伤案例"], "2020-08-05","2025-08-05")
+    match_legal_case(["上班途中车祸工伤案例"], "2020-08-05", "2025-08-05")
     # get_article("民法典", "第七条")
     # match_legal(["啊我死了"])

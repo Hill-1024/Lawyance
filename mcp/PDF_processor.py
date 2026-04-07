@@ -322,7 +322,9 @@ class PDFCommitor:
         if output_pdf_path is None:
             # 默认输出路径：原始文件名后添加_gdutlawver
             base_name, ext = os.path.splitext(input_pdf_path)
-            self.output_pdf_path = f"{base_name}_gdutlawver{ext}"
+            if not base_name.endswith('_gdutlawver'):
+                base_name = f"{base_name}_gdutlawver"
+            self.output_pdf_path = f"{base_name}{ext}"
         else:
             self.output_pdf_path = output_pdf_path
 

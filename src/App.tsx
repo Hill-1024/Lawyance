@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor, Paperclip, Download } from 'lucide-react';
+import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor, Paperclip, Download, Undo2, Pencil, RefreshCw } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -437,6 +437,157 @@ export default function App() {
     }
   };
 
+  const handleRecallMessage = async (convId: string, messageId: string) => {
+    const conv = conversations.find(c => c.id === convId);
+    if (!conv) return;
+
+    const msgIndex = conv.messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return;
+
+    const msg = conv.messages[msgIndex];
+    if (msg.role !== 'user') return;
+
+    const userMsgIndex = conv.messages.slice(0, msgIndex).filter(m => m.role === 'user').length;
+
+    updateMessages(convId, prev => prev.slice(0, msgIndex));
+
+    try {
+      await fetch('/api/recall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: convId,
+          user_msg_index: userMsgIndex,
+          content: msg.content
+        })
+      });
+    } catch (error) {
+      console.error('Failed to recall message:', error);
+    }
+  };
+
+  const handleEditMessage = async (convId: string, messageId: string) => {
+    const conv = conversations.find(c => c.id === convId);
+    if (!conv) return;
+
+    const msgIndex = conv.messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return;
+
+    const msg = conv.messages[msgIndex];
+    if (msg.role !== 'user') return;
+
+    // Parse content and files
+    const fileInfoRegex = /\[用户已上传以下文件，请根据需要进行读取和处理\]\n([\s\S]*)$/;
+    const match = msg.content.match(fileInfoRegex);
+    let textContent = msg.content;
+    let filesToRestore: {name: string, path: string}[] = [];
+
+    if (match) {
+      textContent = msg.content.replace(match[0], '').trim();
+      const fileLines = match[1].split('\n').filter(line => line.startsWith('- '));
+      filesToRestore = fileLines.map(line => {
+        const nameMatch = line.match(/^- (.*?) \(路径: (.*?)\)$/);
+        if (nameMatch) {
+          return { name: nameMatch[1], path: nameMatch[2] };
+        }
+        return null;
+      }).filter(Boolean) as {name: string, path: string}[];
+    }
+
+    // Set input and files
+    setInput(textContent);
+    setUploadedFiles(filesToRestore);
+
+    // Recall message (same logic as handleRecallMessage)
+    const userMsgIndex = conv.messages.slice(0, msgIndex).filter(m => m.role === 'user').length;
+
+    updateMessages(convId, prev => prev.slice(0, msgIndex));
+
+    try {
+      await fetch('/api/recall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: convId,
+          user_msg_index: userMsgIndex,
+          content: msg.content
+        })
+      });
+    } catch (error) {
+      console.error('Failed to recall message for edit:', error);
+    }
+  };
+
+  const handleRegenerateMessage = async (convId: string, messageId: string) => {
+    const conv = conversations.find(c => c.id === convId);
+    if (!conv) return;
+
+    const msgIndex = conv.messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return;
+
+    const msg = conv.messages[msgIndex];
+    if (msg.role !== 'user') return;
+
+    const content = msg.content;
+    const userMsgIndex = conv.messages.slice(0, msgIndex).filter(m => m.role === 'user').length;
+    const isFirstUserMessage = userMsgIndex === 0;
+
+    // Clear UI from this message onwards
+    updateMessages(convId, prev => prev.slice(0, msgIndex));
+    setIsLoading(true);
+
+    try {
+      // 1. Recall from backend (deletes this message and everything after)
+      await fetch('/api/recall', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: convId,
+          user_msg_index: userMsgIndex,
+          content: content
+        })
+      });
+
+      // 2. Re-send the message
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: content
+      };
+
+      updateMessages(convId, prev => [...prev, userMessage]);
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: content,
+          conversation_id: convId,
+          stream: isStreaming,
+          agent_mode: agentMode
+        })
+      });
+
+      if (!response.ok) throw new Error('Network response was not ok');
+
+      if (isStreaming) {
+        await processStream(response, null, convId);
+      } else {
+        const data = await response.json();
+        const agentMessageId = (Date.now() + 1).toString();
+        updateMessages(convId, prev => [...prev, { id: agentMessageId, role: 'agent', content: data.reply }]);
+        setIsLoading(false);
+      }
+
+      if (isFirstUserMessage) {
+        await summarizeConversation(convId);
+      }
+    } catch (error) {
+      console.error('Failed to regenerate message:', error);
+      setIsLoading(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const isSendTriggered = isMac ? (e.metaKey && e.key === 'Enter') : (e.ctrlKey && e.key === 'Enter');
@@ -671,7 +822,7 @@ export default function App() {
                   </div>
                 )}
 
-                <div className="flex flex-col gap-2 min-w-0 w-full">
+                <div className={`flex flex-col gap-2 min-w-0 w-full ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                   {/* Thinking Process */}
                   {msg.role === 'agent' && thinks.length > 0 && (
                     <details className="group mb-1">
@@ -777,6 +928,34 @@ export default function App() {
                       )}
                     </div>
                   ) : null}
+                  {msg.role === 'user' && !isLoading && (
+                    <div className="flex gap-2 self-end mt-1">
+                      <button
+                        onClick={() => handleRegenerateMessage(currentId, msg.id)}
+                        className="text-xs text-gray-500 hover:text-green-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                        title="重新生成"
+                      >
+                        <RefreshCw size={12} />
+                        重新生成
+                      </button>
+                      <button
+                        onClick={() => handleEditMessage(currentId, msg.id)}
+                        className="text-xs text-gray-500 hover:text-blue-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                        title="编辑消息"
+                      >
+                        <Pencil size={12} />
+                        编辑
+                      </button>
+                      <button
+                        onClick={() => handleRecallMessage(currentId, msg.id)}
+                        className="text-xs text-gray-500 hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800"
+                        title="撤回消息"
+                      >
+                        <Undo2 size={12} />
+                        撤回
+                      </button>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             );
