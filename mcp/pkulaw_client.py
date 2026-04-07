@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+
 load_dotenv(".env")
 
 PKU_ACCESS_TOKEN = os.getenv("PKU_ACCESS_TOKEN")
@@ -12,6 +13,7 @@ import sys
 import json
 import requests
 from typing import Dict, Any, Optional
+
 
 def parse_sse_response(response_text: str) -> Optional[Dict[str, Any]]:
     """
@@ -55,11 +57,11 @@ def parse_sse_response(response_text: str) -> Optional[Dict[str, Any]]:
     return json_data
 
 
-
 class PkulawMCPClient:
     """
     北大法宝的每个服务url有一个tool列表
     """
+
     def __init__(self, service_url, access_token):
         """
         初始化MCP客户端
@@ -195,7 +197,9 @@ class PkulawMCPClient:
                 "error": f"响应不是有效的JSON: {e}",
                 "raw_response_preview": response.text[:500]
             }
-def get_article(title:str, number:str):
+
+
+def get_article(title: str, number: str):
     """根据法律名称和条号，精确获取指定法条的完整内容"""
     service_url = "https://apim-gateway.pkulaw.com/mcp-law-search-service"
     print("正在调用PKU:get_article")
@@ -206,22 +210,40 @@ def get_article(title:str, number:str):
         "title": title,
         "number": number
     })
+
+    if not article_result or "error" in article_result:
+        return json.dumps({
+            "success": False,
+            "message": f"API调用失败: {article_result.get('error') if article_result else '未知错误'}"
+        }, ensure_ascii=False)
+
+    result = article_result.get("result", {})
+    structured_content = result.get("structuredContent")
+
+    if not structured_content:
+        return json.dumps({
+            "success": False,
+            "message": "未找到匹配的法条内容，请检查法律名称和条号是否正确"
+        }, ensure_ascii=False)
+
     mock_result = {
         "success": True,
-        "title": article_result["result"]["structuredContent"]["title"],
-        "content": article_result["result"]["structuredContent"]["article"],
-        "url": article_result["result"]["structuredContent"]["url"],
-
+        "title": structured_content.get("title", ""),
+        "content": structured_content.get("article", ""),
+        "url": structured_content.get("url", ""),
     }
-    if mock_result["title"] == "":
-        return {
+
+    if not mock_result["content"]:
+        return json.dumps({
             "success": False,
             "message": "未找到匹配的条，请修改查询关键词"
-        }
+        }, ensure_ascii=False)
 
     print(f"法条内容: {json.dumps(mock_result, ensure_ascii=False)}")
     return json.dumps(mock_result, ensure_ascii=False)
-def search_article(text:str):
+
+
+def search_article(text: str):
     """根据语义检索相关的法律条文，适用于不确定具体法条、需要查找相关规定的场景"""
     print("正在调用PKU:search_article")
     service_url = "https://apim-gateway.pkulaw.com/mcp-law-search-service"
@@ -232,7 +254,16 @@ def search_article(text:str):
     search_result = client.call_tool("search_article", {
         "text": text
     })
-    result = search_result["result"]["content"]
+
+    if not search_result or "error" in search_result:
+        return json.dumps({
+            "success": False,
+            "message": f"搜索失败: {search_result.get('error') if search_result else '未知错误'}"
+        }, ensure_ascii=False)
+
+    result_data = search_result.get("result", {})
+    result = result_data.get("content")
+
     if not result:
         print("未检索到相关法条")
         result = {
@@ -247,15 +278,17 @@ def search_article(text:str):
     }
     # print(f"法条内容: {json.dumps(mock_result, ensure_ascii=False)}")
     return json.dumps(mock_result, ensure_ascii=False)
+
+
 # 幻觉修正函数能正常发包并返回包，但是返回内容为空，不知道原因，暂时没有写在mcps中
-def adjust_provisions(title:str, article_number:str, text:str):
+def adjust_provisions(title: str, article_number: str, text: str):
     """分析大模型在回答用户问题时引用的具体法条和司法解释条款，返回更加权威、准确的法律条文以及司法解释的内容及原文引用地址"""
     print("正在调用PKU:adjust_provisions")
     service_url = "https://apim-gateway.pkulaw.com/pku_citation_validator"
     client = PkulawMCPClient(service_url, PKU_ACCESS_TOKEN)
     user_law = [
         {
-            "title":title,
+            "title": title,
             "article_number": article_number
         }
     ]
@@ -277,13 +310,23 @@ def adjust_provisions(title:str, article_number:str, text:str):
     adjust_result = client.call_tool("adjust_provisions", {
         "param": param
     })
+
+    if not adjust_result or "error" in adjust_result:
+        return json.dumps({
+            "success": False,
+            "message": f"校对失败: {adjust_result.get('error') if adjust_result else '未知错误'}"
+        }, ensure_ascii=False)
+
+    result_data = adjust_result.get("result", {})
     mock_result = {
         "success": True,
-        "title": adjust_result["result"]["content"],
+        "title": result_data.get("content", ""),
     }
     print(json.dumps(mock_result, ensure_ascii=False))
     return json.dumps(adjust_result, ensure_ascii=False)
-def get_linked_content(message:str):
+
+
+def get_linked_content(message: str):
     """根据输入的语义返回相关信息的超链接"""
     service_url = "https://apim-gateway.pkulaw.com/add-doc-link"
     print("正在调用PKU:get_linked_content")
@@ -293,14 +336,23 @@ def get_linked_content(message:str):
     link_result = client.call_tool("get_linked_content", {
         "message": message,
     })
+
+    if not link_result or "error" in link_result:
+        return json.dumps({
+            "success": False,
+            "message": f"获取链接失败: {link_result.get('error') if link_result else '未知错误'}"
+        }, ensure_ascii=False)
+
+    result_data = link_result.get("result", {})
     # print(json.dumps(link_result, ensure_ascii=False))
     mock_result = {
         "success": True,
-        "text": link_result["result"]["content"],
+        "text": result_data.get("content", ""),
 
     }
     print(f"法条内容: {json.dumps(mock_result, ensure_ascii=False)}")
     return json.dumps(mock_result, ensure_ascii=False)
+
 
 def main():
     """
@@ -334,7 +386,7 @@ def main():
     # 测试工具函数
     print("\n" + "=" * 50)
     print(search_article("危险货物的定义"))
-    print(get_article("民事诉讼法","第七条"))
+    print(get_article("民事诉讼法", "第七条"))
 
 
 if __name__ == "__main__":
