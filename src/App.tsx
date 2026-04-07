@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor } from 'lucide-react';
+import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor, Paperclip } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -34,6 +34,36 @@ export default function App() {
   const [agentMode, setAgentMode] = useState('default');
 
   const [themeMode, setThemeMode] = useState<'light' | 'system' | 'dark'>('system');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('conversation_id', currentId);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const filePath = data.file_path;
+        setInput(prev => prev + `\n[已上传文件: ${file.name}, 路径: ${filePath}]\n`);
+      } else {
+        console.error('Upload failed');
+      }
+    } catch (err) {
+      console.error('Upload error', err);
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -726,6 +756,20 @@ export default function App() {
               className="p-3.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full shrink-0 transition-colors"
             >
               {isInputExpanded ? <ChevronDown size={24} /> : <ChevronUp size={24} />}
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              className="hidden"
+              accept=".pdf,.doc,.docx"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-3.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full shrink-0 transition-colors"
+              title="上传文件"
+            >
+              <Paperclip size={24} />
             </button>
             <textarea
               value={input}

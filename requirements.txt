@@ -6,3 +6,6 @@ python-dotenv
 websockets
 google-search-results
 requests
+PyMuPDF
+python-docx
+python-multipart

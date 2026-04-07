@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, FileResponse
@@ -303,18 +303,44 @@ async def chat_endpoint(request: ChatRequest):
                                 has_finished_reasoning = True
                             is_tool_call = True
                             for tc in delta.tool_calls:
-                                while len(tool_calls) <= tc.index:
+                                tc_index = tc.index
+                                if tc_index is None:
+                                    if tc.id:
+                                        tc_index = len(tool_calls)
+                                    else:
+                                        tc_index = max(0, len(tool_calls) - 1)
+
+                                while len(tool_calls) <= tc_index:
                                     tool_calls.append({
-                                        "id": tc.id,
+                                        "id": "",
                                         "type": "function",
                                         "function": {"name": "", "arguments": ""}
                                     })
-                                if tc.id:
-                                    tool_calls[tc.index]["id"] = tc.id
-                                if tc.function.name:
-                                    tool_calls[tc.index]["function"]["name"] += tc.function.name
-                                if tc.function.arguments:
-                                    tool_calls[tc.index]["function"]["arguments"] += tc.function.arguments
+
+                                tc_dump = tc.model_dump(exclude_unset=True)
+                                if "id" in tc_dump and tc_dump["id"]:
+                                    tool_calls[tc_index]["id"] = tc_dump["id"]
+                                if "type" in tc_dump and tc_dump["type"]:
+                                    tool_calls[tc_index]["type"] = tc_dump["type"]
+
+                                if "function" in tc_dump and isinstance(tc_dump["function"], dict):
+                                    for k, v in tc_dump["function"].items():
+                                        if v:
+                                            if k not in tool_calls[tc_index]["function"]:
+                                                tool_calls[tc_index]["function"][k] = ""
+                                            if isinstance(v, str):
+                                                tool_calls[tc_index]["function"][k] += v
+                                            else:
+                                                tool_calls[tc_index]["function"][k] = v
+
+                                for k, v in tc_dump.items():
+                                    if k not in ["index", "id", "type", "function"] and v:
+                                        if k not in tool_calls[tc_index]:
+                                            tool_calls[tc_index][k] = ""
+                                        if isinstance(v, str):
+                                            tool_calls[tc_index][k] += v
+                                        else:
+                                            tool_calls[tc_index][k] = v
 
                     if has_started_reasoning and not has_finished_reasoning:
                         yield "\n</think>\n"
@@ -395,16 +421,7 @@ async def chat_endpoint(request: ChatRequest):
 
         if res.tool_calls:
             print("模型请求调用工具:", [t.function.name for t in res.tool_calls])
-            tool_calls = [
-                {
-                    "id": t.id,
-                    "type": "function",
-                    "function": {
-                        "name": t.function.name,
-                        "arguments": t.function.arguments
-                    }
-                } for t in res.tool_calls
-            ]
+            tool_calls = [t.model_dump(exclude_unset=True) for t in res.tool_calls]
             assistant_msg = create_assistant_message(
                 content=content,
                 reasoning_content=reasoning,
@@ -486,6 +503,23 @@ async def summarize_endpoint(request: SummarizeRequest):
     return {"title": title}
 
 
+import subprocess
+
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(...)):
+    temp_dir = os.path.join("TEMP", conversation_id)
+    os.makedirs(temp_dir, exist_ok=True)
+    file_path = os.path.join(temp_dir, file.filename)
+    try:
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        return {"status": "success", "file_path": file_path.replace("\\", "/")}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
 @app.post("/api/delete_conversation")
 async def delete_conversation(request: DeleteRequest):
     session_id = request.conversation_id
@@ -494,6 +528,22 @@ async def delete_conversation(request: DeleteRequest):
     if session_id in titles:
         del titles[session_id]
     save_sessions()
+
+    # 清理 TEMP 和 Result 文件夹
+    temp_dir = os.path.join("TEMP", session_id).replace("\\", "/")
+    result_dir = os.path.join("Result", session_id).replace("\\", "/")
+
+    # 使用跨平台 node 命令删除
+    try:
+        if os.path.exists(temp_dir):
+            subprocess.run(
+                ["node", "-e", f"const fs = require('fs'); fs.rmSync('{temp_dir}', {{recursive: true, force: true}});"])
+        if os.path.exists(result_dir):
+            subprocess.run(["node", "-e",
+                            f"const fs = require('fs'); fs.rmSync('{result_dir}', {{recursive: true, force: true}});"])
+    except Exception as e:
+        print(f"清理文件夹失败: {e}")
+
     return {"status": "success"}
 
 
