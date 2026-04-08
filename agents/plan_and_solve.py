@@ -98,7 +98,7 @@ class Planner:
         prompt = PLANNER_PROMPT_TEMPLATE.format(question=question)
         messages = (memory or []) + [{"role": "user", "content": prompt}]
 
-        yield "\n\n📝 **正在制定计划...**\n\n"
+        yield "\n\n**正在制定计划...**\n\n"
 
         # 规划阶段不需要工具
         response_stream = await call(context=messages, stream=True, include_tools=False)
@@ -153,7 +153,7 @@ class Executor:
     async def execute(self, question: str, plan: list[str], memory: list = None):
         self.history = ""
 
-        yield "\n\n🚀 **开始执行计划...**\n"
+        yield "\n\n**开始执行计划...**\n"
 
         for i, step in enumerate(plan, 1):
             yield f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"
@@ -179,7 +179,7 @@ class Executor:
 
             self.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
-        yield "\n\n✅ **任务执行完毕。**\n"
+        yield "\n\n**任务执行完毕。**\n"
 
 # --- 4. 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
@@ -197,7 +197,7 @@ class PlanAndSolveAgent:
 
         plan = getattr(self.planner, "current_plan", [])
         if not plan:
-            yield "\n\n❌ 无法生成有效的行动计划。\n</think>\n"
+            yield "\n\n无法生成有效的行动计划。\n</think>\n"
             return
 
         # 2. 执行计划
@@ -240,13 +240,13 @@ Action: {{tool_name}}[{{tool_input}}]
             if action_match and self.tool_executor:
                 tool_name = action_match.group(1)
                 tool_input = action_match.group(2)
-                yield f"\n\n🎬 **执行工具**: `{tool_name}[{tool_input}]`"
+                yield f"\n\n**执行工具**: `{tool_name}[{tool_input}]`"
 
                 tool_function = self.tool_executor.getTool(tool_name)
                 if tool_function:
                     try:
                         observation = tool_function(tool_input)
-                        yield f"\n\n👀 **观察**: {observation}\n"
+                        yield f"\n\n**观察**: {observation}\n"
                         # 将工具结果喂回模型进行总结
                         summary_prompt = f"工具执行结果如下：\n{observation}\n请根据此结果完成当前步骤：{step}"
                         messages.append({"role": "assistant", "content": step_result})
@@ -263,9 +263,9 @@ Action: {{tool_name}}[{{tool_input}}]
                                     yield delta.content
                         step_result = final_step_result
                     except Exception as e:
-                        yield f"\n\n❌ **工具执行失败**: {e}\n"
+                        yield f"\n\n**工具执行失败**: {e}\n"
                 else:
-                    yield f"\n\n❌ **未找到工具**: {tool_name}\n"
+                    yield f"\n\n**未找到工具**: {tool_name}\n"
 
             self.executor.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
