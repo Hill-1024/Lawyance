@@ -8,6 +8,22 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
+@utility safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility safe-area-pt {
+  padding-top: env(safe-area-inset-top);
+}
+
+@utility safe-area-pl {
+  padding-left: env(safe-area-inset-left);
+}
+
+@utility safe-area-pr {
+  padding-right: env(safe-area-inset-right);
+}
+
 /* Superscript badge styles */
 .prose sup {
   font-size: 0.75em;

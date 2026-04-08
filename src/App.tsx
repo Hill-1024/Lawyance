@@ -30,6 +30,21 @@ const generateUUID = () => {
   });
 };
 
+const GREETING_MESSAGE = `<think>Hello👋</think><final_answer>您好，我是 **Lawver**，由 **广东工业大学工大法智团队** 开发的专业法律AI助手。
+
+## 我的核心能力：
+- 法律检索：精准查询法律法规条文、司法解释及经典判例
+- 案例分析：基于事实进行多维度法律分析（民事、行政、刑事）
+- 合同审查：支持PDF与Word文档的批注、修改及风险识别
+- 专业咨询：为律师及法律从业者提供客观、严谨的法律分析意见
+
+## 我的工作原则：
+- 客观中立 — 不讨好顺从，基于事实与法条进行专业判断
+- 细节导向 — 不遗漏任何可能影响案件走向的关键细节
+- 多维分析 — 综合考虑程序与实体、攻防双方的立场
+- 信源可溯 — 所有法条与案例均提供权威出处
+请问有什么法律问题需要我协助分析？</final_answer>`;
+
 export default function App() {
   // Migration and Initialization
   const { initialConvs, initialId } = (() => {
@@ -56,7 +71,7 @@ export default function App() {
 
     if (convs.length === 0) {
       const newId = generateUUID();
-      convs = [{ id: newId, title: 'New Chat', messages: [] }];
+      convs = [{ id: newId, title: 'New Chat', messages: [{ id: 'greeting', role: 'agent', content: GREETING_MESSAGE }] }];
     }
 
     let finalId = savedId;
@@ -272,46 +287,11 @@ export default function App() {
 
     setConversations(prev => {
       if (prev.some(c => c.id === newId)) return prev;
-      return [{ id: newId, title: 'New Chat', messages: [] }, ...prev];
+      return [{ id: newId, title: 'New Chat', messages: [{ id: 'greeting', role: 'agent', content: GREETING_MESSAGE }] }, ...prev];
     });
     setCurrentId(newId);
     if (window.innerWidth < 1024) {
       setIsSidebarOpen(false);
-    }
-
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: '介绍自己',
-          history: [],
-          conversation_id: newId,
-          stream: isStreaming,
-          agent_mode: agentMode
-        })
-      });
-
-      if (!response.ok) throw new Error('Network response was not ok');
-
-      if (isStreaming) {
-        await processStream(response, null, newId);
-      } else {
-        const data = await response.json();
-        const agentMessageId = Date.now().toString();
-        updateMessages(newId, prev => [...prev, { id: agentMessageId, role: 'agent', content: data.reply }]);
-        setIsLoading(false);
-      }
-    } catch (error) {
-      console.error('Error connecting to Python agent:', error);
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        role: 'agent',
-        content: '抱歉，连接到 Agent 时发生错误。'
-      };
-      updateMessages(newId, prev => [...prev, errorMessage]);
-      setIsLoading(false);
     }
   };
 
@@ -567,7 +547,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans selection:bg-blue-200 dark:selection:bg-blue-900 selection:text-blue-900 dark:selection:text-blue-100 overflow-hidden">
+    <div className="flex h-dvh bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans selection:bg-blue-200 dark:selection:bg-blue-900 selection:text-blue-900 dark:selection:text-blue-100 overflow-hidden">
 
       {/* Sidebar Overlay */}
       {isSidebarOpen && (
@@ -594,7 +574,7 @@ export default function App() {
             New Chat
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-3 pb-4 flex flex-col gap-1 custom-scrollbar min-w-62.5">
+        <div className="flex-1 overflow-y-auto px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] flex flex-col gap-1 custom-scrollbar min-w-62.5">
           {conversations.map(conv => (
             <div
               key={conv.id}
@@ -621,7 +601,7 @@ export default function App() {
 
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Top App Bar */}
-        <header className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 shrink-0 z-10 sticky top-0 border-b border-gray-200 dark:border-gray-800">
+        <header className="flex items-center justify-between px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 shrink-0 z-10 sticky top-0 border-b border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -629,7 +609,7 @@ export default function App() {
             >
               <Menu size={24} />
             </button>
-            <h1 className="text-lg sm:text-[22px] font-medium tracking-tight ml-1 truncate max-w-30 sm:max-w-none">
+            <h1 className="text-lg sm:text-[22px] font-medium tracking-tight ml-1 truncate max-w-40 sm:max-w-none">
               {currentConversation.title || 'GDUT-Lawver'}
             </h1>
           </div>
@@ -686,57 +666,59 @@ export default function App() {
             if (msg.role === 'agent') {
               let thinkDepth = 0;
               let currentThink = "";
-              let hasFoundFirstThink = false;
+              let preFinalAnswerBuffer = "";
+              let hasReachedFinalAnswer = false;
               let i = 0;
               const content = msg.content || "";
 
               while (i < content.length) {
                 if (content.startsWith("<think>", i)) {
-                  hasFoundFirstThink = true;
                   thinkDepth++;
                   i += 7;
-                  if (thinkDepth === 1) {
-                    currentThink = "";
-                  }
                 } else if (content.startsWith("</think>", i)) {
                   if (thinkDepth > 0) {
                     thinkDepth--;
                     i += 8;
                     if (thinkDepth === 0) {
-                      thinks.push(currentThink);
+                      thinks.push(currentThink.trim());
                       currentThink = "";
                     }
                   } else {
-                    i += 8; // Ignore stray </think>
+                    i += 8;
                   }
-                } else if (thinkDepth > 0 && content.startsWith("<final_answer>", i)) {
-                  // 前端双保险：如果遇到 <final_answer> 但 <think> 尚未闭合，强制闭合思考过程
-                  thinkDepth = 0;
-                  thinks.push(currentThink);
-                  currentThink = "";
-                  mainContent += "<final_answer>";
+                } else if (content.startsWith("<final_answer>", i)) {
+                  hasReachedFinalAnswer = true;
+                  if (thinkDepth > 0) {
+                    // Force close think if final_answer starts
+                    thinks.push(currentThink.trim());
+                    currentThink = "";
+                    thinkDepth = 0;
+                  }
                   i += 14;
+                } else if (content.startsWith("</final_answer>", i)) {
+                  i += 15;
                 } else {
                   if (thinkDepth > 0) {
                     currentThink += content[i];
+                  } else if (hasReachedFinalAnswer) {
+                    mainContent += content[i];
                   } else {
-                    // Collect content outside of think tags.
-                    // We trim leading whitespace only if mainContent is empty.
-                    if (mainContent.length > 0 || !content[i].match(/\s/)) {
-                      mainContent += content[i];
-                    }
+                    preFinalAnswerBuffer += content[i];
                   }
                   i++;
                 }
               }
 
-              mainContent = mainContent.trim();
-
               if (thinkDepth > 0) {
-                thinks.push(currentThink);
+                thinks.push(currentThink.trim());
               }
 
-              if (thinkDepth > 0 || (mainContent === "" && msg.id === messages[messages.length - 1].id && isLoading)) {
+              if (preFinalAnswerBuffer.trim()) {
+                // If there's content before/between tags that isn't formal answer, treat as thinking
+                thinks.unshift(preFinalAnswerBuffer.trim());
+              }
+
+              if (thinkDepth > 0 || (mainContent.trim() === "" && msg.id === messages[messages.length - 1].id && isLoading)) {
                 isThinking = true;
               }
             } else {
@@ -792,10 +774,10 @@ export default function App() {
                           </span>
                         ) : "Thought Process"}
                       </summary>
-                      <div className="mt-3 mb-2 px-5 py-4 text-[15px] text-gray-600 dark:text-gray-300 border-l-4 border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800/50 whitespace-pre-wrap prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-code:text-gray-900 dark:prose-code:text-gray-100 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none rounded-r-2xl">
+                      <div className="mt-3 mb-2 px-5 py-4 text-[15px] text-gray-600 dark:text-gray-300 border-l-4 border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800/50 prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-code:text-gray-900 dark:prose-code:text-gray-100 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none rounded-r-2xl">
                         {thinks.map((think, i) => (
                           <div key={i} className={i > 0 ? "mt-4 pt-4 border-t border-gray-200 dark:border-gray-700" : ""}>
-                            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{think}</Markdown>
+                            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{think.trim()}</Markdown>
                           </div>
                         ))}
                       </div>
@@ -931,7 +913,7 @@ export default function App() {
       </main>
 
       {/* Bottom App Bar / Input Area */}
-      <footer className="bg-gray-50 dark:bg-gray-900 p-2 sm:p-4 shrink-0 pb-6 sm:pb-8 border-t border-gray-200 dark:border-gray-800">
+      <footer className="bg-gray-50 dark:bg-gray-900 p-2 sm:p-4 shrink-0 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:pb-8 border-t border-gray-200 dark:border-gray-800">
         <div className="max-w-3xl mx-auto relative flex flex-col gap-3">
 
           {isInputExpanded && (

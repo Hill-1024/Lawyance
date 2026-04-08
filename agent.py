@@ -266,10 +266,12 @@ async def chat_endpoint(request: ChatRequest):
                             yield reasoning
 
                         if delta.content is not None:
-                            if has_started_reasoning and not has_finished_reasoning:
+                            # 只有当内容非空且非纯空白时，或者推理已经明确结束时，才关闭思考块
+                            if has_started_reasoning and not has_finished_reasoning and delta.content.strip():
                                 yield "\n</think>\n"
                                 content_str += "\n</think>\n"
                                 has_finished_reasoning = True
+
                             content_str += delta.content
                             yield delta.content
 
@@ -369,20 +371,52 @@ async def summarize_endpoint(request: SummarizeRequest):
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(...)):
-    temp_dir = os.path.join("TEMP", conversation_id)
+    # 修复上传漏洞：限制文件类型并清理文件名
+    # 1. 限制允许上传的扩展名
+    ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+
+    # 2. 清理文件名，防止路径穿越和特殊字符注入
+    import re
+    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename)
+
+    # 3. 确保目录安全
+    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
+    temp_dir = os.path.join("TEMP", safe_conv_id)
     os.makedirs(temp_dir, exist_ok=True)
-    file_path = os.path.join(temp_dir, file.filename)
+
+    file_path = os.path.join(temp_dir, safe_filename)
+
+    # 4. 写入文件
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
+
     return {"status": "success", "file_path": file_path.replace("\\", "/")}
 
 
 @app.get("/api/download")
 async def download_file(file_path: str):
-    if os.path.exists(file_path):
-        return FileResponse(path=file_path, filename=os.path.basename(file_path))
-    raise HTTPException(status_code=404, detail="File not found")
+    # 修复任意文件下载漏洞：限制只能下载 TEMP 或 Result 目录下的文件
+    # 1. 规范化路径，防止路径穿越攻击（如 ../../../etc/passwd）
+    abs_path = os.path.abspath(file_path)
+    cwd = os.getcwd()
+
+    # 2. 定义允许下载的目录
+    allowed_dirs = [
+        os.path.join(cwd, "TEMP"),
+        os.path.join(cwd, "Result")
+    ]
+
+    # 3. 校验路径是否在允许的目录内
+    is_allowed = any(abs_path.startswith(os.path.abspath(d)) for d in allowed_dirs)
+
+    if is_allowed and os.path.exists(abs_path) and os.path.isfile(abs_path):
+        return FileResponse(path=abs_path, filename=os.path.basename(abs_path))
+
+    raise HTTPException(status_code=403, detail="Access denied or file not found")
 
 
 @app.get("/{full_path:path}")
