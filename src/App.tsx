@@ -709,6 +709,13 @@ export default function App() {
                   } else {
                     i += 8; // Ignore stray </think>
                   }
+                } else if (thinkDepth > 0 && content.startsWith("<final_answer>", i)) {
+                  // 前端双保险：如果遇到 <final_answer> 但 <think> 尚未闭合，强制闭合思考过程
+                  thinkDepth = 0;
+                  thinks.push(currentThink);
+                  currentThink = "";
+                  mainContent += "<final_answer>";
+                  i += 14;
                 } else {
                   if (thinkDepth > 0) {
                     currentThink += content[i];
