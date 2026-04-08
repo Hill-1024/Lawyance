@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { fileDB } from './lib/db';
-import { Send, Loader2, Sparkles, Menu, Mic, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor, Paperclip, Download, Undo2, Pencil, RefreshCw } from 'lucide-react';
+import { Send, Loader2, Sparkles, Menu, Info, X, Plus, ChevronUp, ChevronDown, Settings2, Trash2, Sun, Moon, Monitor, Paperclip, Download, Undo2, Pencil, RefreshCw } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -324,7 +324,7 @@ export default function App() {
 
     if (filtered.length === 0) {
       setConversations([]);
-      handleNewChat();
+      await handleNewChat();
     } else {
       setConversations(filtered);
       if (currentId === convId) {
@@ -458,7 +458,7 @@ export default function App() {
     const msg = conv.messages[msgIndex];
     if (msg.role !== 'user') return;
 
-    const fileInfoRegex = /\[用户已上传以下文件，请根据需要进行读取和处理\]\n([\s\S]*)$/;
+    const fileInfoRegex = /\[用户已上传以下文件，请根据需要进行读取和处理]\n([\s\S]*)$/;
     const match = msg.content.match(fileInfoRegex);
     let textContent = msg.content;
     let filesToRestore: {name: string, path: string}[] = [];
@@ -532,7 +532,7 @@ export default function App() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const isMac = /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent);
     const isSendTriggered = isMac ? (e.metaKey && e.key === 'Enter') : (e.ctrlKey && e.key === 'Enter');
 
     if (isSendTriggered) {
@@ -579,13 +579,13 @@ export default function App() {
 
       {/* Sidebar */}
       <div className={`fixed lg:relative top-0 left-0 h-full w-[85vw] max-w-[320px] lg:max-w-none bg-gray-50 dark:bg-gray-900 shadow-2xl lg:shadow-none z-50 transform transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 lg:w-80' : '-translate-x-full lg:translate-x-0 lg:w-0'} flex flex-col lg:rounded-none rounded-r-3xl border-r border-gray-200 dark:border-gray-800 shrink-0 overflow-hidden`}>
-        <div className="p-6 pb-4 flex items-center justify-between min-w-[250px]">
+        <div className="p-6 pb-4 flex items-center justify-between min-w-62.5">
           <h2 className="font-medium text-xl text-gray-900 dark:text-gray-100 whitespace-nowrap">Conversations</h2>
           <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-600 dark:text-gray-400 lg:hidden">
             <X size={24} />
           </button>
         </div>
-        <div className="px-4 pb-4 min-w-[250px]">
+        <div className="px-4 pb-4 min-w-62.5">
           <button
             onClick={() => handleNewChat()}
             className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-full flex items-center justify-center gap-2 transition-all font-medium shadow-md hover:shadow-lg active:scale-[0.98] whitespace-nowrap"
@@ -594,7 +594,7 @@ export default function App() {
             New Chat
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-3 pb-4 flex flex-col gap-1 custom-scrollbar min-w-[250px]">
+        <div className="flex-1 overflow-y-auto px-3 pb-4 flex flex-col gap-1 custom-scrollbar min-w-62.5">
           {conversations.map(conv => (
             <div
               key={conv.id}
@@ -629,7 +629,7 @@ export default function App() {
             >
               <Menu size={24} />
             </button>
-            <h1 className="text-lg sm:text-[22px] font-medium tracking-tight ml-1 truncate max-w-[120px] sm:max-w-none">
+            <h1 className="text-lg sm:text-[22px] font-medium tracking-tight ml-1 truncate max-w-30 sm:max-w-none">
               {currentConversation.title || 'GDUT-Lawver'}
             </h1>
           </div>
@@ -648,21 +648,21 @@ export default function App() {
                 className={`relative z-10 w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'light' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                 title="Light Mode"
               >
-                <Sun size={16} className="sm:size-[18px]" />
+                <Sun size={16} className="sm:size-4.5" />
               </button>
               <button
                 onClick={() => setThemeMode('system')}
                 className={`relative z-10 w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'system' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                 title="System Mode"
               >
-                <Monitor size={16} className="sm:size-[18px]" />
+                <Monitor size={16} className="sm:size-4.5" />
               </button>
               <button
                 onClick={() => setThemeMode('dark')}
                 className={`relative z-10 w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'dark' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
                 title="Dark Mode"
               >
-                <Moon size={16} className="sm:size-[18px]" />
+                <Moon size={16} className="sm:size-4.5" />
               </button>
             </div>
           </div>
@@ -806,14 +806,14 @@ export default function App() {
                   {mainContent.trim() || msg.role === 'user' || sourceContent ? (
                     <div className={`px-4 py-3 sm:px-6 sm:py-4 text-[15px] sm:text-[16px] leading-relaxed shadow-sm w-fit ${
                       msg.role === 'user'
-                        ? 'bg-blue-600 dark:bg-blue-500 text-white rounded-[20px] sm:rounded-[28px] rounded-tr-[4px] sm:rounded-tr-[8px]'
-                        : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-[20px] sm:rounded-[28px] rounded-tl-[4px] sm:rounded-tl-[8px] border border-gray-200 dark:border-gray-800'
+                        ? 'bg-blue-600 dark:bg-blue-500 text-white rounded-[20px] sm:rounded-[28px] rounded-tr-sm sm:rounded-tr-lg'
+                        : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-[20px] sm:rounded-[28px] rounded-tl-sm sm:rounded-tl-lg border border-gray-200 dark:border-gray-800'
                     }`}
                     >
                       {msg.role === 'user' ? (
                         <div className="flex flex-col gap-2">
                           {(() => {
-                            const fileInfoRegex = /\[用户已上传以下文件，请根据需要进行读取和处理\]\n([\s\S]*)$/;
+                            const fileInfoRegex = /\[用户已上传以下文件，请根据需要进行读取和处理]\n([\s\S]*)$/;
                             const match = msg.content.match(fileInfoRegex);
                             if (match) {
                               const textContent = msg.content.replace(match[0], '').trim();
@@ -829,7 +829,7 @@ export default function App() {
                                       {files.map((file, i) => (
                                         <div key={i} className="flex items-center gap-1.5 bg-blue-700/50 dark:bg-blue-600/50 rounded-full px-3 py-1 text-sm">
                                           <Paperclip size={14} />
-                                          <span className="truncate max-w-[200px]">{file}</span>
+                                          <span className="truncate max-w-50">{file}</span>
                                         </div>
                                       ))}
                                     </div>
@@ -848,7 +848,7 @@ export default function App() {
                             </div>
                           )}
                           {(() => {
-                            const downloadMatch = (msg.content || "").match(/(Result\/[a-zA-Z0-9_-]+\/[^\s"'`\)\]<>\*。，！？,\?]+)/);
+                            const downloadMatch = (msg.content || "").match(/(Result\/[a-zA-Z0-9_-]+\/[^\s"'`)\]<>*。，！？,?]+)/);
                             const downloadPath = downloadMatch ? downloadMatch[1] : null;
                             if (downloadPath) {
                               return (
@@ -859,7 +859,7 @@ export default function App() {
                                     className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
                                   >
                                     <Download size={16} />
-                                    下载批注文件
+                                    下载文件
                                   </a>
                                 </div>
                               );
@@ -920,7 +920,7 @@ export default function App() {
               <div className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center mt-1 shadow-sm text-white bg-blue-600 dark:bg-blue-500">
                 <Sparkles size={20} />
               </div>
-              <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-[28px] rounded-tl-[8px] px-6 py-4 flex items-center gap-3 shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-[28px] rounded-tl-lg px-6 py-4 flex items-center gap-3 shadow-sm border border-gray-200 dark:border-gray-700">
                 <Loader2 size={20} className="animate-spin text-gray-500 dark:text-gray-400" />
                 <span className="text-[15px] font-medium text-gray-500 dark:text-gray-400">Agent is typing...</span>
               </div>
@@ -985,20 +985,20 @@ export default function App() {
                   key={index}
                   className="flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full px-3 py-1 sm:px-4 sm:py-1.5 shadow-sm"
                 >
-                  <Paperclip size={12} className="text-blue-600 dark:text-blue-400 sm:size-[14px]" />
-                  <span className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 max-w-[120px] sm:max-w-[200px] truncate">{file.name}</span>
+                  <Paperclip size={12} className="text-blue-600 dark:text-blue-400 sm:size-3.5" />
+                  <span className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 max-w-30 sm:max-w-50 truncate">{file.name}</span>
                   <button
                     onClick={() => removeUploadedFile(index)}
                     className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full text-gray-500 hover:text-red-500 transition-colors"
                   >
-                    <X size={12} className="sm:size-[14px]" />
+                    <X size={12} className="sm:size-3.5" />
                   </button>
                 </motion.div>
               ))}
             </div>
           )}
 
-          <div className="flex items-end gap-1 sm:gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-800 rounded-[24px] sm:rounded-[32px] p-1.5 sm:p-2 focus-within:border-blue-500 dark:focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-500 dark:focus-within:ring-blue-400 transition-all duration-300 shadow-sm">
+          <div className="flex items-end gap-1 sm:gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-800 rounded-3xl sm:rounded-4xl p-1.5 sm:p-2 focus-within:border-blue-500 dark:focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-500 dark:focus-within:ring-blue-400 transition-all duration-300 shadow-sm">
             <button
               onClick={() => setIsInputExpanded(!isInputExpanded)}
               className="p-2 sm:p-3.5 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full shrink-0 transition-colors"
@@ -1023,8 +1023,8 @@ export default function App() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={windowWidth < 640 ? "Message..." : `Reply to Agent... (${navigator.platform.toUpperCase().indexOf('MAC') >= 0 ? 'Cmd' : 'Ctrl'} + Enter to send)`}
-              className="flex-1 max-h-32 min-h-[44px] sm:min-h-[56px] bg-transparent border-none focus:ring-0 resize-none py-3 sm:py-4 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 text-sm sm:text-[16px] leading-relaxed outline-none"
+              placeholder={windowWidth < 640 ? "Message..." : `Reply to Agent... (${/Mac|iPhone|iPod|iPad/i.test(navigator.userAgent) ? 'Cmd' : 'Ctrl'} + Enter to send)`}
+              className="flex-1 max-h-32 min-h-11 sm:min-h-14 bg-transparent border-none focus:ring-0 resize-none py-3 sm:py-4 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 text-sm sm:text-[16px] leading-relaxed outline-none"
               rows={1}
             />
             <button
