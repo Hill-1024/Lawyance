@@ -280,12 +280,23 @@ async def chat_endpoint(request: ChatRequest):
                                 has_finished_reasoning = True
                             is_tool_call = True
                             for tc in delta.tool_calls:
-                                tc_index = tc.index if tc.index is not None else len(tool_calls)
+                                tc_index = tc.index
+                                tc_dump = tc.model_dump(exclude_unset=True)
+
+                                if tc_index is None:
+                                    # 如果没有提供 index，通过判断是否包含 name 或 id 来决定是新建还是追加
+                                    is_new_call = ("id" in tc_dump) or (
+                                                "function" in tc_dump and "name" in tc_dump["function"])
+                                    if len(tool_calls) == 0 or is_new_call:
+                                        tc_index = len(tool_calls)
+                                    else:
+                                        tc_index = len(tool_calls) - 1
+
                                 while len(tool_calls) <= tc_index:
                                     # 为工具调用生成默认 ID，防止模型未返回 ID 导致 400 错误
                                     tool_calls.append({"id": f"call_{int(time.time())}_{tc_index}", "type": "function",
                                                        "function": {"name": "", "arguments": ""}})
-                                tc_dump = tc.model_dump(exclude_unset=True)
+
                                 if "id" in tc_dump and tc_dump["id"]:
                                     tool_calls[tc_index]["id"] = tc_dump["id"]
                                 if "function" in tc_dump:
