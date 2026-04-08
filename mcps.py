@@ -225,7 +225,10 @@ def use_tools(function_name, arguments):
         arguments = {}
 
     if function_name == "match_legal_case":
-        return match_legal_case(arguments.get("keywords"), arguments.get("start_year"), arguments.get("end_year"))
+        return match_legal_case(arguments.get("keywords"),
+                                arguments.get("start_year"),
+                                arguments.get("end_year")
+                                )
     if function_name == "get_article":
         return get_article(arguments.get("title"), arguments.get("number"))
     if function_name == "search_article":
@@ -248,7 +251,9 @@ def use_tools(function_name, arguments):
         return word_reader(arguments.get("file_path"))
     if function_name == "word_writer":
         output_path = get_result_path(arguments.get("file_path"))
-        success = word_writer(arguments.get("file_path"), arguments.get("index"), arguments.get("text"),
+        success = word_writer(arguments.get("file_path"),
+                              arguments.get("index"),
+                              arguments.get("text"),
                               output_path=output_path)
         return f"批注成功，文件保存在: {output_path}" if success else "批注失败"
     return function_name + "工具不存在,请重新检查"

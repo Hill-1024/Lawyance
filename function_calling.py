@@ -1,6 +1,9 @@
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import os
+import json
+import time
+import copy
 from mcps import tools
 
 # 加载.env文件中的环境变量
@@ -123,48 +126,110 @@ memory = [{
 }]
 
 
-async def call(context, stream=False):
-    print(f"[LLM 调用] 模型: {LLM_MODEL}, 流式: {stream}, 上下文长度: {len(context)}")
+def sanitize_messages(messages):
+    """
+    极度严格的消息清洗，确保所有字段符合 OpenAI API 规范，防止 400 错误。
+    """
+    sanitized = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        m = copy.deepcopy(msg)
 
-    # 提取系统提示词并将其移动到最新用户消息之前，确保只有一份 System Prompt
-    modified_context = []
-    system_msg_content = ""
+        # 1. 角色校验
+        if "role" not in m:
+            continue
 
-    # 过滤出非 system 消息，并暂存 system 提示词
-    for msg in context:
+        # 2. 内容强制字符串化 (OpenAI 要求 content 必须是字符串，即使为空)
+        if "content" not in m or m["content"] is None:
+            m["content"] = ""
+        else:
+            m["content"] = str(m["content"])
+
+        # 3. 工具调用校验
+        if "tool_calls" in m and m["tool_calls"]:
+            valid_tool_calls = []
+            for tc in m["tool_calls"]:
+                if not isinstance(tc, dict):
+                    continue
+                tc_copy = copy.deepcopy(tc)
+                # 确保 id 存在且非空
+                if "id" not in tc_copy or not tc_copy["id"]:
+                    tc_copy["id"] = f"call_{int(time.time())}_{len(valid_tool_calls)}"
+
+                if "type" not in tc_copy or not tc_copy["type"]:
+                    tc_copy["type"] = "function"
+
+                # 确保 function 结构正确
+                if "function" in tc_copy:
+                    func = tc_copy["function"]
+                    if "name" not in func or not func["name"]:
+                        func["name"] = "unknown"
+                    if "arguments" not in func or func["arguments"] is None:
+                        func["arguments"] = "{}"
+                    elif not isinstance(func["arguments"], str):
+                        func["arguments"] = json.dumps(func["arguments"])
+                valid_tool_calls.append(tc_copy)
+            m["tool_calls"] = valid_tool_calls
+
+        # 4. 移除空的推理内容 (某些模型不支持空字符串或 None)
+        if "reasoning_content" in m:
+            if not m["reasoning_content"]:
+                del m["reasoning_content"]
+            else:
+                m["reasoning_content"] = str(m["reasoning_content"])
+
+        # 5. 工具返回消息校验
+        if m["role"] == "tool":
+            if "tool_call_id" not in m or not m["tool_call_id"]:
+                # 丢弃没有 ID 的工具消息，因为它会导致 API 报错
+                continue
+            # OpenAI API 规范中，tool 角色不需要 name 字段，某些模型可能会严格校验
+            if "name" in m:
+                del m["name"]
+
+        sanitized.append(m)
+    return sanitized
+
+
+async def call(context, stream=False, include_tools=True):
+    # 执行清洗
+    modified_context = sanitize_messages(context)
+
+    # 提取系统提示词并确保其位于列表首位，且只有一份
+    final_context = []
+    system_msg = None
+
+    for msg in modified_context:
         if msg["role"] == "system":
-            if not system_msg_content:
-                system_msg_content = msg["content"]
+            if not system_msg:
+                system_msg = msg
         else:
-            modified_context.append(msg)
+            final_context.append(msg)
 
-    if system_msg_content:
-        # 找到最后一个用户消息的索引
-        last_user_idx = -1
-        for i in range(len(modified_context) - 1, -1, -1):
-            if modified_context[i]["role"] == "user":
-                last_user_idx = i
-                break
+    if system_msg:
+        final_context.insert(0, system_msg)
 
-        system_msg = {
-            "role": "system",
-            "content": system_msg_content
-        }
+    print(f"[LLM 调用] 模型: {LLM_MODEL}, 流式: {stream}, 上下文长度: {len(final_context)}, 包含工具: {include_tools}")
 
-        if last_user_idx != -1:
-            modified_context.insert(last_user_idx, system_msg)
-        else:
-            modified_context.insert(0, system_msg)
+    # 打印最后两条消息的摘要，方便调试
+    if len(final_context) > 0:
+        last_msg = final_context[-1]
+        print(f"  [最后一条消息] 角色: {last_msg['role']}, 内容长度: {len(last_msg['content'])}")
+        if "tool_calls" in last_msg:
+            print(f"  [最后一条消息] 包含 {len(last_msg['tool_calls'])} 个工具调用")
 
     kwargs = {
         "model": LLM_MODEL,
-        "messages": modified_context,
+        "messages": final_context,
         "stream": stream,
     }
-    if tools:
+
+    if include_tools and tools:
         kwargs["tools"] = tools
         # 如果是自我介绍，强制不调用工具
-        if len(modified_context) > 0 and modified_context[-1]["role"] == "user" and modified_context[-1]["content"] == "介绍自己":
+        if len(final_context) > 0 and final_context[-1]["role"] == "user" and final_context[-1][
+            "content"] == "介绍自己":
             kwargs["tool_choice"] = "none"
         else:
             kwargs["tool_choice"] = "auto"
@@ -177,6 +242,11 @@ async def call(context, stream=False):
         return response.choices[0].message
     except Exception as e:
         print(f"[LLM 调用失败]: {e}")
+        # 打印出导致失败的 kwargs，方便排查 400 错误
+        try:
+            print(f"[LLM 调用失败的 kwargs]: {json.dumps(kwargs, ensure_ascii=False, indent=2)}")
+        except Exception as je:
+            print(f"[LLM 调用失败的 kwargs (无法 JSON 序列化)]: {kwargs}")
         raise e
 
 
@@ -184,17 +254,13 @@ def is_reasoning_model():
     return "moonshot" in LLM_MODEL.lower() or "deepseek" in LLM_MODEL.lower() or "reason" in LLM_MODEL.lower()
 
 
-def create_assistant_message(content=None, reasoning_content=None, tool_calls=None):
-    msg = {"role": "assistant"}
-    if content is not None:
-        msg["content"] = content
+def create_assistant_message(content="", reasoning_content=None, tool_calls=None):
+    msg = {"role": "assistant", "content": content or ""}
     if tool_calls is not None:
         msg["tool_calls"] = tool_calls
 
     if reasoning_content:
         msg["reasoning_content"] = reasoning_content
-    elif is_reasoning_model():
-        msg["reasoning_content"] = ""
 
     return msg
 
@@ -210,8 +276,12 @@ def fix_sessions_reasoning(sessions):
 
 if __name__ == "__main__":
     import asyncio
+
+
     async def test():
         memory.append({"role": "user", "content": "现在是function calling测试,请你输出与盗窃有关法律条目"})
         res = await call(memory)
         print(res)
+
+
     asyncio.run(test())

@@ -2,13 +2,18 @@
 - **不要把API_KEY传到仓库!!!**,把API_KEY存在根目录的'.env'环境文件里(自己创建),内容格式形如`API_KEY="<此处填密钥>"`\
 具体参考.env.example
 - 各模块已解耦,尽量不要修改非自己模块的内容,如果要修改请进行沟通
-- 不要把本地的对话记忆和标题提交上来
-# 如何运行本地demo
+# 如何运行demo
 ## 安装依赖
 ```
 npm install
+pip install -r requirements.txt
 ```
-## 启动后端(会自动唤起前端)
+## 构建
 ```
-python agent.py
+npm run build
+```
+
+## 运行
+```
+npm run dev
 ```

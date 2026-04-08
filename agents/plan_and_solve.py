@@ -100,7 +100,8 @@ class Planner:
 
         yield "\n\n📝 **正在制定计划...**\n\n"
 
-        response_stream = await call(context=messages, stream=True)
+        # 规划阶段不需要工具
+        response_stream = await call(context=messages, stream=True, include_tools=False)
         full_plan_text = ""
         async for chunk in response_stream:
             if chunk.choices:
@@ -162,7 +163,8 @@ class Executor:
             )
             messages = (memory or []) + [{"role": "user", "content": prompt}]
 
-            response_stream = await call(context=messages, stream=True)
+            # 执行器不需要原生工具
+            response_stream = await call(context=messages, stream=True, include_tools=False)
             step_result = ""
             async for chunk in response_stream:
                 if chunk.choices:
@@ -219,7 +221,8 @@ Action: {{tool_name}}[{{tool_input}}]
 """
             messages = (self.memory or []) + [{"role": "user", "content": thought_prompt}]
 
-            response_stream = await call(context=messages, stream=True)
+            # 执行阶段使用文本解析工具调用，禁用原生工具
+            response_stream = await call(context=messages, stream=True, include_tools=False)
             step_result = ""
             async for chunk in response_stream:
                 if chunk.choices:
@@ -249,7 +252,8 @@ Action: {{tool_name}}[{{tool_input}}]
                         messages.append({"role": "assistant", "content": step_result})
                         messages.append({"role": "user", "content": summary_prompt})
 
-                        final_step_stream = await call(context=messages, stream=True)
+                        # 总结阶段不需要工具
+                        final_step_stream = await call(context=messages, stream=True, include_tools=False)
                         final_step_result = ""
                         async for chunk in final_step_stream:
                             if chunk.choices:
@@ -270,7 +274,8 @@ Action: {{tool_name}}[{{tool_input}}]
         # 3. 最终总结
         summary_prompt = f"请根据以下执行过程，给出最终的详细回答：\n\n问题：{question}\n\n执行过程：\n{self.executor.history}"
         messages = (self.memory or []) + [{"role": "user", "content": summary_prompt}]
-        response_stream = await call(context=messages, stream=True)
+        # 最终总结不需要工具
+        response_stream = await call(context=messages, stream=True, include_tools=False)
         has_started_reasoning = False
         has_finished_reasoning = False
         async for chunk in response_stream:

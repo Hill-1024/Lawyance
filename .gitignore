@@ -9,3 +9,5 @@ __pycache__
 .python-version
 package-lock.json
 .codebuddy
+TEMP
+Result

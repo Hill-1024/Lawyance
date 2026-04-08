@@ -80,7 +80,8 @@ class ReActAgent:
             messages = self.memory + [{"role": "user", "content": prompt}]
 
             # 使用流式调用，让用户看到思考过程
-            response_stream = await call(context=messages, stream=True)
+            # 禁用原生工具调用，因为 ReAct 模式使用文本解析
+            response_stream = await call(context=messages, stream=True, include_tools=False)
 
             full_response_text = ""
             async for chunk in response_stream:
@@ -118,12 +119,12 @@ class ReActAgent:
                 yield f"\n{obs_err}\n"
                 continue
 
-            yield f"\n\n **行动**: `{tool_name}[{tool_input}]`"
+            yield f"\n\n🎬 **行动**: `{tool_name}[{tool_input}]`"
 
             tool_function = self.tool_executor.getTool(tool_name)
             observation = tool_function(tool_input) if tool_function else f"错误：未找到名为 '{tool_name}' 的工具。"
 
-            yield f"\n\n **观察**: {observation}\n"
+            yield f"\n\n👀 **观察**: {observation}\n"
 
             self.history.append(f"Action: {action}")
             self.history.append(f"Observation: {observation}")

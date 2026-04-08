@@ -5,220 +5,155 @@ from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 import uvicorn
 import json
-import subprocess
-import sys
-import atexit
 import os
 import copy
 import time
 import asyncio
-import signal
 import shutil
+from typing import List, Optional
 
-from function_calling import call, memory as system_memory, create_assistant_message, fix_sessions_reasoning
+from function_calling import call, memory as system_memory, create_assistant_message
 from agents import ReActAgent, PlanAndSolveAgent
 from mcps import use_tools
 
 from contextlib import asynccontextmanager
 
-last_heartbeat_time = time.time()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(check_heartbeat())
+    # Startup logic
+    task = asyncio.create_task(cleanup_task())
     yield
+    # Shutdown logic
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(lifespan=lifespan)
 
-
-@app.post("/api/heartbeat")
-async def heartbeat():
-    global last_heartbeat_time
-    last_heartbeat_time = time.time()
-    # print("[心跳] 收到前端活跃信号")
-    return {"status": "ok"}
-
-
-async def check_heartbeat():
-    global last_heartbeat_time
-    print("[心跳检查] 启动心跳检查任务")
-    # 给前端更多时间进行初始连接（特别是在开发模式下 Vite 编译较慢时）
-    last_heartbeat_time = time.time() + 120
-    while True:
-        await asyncio.sleep(5)
-        # 如果超过 120 秒没有收到心跳，则认为前端已关闭
-        diff = time.time() - last_heartbeat_time
-        if diff > 120:
-            print(f"检测到长时间无页面活动（{diff:.1f}秒内无心跳），正在自动关闭后端服务以节省资源...")
-            try:
-                save_sessions()
-                print("会话数据已保存。")
-            except Exception as e:
-                print(f"保存会话失败: {e}")
-
-            # 发送信号以触发优雅退出流程，确保 atexit 处理程序运行
-            if sys.platform == "win32":
-                # Windows 上使用 SIGBREAK 触发 signal_handler
-                os.kill(os.getpid(), signal.SIGBREAK)
-            else:
-                os.kill(os.getpid(), signal.SIGINT)
-
-
-# 配置 CORS，允许 React 前端跨域访问
+# 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 开发环境下允许所有来源
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# 定义前端请求的数据格式
+async def cleanup_task():
+    """
+    后台清理任务：每10分钟运行一次，删除 TEMP 和 Result 目录中超过 1 小时未修改的文件。
+    """
+    while True:
+        try:
+            now = time.time()
+            one_hour_ago = now - 3600
+            for folder in ["TEMP", "Result"]:
+                if not os.path.exists(folder):
+                    continue
+                for root, dirs, files in os.walk(folder, topdown=False):
+                    for name in files:
+                        file_path = os.path.join(root, name)
+                        if os.path.getmtime(file_path) < one_hour_ago:
+                            try:
+                                os.remove(file_path)
+                                print(f"[清理] 已删除过期文件: {file_path}")
+                            except Exception as e:
+                                print(f"[清理] 删除文件失败 {file_path}: {e}")
+
+                    # 如果目录为空，也将其删除
+                    if not os.listdir(root) and root != folder:
+                        try:
+                            os.rmdir(root)
+                            print(f"[清理] 已删除空目录: {root}")
+                        except Exception as e:
+                            print(f"[清理] 删除空目录失败 {root}: {e}")
+        except Exception as e:
+            print(f"[清理] 任务运行出错: {e}")
+
+        await asyncio.sleep(600)  # 每10分钟检查一次
+
+
+# 定义数据模型
+class Message(BaseModel):
+    role: str
+    content: Optional[str] = None
+    reasoning_content: Optional[str] = None
+    tool_calls: Optional[List[dict]] = None
+    tool_call_id: Optional[str] = None
+    name: Optional[str] = None
+
+
 class ChatRequest(BaseModel):
     message: str
+    history: List[dict] = []
     conversation_id: str = "default"
     stream: bool = True
     agent_mode: str = "default"
 
 
 class SummarizeRequest(BaseModel):
-    conversation_id: str
+    history: List[dict]
 
 
-class DeleteRequest(BaseModel):
-    conversation_id: str
+async def compress_history(history: List[dict]) -> List[dict]:
+    """
+    对超出20条范围的记忆上下文启用“摘要 + 最近10条”的压缩方式
+    """
+    # 过滤掉 system 消息进行计数
+    non_system_msgs = [m for m in history if m.get("role") != "system"]
 
+    if len(non_system_msgs) <= 20:
+        return history
 
-class RecallRequest(BaseModel):
-    conversation_id: str
-    user_msg_index: int
-    content: str
+    print(f"[历史压缩] 当前消息数 {len(non_system_msgs)} > 20，开始压缩...")
 
+    # 保留最近的 10 条
+    last_10 = non_system_msgs[-10:]
+    # 需要摘要的部分
+    to_summarize = non_system_msgs[:-10]
 
-# 确保数据目录存在
-DATA_DIR = "data"
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
+    # 构造摘要请求
+    summary_prompt = "请简要总结以下对话的核心内容和已达成的共识，以便作为后续对话的上下文参考：\n\n"
+    for m in to_summarize:
+        role = "用户" if m.get("role") == "user" else "助手"
+        content = m.get("content") or ""
+        summary_prompt += f"{role}: {content[:200]}...\n"
 
-SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
-TITLES_FILE = os.path.join(DATA_DIR, "titles.json")
-sessions = {}
-titles = {}
-frontend_process = None
-
-
-def load_sessions():
-    global sessions, titles
-    if os.path.exists(SESSIONS_FILE):
-        try:
-            with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
-                sessions = json.load(f)
-
-                sessions = fix_sessions_reasoning(sessions)
-
-                # Update system prompt for all loaded sessions to ensure they have the latest instructions
-                for session_id, memory in sessions.items():
-                    if memory and len(memory) > 0 and memory[0].get("role") == "system":
-                        memory[0]["content"] = system_memory[0]["content"]
-
-                print(f"已加载 {len(sessions)} 个历史会话。")
-        except Exception as e:
-            print(f"加载历史会话失败: {e}")
-            sessions = {}
-    else:
-        sessions = {}
-
-    if os.path.exists(TITLES_FILE):
-        try:
-            with open(TITLES_FILE, "r", encoding="utf-8") as f:
-                titles = json.load(f)
-        except Exception as e:
-            print(f"加载标题失败: {e}")
-            titles = {}
-    else:
-        titles = {}
-
-
-def save_sessions():
     try:
-        with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(sessions, f, ensure_ascii=False, indent=2)
-        with open(TITLES_FILE, "w", encoding="utf-8") as f:
-            json.dump(titles, f, ensure_ascii=False, indent=2)
-        print("会话数据已保存。")
+        # 调用 LLM 进行摘要
+        summary_res = await call([{"role": "user", "content": summary_prompt}], stream=False)
+        summary_text = f"[前情提要]: {summary_res.content}"
+        print("[历史压缩] 摘要生成成功")
+
+        # 重新构造历史：System + 摘要消息 + 最近10条
+        new_history = copy.deepcopy(system_memory)
+        new_history.append({"role": "assistant", "content": summary_text})
+        new_history.extend(last_10)
+        return new_history
     except Exception as e:
-        print(f"保存会话失败: {e}")
+        print(f"[历史压缩] 摘要生成失败: {e}，回退到截断模式")
+        # 如果摘要失败，回退到只保留最近 20 条
+        new_history = copy.deepcopy(system_memory)
+        new_history.extend(non_system_msgs[-20:])
+        return new_history
 
 
-def cleanup():
-    global frontend_process
-    print("\n正在关闭系统...")
-    save_sessions()
-    if frontend_process:
-        print(f"正在关闭前端开发服务器 (PID: {frontend_process.pid})...")
-        if sys.platform == "win32":
-            try:
-                # 在 Windows 上，使用 taskkill 强制终止整个进程树 (/T)
-                # /F 表示强制终止，/T 表示终止子进程
-                subprocess.run(['taskkill', '/F', '/T', '/PID', str(frontend_process.pid)],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception as e:
-                print(f"关闭前端进程失败: {e}")
-        else:
-            frontend_process.terminate()
-            try:
-                frontend_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                frontend_process.kill()
+from tools import ToolExecutor
 
 
-def signal_handler(sig, frame):
-    # sys.exit(0) 会触发 atexit 注册的 cleanup
-    sys.exit(0)
-
-
-# 注册信号处理程序
-signal.signal(signal.SIGINT, signal_handler)
-if sys.platform == "win32":
-    # SIGBREAK 在 Windows 上用于处理控制台窗口关闭
-    signal.signal(signal.SIGBREAK, signal_handler)
-
-atexit.register(cleanup)
-
-load_sessions()
-
-
-def get_session_memory(session_id: str):
-    if session_id not in sessions:
-        sessions[session_id] = copy.deepcopy(system_memory)
-        save_sessions()
-    return sessions[session_id]
-
-
-import asyncio
-from tools import ToolExecutor, search
-
-
-# Agent 构建函数，根据前端传来的 agent_mode 返回对应的 Agent 实例
 def build_agent(mode: str, memory: list):
-    """
-    根据 agent_mode 字段返回对应的 Agent 实例。
-    mode 不合法时退回 None（走原有 default 逻辑）。
-    """
     if mode in ["react", "plan_and_solve"]:
-        from mcps import tools as all_tools, use_tools
+        from mcps import tools as all_tools
         tool_executor = ToolExecutor()
-
-        # 注册所有在 mcps.py 中定义的工具
         for tool_def in all_tools:
             name = tool_def["function"]["name"]
             desc = tool_def["function"]["description"]
 
-            # 这里的 func 需要是一个能接受参数并返回结果的函数
-            # 我们创建一个闭包来调用 use_tools
             def create_tool_func(n):
                 return lambda args_str: use_tools(n, json.loads(args_str) if isinstance(args_str,
                                                                                         str) and args_str.strip().startswith(
@@ -230,91 +165,85 @@ def build_agent(mode: str, memory: list):
             return ReActAgent(tool_executor=tool_executor, memory=memory)
         if mode == "plan_and_solve":
             return PlanAndSolveAgent(tool_executor=tool_executor, memory=memory)
-
     return None
 
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
-    global last_heartbeat_time
-    last_heartbeat_time = time.time()
     content = request.message
+    history = request.history
     session_id = request.conversation_id
     stream = request.stream
     agent_mode = request.agent_mode
 
+    # Sanitize history: ensure content is always a string and no nulls
+    sanitized_history = []
+    for msg in history:
+        m = copy.deepcopy(msg)
+        # 确保 content 是字符串
+        if "content" not in m or m["content"] is None:
+            m["content"] = ""
+        else:
+            m["content"] = str(m["content"])
+
+        # 确保 tool_calls 中的 arguments 是字符串
+        if "tool_calls" in m and m["tool_calls"]:
+            for tc in m["tool_calls"]:
+                if "function" in tc and "arguments" in tc["function"]:
+                    if not isinstance(tc["function"]["arguments"], str):
+                        tc["function"]["arguments"] = json.dumps(tc["function"]["arguments"])
+
+        # 移除空的 reasoning_content 以免某些 API 报错
+        if "reasoning_content" in m and not m["reasoning_content"]:
+            del m["reasoning_content"]
+
+        if m.get("role") == "tool" and "tool_call_id" not in m:
+            # Skip invalid tool messages
+            continue
+        sanitized_history.append(m)
+
     print(f"\n[收到请求] 会话ID: {session_id}, 模式: {agent_mode}, 流式: {stream}")
-    print(f"[用户消息]: {content}")
 
-    try:
-        mem = get_session_memory(session_id)
-        mem.append({"role": "user", "content": content})
-        save_sessions()
-        print(f"[会话已更新] 当前上下文消息数: {len(mem)}")
-    except Exception as e:
-        print(f"[会话更新失败]: {e}")
-        return {"error": str(e)}
+    # 确保历史记录包含系统提示词 (Lawver 的身份定义)
+    full_history = copy.deepcopy(system_memory)
+    full_history.extend(sanitized_history)
 
-    agent = build_agent(agent_mode, mem)
+    # 1. 历史压缩逻辑
+    processed_history = await compress_history(full_history)
+
+    # 2. 添加当前消息
+    processed_history.append({"role": "user", "content": content})
+
+    agent = build_agent(agent_mode, processed_history)
 
     if agent:
         if stream:
             async def generate_agent():
-                print(f"[Agent模式] 开始运行: {agent_mode}")
                 full_result = ""
                 try:
-                    print(f"[Agent模式] 执行 agent.run...")
                     async for chunk in agent.run(content):
                         if chunk:
                             full_result += chunk
                             yield chunk
-
-                    if full_result:
-                        print(f"[Agent模式] 任务完成，结果长度: {len(full_result)}")
-                        msg = create_assistant_message(content=full_result)
-                        mem.append(msg)
-                    else:
-                        print("[Agent模式] 未生成结果")
-                        yield "\nAgent未能生成有效结果。\n"
-                        msg = create_assistant_message(content="Agent failed to produce a result.")
-                        mem.append(msg)
-                    save_sessions()
                 except Exception as e:
-                    print(f"[Agent模式] 异常: {e}")
                     yield f"\n[Agent 错误]: {e}\n"
 
-            return StreamingResponse(
-                generate_agent(),
-                media_type="text/plain",
-                headers={
-                    "X-Content-Type-Options": "nosniff",
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                }
-            )
+            return StreamingResponse(generate_agent(), media_type="text/plain")
         else:
             try:
                 full_result = ""
                 async for chunk in agent.run(content):
                     full_result += chunk
-                result = full_result if full_result else "Agent failed to produce a result."
+                return {"reply": full_result}
             except Exception as e:
-                result = f"Error: {e}"
-            msg = create_assistant_message(content=result)
-            mem.append(msg)
-            save_sessions()
-            return {"reply": result}
+                return {"error": str(e)}
 
     if stream:
         async def generate():
-            print("[默认模式] 开始流式生成...")
             try:
-                current_mem = mem
+                current_mem = processed_history
                 while True:
-                    print(f"[默认模式] 调用 LLM, 上下文长度: {len(current_mem)}")
                     response = await call(current_mem, True)
-                    print("[默认模式] LLM 响应已开始")
-
                     tool_calls = []
                     content_str = ""
                     reasoning_str = ""
@@ -351,44 +280,17 @@ async def chat_endpoint(request: ChatRequest):
                                 has_finished_reasoning = True
                             is_tool_call = True
                             for tc in delta.tool_calls:
-                                tc_index = tc.index
-                                if tc_index is None:
-                                    if tc.id:
-                                        tc_index = len(tool_calls)
-                                    else:
-                                        tc_index = max(0, len(tool_calls) - 1)
-
+                                tc_index = tc.index if tc.index is not None else len(tool_calls)
                                 while len(tool_calls) <= tc_index:
-                                    tool_calls.append({
-                                        "id": "",
-                                        "type": "function",
-                                        "function": {"name": "", "arguments": ""}
-                                    })
-
+                                    # 为工具调用生成默认 ID，防止模型未返回 ID 导致 400 错误
+                                    tool_calls.append({"id": f"call_{int(time.time())}_{tc_index}", "type": "function",
+                                                       "function": {"name": "", "arguments": ""}})
                                 tc_dump = tc.model_dump(exclude_unset=True)
                                 if "id" in tc_dump and tc_dump["id"]:
                                     tool_calls[tc_index]["id"] = tc_dump["id"]
-                                if "type" in tc_dump and tc_dump["type"]:
-                                    tool_calls[tc_index]["type"] = tc_dump["type"]
-
-                                if "function" in tc_dump and isinstance(tc_dump["function"], dict):
+                                if "function" in tc_dump:
                                     for k, v in tc_dump["function"].items():
-                                        if v:
-                                            if k not in tool_calls[tc_index]["function"]:
-                                                tool_calls[tc_index]["function"][k] = ""
-                                            if isinstance(v, str):
-                                                tool_calls[tc_index]["function"][k] += v
-                                            else:
-                                                tool_calls[tc_index]["function"][k] = v
-
-                                for k, v in tc_dump.items():
-                                    if k not in ["index", "id", "type", "function"] and v:
-                                        if k not in tool_calls[tc_index]:
-                                            tool_calls[tc_index][k] = ""
-                                        if isinstance(v, str):
-                                            tool_calls[tc_index][k] += v
-                                        else:
-                                            tool_calls[tc_index][k] = v
+                                        if v: tool_calls[tc_index]["function"][k] += v
 
                     if has_started_reasoning and not has_finished_reasoning:
                         yield "\n</think>\n"
@@ -396,175 +298,62 @@ async def chat_endpoint(request: ChatRequest):
                         has_finished_reasoning = True
 
                     if is_tool_call:
-                        print(f"[默认模式] 工具调用: {len(tool_calls)} 个请求")
-                        # 提示用户正在调用工具
-                        if "<think>" in content_str and "</think>" not in content_str.split("<think>")[-1]:
-                            yield "\n</think>\n"
                         yield "\n<think>\n️ **正在调用工具处理中...**\n"
 
-                        # 保存助手发出的工具调用请求
-                        assistant_msg = create_assistant_message(
-                            content=content_str or None,
-                            reasoning_content=reasoning_str,
-                            tool_calls=tool_calls
-                        )
+                        assistant_msg = create_assistant_message(content=content_str or "",
+                                                                 reasoning_content=reasoning_str, tool_calls=tool_calls)
                         current_mem.append(assistant_msg)
-                        save_sessions()
-
-                        # 执行工具调用
                         for tc in tool_calls:
                             func_name = tc["function"]["name"]
                             args_str = tc["function"]["arguments"]
+                            # 后台详细日志
+                            print(f"[工具调用] 函数: {func_name}, 参数: {args_str}")
+
                             try:
-                                args = json.loads(args_str)
-                            except:
+                                args = json.loads(args_str) if args_str else {}
+                            except Exception as je:
+                                print(f"[JSON 解析失败] 参数: {args_str}, 错误: {je}")
                                 args = {}
-                            print(f"  - 执行: {func_name}, 参数: {args}")
+
                             yield f"️ 执行: `{func_name}`\n"
                             result = use_tools(func_name, args)
-                            current_mem.append({
-                                "role": "tool",
-                                "tool_call_id": tc["id"],
-                                "name": func_name,
-                                "content": str(result)
-                            })
-                        save_sessions()
+                            current_mem.append(
+                                {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)})
                         yield " **工具执行完毕，正在生成最终回复...**\n</think>\n"
-                        # 继续循环，让模型根据工具结果生成回复
                         continue
                     else:
-                        # 最终回复完成
-                        if content_str:
-                            print(f"[默认模式] 回复完成: {content_str[:50]}...")
-                            assistant_msg = create_assistant_message(
-                                content=content_str,
-                                reasoning_content=reasoning_str
-                            )
-                            current_mem.append(assistant_msg)
-                            save_sessions()
-                        else:
-                            print("[默认模式] 警告: 模型输出了空内容")
                         break
             except Exception as e:
-                error_msg = f"\n\n[后端错误]: {str(e)}"
-                print(f"[默认模式] 异常: {e}")
-                yield error_msg
+                import traceback
+                traceback.print_exc()
+                yield f"\n\n[后端错误]: {str(e)}"
 
-        return StreamingResponse(
-            generate(),
-            media_type="text/plain",
-            headers={
-                "X-Content-Type-Options": "nosniff",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            }
-        )
+        return StreamingResponse(generate(), media_type="text/plain")
     else:
-        res = await call(mem, stream=False)
-
+        res = await call(processed_history, stream=False)
         content = res.content or ""
-        reasoning = getattr(res, 'reasoning_content', None)
-        if reasoning:
-            content = f"<think>\n{reasoning}\n</think>\n" + content
-
         if res.tool_calls:
-            print("模型请求调用工具:", [t.function.name for t in res.tool_calls])
+            # 简单处理非流式下的工具调用（递归一次）
             tool_calls = [t.model_dump(exclude_unset=True) for t in res.tool_calls]
-            assistant_msg = create_assistant_message(
-                content=content,
-                reasoning_content=reasoning,
-                tool_calls=tool_calls
-            )
-            mem.append(assistant_msg)
-            save_sessions()
-
-            for tool_call in res.tool_calls:
-                function_name = tool_call.function.name
-                arguments = json.loads(tool_call.function.arguments)
-                result = use_tools(function_name, arguments)
-                mem.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": function_name,
-                    "content": str(result)
-                })
-            save_sessions()
-
-            final_message = await call(mem, stream=False)
-            final_content = final_message.content or ""
-            final_reasoning = getattr(final_message, 'reasoning_content', None)
-            if final_reasoning:
-                final_content = f"<think>\n{final_reasoning}\n</think>\n" + final_content
-            print("最终回复:", final_content)
-            final_msg = create_assistant_message(
-                content=final_content,
-                reasoning_content=final_reasoning
-            )
-            mem.append(final_msg)
-            save_sessions()
-            return {"reply": final_content}
-        else:
-            print("模型回复:", content)
-            msg = create_assistant_message(
-                content=content,
-                reasoning_content=reasoning
-            )
-            mem.append(msg)
-            save_sessions()
-            return {"reply": content}
-
-
-@app.get("/api/conversations")
-async def get_conversations():
-    # 返回所有会话的摘要信息和消息
-    print(f"[获取会话] 当前共有 {len(sessions)} 个会话")
-    result = {}
-    for session_id, mem in sessions.items():
-        result[session_id] = {
-            "title": titles.get(session_id, "New Chat"),
-            "messages": mem
-        }
-    return result
+            processed_history.append(create_assistant_message(content=content, tool_calls=tool_calls))
+            for tc in res.tool_calls:
+                result = use_tools(tc.function.name, json.loads(tc.function.arguments))
+                processed_history.append(
+                    {"role": "tool", "tool_call_id": tc.id, "name": tc.function.name, "content": str(result)})
+            final_res = await call(processed_history, stream=False)
+            return {"reply": final_res.content}
+        return {"reply": content}
 
 
 @app.post("/api/summarize")
 async def summarize_endpoint(request: SummarizeRequest):
-    session_id = request.conversation_id
-    mem = get_session_memory(session_id)
-
-    temp_mem = copy.deepcopy(mem)
+    history = request.history
+    temp_mem = copy.deepcopy(history)
     temp_mem.append({"role": "user",
-                     "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号或其他说明。"})
-
+                     "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号。"})
     response = await call(temp_mem, stream=False)
-    title = (response.content or "").strip()
-    if not title:
-        title = "New Chat"
-    if title.startswith('"') and title.endswith('"'):
-        title = title[1:-1]
-    if title.startswith("'") and title.endswith("'"):
-        title = title[1:-1]
-
-    titles[session_id] = title
-    save_sessions()
-
-    return {"title": title}
-
-
-import subprocess
-from fastapi.responses import FileResponse
-
-
-@app.get("/api/download")
-async def download_file(file_path: str):
-    safe_path = os.path.abspath(file_path)
-    current_dir = os.path.abspath(".")
-    if not safe_path.startswith(current_dir):
-        raise HTTPException(status_code=400, detail="Invalid file path")
-
-    if os.path.exists(safe_path) and os.path.isfile(safe_path):
-        return FileResponse(path=safe_path, filename=os.path.basename(safe_path))
-    raise HTTPException(status_code=404, detail="File not found")
+    title = (response.content or "").strip().strip('"').strip("'")
+    return {"title": title or "New Chat"}
 
 
 @app.post("/api/upload")
@@ -572,182 +361,31 @@ async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(
     temp_dir = os.path.join("TEMP", conversation_id)
     os.makedirs(temp_dir, exist_ok=True)
     file_path = os.path.join(temp_dir, file.filename)
-    try:
-        with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
-        return {"status": "success", "file_path": file_path.replace("\\", "/")}
-    except Exception as e:
-        return {"error": str(e)}, 500
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    return {"status": "success", "file_path": file_path.replace("\\", "/")}
 
 
-@app.post("/api/recall")
-async def recall_message(request: RecallRequest):
-    session_id = request.conversation_id
-    if session_id not in sessions:
-        return {"status": "error", "message": "Session not found"}
-
-    mem = sessions[session_id]
-
-    is_first_user_msg = True
-    user_count = 0
-    target_idx = -1
-
-    for i, msg in enumerate(mem):
-        if msg.get("role") == "user":
-            if is_first_user_msg and msg.get("content") == "介绍自己":
-                is_first_user_msg = False
-                continue
-
-            is_first_user_msg = False
-
-            if user_count == request.user_msg_index and msg.get("content") == request.content:
-                target_idx = i
-                break
-            user_count += 1
-
-    if target_idx != -1:
-        sessions[session_id] = mem[:target_idx]
-        save_sessions()
-        return {"status": "success"}
-    else:
-        # Fallback: find by content from the end
-        for i in range(len(mem) - 1, -1, -1):
-            if mem[i].get("role") == "user" and mem[i].get("content") == request.content:
-                sessions[session_id] = mem[:i]
-                save_sessions()
-                return {"status": "success", "note": "fallback matched"}
-
-        return {"status": "error", "message": "Message not found"}
+@app.get("/api/download")
+async def download_file(file_path: str):
+    if os.path.exists(file_path):
+        return FileResponse(path=file_path, filename=os.path.basename(file_path))
+    raise HTTPException(status_code=404, detail="File not found")
 
 
-@app.post("/api/delete_conversation")
-async def delete_conversation(request: DeleteRequest):
-    session_id = request.conversation_id
-    if session_id in sessions:
-        del sessions[session_id]
-    if session_id in titles:
-        del titles[session_id]
-    save_sessions()
-
-    # 清理 TEMP 和 Result 文件夹
-    temp_dir = os.path.join("TEMP", session_id).replace("\\", "/")
-    result_dir = os.path.join("Result", session_id).replace("\\", "/")
-
-    # 使用跨平台 node 命令删除
-    try:
-        if os.path.exists(temp_dir):
-            subprocess.run(
-                ["node", "-e", f"const fs = require('fs'); fs.rmSync('{temp_dir}', {{recursive: true, force: true}});"])
-        if os.path.exists(result_dir):
-            subprocess.run(["node", "-e",
-                            f"const fs = require('fs'); fs.rmSync('{result_dir}', {{recursive: true, force: true}});"])
-    except Exception as e:
-        print(f"清理文件夹失败: {e}")
-
-    return {"status": "success"}
-
-
-# 挂载 React 编译后的静态文件（用于生产环境）
-if os.path.exists("dist"):
-    # API 路由必须在静态文件挂载之前定义（FastAPI 按顺序匹配）
-    # 挂载静态资源目录（js, css, images 等）
-    app.mount("/assets", StaticFiles(directory="dist/assets"), name="assets")
-
-
-    # 处理 SPA 路由：所有非 /api 开头的请求如果找不到文件，都返回 index.html
-    @app.get("/{full_path:path}")
-    async def serve_spa(request: Request, full_path: str):
-        if full_path.startswith("api/"):
-            return {"error": "API route not found"}, 404
-
-        # 检查文件是否存在
-        file_path = os.path.join("dist", full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-
-        # 默认返回 index.html
+@app.get("/{full_path:path}")
+async def serve_spa(request: Request, full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404)
+    dist_path = os.path.join("dist", full_path)
+    if os.path.isfile(dist_path):
+        return FileResponse(dist_path)
+    if os.path.exists("dist/index.html"):
         return FileResponse("dist/index.html")
-else:
-    @app.get("/")
-    async def root():
-        return {"message": "Agent is running. Send POST requests to /api/chat"}
-
-
-# Agent
-def setup():
-    """检查并安装必要的依赖"""
-    print("\n" + "=" * 40)
-    print("正在检查项目环境...")
-    print("=" * 40 + "\n")
-
-    # 1. 检查 Node.js 环境
-    node_cmd = "node.exe" if sys.platform == "win32" else "node"
-    if not shutil.which(node_cmd):
-        print("错误: 未检测到 Node.js。请先安装 Node.js (https://nodejs.org/)。")
-        return False
-
-    npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
-    if not shutil.which(npm_cmd):
-        print("错误: 未检测到 npm。请先安装 Node.js (https://nodejs.org/)。")
-        return False
-
-    # 2. 检查 node_modules
-    if not os.path.exists("node_modules"):
-        print("未检测到 node_modules，正在执行 npm install...")
-        try:
-            subprocess.run([npm_cmd, "install"], check=True)
-            print("npm install 执行成功。")
-        except subprocess.CalledProcessError as e:
-            print(f"npm install 执行失败: {e}")
-            return False
-
-    # 3. 检查 Python 依赖
-    if os.path.exists("requirements.txt"):
-        print("正在检查 Python 依赖...")
-        try:
-            # 使用列表形式避免路径空格问题
-            subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
-            print("Python 依赖检查/安装完成。")
-        except subprocess.CalledProcessError as e:
-            print(f"Python 依赖安装失败: {e}")
-            # 继续执行，可能已经安装过了
-
-    return True
+    return {"message": "Stateless Agent is running."}
 
 
 if __name__ == '__main__':
-    # 执行环境检查与依赖安装
-    setup()
-
-    # 默认端口
-    env_port = int(os.getenv("PORT", 3000))
-
-    print("\n" + "=" * 50)
-    print(f"系统启动中...")
-    print(f"本地访问地址: http://127.0.0.1:{env_port}")
-    print(f"外部访问地址: http://0.0.0.0:{env_port}")
-    print("=" * 50 + "\n")
-
-    # 只有在开发模式（无 dist）下才尝试启动 Vite
-    if not os.path.exists("dist"):
-        print("\n检测到开发环境，正在尝试启动前端开发服务器...")
-        # 开发模式下：
-        # 1. 后端监听 8000 端口
-        # 2. 前端 (Vite) 监听 3000 端口并代理到 8000
-        backend_port = 8000
-
-        npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
-        if shutil.which(npm_cmd):
-            try:
-                is_win = sys.platform == "win32"
-                frontend_process = subprocess.Popen([npm_cmd, "run", "dev:frontend"], shell=is_win)
-            except Exception as e:
-                print(f"前端启动失败: {e}")
-    else:
-        print("\n检测到生产环境 (dist)，将由 FastAPI 提供全栈服务。")
-        # 生产模式下：
-        backend_port = env_port
-
-    print(f"\n后端服务启动中，监听 {backend_port} 端口...")
-    uvicorn.run(app, host="0.0.0.0", port=backend_port)
+    port = int(os.getenv("PORT", 3000))
+    uvicorn.run("agent:app", host="0.0.0.0", port=port, workers=4)
