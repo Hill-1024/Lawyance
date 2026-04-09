@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "python agent.py",
-    "dev:frontend": "vite --port=3000 --host=0.0.0.0",
+    "dev:frontend": "vite --port=80 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
