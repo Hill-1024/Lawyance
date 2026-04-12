@@ -84,6 +84,7 @@ class ReActAgent:
             response_stream = await call(context=messages, stream=True, include_tools=False)
 
             full_response_text = ""
+            current_signature = ""
             async for chunk in response_stream:
                 if chunk.choices:
                     delta = chunk.choices[0].delta
@@ -91,6 +92,11 @@ class ReActAgent:
                     if reasoning:
                         full_response_text += reasoning
                         yield reasoning
+
+                    ts = getattr(delta, 'thought_signature', None)
+                    if ts:
+                        current_signature = ts
+
                     if delta.content:
                         full_response_text += delta.content
                         yield delta.content
@@ -110,6 +116,8 @@ class ReActAgent:
                 final_answer = self._parse_action_input(action)
                 yield "\n</think>\n\n"
                 yield f"{final_answer}"
+                if current_signature:
+                    yield f"\n[THOUGHT_SIGNATURE:{current_signature}]"
                 return
 
             tool_name, tool_input = self._parse_action(action)

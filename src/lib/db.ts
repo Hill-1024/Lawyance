@@ -24,7 +24,7 @@ export class FileDB {
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readwrite');
       const store = transaction.objectStore(this.storeName);
-      const request = store.put({ id, convId, fileName, blob, path, timestamp: Date.now() });
+      const request = store.put({ id, convId, fileName, blob, path: path || '', timestamp: Date.now() });
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
@@ -57,6 +57,18 @@ export class FileDB {
       const targets = (request.result as any[]).filter(f => f.convId === convId);
       targets.forEach(t => store.delete(t.id));
     };
+  }
+
+  async deleteFile(convId: string, fileName: string) {
+    const db = await this.getDB();
+    const id = `${convId}_${fileName}`;
+    const transaction = db.transaction(this.storeName, 'readwrite');
+    const store = transaction.objectStore(this.storeName);
+    return new Promise<void>((resolve, reject) => {
+      const request = store.delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
   }
 }
 

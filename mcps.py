@@ -4,24 +4,53 @@ from mcp.PDF_processor import pdf_text_reader, pdf_commit_by_sentence
 from mcp.word_annotator import word_reader, word_writer
 import os
 import json
+import tempfile
 
 
 def get_result_path(input_path):
-    parts = input_path.replace('\\', '/').split('/')
-    if len(parts) >= 3 and parts[0] == 'TEMP':
-        conv_id = parts[1]
-        filename = parts[-1]
-        base, ext = os.path.splitext(filename)
-        result_dir = os.path.join('Result', conv_id)
-        os.makedirs(result_dir, exist_ok=True)
-        if not base.endswith('_gdutlawver'):
-            base = f"{base}_gdutlawver"
-        return os.path.join(result_dir, f"{base}{ext}")
-    else:
-        base, ext = os.path.splitext(input_path)
-        if not base.endswith('_gdutlawver'):
-            base = f"{base}_gdutlawver"
-        return f"{base}{ext}"
+    if not input_path:
+        return None
+    # 统一使用正斜杠并去除首尾空格
+    normalized_path = input_path.replace('\\', '/').strip()
+    parts = [p for p in normalized_path.split('/') if p]  # 去除空字符串
+
+    # 查找 TEMP 所在的索引
+    try:
+        if 'TEMP' in parts:
+            temp_idx = parts.index('TEMP')
+            # 确保 TEMP 之后至少还有 conv_id 和 filename
+            if len(parts) > temp_idx + 2:
+                conv_id = parts[temp_idx + 1]
+                filename = parts[-1]
+                base, ext = os.path.splitext(filename)
+
+                # 构造 Result 路径
+                result_dir = os.path.join('Result', conv_id)
+                os.makedirs(result_dir, exist_ok=True)
+
+                if not base.endswith('_gdutlawver'):
+                    base = f"{base}_gdutlawver"
+                return os.path.join(result_dir, f"{base}{ext}").replace('\\', '/')
+    except Exception:
+        pass
+
+    # 如果没找到 TEMP，或者格式不对，回退到原始逻辑但确保在 Result 目录下
+    filename = os.path.basename(normalized_path)
+    base, ext = os.path.splitext(filename)
+    if not base.endswith('_gdutlawver'):
+        base = f"{base}_gdutlawver"
+
+    # 尝试寻找可能存在的 conv_id (假设路径中包含类似 UUID 的结构)
+    # 如果路径中包含 Result/xxx/，则保留
+    if 'Result' in parts:
+        res_idx = parts.index('Result')
+        if len(parts) > res_idx + 1:
+            return normalized_path  # 已经是在 Result 目录下的路径了
+
+    # 默认保存在 Result/misc 目录下，防止前端正则匹配失败
+    result_dir = os.path.join('Result', 'misc')
+    os.makedirs(result_dir, exist_ok=True)
+    return os.path.join(result_dir, f"{base}{ext}").replace('\\', '/')
 
 
 tools = [
@@ -196,12 +225,24 @@ tools = [
                 "required": ["file_path", "index", "text"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_workspace_files",
+            "description": "列出当前对话工作区（Workspace）中的所有文件。当用户上传了多个文件，或者你需要知道当前有哪些文件可供读取或处理时，调用此工具。返回包含文件名和路径的列表。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
     }
 ]
 
 
 # 在此处处理agent发来的工具请求
-def use_tools(function_name, arguments):
+def use_tools(function_name, arguments, conv_id=None):
     # 如果 arguments 是字符串，尝试将其转换为字典（针对 ReAct 模式）
     if isinstance(arguments, str):
         try:
@@ -224,11 +265,30 @@ def use_tools(function_name, arguments):
     if not isinstance(arguments, dict):
         arguments = {}
 
+    if function_name == "list_workspace_files":
+        if not conv_id:
+            return "无法获取当前对话ID，无法列出文件。"
+
+        files = []
+        # 查找 TEMP 目录
+        temp_dir = os.path.join("TEMP", conv_id)
+        if os.path.exists(temp_dir):
+            for f in os.listdir(temp_dir):
+                files.append({"name": f, "path": os.path.join(temp_dir, f).replace('\\', '/')})
+
+        # 查找 Result 目录
+        result_dir = os.path.join("Result", conv_id)
+        if os.path.exists(result_dir):
+            for f in os.listdir(result_dir):
+                files.append({"name": f, "path": os.path.join(result_dir, f).replace('\\', '/')})
+
+        if not files:
+            return "当前工作区没有任何文件。"
+
+        return json.dumps(files, ensure_ascii=False)
+
     if function_name == "match_legal_case":
-        return match_legal_case(arguments.get("keywords"),
-                                arguments.get("start_year"),
-                                arguments.get("end_year")
-                                )
+        return match_legal_case(arguments.get("keywords"), arguments.get("start_year"), arguments.get("end_year"))
     if function_name == "get_article":
         return get_article(arguments.get("title"), arguments.get("number"))
     if function_name == "search_article":
@@ -236,11 +296,17 @@ def use_tools(function_name, arguments):
     if function_name == "get_linked_content":
         return get_linked_content(arguments.get("message"))
     if function_name == "pdf_text_reader":
-        return pdf_text_reader(arguments.get("pdf_path"))
+        path = arguments.get("pdf_path") or arguments.get("file_path") or arguments.get("path")
+        if not path:
+            return "错误：未提供PDF文件路径。"
+        return pdf_text_reader(path)
     if function_name == "pdf_commit_by_sentence":
-        output_path = get_result_path(arguments.get("pdf_path"))
+        path = arguments.get("pdf_path") or arguments.get("file_path") or arguments.get("path")
+        if not path:
+            return "错误：未提供PDF文件路径。"
+        output_path = get_result_path(path)
         success, out_path = pdf_commit_by_sentence(
-            arguments.get("pdf_path"),
+            path,
             arguments.get("note_text"),
             arguments.get("page_index", 0),
             arguments.get("sentence_index", 0),
@@ -248,13 +314,16 @@ def use_tools(function_name, arguments):
         )
         return f"批注成功，文件保存在: {out_path}" if success else "批注失败"
     if function_name == "word_reader":
-        return word_reader(arguments.get("file_path"))
+        path = arguments.get("file_path") or arguments.get("pdf_path") or arguments.get("path")
+        if not path:
+            return "错误：未提供Word文件路径。"
+        return word_reader(path)
     if function_name == "word_writer":
-        output_path = get_result_path(arguments.get("file_path"))
-        success = word_writer(arguments.get("file_path"),
-                              arguments.get("index"),
-                              arguments.get("text"),
-                              output_path=output_path)
+        path = arguments.get("file_path") or arguments.get("pdf_path") or arguments.get("path")
+        if not path:
+            return "错误：未提供Word文件路径。"
+        output_path = get_result_path(path)
+        success = word_writer(path, arguments.get("index"), arguments.get("text"), output_path=output_path)
         return f"批注成功，文件保存在: {output_path}" if success else "批注失败"
     return function_name + "工具不存在,请重新检查"
 

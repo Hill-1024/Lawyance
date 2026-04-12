@@ -247,6 +247,7 @@ Action: {{tool_name}}[{{tool_input}}]
                     try:
                         observation = tool_function(tool_input)
                         yield f"\n\n**观察**: {observation}\n"
+
                         # 将工具结果喂回模型进行总结
                         summary_prompt = f"工具执行结果如下：\n{observation}\n请根据此结果完成当前步骤：{step}"
                         messages.append({"role": "assistant", "content": step_result})
@@ -278,6 +279,7 @@ Action: {{tool_name}}[{{tool_input}}]
         response_stream = await call(context=messages, stream=True, include_tools=False)
         has_started_reasoning = False
         has_finished_reasoning = False
+        current_signature = ""
         async for chunk in response_stream:
             if chunk.choices:
                 delta = chunk.choices[0].delta
@@ -287,6 +289,11 @@ Action: {{tool_name}}[{{tool_input}}]
                         yield "<think>\n"
                         has_started_reasoning = True
                     yield reasoning
+
+                ts = getattr(delta, 'thought_signature', None)
+                if ts:
+                    current_signature = ts
+
                 if delta.content:
                     if has_started_reasoning and not has_finished_reasoning:
                         yield "\n</think>\n"
@@ -294,6 +301,9 @@ Action: {{tool_name}}[{{tool_input}}]
                     yield delta.content
         if has_started_reasoning and not has_finished_reasoning:
             yield "\n</think>\n"
+
+        if current_signature:
+            yield f"\n[THOUGHT_SIGNATURE:{current_signature}]"
 
 # --- 5. 主函数入口 ---
 if __name__ == '__main__':

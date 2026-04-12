@@ -6,6 +6,7 @@ from pydantic import BaseModel
 import uvicorn
 import json
 import os
+import re
 import copy
 import time
 import asyncio
@@ -118,7 +119,7 @@ async def compress_history(history: List[dict]) -> List[dict]:
     to_summarize = non_system_msgs[:-10]
 
     # 构造摘要请求
-    summary_prompt = "请简要总结以下对话的核心内容和已达成的共识，以便作为后续对话的上下文参考：\n\n"
+    summary_prompt = "请简要总结以下对话的核心内容和已达成的共识，以便作为后续对话的上下文参考。注意：只输出纯文本总结，不要包含任何标签（如 <final_answer> 或 <think>）。\n\n"
     for m in to_summarize:
         role = "用户" if m.get("role") == "user" else "助手"
         content = m.get("content") or ""
@@ -127,7 +128,10 @@ async def compress_history(history: List[dict]) -> List[dict]:
     try:
         # 调用 LLM 进行摘要
         summary_res = await call([{"role": "user", "content": summary_prompt}], stream=False)
-        summary_text = f"[前情提要]: {summary_res.content}"
+        content = summary_res.content or ""
+        # 强制移除可能存在的 <final_answer> 标签
+        content = re.sub(r'</?final_answer>', '', content).strip()
+        summary_text = f"[前情提要]: {content}"
         print("[历史压缩] 摘要生成成功")
 
         # 重新构造历史：System + 摘要消息 + 最近10条
@@ -146,7 +150,7 @@ async def compress_history(history: List[dict]) -> List[dict]:
 from tools import ToolExecutor
 
 
-def build_agent(mode: str, memory: list):
+def build_agent(mode: str, memory: list, session_id: str):
     if mode in ["react", "plan_and_solve"]:
         from mcps import tools as all_tools
         tool_executor = ToolExecutor()
@@ -157,7 +161,7 @@ def build_agent(mode: str, memory: list):
             def create_tool_func(n):
                 return lambda args_str: use_tools(n, json.loads(args_str) if isinstance(args_str,
                                                                                         str) and args_str.strip().startswith(
-                    '{') else args_str)
+                    '{') else args_str, conv_id=session_id)
 
             tool_executor.registerTool(name, desc, create_tool_func(name))
 
@@ -175,6 +179,11 @@ async def chat_endpoint(request: ChatRequest):
     session_id = request.conversation_id
     stream = request.stream
     agent_mode = request.agent_mode
+
+    # 为当前用户消息加上后端时间
+    from datetime import datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    content = f"[{current_time}] {content}"
 
     # Sanitize history: ensure content is always a string and no nulls
     sanitized_history = []
@@ -214,7 +223,7 @@ async def chat_endpoint(request: ChatRequest):
     # 2. 添加当前消息
     processed_history.append({"role": "user", "content": content})
 
-    agent = build_agent(agent_mode, processed_history)
+    agent = build_agent(agent_mode, processed_history, session_id)
 
     if agent:
         if stream:
@@ -223,18 +232,42 @@ async def chat_endpoint(request: ChatRequest):
                 try:
                     async for chunk in agent.run(content):
                         if chunk:
-                            full_result += chunk
-                            yield chunk
-                except Exception as e:
-                    yield f"\n[Agent 错误]: {e}\n"
+                            # 检查是否包含特殊标记
+                            if "[THOUGHT_SIGNATURE:" in chunk:
+                                ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)\]", chunk)
+                                if ts_match:
+                                    ts = ts_match.group(1)
+                                    yield f"data: {json.dumps({'type': 'thought_signature', 'content': ts})}\n\n"
+                                    # 移除标记，避免显示在正文中
+                                    chunk = chunk.replace(ts_match.group(0), "")
 
-            return StreamingResponse(generate_agent(), media_type="text/plain")
+                            if chunk:
+                                full_result += chunk
+                                yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+            return StreamingResponse(generate_agent(), media_type="text/event-stream")
         else:
             try:
                 full_result = ""
+                download_path = None
+                thought_signature = None
                 async for chunk in agent.run(content):
                     full_result += chunk
-                return {"reply": full_result}
+
+                # 提取特殊标记
+                if "[THOUGHT_SIGNATURE:" in full_result:
+                    ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)\]", full_result)
+                    if ts_match:
+                        thought_signature = ts_match.group(1)
+                        full_result = full_result.replace(ts_match.group(0), "")
+
+                return {
+                    "reply": full_result,
+                    "download_path": None,
+                    "thought_signature": thought_signature
+                }
             except Exception as e:
                 return {"error": str(e)}
 
@@ -247,9 +280,11 @@ async def chat_endpoint(request: ChatRequest):
                     tool_calls = []
                     content_str = ""
                     reasoning_str = ""
+                    thought_signature_str = ""
                     is_tool_call = False
                     has_started_reasoning = False
                     has_finished_reasoning = False
+                    download_path = None
 
                     async for chunk in response:
                         if not chunk.choices: continue
@@ -257,29 +292,20 @@ async def chat_endpoint(request: ChatRequest):
 
                         reasoning = getattr(delta, 'reasoning_content', None)
                         if reasoning:
-                            if not has_started_reasoning:
-                                yield "<think>\n"
-                                content_str += "<think>\n"
-                                has_started_reasoning = True
                             content_str += reasoning
                             reasoning_str += reasoning
-                            yield reasoning
+                            yield f"data: {json.dumps({'type': 'thought', 'content': reasoning})}\n\n"
+
+                        # 捕获 thought_signature (Gemini 规范)
+                        ts = getattr(delta, 'thought_signature', None)
+                        if ts:
+                            thought_signature_str = ts
 
                         if delta.content is not None:
-                            # 只有当内容非空且非纯空白时，或者推理已经明确结束时，才关闭思考块
-                            if has_started_reasoning and not has_finished_reasoning and delta.content.strip():
-                                yield "\n</think>\n"
-                                content_str += "\n</think>\n"
-                                has_finished_reasoning = True
-
                             content_str += delta.content
-                            yield delta.content
+                            yield f"data: {json.dumps({'type': 'content', 'content': delta.content})}\n\n"
 
                         if delta.tool_calls:
-                            if has_started_reasoning and not has_finished_reasoning:
-                                yield "\n</think>\n"
-                                content_str += "\n</think>\n"
-                                has_finished_reasoning = True
                             is_tool_call = True
                             for tc in delta.tool_calls:
                                 tc_index = tc.index
@@ -305,16 +331,15 @@ async def chat_endpoint(request: ChatRequest):
                                     for k, v in tc_dump["function"].items():
                                         if v: tool_calls[tc_index]["function"][k] += v
 
-                    if has_started_reasoning and not has_finished_reasoning:
-                        yield "\n</think>\n"
-                        content_str += "\n</think>\n"
-                        has_finished_reasoning = True
-
                     if is_tool_call:
-                        yield "\n<think>\n️ **正在调用工具处理中...**\n"
+                        yield f"data: {json.dumps({'type': 'thought', 'content': '️ **正在调用工具处理中...**\n'})}\n\n"
 
-                        assistant_msg = create_assistant_message(content=content_str or "",
-                                                                 reasoning_content=reasoning_str, tool_calls=tool_calls)
+                        assistant_msg = create_assistant_message(
+                            content=content_str or "",
+                            reasoning_content=reasoning_str,
+                            tool_calls=tool_calls,
+                            thought_signature=thought_signature_str
+                        )
                         current_mem.append(assistant_msg)
                         for tc in tool_calls:
                             func_name = tc["function"]["name"]
@@ -328,20 +353,24 @@ async def chat_endpoint(request: ChatRequest):
                                 print(f"[JSON 解析失败] 参数: {args_str}, 错误: {je}")
                                 args = {}
 
-                            yield f"️ 执行: `{func_name}`\n"
-                            result = use_tools(func_name, args)
+                            yield f"data: {json.dumps({'type': 'thought', 'content': f'️ 执行: `{func_name}`\n'})}\n\n"
+                            result = use_tools(func_name, args, conv_id=session_id)
+
                             current_mem.append(
                                 {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)})
-                        yield " **工具执行完毕，正在生成最终回复...**\n</think>\n"
+                        yield f"data: {json.dumps({'type': 'thought', 'content': ' **工具执行完毕，正在生成最终回复...**\n'})}\n\n"
                         continue
                     else:
+                        # 正常结束，输出签名（如果有）以供前端捕获并存入历史
+                        if thought_signature_str:
+                            yield f"data: {json.dumps({'type': 'thought_signature', 'content': thought_signature_str})}\n\n"
                         break
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                yield f"\n\n[后端错误]: {str(e)}"
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
-        return StreamingResponse(generate(), media_type="text/plain")
+        return StreamingResponse(generate(), media_type="text/event-stream")
     else:
         res = await call(processed_history, stream=False)
         content = res.content or ""
@@ -361,11 +390,16 @@ async def chat_endpoint(request: ChatRequest):
 @app.post("/api/summarize")
 async def summarize_endpoint(request: SummarizeRequest):
     history = request.history
+    if not history or len(history) == 0:
+        return {"title": "New Chat"}
     temp_mem = copy.deepcopy(history)
     temp_mem.append({"role": "user",
-                     "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号。"})
+                     "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号，也不要使用任何标签（如 <final_answer> 或 <think>）。"})
     response = await call(temp_mem, stream=False)
-    title = (response.content or "").strip().strip('"').strip("'")
+    content = response.content or ""
+    # 强制移除可能存在的 <final_answer> 标签
+    content = re.sub(r'</?final_answer>', '', content)
+    title = content.strip().strip('"').strip("'")
     return {"title": title or "New Chat"}
 
 
@@ -378,9 +412,19 @@ async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
 
-    # 2. 清理文件名，防止路径穿越和特殊字符注入
-    import re
-    safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '_', file.filename)
+    # 1.5 限制文件大小为 50MB
+    file.file.seek(0, 2)
+    file_size = file.file.tell()
+    file.file.seek(0)
+    if file_size > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size exceeds 50MB limit")
+
+    # 2. 清理文件名，防止路径穿越，保留中文字符和常用字符
+    # 只过滤掉路径分隔符和一些极其危险的控制字符，保留中文、字母、数字和常用标点
+    # [^\w\s\u4e00-\u9fa5._-] 这种写法在 Python re 中通常能很好工作
+    safe_filename = re.sub(r'[\\/:*?"<>|]', '_', file.filename)
+    # 进一步防止路径穿越
+    safe_filename = os.path.basename(safe_filename)
 
     # 3. 确保目录安全
     safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
@@ -397,11 +441,101 @@ async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(
     return {"status": "success", "file_path": file_path.replace("\\", "/")}
 
 
+@app.get("/api/workspace/files")
+async def list_workspace_files_api(conversation_id: str):
+    """
+    列出当前对话工作区（Workspace）中的所有文件。
+    扫描服务器上的 TEMP/{conv_id} 和 Result/{conv_id} 目录。
+    """
+    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
+    files = []
+
+    # 查找 TEMP 目录 (上传的文件)
+    temp_dir = os.path.join("TEMP", safe_conv_id)
+    if os.path.exists(temp_dir):
+        for f in os.listdir(temp_dir):
+            file_path = os.path.join(temp_dir, f)
+            if os.path.isfile(file_path):
+                files.append({
+                    "name": f,
+                    "path": file_path.replace('\\', '/'),
+                    "type": "upload"
+                })
+
+    # 查找 Result 目录 (生成的文件)
+    result_dir = os.path.join("Result", safe_conv_id)
+    if os.path.exists(result_dir):
+        for f in os.listdir(result_dir):
+            file_path = os.path.join(result_dir, f)
+            if os.path.isfile(file_path):
+                files.append({
+                    "name": f,
+                    "path": file_path.replace('\\', '/'),
+                    "type": "generated"
+                })
+
+    return {"files": files}
+
+
+@app.post("/api/workspace/restore")
+async def restore_workspace_file(
+        file: UploadFile = File(...),
+        conversation_id: str = Form(...),
+        file_type: str = Form(...)  # "upload" or "generated"
+):
+    """
+    从客户端恢复丢失的文件到服务器缓存
+    """
+    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
+    safe_filename = re.sub(r'[\\/:*?"<>|]', '_', file.filename)
+    safe_filename = os.path.basename(safe_filename)
+
+    if file_type == "upload":
+        target_dir = os.path.join("TEMP", safe_conv_id)
+    elif file_type == "generated":
+        target_dir = os.path.join("Result", safe_conv_id)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+
+    os.makedirs(target_dir, exist_ok=True)
+    file_path = os.path.join(target_dir, safe_filename)
+
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    return {"status": "success", "file_path": file_path.replace("\\", "/")}
+
+
+@app.delete("/api/workspace/{conversation_id}")
+async def delete_workspace(conversation_id: str):
+    """
+    当用户删除对话时，清理服务器上的相关文件
+    """
+    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
+
+    temp_dir = os.path.join("TEMP", safe_conv_id)
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    result_dir = os.path.join("Result", safe_conv_id)
+    if os.path.exists(result_dir):
+        shutil.rmtree(result_dir, ignore_errors=True)
+
+    return {"status": "success"}
+
+
 @app.get("/api/download")
 async def download_file(file_path: str):
     # 修复任意文件下载漏洞：限制只能下载 TEMP 或 Result 目录下的文件
-    # 1. 规范化路径，防止路径穿越攻击（如 ../../../etc/passwd）
-    abs_path = os.path.abspath(file_path)
+    # 1. 规范化路径，防止路径穿越攻击
+    # 如果是相对路径，先拼接到当前工作目录
+    if not os.path.isabs(file_path):
+        target_path = os.path.join(os.getcwd(), file_path)
+    else:
+        target_path = file_path
+
+    abs_path = os.path.abspath(target_path)
     cwd = os.getcwd()
 
     # 2. 定义允许下载的目录
@@ -416,7 +550,7 @@ async def download_file(file_path: str):
     if is_allowed and os.path.exists(abs_path) and os.path.isfile(abs_path):
         return FileResponse(path=abs_path, filename=os.path.basename(abs_path))
 
-    raise HTTPException(status_code=403, detail="Access denied or file not found")
+    raise HTTPException(status_code=403, detail=f"Access denied or file not found: {file_path}")
 
 
 @app.get("/{full_path:path}")

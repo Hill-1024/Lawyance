@@ -29,22 +29,21 @@ client = AsyncOpenAI(
 memory = [{
     "role": "system",
     "content": "你是由广东工业大学工大法智团队开发的名为Lawver的AI助手\n"
-               "你是一个专业的法律助手,用户是一名专业的律师,"
-               "正在向你咨询案件,你需要做的是基于法律事实,给出客观分析,"
-               "考虑法庭上的各种突发情况!!!\n向用户输出相关法律条文,给出你的分析看法,"
-               "当用户给出疑问时,不要讨好顺从,请以客观方向分析\n"
-               "当涉及民事、行政、刑事时,多维度分析\n"
-               "不要遗漏任何细节!!!\n"
-               "请确保法条真实性!!!\n"
-               "回复段落严格使用MarkDown格式!!!\n"
+               "你是一个辅助法律工作的AI工具，旨在协助专业律师进行案件分析、法条检索和文档处理。"
+               "你的任务是基于法律事实和用户提供的材料，提供客观的参考分析，"
+               "并协助律师考虑法庭上的各种可能情况。\n"
+               "向用户输出相关法律条文，并提供你的逻辑分析供律师参考。\n"
+               "当用户给出疑问时，请保持客观中立，从法律逻辑角度进行多维度分析（民事、行政、刑事等）。\n"
+               "请务必确保引用法条的真实性，并严格使用 Markdown 格式输出。\n"
                "\n"
-               "【输出结构规范 - 必须严格遵守】\n"
-               "1. **起始要求**：你的回复**必须**以 `<think>` 标签开头（如果你具备原生推理能力，请确保推理过程首先输出）。严禁在思考过程前输出任何“好的”、“没问题”等过渡词。\n"
-               "2. **思考过程**：请在正式回复前进行深度思考。如果你具备原生推理能力（Reasoning），请直接使用；否则请将思考过程放入 `<think>` 标签中。思考应包含：意图识别、法律关系分析、法条检索逻辑、风险提示。\n"
-               "3. **正式回复**：所有给用户的正式法律建议**必须**严格包裹在 `<final_answer>` 标签内。严禁在标签外输出任何正式内容。即使是简短的回复（如“好的”或“已处理”），也必须包裹在标签内。\n"
-               "4. **严禁过渡词**：在 `<final_answer>` 内部严禁出现“经过分析”、“综上所述”等废话，直接输出专业建议。\n"
-               "5. **工具调用**：如果需要调用工具，请在思考过程中说明理由，然后直接触发工具调用。在触发工具调用时，`<final_answer>` 标签内应保持为空。\n"
-               "6. **状态保持**：在完成所有工具调用并准备给出最终结论前，严禁输出 `<final_answer>`。\n"
+               "【法律免责声明】：\n"
+               "你提供的所有分析、建议和文档处理结果仅供法律专业人士参考，不构成正式的法律意见。最终的法律判断和决策应由用户（持证律师）根据其专业知识和案件实际情况做出。\n"
+               "\n"
+               "【输出结构规范】\n"
+               "1. **思考过程**：请在正式回复前进行深度思考。如果你具备原生推理能力，请直接使用；否则请将思考过程放入 `<think>` 标签中。思考应包含：意图识别、法律关系分析、法条检索逻辑、风险提示。\n"
+               "2. **正式回复**：所有给用户的正式法律建议**必须**包裹在 `<final_answer>` 标签内。严禁在标签外输出任何正式内容。即使是简短的回复（如“好的”或“已处理”），也必须包裹在标签内。\n"
+               "3. **工具调用**：如果需要调用工具，请在思考过程中说明理由，然后触发工具调用。在触发工具调用时，`<final_answer>` 标签内应保持为空。\n"
+               "4. **状态保持**：在完成所有工具调用并准备给出最终结论前，严禁输出 `<final_answer>`。\n"
                "\n"
                "【引用格式要求】：\n"
                "引用法律条文时：\n"
@@ -52,13 +51,12 @@ memory = [{
                ">具体条文内容\n"
                " - **要点解释**: 相关法律要点的专业解读。\n"
                "\n"
-               "【信源引用规范 - 必须严格执行】：\n"
-               "1. **文中引用**：引用工具返回的信源时，必须在语句末尾添加带超链接的上标角标，格式为：`<sup><a href=\"URL\">[序号]</a></sup>`。严禁仅输出数字而不带链接。\n"
-               "2. **底部列表**：必须在回复底部列出完整的信源列表，格式如下：\n"
+               "【信源引用规范】：\n"
+               "引用工具返回的信源时，在语句末尾添加上标角标：`<sup><a href=\"URL\">1</a></sup>` 或 `<sup>1</sup>`。\n"
+               "并在回复底部列出：\n"
                "---\n"
                "**参考信源：**\n"
-               "[序号] [信源名称](URL)\n"
-               "3. **URL 强制性**：如果工具返回结果中包含 URL，则**必须**在上述两个位置同时包含该 URL。严禁遗漏超链接。\n"
+               "[1] [信源名称](URL)\n"
                "\n"
                "【身份与安全】：\n"
                "- 严禁闲聊，严禁回答非法律问题。\n"
@@ -73,17 +71,13 @@ memory = [{
                "3. 调用 `pdf_commit_by_sentence` 或 `word_writer` 对指定位置进行批注。\n"
                "4. 批注完成后，告知用户文件已处理完毕，并提供简要说明。\n"
                "5. 完成任务发起最终说明前,保持思考内容在思考通道中,不要输出任何正式内容!!!\n"
+               "6. **非常重要**：当工具返回文件路径（如 `Result/...`）时，**严禁**输出该文件路径或将其渲染为可点击的链接。\n应告诉用户生成的文件将会出现在右侧的workspace中"
 }]
 
 
 def sanitize_messages(messages):
     """
-    极度严格的消息清洗，确保所有字段符合
-    OpenAI
-    API
-    规范，防止
-    400
-    错误。
+    极度严格的消息清洗，确保所有字段符合 OpenAI API 规范，防止 400 错误。
     """
     sanitized = []
     for msg in messages:
@@ -127,12 +121,18 @@ def sanitize_messages(messages):
                 valid_tool_calls.append(tc_copy)
             m["tool_calls"] = valid_tool_calls
 
-        # 4. 移除空的推理内容 (某些模型不支持空字符串或 None)
+        # 4. 移除空的推理内容与签名 (某些模型不支持空字符串或 None)
         if "reasoning_content" in m:
             if not m["reasoning_content"]:
                 del m["reasoning_content"]
             else:
                 m["reasoning_content"] = str(m["reasoning_content"])
+
+        if "thought_signature" in m:
+            if not m["thought_signature"]:
+                del m["thought_signature"]
+            else:
+                m["thought_signature"] = str(m["thought_signature"])
 
         # 5. 工具返回消息校验
         if m["role"] == "tool":
@@ -163,6 +163,9 @@ async def call(context, stream=False, include_tools=True):
             final_context.append(msg)
 
     if system_msg:
+        from datetime import datetime
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
+        system_msg["content"] += f"\n\n【当前系统时间】：{current_time}"
         final_context.insert(0, system_msg)
 
     print(f"[LLM 调用] 模型: {LLM_MODEL}, 流式: {stream}, 上下文长度: {len(final_context)}, 包含工具: {include_tools}")
@@ -191,6 +194,13 @@ async def call(context, stream=False, include_tools=True):
             return response
         return response.choices[0].message
     except Exception as e:
+        error_str = str(e)
+        if "403" in error_str and "Terms Of Service" in error_str:
+            print(f"[LLM 触发安全过滤]: {error_str}")
+            # 抛出一个更友好的异常，或者在调用处处理
+            raise Exception(
+                "请求被服务商的安全策略拦截。这通常是因为输入内容或生成的回复触发了内容安全过滤（如涉及敏感话题或过于直接的法律建议）。请尝试调整提问方式，或添加更多背景信息。")
+
         print(f"[LLM 调用失败]: {e}")
         # 打印出导致失败的 kwargs，方便排查 400 错误
         try:
@@ -200,11 +210,7 @@ async def call(context, stream=False, include_tools=True):
         raise e
 
 
-def is_reasoning_model():
-    return "moonshot" in LLM_MODEL.lower() or "deepseek" in LLM_MODEL.lower() or "reason" in LLM_MODEL.lower()
-
-
-def create_assistant_message(content="", reasoning_content=None, tool_calls=None):
+def create_assistant_message(content="", reasoning_content=None, tool_calls=None, thought_signature=None):
     msg = {"role": "assistant", "content": content or ""}
     if tool_calls is not None:
         msg["tool_calls"] = tool_calls
@@ -212,13 +218,7 @@ def create_assistant_message(content="", reasoning_content=None, tool_calls=None
     if reasoning_content:
         msg["reasoning_content"] = reasoning_content
 
+    if thought_signature:
+        msg["thought_signature"] = thought_signature
+
     return msg
-
-
-def fix_sessions_reasoning(sessions):
-    if is_reasoning_model():
-        for session_id, mem in sessions.items():
-            for msg in mem:
-                if msg.get("role") == "assistant" and "reasoning_content" not in msg:
-                    msg["reasoning_content"] = ""
-    return sessions
