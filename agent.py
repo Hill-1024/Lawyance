@@ -130,7 +130,7 @@ async def compress_history(history: List[dict]) -> List[dict]:
         summary_res = await call([{"role": "user", "content": summary_prompt}], stream=False)
         content = summary_res.content or ""
         # 强制移除可能存在的 <final_answer> 标签
-        content = re.sub(r'</?final_answer>', '', content).strip()
+        content = re.sub(r'</?(final_answer|think)[^>]*>', '', content, flags=re.IGNORECASE | re.DOTALL).strip()
         summary_text = f"[前情提要]: {content}"
         print("[历史压缩] 摘要生成成功")
 
@@ -234,7 +234,7 @@ async def chat_endpoint(request: ChatRequest):
                         if chunk:
                             # 检查是否包含特殊标记
                             if "[THOUGHT_SIGNATURE:" in chunk:
-                                ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)\]", chunk)
+                                ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", chunk)
                                 if ts_match:
                                     ts = ts_match.group(1)
                                     yield f"data: {json.dumps({'type': 'thought_signature', 'content': ts})}\n\n"
@@ -258,7 +258,7 @@ async def chat_endpoint(request: ChatRequest):
 
                 # 提取特殊标记
                 if "[THOUGHT_SIGNATURE:" in full_result:
-                    ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)\]", full_result)
+                    ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", full_result)
                     if ts_match:
                         thought_signature = ts_match.group(1)
                         full_result = full_result.replace(ts_match.group(0), "")
@@ -332,7 +332,8 @@ async def chat_endpoint(request: ChatRequest):
                                         if v: tool_calls[tc_index]["function"][k] += v
 
                     if is_tool_call:
-                        yield f"data: {json.dumps({'type': 'thought', 'content': '️ **正在调用工具处理中...**\n'})}\n\n"
+                        thought_payload = {'type': 'thought', 'content': '️ **正在调用工具处理中...**\n'}
+                        yield f"data: {json.dumps(thought_payload)}\n\n"
 
                         assistant_msg = create_assistant_message(
                             content=content_str or "",
@@ -353,12 +354,15 @@ async def chat_endpoint(request: ChatRequest):
                                 print(f"[JSON 解析失败] 参数: {args_str}, 错误: {je}")
                                 args = {}
 
-                            yield f"data: {json.dumps({'type': 'thought', 'content': f'️ 执行: `{func_name}`\n'})}\n\n"
+                            thought_payload = {'type': 'thought', 'content': f'️ 执行: `{func_name}`\n'}
+                            yield f"data: {json.dumps(thought_payload)}\n\n"
                             result = use_tools(func_name, args, conv_id=session_id)
 
                             current_mem.append(
                                 {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)})
-                        yield f"data: {json.dumps({'type': 'thought', 'content': ' **工具执行完毕，正在生成最终回复...**\n'})}\n\n"
+                        
+                        thought_payload_end = {'type': 'thought', 'content': ' **工具执行完毕，正在生成最终回复...**\n'}
+                        yield f"data: {json.dumps(thought_payload_end)}\n\n"
                         continue
                     else:
                         # 正常结束，输出签名（如果有）以供前端捕获并存入历史
@@ -398,7 +402,7 @@ async def summarize_endpoint(request: SummarizeRequest):
     response = await call(temp_mem, stream=False)
     content = response.content or ""
     # 强制移除可能存在的 <final_answer> 标签
-    content = re.sub(r'</?final_answer>', '', content)
+    content = re.sub(r'</?(final_answer|think)[^>]*>', '', content, flags=re.IGNORECASE | re.DOTALL)
     title = content.strip().strip('"').strip("'")
     return {"title": title or "New Chat"}
 
@@ -545,7 +549,11 @@ async def download_file(file_path: str):
     ]
 
     # 3. 校验路径是否在允许的目录内
-    is_allowed = any(abs_path.startswith(os.path.abspath(d)) for d in allowed_dirs)
+    # 添加 os.sep 防止类似 TEMP_hack 的目录绕过前缀匹配
+    is_allowed = any(
+        abs_path.startswith(os.path.abspath(d) + os.sep) or abs_path == os.path.abspath(d)
+        for d in allowed_dirs
+    )
 
     if is_allowed and os.path.exists(abs_path) and os.path.isfile(abs_path):
         return FileResponse(path=abs_path, filename=os.path.basename(abs_path))
@@ -557,7 +565,14 @@ async def download_file(file_path: str):
 async def serve_spa(request: Request, full_path: str):
     if full_path.startswith("api/"):
         raise HTTPException(status_code=404)
-    dist_path = os.path.join("dist", full_path)
+    
+    # 防止路径穿越，确保解析后的绝对路径依然在 dist 目录下
+    dist_dir = os.path.abspath("dist")
+    dist_path = os.path.abspath(os.path.join("dist", full_path))
+    
+    if not dist_path.startswith(dist_dir + os.sep) and dist_path != dist_dir:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     if os.path.isfile(dist_path):
         return FileResponse(dist_path)
     if os.path.exists("dist/index.html"):
