@@ -431,6 +431,10 @@ async def summarize_endpoint(request: SummarizeRequest):
     return {"title": title or "New Chat"}
 
 
+@app.get("/api/upload")
+async def upload_file_get():
+    raise HTTPException(status_code=405, detail="Method Not Allowed: Please use POST request to upload files.")
+
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(...)):
     # 修复上传漏洞：限制文件类型并清理文件名

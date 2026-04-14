@@ -56,20 +56,18 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // 初始为所有对话发送一次心跳
-    conversations.forEach(conv => {
-      sendHeartbeat(conv.id).catch(console.error);
-    });
+    if (!currentId) return;
 
-    // 每 5 分钟 (300000ms) 为所有侧边栏对话发送一次心跳
+    // 当切换到某个对话时，立即发送一次心跳记录其进入连接状态
+    sendHeartbeat(currentId).catch(console.error);
+
+    // 仅为当前处于前台的对话（currentId）每 5 分钟发送一次心跳
     const interval = setInterval(() => {
-      conversations.forEach(conv => {
-        sendHeartbeat(conv.id).catch(console.error);
-      });
+      sendHeartbeat(currentId).catch(console.error);
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [conversations]);
+  }, [currentId]);
 
   if (!isInitialized) return null;
 
