@@ -315,15 +315,15 @@ class PDFCommitor:
 
         Args:
             input_pdf_path (str): 原始PDF文件路径
-            output_pdf_path (str, optional): 输出PDF文件路径。默认为原始文件名后添加_gdutlawver
+            output_pdf_path (str, optional): 输出PDF文件路径。默认为原始文件名后添加_lawver
         """
         self.input_pdf_path = input_pdf_path
 
         if output_pdf_path is None:
-            # 默认输出路径：原始文件名后添加_gdutlawver
+            # 默认输出路径：原始文件名后添加_lawver
             base_name, ext = os.path.splitext(input_pdf_path)
-            if not base_name.endswith('_gdutlawver'):
-                base_name = f"{base_name}_gdutlawver"
+            if not base_name.endswith('_lawver'):
+                base_name = f"{base_name}_lawver"
             self.output_pdf_path = f"{base_name}{ext}"
         else:
             self.output_pdf_path = output_pdf_path

@@ -2,8 +2,8 @@
 这是一个word文档解析器，提供了两个工具
 word_reader:根据文件路径读取docx文档，并返回一个json格式数据，包含段落索引和内容
 word_writer:根据段落索引和文本内容，对文档进行批注
-每次批注不会改动原本的文件，会生成一个后缀加上_gdutlawver的文件
-每次批注会优先读取现有的_gdutlawver的文件，实现多个批注
+每次批注不会改动原本的文件，会生成一个后缀加上_lawver的文件
+每次批注会优先读取现有的_lawver的文件，实现多个批注
 """
 
 
@@ -39,8 +39,8 @@ class WordAnnotator:
     def writer(self, index, text, output_path=None):
         if output_path is None:
             base_name, ext = os.path.splitext(self.file_path)
-            if not base_name.endswith('_gdutlawver'):
-                base_name = f"{base_name}_gdutlawver"
+            if not base_name.endswith('_lawver'):
+                base_name = f"{base_name}_lawver"
             output_path = f"{base_name}{ext}"
 
         if not exists(output_path):
@@ -67,7 +67,7 @@ class WordAnnotator:
                 runs=target_para.runs,
                 text=text,
                 author="工大法智",
-                initials="GDUTlaw",
+                initials="lawver",
             )
             doc.save(output_path)
             return True

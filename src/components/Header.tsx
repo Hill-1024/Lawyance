@@ -35,7 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
           <Menu size={24} />
         </button>
         <h1 className="text-lg sm:text-[22px] font-medium tracking-tight ml-1 truncate max-w-[160px] sm:max-w-none">
-          {title || 'GDUT-Lawver'}
+          {title || 'Lawver'}
         </h1>
       </div>
       <div className="flex items-center gap-1 relative">

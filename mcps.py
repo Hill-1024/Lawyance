@@ -28,8 +28,8 @@ def get_result_path(input_path):
                 result_dir = os.path.join('Result', conv_id)
                 os.makedirs(result_dir, exist_ok=True)
 
-                if not base.endswith('_gdutlawver'):
-                    base = f"{base}_gdutlawver"
+                if not base.endswith('_lawver'):
+                    base = f"{base}_lawver"
                 return os.path.join(result_dir, f"{base}{ext}").replace('\\', '/')
     except Exception:
         pass
@@ -37,8 +37,8 @@ def get_result_path(input_path):
     # 如果没找到 TEMP，或者格式不对，回退到原始逻辑但确保在 Result 目录下
     filename = os.path.basename(normalized_path)
     base, ext = os.path.splitext(filename)
-    if not base.endswith('_gdutlawver'):
-        base = f"{base}_gdutlawver"
+    if not base.endswith('_lawver'):
+        base = f"{base}_lawver"
 
     # 尝试寻找可能存在的 conv_id (假设路径中包含类似 UUID 的结构)
     # 如果路径中包含 Result/xxx/，则保留

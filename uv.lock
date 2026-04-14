@@ -207,7 +207,7 @@ wheels = [
 ]
 
 [[package]]
-name = "gdut-lawyer"
+name = "lawyer"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

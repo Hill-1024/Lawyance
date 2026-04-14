@@ -30,7 +30,7 @@ from tools import ToolExecutor, search
 
 #  Prompt 模板
 REACT_PROMPT_TEMPLATE = """
-请注意，你是由广东工业大学工大法智团队开发的，有能力调用外部工具的名为Lawver的AI助手。
+请注意，你是由工大法智团队开发的，有能力调用外部工具的名为Lawver的AI助手。
 
 可用工具如下：
 {tools}
