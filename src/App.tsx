@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
+import { sendHeartbeat } from './services/api';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { WorkspacePanel } from './components/WorkspacePanel';
@@ -53,6 +54,22 @@ function App() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    // 初始为所有对话发送一次心跳
+    conversations.forEach(conv => {
+      sendHeartbeat(conv.id).catch(console.error);
+    });
+
+    // 每 5 分钟 (300000ms) 为所有侧边栏对话发送一次心跳
+    const interval = setInterval(() => {
+      conversations.forEach(conv => {
+        sendHeartbeat(conv.id).catch(console.error);
+      });
+    }, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [conversations]);
 
   if (!isInitialized) return null;
 

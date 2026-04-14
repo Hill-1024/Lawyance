@@ -76,3 +76,13 @@ export const deleteWorkspace = async (conversationId: string) => {
   }
   return res.json();
 };
+
+export const sendHeartbeat = async (conversationId: string) => {
+  const res = await fetch(`/api/heartbeat/${encodeURIComponent(conversationId)}`, {
+    method: 'POST'
+  });
+  if (!res.ok) {
+    throw new Error('Heartbeat failed');
+  }
+  return res.json();
+};

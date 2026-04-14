@@ -45,34 +45,58 @@ app.add_middleware(
 )
 
 
+# 全局在线状态记录
+active_conversations: dict[str, float] = {}
+
 async def cleanup_task():
     """
     后台清理任务：每10分钟运行一次，删除 TEMP 和 Result 目录中超过 1 小时未修改的文件。
+    但在清理前会检查对话是否仍在线（过去一小时内有心跳），若在线则保留缓存文件。
+    清理完成后，将超过 1 小时没有心跳的记录从字典中删除。
     """
     while True:
         try:
             now = time.time()
             one_hour_ago = now - 3600
+
+            # 清理过期的心跳记录
+            stale_keys = [k for k, v in active_conversations.items() if v < one_hour_ago]
+            for k in stale_keys:
+                del active_conversations[k]
+
             for folder in ["TEMP", "Result"]:
                 if not os.path.exists(folder):
                     continue
-                for root, dirs, files in os.walk(folder, topdown=False):
-                    for name in files:
-                        file_path = os.path.join(root, name)
-                        if os.path.getmtime(file_path) < one_hour_ago:
-                            try:
-                                os.remove(file_path)
-                                print(f"[清理] 已删除过期文件: {file_path}")
-                            except Exception as e:
-                                print(f"[清理] 删除文件失败 {file_path}: {e}")
 
-                    # 如果目录为空，也将其删除
-                    if not os.listdir(root) and root != folder:
-                        try:
-                            os.rmdir(root)
-                            print(f"[清理] 已删除空目录: {root}")
-                        except Exception as e:
-                            print(f"[清理] 删除空目录失败 {root}: {e}")
+                # 遍历 TEMP 和 Result 的第一级子目录 (这些是 conversation_id)
+                for conv_id in os.listdir(folder):
+                    conv_dir = os.path.join(folder, conv_id)
+                    if not os.path.isdir(conv_dir):
+                        continue
+
+                    # 检查是否在线
+                    if conv_id in active_conversations:
+                        # 在线，跳过此对话的清理
+                        continue
+
+                    # 不在线，执行原来的清理逻辑
+                    for root, dirs, files in os.walk(conv_dir, topdown=False):
+                        for name in files:
+                            file_path = os.path.join(root, name)
+                            if os.path.getmtime(file_path) < one_hour_ago:
+                                try:
+                                    os.remove(file_path)
+                                    print(f"[清理] 已删除过期文件: {file_path}")
+                                except Exception as e:
+                                    print(f"[清理] 删除文件失败 {file_path}: {e}")
+
+                        # 如果目录为空，也将其删除
+                        if not os.listdir(root):
+                            try:
+                                os.rmdir(root)
+                                print(f"[清理] 已删除空目录: {root}")
+                            except Exception as e:
+                                print(f"[清理] 删除空目录失败 {root}: {e}")
         except Exception as e:
             print(f"[清理] 任务运行出错: {e}")
 
@@ -526,6 +550,15 @@ async def delete_workspace(conversation_id: str):
     if os.path.exists(result_dir):
         shutil.rmtree(result_dir, ignore_errors=True)
 
+    return {"status": "success"}
+
+@app.post("/api/heartbeat/{conversation_id}")
+async def heartbeat(conversation_id: str):
+    """
+    接收客户端心跳，更新对话最后活跃时间
+    """
+    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
+    active_conversations[safe_conv_id] = time.time()
     return {"status": "success"}
 
 
