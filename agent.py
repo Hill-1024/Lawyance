@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Cookie, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, FileResponse
@@ -16,6 +16,7 @@ from typing import List, Optional
 from function_calling import call, memory as system_memory, create_assistant_message
 from agents import ReActAgent, PlanAndSolveAgent
 from mcps import use_tools
+from auth import authenticate_user, create_token, verify_token
 
 from contextlib import asynccontextmanager
 
@@ -43,6 +44,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 认证依赖
+def get_current_user(auth_token: Optional[str] = Cookie(None)):
+    if not auth_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = verify_token(auth_token)
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return username
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/login")
+async def login(req: LoginRequest, response: Response):
+    success, msg = authenticate_user(req.username, req.password)
+    if not success:
+        raise HTTPException(status_code=401, detail=msg)
+    
+    token = create_token(req.username)
+    response.set_cookie(key="auth_token", value=token, httponly=True, max_age=7*24*3600, samesite="lax")
+    return {"status": "success", "message": "登录成功"}
+
+@app.post("/api/logout")
+async def logout(response: Response):
+    response.delete_cookie(key="auth_token")
+    return {"status": "success"}
+
+@app.get("/api/verify_auth")
+async def verify_auth_endpoint(current_user: str = Depends(get_current_user)):
+    return {"status": "success", "username": current_user}
 
 
 # 全局在线状态记录
@@ -197,7 +230,7 @@ def build_agent(mode: str, memory: list, session_id: str):
 
 
 @app.post("/api/chat")
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_current_user)):
     content = request.message
     history = request.history
     session_id = request.conversation_id
@@ -416,7 +449,7 @@ async def chat_endpoint(request: ChatRequest):
 
 
 @app.post("/api/summarize")
-async def summarize_endpoint(request: SummarizeRequest):
+async def summarize_endpoint(request: SummarizeRequest, current_user: str = Depends(get_current_user)):
     history = request.history
     if not history or len(history) == 0:
         return {"title": "New Chat"}
@@ -432,11 +465,11 @@ async def summarize_endpoint(request: SummarizeRequest):
 
 
 @app.get("/api/upload")
-async def upload_file_get():
+async def upload_file_get(current_user: str = Depends(get_current_user)):
     raise HTTPException(status_code=405, detail="Method Not Allowed: Please use POST request to upload files.")
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(...)):
+async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(...), current_user: str = Depends(get_current_user)):
     # 修复上传漏洞：限制文件类型并清理文件名
     # 1. 限制允许上传的扩展名
     ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
@@ -474,7 +507,7 @@ async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(
 
 
 @app.get("/api/workspace/files")
-async def list_workspace_files_api(conversation_id: str):
+async def list_workspace_files_api(conversation_id: str, current_user: str = Depends(get_current_user)):
     """
     列出当前对话工作区（Workspace）中的所有文件。
     扫描服务器上的 TEMP/{conv_id} 和 Result/{conv_id} 目录。
@@ -513,7 +546,8 @@ async def list_workspace_files_api(conversation_id: str):
 async def restore_workspace_file(
         file: UploadFile = File(...),
         conversation_id: str = Form(...),
-        file_type: str = Form(...)  # "upload" or "generated"
+        file_type: str = Form(...),
+        current_user: str = Depends(get_current_user)
 ):
     """
     从客户端恢复丢失的文件到服务器缓存
@@ -540,7 +574,7 @@ async def restore_workspace_file(
 
 
 @app.delete("/api/workspace/{conversation_id}")
-async def delete_workspace(conversation_id: str):
+async def delete_workspace(conversation_id: str, current_user: str = Depends(get_current_user)):
     """
     当用户删除对话时，清理服务器上的相关文件
     """
@@ -557,7 +591,7 @@ async def delete_workspace(conversation_id: str):
     return {"status": "success"}
 
 @app.post("/api/heartbeat/{conversation_id}")
-async def heartbeat(conversation_id: str):
+async def heartbeat(conversation_id: str, current_user: str = Depends(get_current_user)):
     """
     接收客户端心跳，更新对话最后活跃时间
     """
@@ -567,7 +601,7 @@ async def heartbeat(conversation_id: str):
 
 
 @app.get("/api/download")
-async def download_file(file_path: str):
+async def download_file(file_path: str, current_user: str = Depends(get_current_user)):
     # 修复任意文件下载漏洞：限制只能下载 TEMP 或 Result 目录下的文件
     # 1. 规范化路径，防止路径穿越攻击
     # 如果是相对路径，先拼接到当前工作目录

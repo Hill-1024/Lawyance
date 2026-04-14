@@ -2,14 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
-import { sendHeartbeat } from './services/api';
+import { sendHeartbeat, verifyAuth } from './services/api';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { InputArea } from './components/InputArea';
 import { MessageList } from './components/MessageList';
+import { Login } from './components/Login';
 
 function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
   const { themeMode, setThemeMode } = useTheme();
   const {
     conversations,
@@ -50,13 +54,27 @@ function App() {
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
   useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        await verifyAuth();
+        setIsAuthenticated(true);
+      } catch (e) {
+        setIsAuthenticated(false);
+      } finally {
+        setIsAuthChecking(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   useEffect(() => {
-    if (!currentId) return;
+    if (!currentId || !isAuthenticated) return;
 
     // 当切换到某个对话时，立即发送一次心跳记录其进入连接状态
     sendHeartbeat(currentId).catch(console.error);
@@ -67,7 +85,19 @@ function App() {
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [currentId]);
+  }, [currentId, isAuthenticated]);
+
+  if (isAuthChecking) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
+  }
 
   if (!isInitialized) return null;
 
