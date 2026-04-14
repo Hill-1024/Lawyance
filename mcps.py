@@ -2,6 +2,7 @@ from mcp.deli_client import match_legal_case
 from mcp.pkulaw_client import get_article, search_article, get_linked_content
 from mcp.PDF_processor import pdf_text_reader, pdf_commit_by_sentence
 from mcp.word_annotator import word_reader, word_writer
+from mcp.qcc_client import get_company_profile,get_listing_info,get_contact_info,get_shareholder_info,get_company_registration_info,get_key_personnel,get_external_investments
 import os
 import json
 import tempfile
@@ -237,7 +238,133 @@ tools = [
                 "required": []
             }
         }
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_company_profile",
+            "description": "查询企业的简介信息，包括企业名称、简介，当需要获取企业相关信息时，必须调用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {
+                        "type": "string",
+                        "description": "具体的企业名称，应提取自用户查询的核心意图"
+                    },
+                },
+                "required": ["company"]
+            }
+        }
+
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_company_registration_info",
+            "description": "查询企业的核心登记信息，包括法定代表人、注册资本、成立时间等，当需要获取企业相关信息时，必须调用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {
+                        "type": "string",
+                        "description": "具体的企业名称，应提取自用户查询的核心意图"
+                    },
+                },
+                "required": ["company"]
+            }
+        }
+
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_contact_info",
+            "description": "查询企业的联系方式信息，包括电话号码、邮箱、企业网站等，当需要获取企业相关联系方式时，必须调用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {
+                        "type": "string",
+                        "description": "具体的企业名称，应提取自用户查询的核心意图"
+                    },
+                },
+                "required": ["company"]
+            }
+        }
+
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_external_investments",
+            "description": "查询企业对外投资信息，包括被投资企业名称、持股比例等。当需要获取企业对外投资信息时，必须调用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {
+                        "type": "string",
+                        "description": "具体的企业名称，应提取自用户查询的核心意图"
+                    },
+                },
+                "required": ["company"]
+            }
+        }
+
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_key_personnel",
+            "description": "查询企业主要管理人员信息，包括姓名、职务等。当需要获取企业主要管理人员信息时，必须调用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {
+                        "type": "string",
+                        "description": "具体的企业名称，应提取自用户查询的核心意图"
+                    },
+                },
+                "required": ["company"]
+            }
+        }
+
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_listing_info",
+            "description": "查询企业的上市信息，包括股票代码、上市交易所、总市值等。当需要获取企业上市信息时，必须调用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {
+                        "type": "string",
+                        "description": "具体的企业名称，应提取自用户查询的核心意图"
+                    },
+                },
+                "required": ["company"]
+            }
+        }
+
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_shareholder_info",
+            "description": "查询企业股东构成信息，包括投资人姓名、持股比例等。当需要获取企业股东构成信息时，必须调用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company": {
+                        "type": "string",
+                        "description": "具体的企业名称，应提取自用户查询的核心意图"
+                    },
+                },
+                "required": ["company"]
+            }
+        }
+
+    },
 ]
 
 
