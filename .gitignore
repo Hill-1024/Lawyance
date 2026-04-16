@@ -12,3 +12,4 @@ package-lock.json
 TEMP
 Result
 data/
+.DS_Store
