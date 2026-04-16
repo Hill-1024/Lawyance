@@ -14,7 +14,7 @@ import shutil
 from typing import List, Optional
 
 from function_calling import call, memory as system_memory, create_assistant_message
-from agents import ReActAgent, PlanAndSolveAgent
+from agents import ReActAgent, PlanAndSolveAgent, DefaultAgent
 from mcps import use_tools
 from auth import authenticate_user, create_token, verify_token
 
@@ -208,6 +208,8 @@ from tools import ToolExecutor
 
 
 def build_agent(mode: str, memory: list, session_id: str):
+    if mode == "default":
+        return DefaultAgent(memory=memory, session_id=session_id)
     if mode in ["react", "plan_and_solve"]:
         from mcps import tools as all_tools
         tool_executor = ToolExecutor()
@@ -226,7 +228,7 @@ def build_agent(mode: str, memory: list, session_id: str):
             return ReActAgent(tool_executor=tool_executor, memory=memory)
         if mode == "plan_and_solve":
             return PlanAndSolveAgent(tool_executor=tool_executor, memory=memory)
-    return None
+    return DefaultAgent(memory=memory, session_id=session_id)
 
 
 @app.post("/api/chat")
@@ -282,170 +284,73 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
 
     agent = build_agent(agent_mode, processed_history, session_id)
 
-    if agent:
-        if stream:
-            async def generate_agent():
-                full_result = ""
-                try:
-                    async for chunk in agent.run(content):
-                        if chunk:
-                            # 检查是否包含特殊标记
-                            if "[THOUGHT_SIGNATURE:" in chunk:
-                                ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", chunk)
-                                if ts_match:
-                                    ts = ts_match.group(1)
-                                    yield f"data: {json.dumps({'type': 'thought_signature', 'content': ts})}\n\n"
-                                    # 移除标记，避免显示在正文中
-                                    chunk = chunk.replace(ts_match.group(0), "")
-
-                            if chunk:
-                                full_result += chunk
-                                yield f"data: {json.dumps({'type': 'content', 'content': chunk})}\n\n"
-                except Exception as e:
-                    yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
-
-            return StreamingResponse(generate_agent(), media_type="text/event-stream")
-        else:
-            try:
-                full_result = ""
-                download_path = None
-                thought_signature = None
-                async for chunk in agent.run(content):
-                    full_result += chunk
-
-                # 提取特殊标记
-                if "[THOUGHT_SIGNATURE:" in full_result:
-                    ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", full_result)
-                    if ts_match:
-                        thought_signature = ts_match.group(1)
-                        full_result = full_result.replace(ts_match.group(0), "")
-
-                return {
-                    "reply": full_result,
-                    "download_path": None,
-                    "thought_signature": thought_signature
-                }
-            except Exception as e:
-                return {"error": str(e)}
-
     if stream:
-        async def generate():
+        async def generate_agent():
+            full_result = ""
             try:
-                current_mem = processed_history
-                while True:
-                    response = await call(current_mem, True)
-                    tool_calls = []
-                    content_str = ""
-                    reasoning_str = ""
-                    thought_signature_str = ""
-                    is_tool_call = False
-                    has_started_reasoning = False
-                    has_finished_reasoning = False
-                    download_path = None
+                import inspect
+                sig = inspect.signature(agent.run)
+                if 'stream' in sig.parameters:
+                    run_iter = agent.run(content, stream=True)
+                else:
+                    run_iter = agent.run(content)
 
-                    async for chunk in response:
-                        if not chunk.choices: continue
-                        delta = chunk.choices[0].delta
+                async for chunk in run_iter:
+                    if isinstance(chunk, dict):
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                    elif chunk:
+                        chunk_str = str(chunk)
+                        if "[THOUGHT_SIGNATURE:" in chunk_str:
+                            ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", chunk_str)
+                            if ts_match:
+                                ts = ts_match.group(1)
+                                yield f"data: {json.dumps({'type': 'thought_signature', 'content': ts})}\n\n"
+                                chunk_str = chunk_str.replace(ts_match.group(0), "")
 
-                        reasoning = getattr(delta, 'reasoning_content', None)
-                        if reasoning:
-                            content_str += reasoning
-                            reasoning_str += reasoning
-                            yield f"data: {json.dumps({'type': 'thought', 'content': reasoning})}\n\n"
-
-                        # 捕获 thought_signature (Gemini 规范)
-                        ts = getattr(delta, 'thought_signature', None)
-                        if ts:
-                            thought_signature_str = ts
-
-                        if delta.content is not None:
-                            content_str += delta.content
-                            yield f"data: {json.dumps({'type': 'content', 'content': delta.content})}\n\n"
-
-                        if delta.tool_calls:
-                            is_tool_call = True
-                            for tc in delta.tool_calls:
-                                tc_index = tc.index
-                                tc_dump = tc.model_dump(exclude_unset=True)
-
-                                if tc_index is None:
-                                    # 如果没有提供 index，通过判断是否包含 name 或 id 来决定是新建还是追加
-                                    is_new_call = ("id" in tc_dump) or (
-                                                "function" in tc_dump and "name" in tc_dump["function"])
-                                    if len(tool_calls) == 0 or is_new_call:
-                                        tc_index = len(tool_calls)
-                                    else:
-                                        tc_index = len(tool_calls) - 1
-
-                                while len(tool_calls) <= tc_index:
-                                    # 为工具调用生成默认 ID，防止模型未返回 ID 导致 400 错误
-                                    tool_calls.append({"id": f"call_{int(time.time())}_{tc_index}", "type": "function",
-                                                       "function": {"name": "", "arguments": ""}})
-
-                                if "id" in tc_dump and tc_dump["id"]:
-                                    tool_calls[tc_index]["id"] = tc_dump["id"]
-                                if "function" in tc_dump:
-                                    for k, v in tc_dump["function"].items():
-                                        if v: tool_calls[tc_index]["function"][k] += v
-
-                    if is_tool_call:
-                        thought_payload = {'type': 'thought', 'content': '️ **正在调用工具处理中...**\n'}
-                        yield f"data: {json.dumps(thought_payload)}\n\n"
-
-                        assistant_msg = create_assistant_message(
-                            content=content_str or "",
-                            reasoning_content=reasoning_str,
-                            tool_calls=tool_calls,
-                            thought_signature=thought_signature_str
-                        )
-                        current_mem.append(assistant_msg)
-                        for tc in tool_calls:
-                            func_name = tc["function"]["name"]
-                            args_str = tc["function"]["arguments"]
-                            # 后台详细日志
-                            print(f"[工具调用] 函数: {func_name}, 参数: {args_str}")
-
-                            try:
-                                args = json.loads(args_str) if args_str else {}
-                            except Exception as je:
-                                print(f"[JSON 解析失败] 参数: {args_str}, 错误: {je}")
-                                args = {}
-
-                            thought_payload = {'type': 'thought', 'content': f'️ 执行: `{func_name}`\n'}
-                            yield f"data: {json.dumps(thought_payload)}\n\n"
-                            result = use_tools(func_name, args, conv_id=session_id)
-
-                            current_mem.append(
-                                {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)})
-                        
-                        thought_payload_end = {'type': 'thought', 'content': ' **工具执行完毕，正在生成最终回复...**\n'}
-                        yield f"data: {json.dumps(thought_payload_end)}\n\n"
-                        continue
-                    else:
-                        # 正常结束，输出签名（如果有）以供前端捕获并存入历史
-                        if thought_signature_str:
-                            yield f"data: {json.dumps({'type': 'thought_signature', 'content': thought_signature_str})}\n\n"
-                        break
+                        if chunk_str:
+                            full_result += chunk_str
+                            yield f"data: {json.dumps({'type': 'content', 'content': chunk_str})}\n\n"
             except Exception as e:
                 import traceback
                 traceback.print_exc()
                 yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
-        return StreamingResponse(generate(), media_type="text/event-stream")
+        return StreamingResponse(generate_agent(), media_type="text/event-stream")
     else:
-        res = await call(processed_history, stream=False)
-        content = res.content or ""
-        if res.tool_calls:
-            # 简单处理非流式下的工具调用（递归一次）
-            tool_calls = [t.model_dump(exclude_unset=True) for t in res.tool_calls]
-            processed_history.append(create_assistant_message(content=content, tool_calls=tool_calls))
-            for tc in res.tool_calls:
-                result = use_tools(tc.function.name, json.loads(tc.function.arguments))
-                processed_history.append(
-                    {"role": "tool", "tool_call_id": tc.id, "name": tc.function.name, "content": str(result)})
-            final_res = await call(processed_history, stream=False)
-            return {"reply": final_res.content}
-        return {"reply": content}
+        try:
+            full_result = ""
+            thought_signature = None
+            import inspect
+            sig = inspect.signature(agent.run)
+            if 'stream' in sig.parameters:
+                run_iter = agent.run(content, stream=False)
+            else:
+                run_iter = agent.run(content)
+
+            async for chunk in run_iter:
+                if isinstance(chunk, dict):
+                    if chunk.get('type') == 'content':
+                        full_result += chunk.get('content', '')
+                    elif chunk.get('type') == 'thought_signature':
+                        thought_signature = chunk.get('content')
+                elif chunk:
+                    chunk_str = str(chunk)
+                    if "[THOUGHT_SIGNATURE:" in chunk_str:
+                        ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", chunk_str)
+                        if ts_match:
+                            thought_signature = ts_match.group(1)
+                            chunk_str = chunk_str.replace(ts_match.group(0), "")
+                    full_result += chunk_str
+
+            return {
+                "reply": full_result,
+                "download_path": None,
+                "thought_signature": thought_signature
+            }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"error": str(e)}
 
 
 @app.post("/api/summarize")
