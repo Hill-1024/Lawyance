@@ -57,21 +57,21 @@ History: {history}
 
 
 class ReActAgent:
-    def __init__(self, tool_executor: ToolExecutor, memory: list = None, max_steps: int = 3):
+    def __init__(self, tool_executor: ToolExecutor, memory: list = None, max_steps: int = 3, session_id: str = "default", use_ocp: bool = False):
         self.tool_executor = tool_executor
         self.max_steps = max_steps
         self.history = []
         self.memory = memory or []
+        self.session_id = session_id
+        self.use_ocp = use_ocp
 
     async def run(self, question: str):
         self.history = []
         current_step = 0
 
-        yield "<think>\n"
-
         while current_step < self.max_steps:
             current_step += 1
-            yield f"\n\n--- 第 {current_step} 步推理 ---\n\n"
+            yield {'type': 'thought', 'content': f"\n\n--- 第 {current_step} 步推理 ---\n\n"}
 
             tools_desc = self.tool_executor.getAvailableTools()
             history_str = "\n".join(self.history)
@@ -91,7 +91,7 @@ class ReActAgent:
                     reasoning = getattr(delta, 'reasoning_content', None)
                     if reasoning:
                         full_response_text += reasoning
-                        yield reasoning
+                        yield {'type': 'thought', 'content': reasoning}
 
                     ts = getattr(delta, 'thought_signature', None)
                     if ts:
@@ -99,45 +99,53 @@ class ReActAgent:
 
                     if delta.content:
                         full_response_text += delta.content
-                        yield delta.content
+                        yield {'type': 'thought', 'content': delta.content}
 
             if not full_response_text:
-                yield "\n错误：LLM未能返回有效响应。\n"
+                yield {'type': 'thought', 'content': "\n错误：LLM未能返回有效响应。\n"}
                 break
 
             thought, action = self._parse_output(full_response_text)
 
             if not action:
-                yield "\n警告：未能解析出有效的Action，流程终止。\n"
+                yield {'type': 'thought', 'content': "\n警告：未能解析出有效的Action，流程终止。\n"}
                 break
 
             if action.startswith("Finish"):
                 # 提取最终答案
                 final_answer = self._parse_action_input(action)
-                yield "\n</think>\n\n"
-                yield f"{final_answer}"
+                if self.use_ocp and final_answer.strip():
+                    yield {'type': 'thought', 'content': '\n\n**[拟定初稿]**\n'}
+                    yield {'type': 'thought', 'content': final_answer}
+                    from ocp import OCPStream
+                    ocp = OCPStream(session_id=self.session_id)
+                    async for ocp_chunk in ocp.check_stream(final_answer):
+                        yield ocp_chunk
+                else:
+                    yield {'type': 'content', 'content': final_answer}
+                
                 if current_signature:
-                    yield f"\n[THOUGHT_SIGNATURE:{current_signature}]"
+                    yield {'type': 'thought_signature', 'content': current_signature}
                 return
 
             tool_name, tool_input = self._parse_action(action)
             if not tool_name or not tool_input:
                 obs_err = "Observation: 无效的Action格式，请检查。"
                 self.history.append(obs_err)
-                yield f"\n{obs_err}\n"
+                yield {'type': 'thought', 'content': f"\n{obs_err}\n"}
                 continue
 
-            yield f"\n\n**行动**: `{tool_name}[{tool_input}]`"
+            yield {'type': 'thought', 'content': f"\n\n**行动**: `{tool_name}[{tool_input}]`"}
 
             tool_function = self.tool_executor.getTool(tool_name)
             observation = tool_function(tool_input) if tool_function else f"错误：未找到名为 '{tool_name}' 的工具。"
 
-            yield f"\n\n**观察**: {observation}\n"
+            yield {'type': 'thought', 'content': f"\n\n**观察**: {observation}\n"}
 
             self.history.append(f"Action: {action}")
             self.history.append(f"Observation: {observation}")
 
-        yield "\n已达到最大步数，流程终止。\n</think>\n"
+        yield {'type': 'thought', 'content': "\n已达到最大步数，流程终止。\n"}
 
     def _parse_output(self, text: str):
         # Thought: 匹配到 Action: 或文本末尾

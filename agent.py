@@ -152,6 +152,7 @@ class ChatRequest(BaseModel):
     conversation_id: str = "default"
     stream: bool = True
     agent_mode: str = "default"
+    use_ocp: bool = True
 
 
 class SummarizeRequest(BaseModel):
@@ -207,9 +208,9 @@ async def compress_history(history: List[dict]) -> List[dict]:
 from tools import ToolExecutor
 
 
-def build_agent(mode: str, memory: list, session_id: str):
+def build_agent(mode: str, memory: list, session_id: str, use_ocp: bool = True):
     if mode == "default":
-        return DefaultAgent(memory=memory, session_id=session_id)
+        return DefaultAgent(memory=memory, session_id=session_id, use_ocp=use_ocp)
     if mode in ["react", "plan_and_solve"]:
         from mcps import tools as all_tools
         tool_executor = ToolExecutor()
@@ -225,10 +226,10 @@ def build_agent(mode: str, memory: list, session_id: str):
             tool_executor.registerTool(name, desc, create_tool_func(name))
 
         if mode == "react":
-            return ReActAgent(tool_executor=tool_executor, memory=memory)
+            return ReActAgent(tool_executor=tool_executor, memory=memory, session_id=session_id, use_ocp=use_ocp)
         if mode == "plan_and_solve":
-            return PlanAndSolveAgent(tool_executor=tool_executor, memory=memory)
-    return DefaultAgent(memory=memory, session_id=session_id)
+            return PlanAndSolveAgent(tool_executor=tool_executor, memory=memory, session_id=session_id, use_ocp=use_ocp)
+    return DefaultAgent(memory=memory, session_id=session_id, use_ocp=use_ocp)
 
 
 @app.post("/api/chat")
@@ -238,6 +239,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     session_id = request.conversation_id
     stream = request.stream
     agent_mode = request.agent_mode
+    use_ocp = request.use_ocp
 
     # 为当前用户消息加上后端时间
     from datetime import datetime
@@ -282,7 +284,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     # 2. 添加当前消息
     processed_history.append({"role": "user", "content": content})
 
-    agent = build_agent(agent_mode, processed_history, session_id)
+    agent = build_agent(agent_mode, processed_history, session_id, use_ocp=use_ocp)
 
     if stream:
         async def generate_agent():
@@ -331,6 +333,8 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                 if isinstance(chunk, dict):
                     if chunk.get('type') == 'content':
                         full_result += chunk.get('content', '')
+                    elif chunk.get('type') == 'content_replace':
+                        full_result = chunk.get('content', '')
                     elif chunk.get('type') == 'thought_signature':
                         thought_signature = chunk.get('content')
                 elif chunk:

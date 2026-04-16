@@ -183,27 +183,44 @@ async def call(context, stream=False, include_tools=True):
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
 
-    try:
-        response = await client.chat.completions.create(**kwargs)
-        print(f"[LLM 调用成功]")
-        if stream:
-            return response
-        return response.choices[0].message
-    except Exception as e:
-        error_str = str(e)
-        if "403" in error_str and "Terms Of Service" in error_str:
-            print(f"[LLM 触发安全过滤]: {error_str}")
-            # 抛出一个更友好的异常，或者在调用处处理
-            raise Exception(
-                "请求被服务商的安全策略拦截。这通常是因为输入内容或生成的回复触发了内容安全过滤（如涉及敏感话题或过于直接的法律建议）。请尝试调整提问方式，或添加更多背景信息。")
+    # 瞬时错误重试配置
+    MAX_RETRIES = 3
+    RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504"}
 
-        print(f"[LLM 调用失败]: {e}")
-        # 打印出导致失败的 kwargs，方便排查 400 错误
+    for attempt in range(MAX_RETRIES + 1):
         try:
-            print(f"[LLM 调用失败的 kwargs]: {json.dumps(kwargs, ensure_ascii=False, indent=2)}")
-        except Exception as je:
-            print(f"[LLM 调用失败的 kwargs (无法 JSON 序列化)]: {kwargs}")
-        raise e
+            response = await client.chat.completions.create(**kwargs)
+            print(f"[LLM 调用成功]")
+            if stream:
+                return response
+            return response.choices[0].message
+        except Exception as e:
+            error_str = str(e)
+
+            # 403 安全过滤 —— 不可重试，直接抛出友好异常
+            if "403" in error_str and "Terms Of Service" in error_str:
+                print(f"[LLM 触发安全过滤]: {error_str}")
+                raise Exception(
+                    "请求被服务商的安全策略拦截。这通常是因为输入内容或生成的回复触发了内容安全过滤（如涉及敏感话题或过于直接的法律建议）。请尝试调整提问方式，或添加更多背景信息。")
+
+            # 判断是否为可重试的瞬时错误
+            is_retryable = any(code in error_str for code in RETRYABLE_STATUS_CODES)
+
+            if is_retryable and attempt < MAX_RETRIES:
+                wait_time = 2 ** (attempt + 1)  # 2s, 4s, 8s
+                print(f"[LLM 调用失败 (第 {attempt + 1}/{MAX_RETRIES} 次)]: {e}")
+                print(f"[LLM 重试] 等待 {wait_time}s 后重试...")
+                import asyncio
+                await asyncio.sleep(wait_time)
+                continue
+
+            # 不可重试或已耗尽重试次数
+            print(f"[LLM 调用失败]: {e}")
+            try:
+                print(f"[LLM 调用失败的 kwargs]: {json.dumps(kwargs, ensure_ascii=False, indent=2)}")
+            except Exception as je:
+                print(f"[LLM 调用失败的 kwargs (无法 JSON 序列化)]: {kwargs}")
+            raise e
 
 
 def create_assistant_message(content="", reasoning_content=None, tool_calls=None, thought_signature=None):

@@ -183,28 +183,29 @@ class Executor:
 
 # --- 4. 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
-    def __init__(self, tool_executor: ToolExecutor = None, memory: list = None):
+    def __init__(self, tool_executor: ToolExecutor = None, memory: list = None, session_id: str = "default", use_ocp: bool = False):
         self.planner = Planner()
         self.executor = Executor()
         self.memory = memory or []
         self.tool_executor = tool_executor
+        self.session_id = session_id
+        self.use_ocp = use_ocp
 
     async def run(self, question: str):
-        yield "<think>\n"
         # 1. 制定计划
         async for chunk in self.planner.plan(question, memory=self.memory):
-            yield chunk
+            yield {'type': 'thought', 'content': chunk}
 
         plan = getattr(self.planner, "current_plan", [])
         if not plan:
-            yield "\n\n无法生成有效的行动计划。\n</think>\n"
+            yield {'type': 'thought', 'content': "\n\n无法生成有效的行动计划。\n"}
             return
 
         # 2. 执行计划
-        yield "\n\n🚀 **开始执行计划...**\n"
+        yield {'type': 'thought', 'content': "\n\n🚀 **开始执行计划...**\n"}
 
         for i, step in enumerate(plan, 1):
-            yield f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"
+            yield {'type': 'thought', 'content': f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"}
 
             # 在执行每个步骤前，先让模型判断是否需要调用工具
             thought_prompt = f"""
@@ -230,23 +231,23 @@ Action: {{tool_name}}[{{tool_input}}]
                     reasoning = getattr(delta, 'reasoning_content', None)
                     if reasoning:
                         step_result += reasoning
-                        yield reasoning
+                        yield {'type': 'thought', 'content': reasoning}
                     if delta.content:
                         step_result += delta.content
-                        yield delta.content
+                        yield {'type': 'thought', 'content': delta.content}
 
             # 检查是否有 Action 调用
             action_match = re.search(r"Action:\s*(\w+)\[(.*?)\]", step_result, re.DOTALL)
             if action_match and self.tool_executor:
                 tool_name = action_match.group(1)
                 tool_input = action_match.group(2)
-                yield f"\n\n**执行工具**: `{tool_name}[{tool_input}]`"
+                yield {'type': 'thought', 'content': f"\n\n**执行工具**: `{tool_name}[{tool_input}]`"}
 
                 tool_function = self.tool_executor.getTool(tool_name)
                 if tool_function:
                     try:
                         observation = tool_function(tool_input)
-                        yield f"\n\n**观察**: {observation}\n"
+                        yield {'type': 'thought', 'content': f"\n\n**观察**: {observation}\n"}
 
                         # 将工具结果喂回模型进行总结
                         summary_prompt = f"工具执行结果如下：\n{observation}\n请根据此结果完成当前步骤：{step}"
@@ -261,16 +262,14 @@ Action: {{tool_name}}[{{tool_input}}]
                                 delta = chunk.choices[0].delta
                                 if delta.content:
                                     final_step_result += delta.content
-                                    yield delta.content
+                                    yield {'type': 'thought', 'content': delta.content}
                         step_result = final_step_result
                     except Exception as e:
-                        yield f"\n\n**工具执行失败**: {e}\n"
+                        yield {'type': 'thought', 'content': f"\n\n**工具执行失败**: {e}\n"}
                 else:
-                    yield f"\n\n**未找到工具**: {tool_name}\n"
+                    yield {'type': 'thought', 'content': f"\n\n**未找到工具**: {tool_name}\n"}
 
             self.executor.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
-
-        yield "</think>\n\n"
 
         # 3. 最终总结
         summary_prompt = f"请根据以下执行过程，给出最终的详细回答：\n\n问题：{question}\n\n执行过程：\n{self.executor.history}"
@@ -280,30 +279,38 @@ Action: {{tool_name}}[{{tool_input}}]
         has_started_reasoning = False
         has_finished_reasoning = False
         current_signature = ""
+        is_drafting = False
+        final_answer = ""
+
         async for chunk in response_stream:
             if chunk.choices:
                 delta = chunk.choices[0].delta
                 reasoning = getattr(delta, 'reasoning_content', None)
                 if reasoning:
-                    if not has_started_reasoning:
-                        yield "<think>\n"
-                        has_started_reasoning = True
-                    yield reasoning
+                    yield {'type': 'thought', 'content': reasoning}
 
                 ts = getattr(delta, 'thought_signature', None)
                 if ts:
                     current_signature = ts
 
                 if delta.content:
-                    if has_started_reasoning and not has_finished_reasoning:
-                        yield "\n</think>\n"
-                        has_finished_reasoning = True
-                    yield delta.content
-        if has_started_reasoning and not has_finished_reasoning:
-            yield "\n</think>\n"
+                    final_answer += delta.content
+                    if self.use_ocp:
+                        if not is_drafting:
+                            yield {'type': 'thought', 'content': '\n\n**[拟定初稿]**\n'}
+                            is_drafting = True
+                        yield {'type': 'thought', 'content': delta.content}
+                    else:
+                        yield {'type': 'content', 'content': delta.content}
+
+        if self.use_ocp and final_answer.strip():
+            from ocp import OCPStream
+            ocp = OCPStream(session_id=self.session_id)
+            async for ocp_chunk in ocp.check_stream(final_answer):
+                yield ocp_chunk
 
         if current_signature:
-            yield f"\n[THOUGHT_SIGNATURE:{current_signature}]"
+            yield {'type': 'thought_signature', 'content': current_signature}
 
 # --- 5. 主函数入口 ---
 if __name__ == '__main__':

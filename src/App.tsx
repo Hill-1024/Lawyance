@@ -26,6 +26,8 @@ function App() {
     setIsStreaming,
     agentMode,
     setAgentMode,
+    isOCPEnabled,
+    setIsOCPEnabled,
     isInitialized,
     currentConversation,
     messages,
@@ -159,6 +161,8 @@ function App() {
               setIsStreaming={setIsStreaming}
               agentMode={agentMode}
               setAgentMode={setAgentMode}
+              isOCPEnabled={isOCPEnabled}
+              setIsOCPEnabled={setIsOCPEnabled}
             />
           </div>
 

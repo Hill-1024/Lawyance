@@ -46,7 +46,8 @@ export const chat = async (
   history: any[],
   conversationId: string,
   stream: boolean,
-  agentMode: string
+  agentMode: string,
+  useOcp: boolean
 ) => {
   const response = await fetch('/api/chat', {
     method: 'POST',
@@ -56,7 +57,8 @@ export const chat = async (
       history,
       conversation_id: conversationId,
       stream,
-      agent_mode: agentMode
+      agent_mode: agentMode,
+      use_ocp: useOcp
     })
   });
 

@@ -43,6 +43,7 @@ export function useChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(true);
   const [agentMode, setAgentMode] = useState('default');
+  const [isOCPEnabled, setIsOCPEnabled] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
 
   const currentConversation = conversations.find(c => c.id === currentId) || { id: '', title: '', messages: [] };
@@ -215,6 +216,21 @@ export function useChat() {
                   const fileName = currentDownloadPath.split('/').pop() || 'generated_file';
                   onFileGenerated?.(fileName, currentDownloadPath);
                 }
+              } else if (data.type === 'content_replace') {
+                // OCP-Stream: 用修正后的内容替换已有正文，保留所有思考块
+                if (isInThought) {
+                  currentText += '\n</think>\n\n';
+                  isInThought = false;
+                }
+                // 提取所有 <think>...</think> 块
+                const thinkBlocks: string[] = [];
+                const thinkRegex = /<think>[\s\S]*?<\/think>/g;
+                let thinkMatch;
+                while ((thinkMatch = thinkRegex.exec(currentText)) !== null) {
+                  thinkBlocks.push(thinkMatch[0]);
+                }
+                // 用思考块 + 修正后的正文重构
+                currentText = (thinkBlocks.length > 0 ? thinkBlocks.join('\n\n') + '\n\n' : '') + data.content;
               } else if (data.type === 'error') {
                 currentText += `\n\n**Error:** ${data.content}`;
               }
@@ -305,7 +321,7 @@ export function useChat() {
     }
 
     try {
-      const response = await chat(messageContent, history, convId, isStreaming, agentMode);
+      const response = await chat(messageContent, history, convId, isStreaming, agentMode, isOCPEnabled);
 
       if (isStreaming) {
         await processStream(response, null, convId, onFileGenerated);
@@ -391,7 +407,7 @@ export function useChat() {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content };
       updateMessages(convId, prev => [...prev, userMessage]);
 
-      const response = await chat(content, history, convId, isStreaming, agentMode);
+      const response = await chat(content, history, convId, isStreaming, agentMode, isOCPEnabled);
 
       if (isStreaming) {
         await processStream(response, null, convId, onFileGenerated);
@@ -486,6 +502,8 @@ export function useChat() {
     setIsStreaming,
     agentMode,
     setAgentMode,
+    isOCPEnabled,
+    setIsOCPEnabled,
     isInitialized,
     currentConversation,
     messages,

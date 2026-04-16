@@ -16,6 +16,8 @@ interface InputAreaProps {
   setIsStreaming: (val: boolean) => void;
   agentMode: string;
   setAgentMode: (val: string) => void;
+  isOCPEnabled: boolean;
+  setIsOCPEnabled: (val: boolean) => void;
 }
 
 export const InputArea: React.FC<InputAreaProps> = ({
@@ -31,10 +33,19 @@ export const InputArea: React.FC<InputAreaProps> = ({
   isStreaming,
   setIsStreaming,
   agentMode,
-  setAgentMode
+  setAgentMode,
+  isOCPEnabled,
+  setIsOCPEnabled
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onSendWrapper = () => {
+    handleSend();
+    if (isInputExpanded) {
+      setIsInputExpanded(false);
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isMac = /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent);
@@ -42,7 +53,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
 
     if (isSendTriggered) {
       e.preventDefault();
-      handleSend();
+      onSendWrapper();
     }
   };
 
@@ -66,6 +77,23 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 className={`relative inline-flex h-6 w-11 sm:h-7 sm:w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ${isStreaming ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`}
               >
                 <span className={`inline-block h-4 w-4 sm:h-5 sm:w-5 transform rounded-full bg-white transition-transform ${isStreaming ? 'translate-x-6 sm:translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Settings2 size={20} className="text-gray-600 dark:text-gray-400 sm:size-6" />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm sm:text-[15px] font-medium text-gray-900 dark:text-gray-100">Output Check Process (OCP)</span>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">Beta</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsOCPEnabled(!isOCPEnabled)}
+                className={`relative inline-flex h-6 w-11 sm:h-7 sm:w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 
+                  ${isOCPEnabled ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`}
+              >
+                <span className={`inline-block h-4 w-4 sm:h-5 sm:w-5 transform rounded-full bg-white transition-transform ${isOCPEnabled ? 'translate-x-6 sm:translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
             <div className="h-px bg-gray-100 dark:bg-gray-700 w-full" />
@@ -147,7 +175,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
             rows={1}
           />
           <button
-            onClick={handleSend}
+            onClick={onSendWrapper}
             disabled={isLoading || (!input.trim() && pendingUploads.length === 0)}
             className={`p-3 sm:p-4 rounded-full shrink-0 transition-colors shadow-sm flex items-center justify-center ${
               input.trim() || pendingUploads.length > 0

@@ -11,7 +11,23 @@ export function useWorkspace(currentId: string) {
     if (!currentId) return;
     try {
       const data = await getWorkspaceFiles(currentId);
-      setWorkspaceFiles(data.files);
+      const serverFiles = data.files || [];
+      const localFiles = await fileDB.getFilesByConvId(currentId);
+      
+      const serverPaths = new Set(serverFiles.map((f: any) => f.path));
+      const mergedFiles = [...serverFiles];
+      
+      for (const local of localFiles) {
+        if (!serverPaths.has(local.path) && local.path) {
+          mergedFiles.push({
+            name: local.fileName,
+            path: local.path,
+            type: local.path.toUpperCase().includes('TEMP/') ? 'upload' : 'generated'
+          });
+        }
+      }
+      
+      setWorkspaceFiles(mergedFiles);
       setPendingUploads([]);
     } catch (error) {
       console.error('Failed to sync workspace files:', error);
