@@ -48,7 +48,8 @@ function App() {
     handleFileUpload,
     handleGeneratedFile,
     removeUploadedFile,
-    deleteFile
+    deleteFile,
+    syncFiles
   } = useWorkspace(currentId);
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
