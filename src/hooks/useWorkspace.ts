@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fileDB } from '../lib/db';
-import { uploadFile, getWorkspaceFiles } from '../services/api';
+import { uploadFile, getWorkspaceFiles, restoreFile } from '../services/api';
 
 export function useWorkspace(currentId: string) {
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -19,11 +19,25 @@ export function useWorkspace(currentId: string) {
       
       for (const local of localFiles) {
         if (!serverPaths.has(local.path) && local.path) {
-          mergedFiles.push({
-            name: local.fileName,
-            path: local.path,
-            type: local.path.toUpperCase().includes('TEMP/') ? 'upload' : 'generated'
-          });
+          const type = local.path.toUpperCase().includes('TEMP/') ? 'upload' : 'generated';
+          
+          if (!serverPaths.has(local.path)) {
+            mergedFiles.push({
+              name: local.fileName,
+              path: local.path,
+              type: type
+            });
+
+            // Proactively restore missing files to server
+            if (local.blob && local.blob.size > 0) {
+              console.log(`[Sync] Restoring missing file to server: ${local.fileName}`);
+              try {
+                await restoreFile(local.blob, local.fileName, currentId, type);
+              } catch (err) {
+                console.error(`[Sync] Failed to restore file ${local.fileName}:`, err);
+              }
+            }
+          }
         }
       }
       
@@ -31,7 +45,7 @@ export function useWorkspace(currentId: string) {
       setPendingUploads([]);
     } catch (error) {
       console.error('Failed to sync workspace files:', error);
-      // Fallback to local DB if server fails? Or just show empty.
+      // Fallback to local DB if server fails
       const files = await fileDB.getFilesByConvId(currentId);
       setWorkspaceFiles(files.map(f => ({
         name: f.fileName,

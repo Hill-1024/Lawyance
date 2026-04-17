@@ -76,18 +76,44 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!currentId || !isAuthenticated) return;
+    if (!currentId || !isAuthenticated || !isInitialized) return;
 
-    // 当切换到某个对话时，立即发送一次心跳记录其进入连接状态
-    sendHeartbeat(currentId).catch(console.error);
+    // 当切换到某个对话时，立即发送一次心跳记录其进入连接状态，并同步文件
+    const initialSync = async () => {
+      try {
+        await sendHeartbeat(currentId);
+        await syncFiles();
+      } catch (e) {
+        console.error("Initial heartbeat/sync failed:", e);
+      }
+    };
+    initialSync();
 
     // 仅为当前处于前台的对话（currentId）每 5 分钟发送一次心跳
     const interval = setInterval(() => {
       sendHeartbeat(currentId).catch(console.error);
     }, 5 * 60 * 1000);
 
-    return () => clearInterval(interval);
-  }, [currentId, isAuthenticated]);
+    // 用户重新连接（重新聚焦页面）时，立即同步状态
+    const handleFocus = async () => {
+      console.log("[Reconnect] Window focused, syncing files and sending heartbeat...");
+      try {
+        await sendHeartbeat(currentId);
+        await syncFiles();
+      } catch (e) {
+        console.error("Focus sync failed:", e);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleFocus);
+    };
+  }, [currentId, isAuthenticated, isInitialized, syncFiles]);
 
   if (isAuthChecking) {
     return (

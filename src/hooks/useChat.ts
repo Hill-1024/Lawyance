@@ -304,21 +304,7 @@ export function useChat() {
     setPendingUploads([]);
     setIsLoading(true);
 
-    // Sync missing files to server
-    try {
-      const serverData = await getWorkspaceFiles(convId);
-      const serverPaths = new Set(serverData.files.map((f: any) => f.path));
-      const localFiles = await fileDB.getFilesByConvId(convId);
-
-      for (const local of localFiles) {
-        if (!serverPaths.has(local.path) && local.blob && local.blob.size > 0) {
-          const type = local.path?.toUpperCase().includes('TEMP/') ? 'upload' : 'generated';
-          await restoreFile(local.blob, local.fileName, convId, type);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to sync files to server:", e);
-    }
+    // Sync missing files to server is now handled by useWorkspace.syncFiles
 
     try {
       const response = await chat(messageContent, history, convId, isStreaming, agentMode, isOCPEnabled);
@@ -387,21 +373,7 @@ export function useChat() {
     updateMessages(convId, prev => prev.slice(0, msgIndex));
     setIsLoading(true);
 
-    // Sync missing files to server
-    try {
-      const serverData = await getWorkspaceFiles(convId);
-      const serverPaths = new Set(serverData.files.map((f: any) => f.path));
-      const localFiles = await fileDB.getFilesByConvId(convId);
-
-      for (const local of localFiles) {
-        if (!serverPaths.has(local.path) && local.blob && local.blob.size > 0) {
-          const type = local.path?.toUpperCase().includes('TEMP/') ? 'upload' : 'generated';
-          await restoreFile(local.blob, local.fileName, convId, type);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to sync files to server:", e);
-    }
+    // Sync missing files to server is now handled by useWorkspace.syncFiles
 
     try {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content };
