@@ -77,5 +77,114 @@ export const storageService = {
     await fileDB.saveConversations(remainingConvs);
     
     return oldConvs.length;
+  },
+
+  // --- Dialogue Migration (Text Only) ---
+
+  async _getKey() {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      enc.encode("GDUT-Lawyer-Security-Migration-Key-2024"),
+      "PBKDF2",
+      false,
+      ["deriveBits", "deriveKey"]
+    );
+    return crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: enc.encode("GDUT-Lawyer-Salt"),
+        iterations: 100000,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+  },
+
+  async encryptData(data: string) {
+    const key = await this._getKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(data);
+    const encrypted = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encoded
+    );
+    
+    // Combine IV and Encrypted Data
+    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+    combined.set(iv);
+    combined.set(new Uint8Array(encrypted), iv.length);
+    
+    return btoa(String.fromCharCode(...combined));
+  },
+
+  async decryptData(base64: string) {
+    const key = await this._getKey();
+    const combined = new Uint8Array(atob(base64).split('').map(c => c.charCodeAt(0)));
+    const iv = combined.slice(0, 12);
+    const data = combined.slice(12);
+    
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      data
+    );
+    
+    return new TextDecoder().decode(decrypted);
+  },
+
+  async exportConversationsText() {
+    const conversations = await fileDB.getConversations();
+    // Strip everything but text data to be safe, though Conversation type is already clean
+    const data = JSON.stringify(conversations);
+    const encrypted = await this.encryptData(data);
+    
+    const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lawyer_dialogues_${new Date().toISOString().split('T')[0]}.lawyer`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  async importConversationsFromFile(file: File) {
+    const text = await file.text();
+    const decrypted = await this.decryptData(text);
+    const conversations = JSON.parse(decrypted) as any[];
+    
+    const newConversations = conversations.map(conv => {
+      const oldId = conv.id;
+      const newId = crypto.randomUUID();
+      
+      // Update Conversation ID
+      const newConv = { ...conv, id: newId };
+      
+      // Update Message contents and reasoning_content (replace oldId with newId)
+      newConv.messages = conv.messages.map((msg: any) => {
+        let content = msg.content || '';
+        let reasoning_content = msg.reasoning_content || '';
+        
+        if (content.includes(oldId)) {
+          content = content.replaceAll(oldId, newId);
+        }
+        if (reasoning_content.includes(oldId)) {
+          reasoning_content = reasoning_content.replaceAll(oldId, newId);
+        }
+        
+        return { ...msg, content, reasoning_content };
+      });
+      
+      return newConv;
+    });
+    
+    await fileDB.addConversations(newConversations);
+    return newConversations.length;
   }
 };

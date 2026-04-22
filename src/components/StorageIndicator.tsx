@@ -220,6 +220,76 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                       {isCleaning && <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent" />}
                     </button>
                   </div>
+
+                  <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
+                    <div className="flex items-center gap-2 mb-4 text-gray-900 dark:text-gray-100 font-semibold">
+                      <div className="w-1.5 h-4 bg-blue-500 rounded-full" />
+                      <h4>跨域名对话迁移</h4>
+                    </div>
+                    
+                    <div className="p-4 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-xl mb-4">
+                      <div className="flex gap-3">
+                        <AlertTriangle className="text-blue-500 shrink-0" size={18} />
+                        <p className="text-xs text-blue-800/80 dark:text-blue-300/80 leading-relaxed">
+                          如果您从旧地址（如 IP 访问）切换到新域名，请在此导出对话记录。
+                          <br />
+                          <strong className="text-blue-600 dark:text-blue-400">注意：</strong> 导入/导出仅包含文字内容，原对话中的文件需手动重新上传。
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={async () => {
+                          setIsExporting(true);
+                          try {
+                            await storageService.exportConversationsText();
+                          } finally {
+                            setIsExporting(false);
+                          }
+                        }}
+                        disabled={isExporting}
+                        className="flex flex-col items-center justify-center gap-2 p-4 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 rounded-xl transition-all group"
+                      >
+                        <div className="p-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg group-hover:scale-110 transition-transform">
+                          <Download size={20} />
+                        </div>
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">导出文字记录</span>
+                      </button>
+
+                      <button 
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = '.lawyer,.json.enc';
+                          input.onchange = async (e) => {
+                            const file = (e.target as HTMLInputElement).files?.[0];
+                            if (file) {
+                              setIsExporting(true);
+                              try {
+                                const count = await storageService.importConversationsFromFile(file);
+                                alert(`成功导入 ${count} 个对话！\n请刷新页面以查看更新。`);
+                                updateEstimate();
+                              } catch (err) {
+                                console.error(err);
+                                alert('导入失败，请确保文件格式正确且未损坏。');
+                              } finally {
+                                setIsExporting(false);
+                              }
+                            }
+                          };
+                          input.click();
+                        }}
+                        disabled={isExporting}
+                        className="flex flex-col items-center justify-center gap-2 p-4 bg-white dark:bg-gray-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border border-gray-200 dark:border-gray-700 rounded-xl transition-all group"
+                      >
+                        <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg group-hover:scale-110 transition-transform">
+                          <Database size={20} />
+                        </div>
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">导入文字记录</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 

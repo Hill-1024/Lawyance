@@ -107,6 +107,18 @@ export class FileDB {
     });
   }
 
+  async addConversations(conversations: Conversation[]) {
+    const db = await this.getDB();
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(this.convStoreName, 'readwrite');
+      const store = transaction.objectStore(this.convStoreName);
+      
+      conversations.forEach(conv => store.put(conv));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
   async getConversations(): Promise<Conversation[]> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
