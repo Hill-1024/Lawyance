@@ -104,6 +104,16 @@ export const deleteWorkspace = async (conversationId: string) => {
   return res.json();
 };
 
+export const deleteWorkspaceFile = async (conversationId: string, path: string) => {
+  const res = await fetch(`/api/workspace/file?conversation_id=${encodeURIComponent(conversationId)}&file_path=${encodeURIComponent(path)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    throw new Error('Delete workspace file failed');
+  }
+  return res.json();
+};
+
 export const sendHeartbeat = async (conversationId: string) => {
   const res = await fetch(`/api/heartbeat/${encodeURIComponent(conversationId)}`, {
     method: 'POST'

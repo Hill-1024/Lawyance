@@ -168,7 +168,7 @@ function App() {
               <MessageList
                 messages={messages}
                 isLoading={isLoading}
-                onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile)}
+                onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
                 onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}
                 onUndo={(id) => handleUndo(currentId, id, setPendingUploads)}
               />
@@ -177,7 +177,7 @@ function App() {
             <InputArea
               input={input}
               setInput={setInput}
-              handleSend={() => handleSend(pendingUploads, setPendingUploads, handleGeneratedFile)}
+              handleSend={() => handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles)}
               isLoading={isLoading}
               pendingUploads={pendingUploads}
               removeUploadedFile={removeUploadedFile}

@@ -275,7 +275,7 @@ export function useChat() {
     }
   };
 
-  const handleSend = async (pendingUploads: {name: string, path: string}[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void) => {
+  const handleSend = async (pendingUploads: {name: string, path: string}[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => {
     if ((!input.trim() && pendingUploads.length === 0) || isLoading || !isInitialized) {
       return;
     }
@@ -304,7 +304,10 @@ export function useChat() {
     setPendingUploads([]);
     setIsLoading(true);
 
-    // Sync missing files to server is now handled by useWorkspace.syncFiles
+    // Pre-flight sync: Ensure all files are synced to the server before sending the request
+    if (syncFiles) {
+      await syncFiles();
+    }
 
     try {
       const response = await chat(messageContent, history, convId, isStreaming, agentMode, isOCPEnabled);
@@ -356,7 +359,7 @@ export function useChat() {
     }
   };
 
-  const handleRegenerateMessage = async (convId: string, messageId: string, onFileGenerated?: (name: string, path: string) => void) => {
+  const handleRegenerateMessage = async (convId: string, messageId: string, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => {
     const conv = conversations.find(c => c.id === convId);
     if (!conv) return;
 
@@ -373,7 +376,10 @@ export function useChat() {
     updateMessages(convId, prev => prev.slice(0, msgIndex));
     setIsLoading(true);
 
-    // Sync missing files to server is now handled by useWorkspace.syncFiles
+    // Pre-flight sync: Ensure all files are synced to the server before sending the request
+    if (syncFiles) {
+      await syncFiles();
+    }
 
     try {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content };

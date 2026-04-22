@@ -83,9 +83,7 @@ active_conversations: dict[str, float] = {}
 
 async def cleanup_task():
     """
-    后台清理任务：每10分钟运行一次，删除 TEMP 和 Result 目录中超过 1 小时未修改的文件。
-    但在清理前会检查对话是否仍在线（过去一小时内有心跳），若在线则保留缓存文件。
-    清理完成后，将超过 1 小时没有心跳的记录从字典中删除。
+    后台清理任务：每10分钟运行一次，删除超过1小时未活跃会话的 TEMP 和 Result 缓存。
     """
     while True:
         try:
@@ -101,7 +99,6 @@ async def cleanup_task():
                 if not os.path.exists(folder):
                     continue
 
-                # 遍历 TEMP 和 Result 的第一级子目录 (这些是 conversation_id)
                 for conv_id in os.listdir(folder):
                     conv_dir = os.path.join(folder, conv_id)
                     if not os.path.isdir(conv_dir):
@@ -109,27 +106,17 @@ async def cleanup_task():
 
                     # 检查是否在线
                     if conv_id in active_conversations:
-                        # 在线，跳过此对话的清理
                         continue
 
-                    # 不在线，执行原来的清理逻辑
-                    for root, dirs, files in os.walk(conv_dir, topdown=False):
-                        for name in files:
-                            file_path = os.path.join(root, name)
-                            if os.path.getmtime(file_path) < one_hour_ago:
-                                try:
-                                    os.remove(file_path)
-                                    print(f"[清理] 已删除过期文件: {file_path}")
-                                except Exception as e:
-                                    print(f"[清理] 删除文件失败 {file_path}: {e}")
+                    # 会话已离线，且目录也闲置超过一小时，直接清理整个目录
+                    try:
+                        mtime = os.path.getmtime(conv_dir)
+                        if mtime < one_hour_ago:
+                            shutil.rmtree(conv_dir, ignore_errors=True)
+                            print(f"[清理] 已彻底删除过期会话缓存: {conv_dir}")
+                    except Exception as e:
+                        print(f"[清理] 删除会话缓存失败 {conv_dir}: {e}")
 
-                        # 如果目录为空，也将其删除
-                        if not os.listdir(root):
-                            try:
-                                os.rmdir(root)
-                                print(f"[清理] 已删除空目录: {root}")
-                            except Exception as e:
-                                print(f"[清理] 删除空目录失败 {root}: {e}")
         except Exception as e:
             print(f"[清理] 任务运行出错: {e}")
 
@@ -498,6 +485,41 @@ async def delete_workspace(conversation_id: str, current_user: str = Depends(get
         shutil.rmtree(result_dir, ignore_errors=True)
 
     return {"status": "success"}
+
+@app.delete("/api/workspace/file")
+async def delete_workspace_file(conversation_id: str, file_path: str, current_user: str = Depends(get_current_user)):
+    """
+    客户端删除特定文件时，清理服务器上的该文件
+    """
+    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
+    
+    # 规范化路径并验证安全性
+    if not os.path.isabs(file_path):
+        target_path = os.path.join(os.getcwd(), file_path)
+    else:
+        target_path = file_path
+        
+    abs_path = os.path.abspath(target_path)
+    cwd = os.getcwd()
+    
+    allowed_dirs = [
+        os.path.join(cwd, "TEMP", safe_conv_id),
+        os.path.join(cwd, "Result", safe_conv_id)
+    ]
+    
+    is_allowed = any(
+        abs_path.startswith(os.path.abspath(d) + os.sep) or abs_path == os.path.abspath(d)
+        for d in allowed_dirs
+    )
+    
+    if is_allowed and os.path.exists(abs_path) and os.path.isfile(abs_path):
+        try:
+            os.remove(abs_path)
+            return {"status": "success"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+            
+    raise HTTPException(status_code=403, detail="File not found or access denied")
 
 @app.post("/api/heartbeat/{conversation_id}")
 async def heartbeat(conversation_id: str, current_user: str = Depends(get_current_user)):

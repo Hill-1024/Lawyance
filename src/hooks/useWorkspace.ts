@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { fileDB } from '../lib/db';
-import { uploadFile, getWorkspaceFiles, restoreFile } from '../services/api';
+import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile } from '../services/api';
 
 export function useWorkspace(currentId: string) {
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -15,28 +15,44 @@ export function useWorkspace(currentId: string) {
       const localFiles = await fileDB.getFilesByConvId(currentId);
       
       const serverPaths = new Set(serverFiles.map((f: any) => f.path));
+      const localPaths = new Set(localFiles.map(f => f.path));
       const mergedFiles = [...serverFiles];
       
+      // 1. Client -> Server: Restore missing files on Server
       for (const local of localFiles) {
         if (!serverPaths.has(local.path) && local.path) {
           const type = local.path.toUpperCase().includes('TEMP/') ? 'upload' : 'generated';
           
-          if (!serverPaths.has(local.path)) {
-            mergedFiles.push({
-              name: local.fileName,
-              path: local.path,
-              type: type
-            });
+          mergedFiles.push({
+            name: local.fileName,
+            path: local.path,
+            type: type
+          });
 
-            // Proactively restore missing files to server
-            if (local.blob && local.blob.size > 0) {
-              console.log(`[Sync] Restoring missing file to server: ${local.fileName}`);
-              try {
-                await restoreFile(local.blob, local.fileName, currentId, type);
-              } catch (err) {
-                console.error(`[Sync] Failed to restore file ${local.fileName}:`, err);
-              }
+          // Proactively restore missing files to server
+          if (local.blob && local.blob.size > 0) {
+            console.log(`[Sync] Restoring missing file to server: ${local.fileName}`);
+            try {
+              await restoreFile(local.blob, local.fileName, currentId, type);
+            } catch (err) {
+              console.error(`[Sync] Failed to restore file ${local.fileName}:`, err);
             }
+          }
+        }
+      }
+
+      // 2. Server -> Client: Persist missing files locally
+      for (const serverFile of serverFiles) {
+        if (!localPaths.has(serverFile.path)) {
+          console.log(`[Sync] Downloading missing server file to local cache: ${serverFile.name}`);
+          try {
+            const res = await fetch(`/api/download?file_path=${encodeURIComponent(serverFile.path)}`);
+            if (res.ok) {
+              const blob = await res.blob();
+              await fileDB.saveFile(currentId, serverFile.name, blob, serverFile.path);
+            }
+          } catch (err) {
+            console.error(`[Sync] Failed to download server file to local: ${serverFile.name}`, err);
           }
         }
       }
@@ -99,6 +115,14 @@ export function useWorkspace(currentId: string) {
 
   const deleteFile = async (fileName: string) => {
     try {
+      const fileToDelete = workspaceFiles.find(f => f.name === fileName);
+      if (fileToDelete) {
+        try {
+          await deleteWorkspaceFile(currentId, fileToDelete.path);
+        } catch (err) {
+          console.error('Failed to delete file from server:', err);
+        }
+      }
       await fileDB.deleteFile(currentId, fileName);
       setWorkspaceFiles(prev => prev.filter(f => f.name !== fileName));
       setPendingUploads(prev => prev.filter(f => f.name !== fileName));
