@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from './hooks/useTheme';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
+import { useStorage } from './hooks/useStorage';
 import { sendHeartbeat, verifyAuth } from './services/api';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
@@ -51,6 +52,7 @@ function App() {
     deleteFile,
     syncFiles
   } = useWorkspace(currentId);
+  const { isLowStorage, requestPersistence } = useStorage();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
@@ -68,6 +70,7 @@ function App() {
       }
     };
     checkAuth();
+    requestPersistence().catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -79,7 +82,6 @@ function App() {
   useEffect(() => {
     if (!currentId || !isAuthenticated || !isInitialized) return;
 
-    // 当切换到某个对话时，立即发送一次心跳记录其进入连接状态，并同步文件
     const initialSync = async () => {
       try {
         await sendHeartbeat(currentId);
@@ -90,12 +92,10 @@ function App() {
     };
     initialSync();
 
-    // 仅为当前处于前台的对话（currentId）每 5 分钟发送一次心跳
     const interval = setInterval(() => {
       sendHeartbeat(currentId).catch(console.error);
     }, 5 * 60 * 1000);
 
-    // 用户重新连接（重新聚焦页面）时，立即同步状态
     const handleFocus = async () => {
       console.log("[Reconnect] Window focused, syncing files and sending heartbeat...");
       try {
@@ -177,7 +177,7 @@ function App() {
             <InputArea
               input={input}
               setInput={setInput}
-              handleSend={() => handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles)}
+              handleSend={() => handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles, isLowStorage)}
               isLoading={isLoading}
               pendingUploads={pendingUploads}
               removeUploadedFile={removeUploadedFile}

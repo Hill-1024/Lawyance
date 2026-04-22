@@ -50,28 +50,42 @@ export function useChat() {
   const messages = currentConversation.messages;
 
   useEffect(() => {
-    const saved = localStorage.getItem('conversations');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.length > 0) {
-          setConversations(parsed);
-          setCurrentId(parsed[0].id);
-        } else {
-          handleNewChat();
+    const initData = async () => {
+      // 1. Try to load from IndexedDB
+      let savedConvs = await fileDB.getConversations();
+      
+      // 2. Migration: If empty in IndexedDB, check localStorage
+      if (savedConvs.length === 0) {
+        const legacy = localStorage.getItem('conversations');
+        if (legacy) {
+          try {
+            savedConvs = JSON.parse(legacy);
+            // Save to IndexedDB immediately for migration
+            await fileDB.saveConversations(savedConvs);
+            // Optional: clear legacy localStorage later
+          } catch (e) {
+            console.error('Failed to parse legacy conversations:', e);
+          }
         }
-      } catch (e) {
+      }
+
+      if (savedConvs.length > 0) {
+        setConversations(savedConvs);
+        setCurrentId(savedConvs[0].id);
+      } else {
         handleNewChat();
       }
-    } else {
-      handleNewChat();
-    }
-    setIsInitialized(true);
+      setIsInitialized(true);
+    };
+    
+    initData();
   }, []);
 
   useEffect(() => {
     if (isInitialized) {
-      localStorage.setItem('conversations', JSON.stringify(conversations));
+      fileDB.saveConversations(conversations).catch(e => {
+        console.error('Failed to save conversations to IndexedDB:', e);
+      });
     }
   }, [conversations, isInitialized]);
 
@@ -487,7 +501,13 @@ export function useChat() {
     messages,
     handleNewChat,
     deleteConversation,
-    handleSend,
+    handleSend: async (pendingUploads: {name: string, path: string}[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>, isLowStorage?: boolean) => {
+      if (isLowStorage) {
+        alert('本地存储空间不足！请点击侧边栏下方的存储指示器进行【导出并清理】，否则无法继续发送消息。');
+        return;
+      }
+      return handleSend(pendingUploads, setPendingUploads, onFileGenerated, syncFiles);
+    },
     handleRegenerateMessage,
     handleUndo,
     handleEdit

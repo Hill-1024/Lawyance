@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import { Conversation } from '../types';
+import { StorageIndicator } from './StorageIndicator';
 
 interface SidebarProps {
   isSidebarOpen: boolean;
@@ -48,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             New Chat
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] flex flex-col gap-1 custom-scrollbar min-w-62.5">
+        <div className="flex-1 overflow-y-auto px-3 pb-2 flex flex-col gap-1 custom-scrollbar min-w-62.5">
           {conversations.map(conv => (
             <div
               key={conv.id}
@@ -70,6 +71,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
           ))}
+        </div>
+        <div className="p-4 border-t border-gray-200 dark:border-gray-800 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <StorageIndicator />
         </div>
       </div>
     </>
