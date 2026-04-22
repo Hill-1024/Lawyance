@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, LogOut } from 'lucide-react';
 import { Conversation } from '../types';
 import { StorageIndicator } from './StorageIndicator';
 
@@ -11,6 +11,9 @@ interface SidebarProps {
   setCurrentId: (id: string) => void;
   handleNewChat: () => void;
   deleteConversation: (id: string, e: React.MouseEvent) => void;
+  userRole?: string;
+  onAdminClick?: () => void;
+  onLogout?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -20,7 +23,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentId,
   setCurrentId,
   handleNewChat,
-  deleteConversation
+  deleteConversation,
+  userRole,
+  onAdminClick,
+  onLogout
 }) => {
   return (
     <>
@@ -72,7 +78,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           ))}
         </div>
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-800 pb-[calc(1rem+env(safe-area-inset-bottom))] flex flex-col gap-3">
+          {userRole === 'admin' && onAdminClick && (
+            <button
+              onClick={onAdminClick}
+              className="w-full py-2.5 px-4 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-700 dark:text-indigo-300 rounded-xl text-sm font-medium transition-colors shadow-sm flex items-center justify-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              管理后台
+            </button>
+          )}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="w-full py-2.5 px-4 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              <LogOut size={16} />
+              退出登录
+            </button>
+          )}
           <StorageIndicator />
         </div>
       </div>

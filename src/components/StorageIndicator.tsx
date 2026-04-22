@@ -22,16 +22,6 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const handleExport = async () => {
-    setIsExporting(true);
-    try {
-      await storageService.exportAllData();
-    } finally {
-      setIsExporting(false);
-      updateEstimate();
-    }
-  };
-
   const handleGC = async () => {
     setIsCleaning(true);
     try {
@@ -140,9 +130,9 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-700"
+              className="relative w-full max-w-md max-h-[90vh] flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-700"
             >
-              <div className="p-6">
+              <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl">
                     <Database size={24} />
@@ -187,23 +177,6 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
 
                   <div className="pt-4 grid grid-cols-1 gap-3">
                     <button 
-                      onClick={handleExport}
-                      disabled={isExporting}
-                      className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-100 dark:border-gray-700 rounded-xl transition-colors group"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-white dark:bg-gray-700 rounded-lg group-hover:text-blue-500 transition-colors">
-                          <Download size={20} />
-                        </div>
-                        <div className="text-left">
-                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">导出数据到本地</p>
-                          <p className="text-xs text-gray-500">打包所有对话和文件为 .zip</p>
-                        </div>
-                      </div>
-                      {isExporting && <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent" />}
-                    </button>
-
-                    <button 
                       onClick={handleGC}
                       disabled={isCleaning}
                       className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 hover:bg-amber-50 dark:hover:bg-amber-900/20 border border-gray-100 dark:border-gray-700 rounded-xl transition-colors group"
@@ -224,26 +197,29 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                   <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
                     <div className="flex items-center gap-2 mb-4 text-gray-900 dark:text-gray-100 font-semibold">
                       <div className="w-1.5 h-4 bg-blue-500 rounded-full" />
-                      <h4>跨域名对话迁移</h4>
+                      <h4>数据导入与导出</h4>
                     </div>
                     
                     <div className="p-4 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-xl mb-4">
                       <div className="flex gap-3">
                         <AlertTriangle className="text-blue-500 shrink-0" size={18} />
                         <p className="text-xs text-blue-800/80 dark:text-blue-300/80 leading-relaxed">
-                          如果您从旧地址（如 IP 访问）切换到新域名，请在此导出对话记录。
+                          导出为经过安全混淆的单文件（.lawyer）。
                           <br />
-                          <strong className="text-blue-600 dark:text-blue-400">注意：</strong> 导入/导出仅包含文字内容，原对话中的文件需手动重新上传。
+                          <strong className="text-blue-600 dark:text-blue-400">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话内容，不包含臃肿的附件，附件需在新设备重新上传。
                         </p>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button 
                         onClick={async () => {
                           setIsExporting(true);
                           try {
                             await storageService.exportConversationsText();
+                          } catch (err) {
+                            console.error(err);
+                            alert('导出失败: ' + (err as Error).message);
                           } finally {
                             setIsExporting(false);
                           }
@@ -257,43 +233,49 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                         <span className="text-sm font-medium text-gray-900 dark:text-gray-100">导出文字记录</span>
                       </button>
 
-                      <button 
-                        onClick={() => {
-                          const input = document.createElement('input');
-                          input.type = 'file';
-                          input.accept = '.lawyer,.json.enc';
-                          input.onchange = async (e) => {
-                            const file = (e.target as HTMLInputElement).files?.[0];
-                            if (file) {
-                              setIsExporting(true);
-                              try {
-                                const count = await storageService.importConversationsFromFile(file);
-                                alert(`成功导入 ${count} 个对话！\n请刷新页面以查看更新。`);
-                                updateEstimate();
-                              } catch (err) {
-                                console.error(err);
-                                alert('导入失败，请确保文件格式正确且未损坏。');
-                              } finally {
-                                setIsExporting(false);
-                              }
+                      <div className="relative">
+                        <input
+                          type="file"
+                          id="import-dialogues-input"
+                          className="hidden"
+                          accept=".lawyer,.json.enc"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            
+                            setIsExporting(true);
+                            try {
+                              const count = await storageService.importConversationsFromFile(file);
+                              alert(`成功导入 ${count} 个对话！\n请刷新页面以查看更新。`);
+                              updateEstimate();
+                            } catch (err) {
+                              console.error(err);
+                              alert('导入失败，请确保文件格式正确且未损坏。');
+                            } finally {
+                              setIsExporting(false);
+                              e.target.value = ''; // Reset input
                             }
-                          };
-                          input.click();
-                        }}
-                        disabled={isExporting}
-                        className="flex flex-col items-center justify-center gap-2 p-4 bg-white dark:bg-gray-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border border-gray-200 dark:border-gray-700 rounded-xl transition-all group"
-                      >
-                        <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg group-hover:scale-110 transition-transform">
-                          <Database size={20} />
-                        </div>
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">导入文字记录</span>
-                      </button>
+                          }}
+                        />
+                        <button 
+                          onClick={() => {
+                            document.getElementById('import-dialogues-input')?.click();
+                          }}
+                          disabled={isExporting}
+                          className="w-full flex flex-col items-center justify-center gap-2 p-4 bg-white dark:bg-gray-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border border-gray-200 dark:border-gray-700 rounded-xl transition-all group"
+                        >
+                          <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg group-hover:scale-110 transition-transform">
+                            <Database size={20} />
+                          </div>
+                          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">导入文字记录</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-700 flex justify-end">
+              <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-700 flex justify-end shrink-0">
                 <button 
                   onClick={() => setIsModalOpen(false)}
                   className="px-6 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"

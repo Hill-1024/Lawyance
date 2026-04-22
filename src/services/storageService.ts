@@ -1,39 +1,7 @@
-import JSZip from 'jszip';
+import JSZip from 'jszip/dist/jszip.min.js';
 import { fileDB } from '../lib/db';
 
 export const storageService = {
-  async exportAllData() {
-    const zip = new JSZip();
-    
-    // 1. Export Conversations
-    const conversations = await fileDB.getConversations();
-    zip.file('conversations.json', JSON.stringify(conversations, null, 2));
-    
-    // 2. Export Files
-    const files = await fileDB.getAllFiles();
-    const filesFolder = zip.folder('files');
-    
-    for (const file of files) {
-      if (file.blob && file.blob.size > 0) {
-        // Use id as filename to avoid collisions, or a descriptive name
-        const fileName = `${file.convId}_${file.fileName}`;
-        filesFolder?.file(fileName, file.blob);
-      }
-    }
-    
-    // 3. Generate Zip
-    const content = await zip.generateAsync({ type: 'blob' });
-    
-    // 4. Trigger Download
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `lawver_backup_${new Date().toISOString().split('T')[0]}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  },
 
   async garbageCollect() {
     const files = await fileDB.getAllFiles();
@@ -81,69 +49,33 @@ export const storageService = {
 
   // --- Dialogue Migration (Text Only) ---
 
-  async _getKey() {
-    const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey(
-      "raw",
-      enc.encode("GDUT-Lawyer-Security-Migration-Key-2024"),
-      "PBKDF2",
-      false,
-      ["deriveBits", "deriveKey"]
-    );
-    return crypto.subtle.deriveKey(
-      {
-        name: "PBKDF2",
-        salt: enc.encode("GDUT-Lawyer-Salt"),
-        iterations: 100000,
-        hash: "SHA-256",
-      },
-      keyMaterial,
-      { name: "AES-GCM", length: 256 },
-      true,
-      ["encrypt", "decrypt"]
-    );
-  },
-
-  async encryptData(data: string) {
-    const key = await this._getKey();
-    const iv = crypto.getRandomValues(new Uint8Array(12));
+  async encryptDataToBlob(data: string): Promise<Blob> {
+    // 使用简单的异或加密（混淆）来防止明文泄露，并避免因为 IP 访问（非 HTTPS 环境）导致 crypto.subtle 无法使用的问题。
+    // 同时使用 Blob 直接生成文件，避免超大文本使用 String.fromCharCode 导致栈溢出。
+    const key = "GDUT-Lawyer-Security-Migration-Key-2024";
     const encoded = new TextEncoder().encode(data);
-    const encrypted = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      encoded
-    );
-    
-    // Combine IV and Encrypted Data
-    const combined = new Uint8Array(iv.length + encrypted.byteLength);
-    combined.set(iv);
-    combined.set(new Uint8Array(encrypted), iv.length);
-    
-    return btoa(String.fromCharCode(...combined));
+    for (let i = 0; i < encoded.length; i++) {
+      encoded[i] = encoded[i] ^ key.charCodeAt(i % key.length);
+    }
+    return new Blob([encoded], { type: 'application/octet-stream' });
   },
 
-  async decryptData(base64: string) {
-    const key = await this._getKey();
-    const combined = new Uint8Array(atob(base64).split('').map(c => c.charCodeAt(0)));
-    const iv = combined.slice(0, 12);
-    const data = combined.slice(12);
-    
-    const decrypted = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv },
-      key,
-      data
-    );
-    
-    return new TextDecoder().decode(decrypted);
+  async decryptDataFromFile(file: File): Promise<string> {
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    const key = "GDUT-Lawyer-Security-Migration-Key-2024";
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = bytes[i] ^ key.charCodeAt(i % key.length);
+    }
+    return new TextDecoder().decode(bytes);
   },
 
   async exportConversationsText() {
     const conversations = await fileDB.getConversations();
     // Strip everything but text data to be safe, though Conversation type is already clean
     const data = JSON.stringify(conversations);
-    const encrypted = await this.encryptData(data);
+    const blob = await this.encryptDataToBlob(data);
     
-    const blob = new Blob([encrypted], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -155,8 +87,7 @@ export const storageService = {
   },
 
   async importConversationsFromFile(file: File) {
-    const text = await file.text();
-    const decrypted = await this.decryptData(text);
+    const decrypted = await this.decryptDataFromFile(file);
     const conversations = JSON.parse(decrypted) as any[];
     
     const newConversations = conversations.map(conv => {

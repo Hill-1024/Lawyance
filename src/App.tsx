@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import { useTheme } from './hooks/useTheme';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
 import { useStorage } from './hooks/useStorage';
-import { sendHeartbeat, verifyAuth } from './services/api';
+import { sendHeartbeat, verifyAuth, logout as apiLogout } from './services/api';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { InputArea } from './components/InputArea';
 import { MessageList } from './components/MessageList';
 import { Login } from './components/Login';
+import { AdminDashboard } from './components/AdminDashboard';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [userRole, setUserRole] = useState('user');
+  const navigate = useNavigate();
 
   const { themeMode, setThemeMode } = useTheme();
   const {
@@ -58,11 +62,26 @@ function App() {
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
+  const handleLogout = async () => {
+    try {
+      await apiLogout();
+      setIsAuthenticated(false);
+      setUserRole('user');
+      navigate('/');
+    } catch (e) {
+      console.error("Logout failed:", e);
+      // Fallback: clear auth state anyway
+      setIsAuthenticated(false);
+      window.location.reload();
+    }
+  };
+
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        await verifyAuth();
+        const data = await verifyAuth();
         setIsAuthenticated(true);
+        setUserRole(data.role || 'user');
       } catch (e) {
         setIsAuthenticated(false);
       } finally {
@@ -125,12 +144,20 @@ function App() {
   }
 
   if (!isAuthenticated) {
-    return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
+    return <Login onLoginSuccess={async () => {
+      try {
+        const data = await verifyAuth();
+        setUserRole(data.role || 'user');
+        setIsAuthenticated(true);
+      } catch (e) {
+        window.location.reload();
+      }
+    }} />;
   }
 
   if (!isInitialized) return null;
 
-  return (
+  const chatLayout = (
     <div className="flex h-screen bg-white dark:bg-gray-900 font-sans overflow-hidden transition-colors duration-300">
       <Sidebar
         isSidebarOpen={isSidebarOpen}
@@ -140,6 +167,9 @@ function App() {
         setCurrentId={setCurrentId}
         handleNewChat={handleNewChat}
         deleteConversation={deleteConversation}
+        userRole={userRole}
+        onAdminClick={() => navigate('/admin')}
+        onLogout={handleLogout}
       />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
@@ -202,6 +232,13 @@ function App() {
         </div>
       </div>
     </div>
+  );
+
+  return (
+    <Routes>
+      <Route path="/" element={chatLayout} />
+      <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex h-screen w-full items-center justify-center text-red-500 font-medium text-lg dark:bg-gray-900">403 Forbidden: Access Denied</div>} />
+    </Routes>
   );
 }
 

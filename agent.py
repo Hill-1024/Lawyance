@@ -11,12 +11,14 @@ import copy
 import time
 import asyncio
 import shutil
+import logging
+from collections import defaultdict
 from typing import List, Optional
 
 from function_calling import call, memory as system_memory, create_assistant_message
 from agents import ReActAgent, PlanAndSolveAgent, DefaultAgent
 from mcps import use_tools
-from auth import authenticate_user, create_token, verify_token
+from auth import authenticate_user, create_token, verify_token, get_user_role, list_accounts, add_or_update_account, delete_account
 
 from contextlib import asynccontextmanager
 
@@ -45,6 +47,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 日志和限流设置
+os.makedirs("data", exist_ok=True)
+usage_logger = logging.getLogger("usage_logger")
+usage_logger.setLevel(logging.INFO)
+file_handler = logging.FileHandler("data/usage.log", encoding="utf-8")
+file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+if not usage_logger.handlers:
+    usage_logger.addHandler(file_handler)
+
+ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
+RATE_LIMIT = 100 # requests per minute per IP
+
+@app.middleware("http")
+async def security_and_logging_middleware(request: Request, call_next):
+    client_ip = request.client.host or "unknown"
+    method = request.method
+    path = request.url.path
+    
+    # Rate Limiting
+    now = time.time()
+    ip_data = ip_request_counts[client_ip]
+    if now > ip_data["reset_time"]:
+        ip_data["count"] = 1
+        ip_data["reset_time"] = now + 60
+    else:
+        ip_data["count"] += 1
+        if ip_data["count"] > RATE_LIMIT:
+            if path.startswith("/api"):
+                return Response(content="Rate limit exceeded", status_code=429)
+
+    response = await call_next(request)
+    
+    # Logging
+    if path.startswith("/api"):
+        username = "anonymous"
+        token = request.cookies.get("auth_token")
+        if token:
+            user = verify_token(token)
+            if user:
+                username = user
+                
+        status_code = response.status_code
+        usage_logger.info(f"{client_ip} | {username} | {method} | {path} | {status_code}")
+        
+    return response
+
 # 认证依赖
 def get_current_user(auth_token: Optional[str] = Cookie(None)):
     if not auth_token:
@@ -53,6 +101,12 @@ def get_current_user(auth_token: Optional[str] = Cookie(None)):
     if not username:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return username
+
+def require_admin(current_user: str = Depends(get_current_user)):
+    role = get_user_role(current_user)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
 
 class LoginRequest(BaseModel):
     username: str
@@ -75,7 +129,48 @@ async def logout(response: Response):
 
 @app.get("/api/verify_auth")
 async def verify_auth_endpoint(current_user: str = Depends(get_current_user)):
-    return {"status": "success", "username": current_user}
+    return {"status": "success", "username": current_user, "role": get_user_role(current_user)}
+
+# --- Admin Routes ---
+@app.get("/api/admin/logs")
+async def get_admin_logs(ip: Optional[str] = None, ignore_heartbeat: bool = False, admin_user: str = Depends(require_admin)):
+    logs = []
+    log_file = "data/usage.log"
+    if os.path.exists(log_file):
+        with open(log_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if ip and ip not in line:
+                    continue
+                if ignore_heartbeat and "/api/heartbeat" in line:
+                    continue
+                logs.append(line.strip())
+    # Return last 1000 matching logs, newest first
+    return {"status": "success", "logs": logs[::-1][:1000]}
+
+@app.get("/api/admin/accounts")
+async def get_admin_accounts(admin_user: str = Depends(require_admin)):
+    return {"status": "success", "accounts": list_accounts()}
+
+class AccountRequest(BaseModel):
+    username: str
+    password: str
+    role: Optional[str] = "user"
+
+@app.post("/api/admin/accounts")
+async def set_admin_accounts(req: AccountRequest, admin_user: str = Depends(require_admin)):
+    success, msg = add_or_update_account(req.username, req.password, req.role or "user")
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"status": "success", "message": msg}
+    
+@app.delete("/api/admin/accounts/{username}")
+async def delete_admin_account(username: str, admin_user: str = Depends(require_admin)):
+    if username == admin_user:
+        raise HTTPException(status_code=400, detail="不能在登录状态下删除自己")
+    success, msg = delete_account(username)
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"status": "success", "message": msg}
 
 
 # 全局在线状态记录
@@ -469,27 +564,12 @@ async def restore_workspace_file(
     return {"status": "success", "file_path": file_path.replace("\\", "/")}
 
 
-@app.delete("/api/workspace/{conversation_id}")
-async def delete_workspace(conversation_id: str, current_user: str = Depends(get_current_user)):
-    """
-    当用户删除对话时，清理服务器上的相关文件
-    """
-    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
-
-    temp_dir = os.path.join("TEMP", safe_conv_id)
-    if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-    result_dir = os.path.join("Result", safe_conv_id)
-    if os.path.exists(result_dir):
-        shutil.rmtree(result_dir, ignore_errors=True)
-
-    return {"status": "success"}
-
 @app.delete("/api/workspace/file")
 async def delete_workspace_file(conversation_id: str, file_path: str, current_user: str = Depends(get_current_user)):
     """
-    客户端删除特定文件时，清理服务器上的该文件
+    客户端删除特定文件时，清理服务器上的该文件。
+    注意：此路由必须在 /api/workspace/{conversation_id} 之前声明，
+    否则 FastAPI 会将 "file" 匹配为 conversation_id 参数。
     """
     safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
     
@@ -520,6 +600,23 @@ async def delete_workspace_file(conversation_id: str, file_path: str, current_us
             raise HTTPException(status_code=500, detail=str(e))
             
     raise HTTPException(status_code=403, detail="File not found or access denied")
+
+@app.delete("/api/workspace/{conversation_id}")
+async def delete_workspace(conversation_id: str, current_user: str = Depends(get_current_user)):
+    """
+    当用户删除对话时，清理服务器上的相关文件
+    """
+    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
+
+    temp_dir = os.path.join("TEMP", safe_conv_id)
+    if os.path.exists(temp_dir):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    result_dir = os.path.join("Result", safe_conv_id)
+    if os.path.exists(result_dir):
+        shutil.rmtree(result_dir, ignore_errors=True)
+
+    return {"status": "success"}
 
 @app.post("/api/heartbeat/{conversation_id}")
 async def heartbeat(conversation_id: str, current_user: str = Depends(get_current_user)):

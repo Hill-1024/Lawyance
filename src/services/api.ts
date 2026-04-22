@@ -123,3 +123,48 @@ export const sendHeartbeat = async (conversationId: string) => {
   }
   return res.json();
 };
+
+export const fetchLogs = async (ip?: string, ignoreHeartbeat?: boolean) => {
+  const params = new URLSearchParams();
+  if (ip) params.append('ip', ip);
+  if (ignoreHeartbeat) params.append('ignore_heartbeat', 'true');
+  
+  const res = await fetch(`/api/admin/logs?${params.toString()}`);
+  if (!res.ok) {
+    if (res.status === 403) throw new Error('Access denied. Admin role required.');
+    throw new Error('Failed to fetch logs');
+  }
+  return res.json();
+};
+
+export const fetchAccounts = async () => {
+  const res = await fetch('/api/admin/accounts');
+  if (!res.ok) {
+    if (res.status === 403) throw new Error('Access denied. Admin role required.');
+    throw new Error('Failed to fetch accounts');
+  }
+  return res.json();
+};
+
+export const setAccount = async (username: string, password: string, role: string = 'user') => {
+  const res = await fetch('/api/admin/accounts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, role })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to update account');
+  }
+  return res.json();
+};
+export const deleteAccount = async (username: string) => {
+  const res = await fetch(`/api/admin/accounts/${encodeURIComponent(username)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to delete account');
+  }
+  return res.json();
+};
