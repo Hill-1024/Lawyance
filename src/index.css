@@ -40,7 +40,7 @@
   border-radius: 50%; /* Perfect circle */
   text-decoration: none !important;
   font-weight: 600;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid rgba(156, 163, 175, 0.3);
   top: -0.5em;
   position: relative;
@@ -91,7 +91,7 @@
 .source-list-container .prose a {
   color: rgba(59, 130, 246, 0.8) !important; /* blue-500 */
   text-decoration: none !important;
-  transition: color 0.2s ease;
+  transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   border-bottom: 1px dashed rgba(59, 130, 246, 0.4);
 }
 
@@ -141,6 +141,15 @@
     inset 0 1px 0 rgba(255,255,255,0.05);
 }
 
+/* Global Theme Transition */
+* {
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              backdrop-filter 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* MD3 surface tonal elevation */
 .md3-surface {
   background: rgba(103, 80, 164, 0.05);
@@ -171,7 +180,7 @@
   font-weight: 500;
   letter-spacing: 0.01em;
   border-radius: 20px;
-  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   border: none;
   color: #49454F;
@@ -194,7 +203,7 @@
   padding: 10px 24px; border-radius: 20px; border: none;
   font-weight: 500; font-size: 14px; letter-spacing: 0.01em;
   background: #6750A4; color: #fff; cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 1px 3px rgba(103,80,164,0.3);
 }
 .dark .md3-btn-filled { background: #D0BCFF; color: #381E72; }
@@ -208,7 +217,7 @@
   padding: 10px 24px; border-radius: 20px; border: none;
   font-weight: 500; font-size: 14px;
   background: rgba(103,80,164,0.08); color: #6750A4; cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .dark .md3-btn-tonal { background: rgba(208,188,255,0.12); color: #D0BCFF; }
 .md3-btn-tonal:hover { background: rgba(103,80,164,0.14); }
@@ -220,7 +229,7 @@
   padding: 8px 16px; border-radius: 20px; border: none;
   font-weight: 500; font-size: 14px;
   background: transparent; color: #6750A4; cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .dark .md3-btn-text { color: #D0BCFF; }
 .md3-btn-text:hover { background: rgba(103,80,164,0.08); }
@@ -231,7 +240,7 @@
   border: 1px solid rgba(0,0,0,0.12);
   background: rgba(103,80,164,0.04);
   font-size: 14px; color: #1D1B20;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none;
 }
 .dark .md3-input {
@@ -278,7 +287,7 @@
   background: #EADDFF; color: #21005D;
   box-shadow: 0 3px 12px rgba(103,80,164,0.3);
   border: none; cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.2, 0, 0, 1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 30;
 }
 .dark .md3-fab { background: #4F378B; color: #EADDFF; box-shadow: 0 3px 12px rgba(0,0,0,0.4); }
