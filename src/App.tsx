@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
+import { ShieldAlert, ExternalLink } from 'lucide-react';
 import { useTheme } from './hooks/useTheme';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
@@ -12,6 +13,15 @@ import { InputArea } from './components/InputArea';
 import { MessageList } from './components/MessageList';
 import { Login } from './components/Login';
 import { AdminDashboard } from './components/AdminDashboard';
+
+const SECURE_DOMAIN = 'law.mutsumi.moe';
+
+const isIpHostname = (hostname: string) => {
+  if (!hostname) return false;
+  const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+  const isIpv6 = hostname.includes(':');
+  return isIpv4 || isIpv6;
+};
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -61,6 +71,10 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const isIpAccess = typeof window !== 'undefined' && isIpHostname(window.location.hostname);
+  const secureAccessUrl = typeof window !== 'undefined'
+    ? `https://${SECURE_DOMAIN}${window.location.pathname}${window.location.search}${window.location.hash}`
+    : `https://${SECURE_DOMAIN}`;
 
   const handleLogout = async () => {
     try {
@@ -143,16 +157,42 @@ function App() {
     );
   }
 
+  const secureAccessBanner = isIpAccess ? (
+    <div className="mx-4 mt-4 mb-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <ShieldAlert size={18} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" />
+          <div className="text-sm leading-6">
+            <div className="font-medium">当前正在通过 IP 访问。</div>
+            <div>建议改用 <span className="font-semibold">https://{SECURE_DOMAIN}</span> 进行安全访问，避免证书与登录状态问题。</div>
+          </div>
+        </div>
+        <a
+          href={secureAccessUrl}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-400"
+        >
+          前往安全地址
+          <ExternalLink size={16} />
+        </a>
+      </div>
+    </div>
+  ) : null;
+
   if (!isAuthenticated) {
-    return <Login onLoginSuccess={async () => {
-      try {
-        const data = await verifyAuth();
-        setUserRole(data.role || 'user');
-        setIsAuthenticated(true);
-      } catch (e) {
-        window.location.reload();
-      }
-    }} />;
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+        {secureAccessBanner}
+        <Login onLoginSuccess={async () => {
+          try {
+            const data = await verifyAuth();
+            setUserRole(data.role || 'user');
+            setIsAuthenticated(true);
+          } catch (e) {
+            window.location.reload();
+          }
+        }} />
+      </div>
+    );
   }
 
   if (!isInitialized) return null;
@@ -173,6 +213,7 @@ function App() {
       />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
+        {secureAccessBanner}
         <Header
           title={currentConversation.title}
           isSidebarOpen={isSidebarOpen}
