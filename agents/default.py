@@ -5,9 +5,10 @@ from function_calling import call, create_assistant_message
 from mcps import use_tools
 
 class DefaultAgent:
-    def __init__(self, memory: list = None, session_id: str = "default", use_ocp: bool = True):
+    def __init__(self, memory: list = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = True):
         self.memory = memory or []
         self.session_id = session_id
+        self.workspace_scope = workspace_scope or session_id
         self.use_ocp = use_ocp
 
     MAX_NON_STREAM_ROUNDS = 10  # 非流式工具调用最大轮次，防止无限循环
@@ -99,7 +100,7 @@ class DefaultAgent:
                                 args = {}
 
                             yield {'type': 'thought', 'content': f'️ 执行: `{func_name}`\n'}
-                            result = use_tools(func_name, args, conv_id=self.session_id)
+                            result = use_tools(func_name, args, conv_id=self.workspace_scope)
 
                             current_mem.append(
                                 {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)})
@@ -115,7 +116,7 @@ class DefaultAgent:
                 # OCP-Stream: 流式输出格式审查
                 if self.use_ocp and actual_content.strip():
                     from ocp import OCPStream
-                    ocp = OCPStream(session_id=self.session_id)
+                    ocp = OCPStream(session_id=self.workspace_scope)
                     async for ocp_chunk in ocp.check_stream(actual_content):
                         yield ocp_chunk
 
@@ -145,7 +146,7 @@ class DefaultAgent:
                     except json.JSONDecodeError:
                         args = {}
                     print(f"[工具调用] 函数: {func_name}, 参数: {json.dumps(args, ensure_ascii=False)[:200]}")
-                    result = use_tools(func_name, args, conv_id=self.session_id)
+                    result = use_tools(func_name, args, conv_id=self.workspace_scope)
                     current_mem.append(
                         {"role": "tool", "tool_call_id": tc.id, "name": func_name, "content": str(result)})
             else:
@@ -154,8 +155,7 @@ class DefaultAgent:
             if self.use_ocp:
                 # OCP-Static: 非流式输出格式审查
                 from ocp import OCPStatic
-                checker = OCPStatic(session_id=self.session_id)
+                checker = OCPStatic(session_id=self.workspace_scope)
                 content_output = await checker.check(content_output)
 
             yield {'type': 'content', 'content': content_output}
-

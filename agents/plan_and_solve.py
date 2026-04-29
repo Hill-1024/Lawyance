@@ -7,13 +7,10 @@ Plan & Solve 范式（两阶段）：
 适合需要多步推理、长流程的任务，比 ReAct 更结构化。
 """
 
-import os
 import ast
 import re
 
-import asyncio
-from dotenv import load_dotenv
-from typing import List, Dict
+from typing import Callable
 
 try:
     # 作为包的一部分被导入时
@@ -26,9 +23,6 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     from function_calling import call
-    from mcps import use_tools
-
-from tools import ToolExecutor
 
 # Planner 定义
 PLANNER_PROMPT_TEMPLATE = """
@@ -183,12 +177,14 @@ class Executor:
 
 # --- 4. 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
-    def __init__(self, tool_executor: ToolExecutor = None, memory: list = None, session_id: str = "default", use_ocp: bool = False):
+    def __init__(self, tools_description: str = "", execute_tool: Callable[[str, str], str] = None, memory: list = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
         self.planner = Planner()
         self.executor = Executor()
         self.memory = memory or []
-        self.tool_executor = tool_executor
+        self.tools_description = tools_description
+        self.execute_tool = execute_tool
         self.session_id = session_id
+        self.workspace_scope = workspace_scope or session_id
         self.use_ocp = use_ocp
 
     async def run(self, question: str):
@@ -202,7 +198,7 @@ class PlanAndSolveAgent:
             return
 
         # 2. 执行计划
-        yield {'type': 'thought', 'content': "\n\n🚀 **开始执行计划...**\n"}
+        yield {'type': 'thought', 'content': "\n\n**开始执行计划...**\n"}
 
         for i, step in enumerate(plan, 1):
             yield {'type': 'thought', 'content': f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"}
@@ -214,7 +210,7 @@ class PlanAndSolveAgent:
 历史执行结果: {self.executor.history if self.executor.history else "无"}
 
 可用工具:
-{self.tool_executor.getAvailableTools() if self.tool_executor else "无"}
+{self.tools_description or "无"}
 
 请分析当前步骤，如果需要调用工具，请输出：
 Action: {{tool_name}}[{{tool_input}}]
@@ -238,36 +234,32 @@ Action: {{tool_name}}[{{tool_input}}]
 
             # 检查是否有 Action 调用
             action_match = re.search(r"Action:\s*(\w+)\[(.*?)\]", step_result, re.DOTALL)
-            if action_match and self.tool_executor:
+            if action_match and self.execute_tool:
                 tool_name = action_match.group(1)
                 tool_input = action_match.group(2)
                 yield {'type': 'thought', 'content': f"\n\n**执行工具**: `{tool_name}[{tool_input}]`"}
 
-                tool_function = self.tool_executor.getTool(tool_name)
-                if tool_function:
-                    try:
-                        observation = tool_function(tool_input)
-                        yield {'type': 'thought', 'content': f"\n\n**观察**: {observation}\n"}
+                try:
+                    observation = self.execute_tool(tool_name, tool_input)
+                    yield {'type': 'thought', 'content': f"\n\n**观察**: {observation}\n"}
 
-                        # 将工具结果喂回模型进行总结
-                        summary_prompt = f"工具执行结果如下：\n{observation}\n请根据此结果完成当前步骤：{step}"
-                        messages.append({"role": "assistant", "content": step_result})
-                        messages.append({"role": "user", "content": summary_prompt})
+                    # 将工具结果喂回模型进行总结
+                    summary_prompt = f"工具执行结果如下：\n{observation}\n请根据此结果完成当前步骤：{step}"
+                    messages.append({"role": "assistant", "content": step_result})
+                    messages.append({"role": "user", "content": summary_prompt})
 
-                        # 总结阶段不需要工具
-                        final_step_stream = await call(context=messages, stream=True, include_tools=False)
-                        final_step_result = ""
-                        async for chunk in final_step_stream:
-                            if chunk.choices:
-                                delta = chunk.choices[0].delta
-                                if delta.content:
-                                    final_step_result += delta.content
-                                    yield {'type': 'thought', 'content': delta.content}
-                        step_result = final_step_result
-                    except Exception as e:
-                        yield {'type': 'thought', 'content': f"\n\n**工具执行失败**: {e}\n"}
-                else:
-                    yield {'type': 'thought', 'content': f"\n\n**未找到工具**: {tool_name}\n"}
+                    # 总结阶段不需要工具
+                    final_step_stream = await call(context=messages, stream=True, include_tools=False)
+                    final_step_result = ""
+                    async for chunk in final_step_stream:
+                        if chunk.choices:
+                            delta = chunk.choices[0].delta
+                            if delta.content:
+                                final_step_result += delta.content
+                                yield {'type': 'thought', 'content': delta.content}
+                    step_result = final_step_result
+                except Exception as e:
+                    yield {'type': 'thought', 'content': f"\n\n**工具执行失败**: {e}\n"}
 
             self.executor.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
@@ -305,18 +297,9 @@ Action: {{tool_name}}[{{tool_input}}]
 
         if self.use_ocp and final_answer.strip():
             from ocp import OCPStream
-            ocp = OCPStream(session_id=self.session_id)
+            ocp = OCPStream(session_id=self.workspace_scope)
             async for ocp_chunk in ocp.check_stream(final_answer):
                 yield ocp_chunk
 
         if current_signature:
             yield {'type': 'thought_signature', 'content': current_signature}
-
-# --- 5. 主函数入口 ---
-if __name__ == '__main__':
-    try:
-        agent = PlanAndSolveAgent()
-        question = "一个水果店周一卖出了15个西瓜。周二卖出的苹果数量是周一卖出西瓜数量的两倍。周三卖出的数量比周二少了5个。请问这三天总共卖出了多少个苹果？"
-        asyncio.run(agent.run(question))
-    except ValueError as e:
-        print(e)

@@ -7,10 +7,8 @@ ReAct 范式：Reasoning + Acting
 
 循环直到模型输出 "Final Answer: ..." 或达到最大轮次。
 """
-import asyncio
-import json
 import re
-from typing import Generator
+from typing import Callable
 
 try:
     # 作为包的一部分被导入时
@@ -24,9 +22,6 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     from function_calling import call
-    from mcps import use_tools
-
-from tools import ToolExecutor, search
 
 #  Prompt 模板
 REACT_PROMPT_TEMPLATE = """
@@ -57,12 +52,14 @@ History: {history}
 
 
 class ReActAgent:
-    def __init__(self, tool_executor: ToolExecutor, memory: list = None, max_steps: int = 3, session_id: str = "default", use_ocp: bool = False):
-        self.tool_executor = tool_executor
+    def __init__(self, tools_description: str, execute_tool: Callable[[str, str], str], memory: list = None, max_steps: int = 3, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
+        self.tools_description = tools_description
+        self.execute_tool = execute_tool
         self.max_steps = max_steps
         self.history = []
         self.memory = memory or []
         self.session_id = session_id
+        self.workspace_scope = workspace_scope or session_id
         self.use_ocp = use_ocp
 
     async def run(self, question: str):
@@ -73,9 +70,8 @@ class ReActAgent:
             current_step += 1
             yield {'type': 'thought', 'content': f"\n\n--- 第 {current_step} 步推理 ---\n\n"}
 
-            tools_desc = self.tool_executor.getAvailableTools()
             history_str = "\n".join(self.history)
-            prompt = REACT_PROMPT_TEMPLATE.format(tools=tools_desc, question=question, history=history_str)
+            prompt = REACT_PROMPT_TEMPLATE.format(tools=self.tools_description, question=question, history=history_str)
 
             messages = self.memory + [{"role": "user", "content": prompt}]
 
@@ -118,7 +114,7 @@ class ReActAgent:
                     yield {'type': 'thought', 'content': '\n\n**[拟定初稿]**\n'}
                     yield {'type': 'thought', 'content': final_answer}
                     from ocp import OCPStream
-                    ocp = OCPStream(session_id=self.session_id)
+                    ocp = OCPStream(session_id=self.workspace_scope)
                     async for ocp_chunk in ocp.check_stream(final_answer):
                         yield ocp_chunk
                 else:
@@ -137,8 +133,7 @@ class ReActAgent:
 
             yield {'type': 'thought', 'content': f"\n\n**行动**: `{tool_name}[{tool_input}]`"}
 
-            tool_function = self.tool_executor.getTool(tool_name)
-            observation = tool_function(tool_input) if tool_function else f"错误：未找到名为 '{tool_name}' 的工具。"
+            observation = self.execute_tool(tool_name, tool_input)
 
             yield {'type': 'thought', 'content': f"\n\n**观察**: {observation}\n"}
 
@@ -163,12 +158,3 @@ class ReActAgent:
     def _parse_action_input(self, action_text: str):
         match = re.match(r"\w+\[(.*)\]", action_text, re.DOTALL)
         return match.group(1) if match else ""
-
-
-if __name__ == '__main__':
-    tool_executor = ToolExecutor()
-    search_desc = "一个网页搜索引擎。当你需要回答关于时事、事实以及在你的知识库中找不到的信息时，应使用此工具。"
-    tool_executor.registerTool("Search", search_desc, search)
-    agent = ReActAgent(tool_executor=tool_executor)
-    question = "美伊以战争最新报道"
-    asyncio.run(agent.run(question))

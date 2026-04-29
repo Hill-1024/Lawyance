@@ -5,7 +5,6 @@ from mcp.word_annotator import word_reader, word_writer
 from mcp.qcc_client import get_company_profile,get_listing_info,get_contact_info,get_shareholder_info,get_company_registration_info,get_key_personnel,get_external_investments
 import os
 import json
-import tempfile
 
 
 def get_result_path(input_path):
@@ -19,14 +18,14 @@ def get_result_path(input_path):
     try:
         if 'TEMP' in parts:
             temp_idx = parts.index('TEMP')
-            # 确保 TEMP 之后至少还有 conv_id 和 filename
+            # 保留 TEMP 后直到文件名之前的全部层级，兼容 TEMP/<conv>/... 与 TEMP/<user>/<conv>/...
             if len(parts) > temp_idx + 2:
-                conv_id = parts[temp_idx + 1]
+                workspace_parts = parts[temp_idx + 1:-1]
                 filename = parts[-1]
                 base, ext = os.path.splitext(filename)
 
                 # 构造 Result 路径
-                result_dir = os.path.join('Result', conv_id)
+                result_dir = os.path.join('Result', *workspace_parts)
                 os.makedirs(result_dir, exist_ok=True)
 
                 if not base.endswith('_lawver'):
@@ -368,15 +367,19 @@ tools = [
 ]
 
 
-# 在此处处理agent发来的工具请求
-def use_tools(function_name, arguments, conv_id=None):
-    # 如果 arguments 是字符串，尝试将其转换为字典（针对 ReAct 模式）
+def format_tool_descriptions(tool_defs=None):
+    selected_tools = tool_defs or tools
+    return "\n".join(
+        f"- {tool['function']['name']}: {tool['function']['description']}"
+        for tool in selected_tools
+    )
+
+
+def _coerce_arguments(function_name, arguments):
     if isinstance(arguments, str):
         try:
-            # 尝试解析为 JSON
             arguments = json.loads(arguments)
-        except:
-            # 如果不是 JSON，则根据函数名构造字典
+        except json.JSONDecodeError:
             if function_name == "search_article":
                 arguments = {"query": arguments}
             elif function_name == "get_linked_content":
@@ -387,32 +390,41 @@ def use_tools(function_name, arguments, conv_id=None):
                 arguments = {"file_path": arguments}
             elif function_name == "match_legal_case":
                 arguments = {"keywords": [arguments]}
-            # 其他工具可能需要更复杂的参数，这里先做基础兼容
 
     if not isinstance(arguments, dict):
-        arguments = {}
+        return {}
 
+    return arguments
+
+
+def _list_workspace_files(workspace_scope):
+    if not workspace_scope:
+        return "无法获取当前工作区作用域，无法列出文件。"
+
+    files = []
+    for base_dir, file_type in (("TEMP", "upload"), ("Result", "generated")):
+        workspace_dir = os.path.join(base_dir, workspace_scope)
+        if not os.path.exists(workspace_dir):
+            continue
+
+        for file_name in os.listdir(workspace_dir):
+            file_path = os.path.join(workspace_dir, file_name)
+            if os.path.isfile(file_path):
+                files.append({
+                    "name": file_name,
+                    "path": file_path.replace('\\', '/'),
+                    "type": file_type,
+                })
+
+    if not files:
+        return "当前工作区没有任何文件。"
+
+    return json.dumps(files, ensure_ascii=False)
+
+
+def _dispatch_tool(function_name, arguments, workspace_scope):
     if function_name == "list_workspace_files":
-        if not conv_id:
-            return "无法获取当前对话ID，无法列出文件。"
-
-        files = []
-        # 查找 TEMP 目录
-        temp_dir = os.path.join("TEMP", conv_id)
-        if os.path.exists(temp_dir):
-            for f in os.listdir(temp_dir):
-                files.append({"name": f, "path": os.path.join(temp_dir, f).replace('\\', '/')})
-
-        # 查找 Result 目录
-        result_dir = os.path.join("Result", conv_id)
-        if os.path.exists(result_dir):
-            for f in os.listdir(result_dir):
-                files.append({"name": f, "path": os.path.join(result_dir, f).replace('\\', '/')})
-
-        if not files:
-            return "当前工作区没有任何文件。"
-
-        return json.dumps(files, ensure_ascii=False)
+        return _list_workspace_files(workspace_scope)
 
     if function_name == "match_legal_case":
         return match_legal_case(arguments.get("keywords"), arguments.get("start_year"), arguments.get("end_year"))
@@ -452,7 +464,28 @@ def use_tools(function_name, arguments, conv_id=None):
         output_path = get_result_path(path)
         success = word_writer(path, arguments.get("index"), arguments.get("text"), output_path=output_path)
         return f"批注成功，文件保存在: {output_path}" if success else "批注失败"
+    if function_name == "get_company_profile":
+        return get_company_profile(arguments.get("company"))
+    if function_name == "get_company_registration_info":
+        return get_company_registration_info(arguments.get("company"))
+    if function_name == "get_contact_info":
+        return get_contact_info(arguments.get("company"))
+    if function_name == "get_external_investments":
+        return get_external_investments(arguments.get("company"))
+    if function_name == "get_key_personnel":
+        return get_key_personnel(arguments.get("company"))
+    if function_name == "get_listing_info":
+        return get_listing_info(arguments.get("company"))
+    if function_name == "get_shareholder_info":
+        return get_shareholder_info(arguments.get("company"))
+
     return function_name + "工具不存在,请重新检查"
+
+
+# conv_id 在这里实际承载的是工作区作用域，保持参数名兼容既有调用方。
+def use_tools(function_name, arguments, conv_id=None):
+    normalized_arguments = _coerce_arguments(function_name, arguments)
+    return _dispatch_tool(function_name, normalized_arguments, conv_id)
 
 
 if __name__ == "__main__":

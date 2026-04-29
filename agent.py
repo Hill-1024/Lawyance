@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Coo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 import json
 import os
@@ -15,9 +15,9 @@ import logging
 from collections import defaultdict
 from typing import List, Optional
 
-from function_calling import call, memory as system_memory, create_assistant_message
+from function_calling import call, memory as system_memory
 from agents import ReActAgent, PlanAndSolveAgent, DefaultAgent
-from mcps import use_tools
+from mcps import use_tools, format_tool_descriptions
 from auth import authenticate_user, create_token, verify_token, get_user_role, list_accounts, add_or_update_account, delete_account
 
 from contextlib import asynccontextmanager
@@ -58,6 +58,28 @@ if not usage_logger.handlers:
 
 ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
 RATE_LIMIT = 100 # requests per minute per IP
+
+
+def sanitize_path_component(value: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', value or "")
+
+
+def get_workspace_scope(current_user: str, conversation_id: str) -> str:
+    return os.path.join(
+        sanitize_path_component(current_user),
+        sanitize_path_component(conversation_id)
+    )
+
+
+def get_workspace_dirs(current_user: str, conversation_id: str) -> tuple[str, str]:
+    scope = get_workspace_scope(current_user, conversation_id)
+    return os.path.join("TEMP", scope), os.path.join("Result", scope)
+
+
+def is_within_directory(path: str, directory: str) -> bool:
+    abs_path = os.path.abspath(path)
+    abs_dir = os.path.abspath(directory)
+    return abs_path == abs_dir or abs_path.startswith(abs_dir + os.sep)
 
 @app.middleware("http")
 async def security_and_logging_middleware(request: Request, call_next):
@@ -194,23 +216,33 @@ async def cleanup_task():
                 if not os.path.exists(folder):
                     continue
 
-                for conv_id in os.listdir(folder):
-                    conv_dir = os.path.join(folder, conv_id)
-                    if not os.path.isdir(conv_dir):
+                for user_dir_name in os.listdir(folder):
+                    user_dir = os.path.join(folder, user_dir_name)
+                    if not os.path.isdir(user_dir):
                         continue
 
-                    # 检查是否在线
-                    if conv_id in active_conversations:
-                        continue
+                    for conv_id in os.listdir(user_dir):
+                        conv_dir = os.path.join(user_dir, conv_id)
+                        if not os.path.isdir(conv_dir):
+                            continue
 
-                    # 会话已离线，且目录也闲置超过一小时，直接清理整个目录
+                        scope = os.path.join(user_dir_name, conv_id)
+                        if scope in active_conversations:
+                            continue
+
+                        try:
+                            mtime = os.path.getmtime(conv_dir)
+                            if mtime < one_hour_ago:
+                                shutil.rmtree(conv_dir, ignore_errors=True)
+                                print(f"[清理] 已彻底删除过期会话缓存: {conv_dir}")
+                        except Exception as e:
+                            print(f"[清理] 删除会话缓存失败 {conv_dir}: {e}")
+
                     try:
-                        mtime = os.path.getmtime(conv_dir)
-                        if mtime < one_hour_ago:
-                            shutil.rmtree(conv_dir, ignore_errors=True)
-                            print(f"[清理] 已彻底删除过期会话缓存: {conv_dir}")
-                    except Exception as e:
-                        print(f"[清理] 删除会话缓存失败 {conv_dir}: {e}")
+                        if not os.listdir(user_dir):
+                            os.rmdir(user_dir)
+                    except OSError:
+                        pass
 
         except Exception as e:
             print(f"[清理] 任务运行出错: {e}")
@@ -230,7 +262,7 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    history: List[dict] = []
+    history: List[dict] = Field(default_factory=list)
     conversation_id: str = "default"
     stream: bool = True
     agent_mode: str = "default"
@@ -286,32 +318,27 @@ async def compress_history(history: List[dict]) -> List[dict]:
         new_history.extend(non_system_msgs[-20:])
         return new_history
 
-
-from tools import ToolExecutor
-
-
-def build_agent(mode: str, memory: list, session_id: str, use_ocp: bool = True):
+def build_agent(mode: str, memory: list, session_id: str, workspace_scope: str, use_ocp: bool = True):
     if mode == "default":
-        return DefaultAgent(memory=memory, session_id=session_id, use_ocp=use_ocp)
+        return DefaultAgent(memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
     if mode in ["react", "plan_and_solve"]:
         from mcps import tools as all_tools
-        tool_executor = ToolExecutor()
-        for tool_def in all_tools:
-            name = tool_def["function"]["name"]
-            desc = tool_def["function"]["description"]
+        tools_description = format_tool_descriptions(all_tools)
 
-            def create_tool_func(n):
-                return lambda args_str: use_tools(n, json.loads(args_str) if isinstance(args_str,
-                                                                                        str) and args_str.strip().startswith(
-                    '{') else args_str, conv_id=session_id)
-
-            tool_executor.registerTool(name, desc, create_tool_func(name))
+        def execute_tool(tool_name: str, raw_args):
+            parsed_args = raw_args
+            if isinstance(raw_args, str) and raw_args.strip().startswith('{'):
+                try:
+                    parsed_args = json.loads(raw_args)
+                except json.JSONDecodeError:
+                    parsed_args = raw_args
+            return use_tools(tool_name, parsed_args, conv_id=workspace_scope)
 
         if mode == "react":
-            return ReActAgent(tool_executor=tool_executor, memory=memory, session_id=session_id, use_ocp=use_ocp)
+            return ReActAgent(tools_description=tools_description, execute_tool=execute_tool, memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
         if mode == "plan_and_solve":
-            return PlanAndSolveAgent(tool_executor=tool_executor, memory=memory, session_id=session_id, use_ocp=use_ocp)
-    return DefaultAgent(memory=memory, session_id=session_id, use_ocp=use_ocp)
+            return PlanAndSolveAgent(tools_description=tools_description, execute_tool=execute_tool, memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
+    return DefaultAgent(memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
 
 
 @app.post("/api/chat")
@@ -366,7 +393,8 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     # 2. 添加当前消息
     processed_history.append({"role": "user", "content": content})
 
-    agent = build_agent(agent_mode, processed_history, session_id, use_ocp=use_ocp)
+    workspace_scope = get_workspace_scope(current_user, session_id)
+    agent = build_agent(agent_mode, processed_history, session_id, workspace_scope, use_ocp=use_ocp)
 
     if stream:
         async def generate_agent():
@@ -436,7 +464,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
         except Exception as e:
             import traceback
             traceback.print_exc()
-            return {"error": str(e)}
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/summarize")
@@ -483,8 +511,7 @@ async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(
     safe_filename = os.path.basename(safe_filename)
 
     # 3. 确保目录安全
-    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
-    temp_dir = os.path.join("TEMP", safe_conv_id)
+    temp_dir, _ = get_workspace_dirs(current_user, conversation_id)
     os.makedirs(temp_dir, exist_ok=True)
 
     file_path = os.path.join(temp_dir, safe_filename)
@@ -501,13 +528,12 @@ async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(
 async def list_workspace_files_api(conversation_id: str, current_user: str = Depends(get_current_user)):
     """
     列出当前对话工作区（Workspace）中的所有文件。
-    扫描服务器上的 TEMP/{conv_id} 和 Result/{conv_id} 目录。
+    扫描当前用户命名空间下的 TEMP 和 Result 目录。
     """
-    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
     files = []
 
     # 查找 TEMP 目录 (上传的文件)
-    temp_dir = os.path.join("TEMP", safe_conv_id)
+    temp_dir, result_dir = get_workspace_dirs(current_user, conversation_id)
     if os.path.exists(temp_dir):
         for f in os.listdir(temp_dir):
             file_path = os.path.join(temp_dir, f)
@@ -519,7 +545,6 @@ async def list_workspace_files_api(conversation_id: str, current_user: str = Dep
                 })
 
     # 查找 Result 目录 (生成的文件)
-    result_dir = os.path.join("Result", safe_conv_id)
     if os.path.exists(result_dir):
         for f in os.listdir(result_dir):
             file_path = os.path.join(result_dir, f)
@@ -543,14 +568,13 @@ async def restore_workspace_file(
     """
     从客户端恢复丢失的文件到服务器缓存
     """
-    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
     safe_filename = re.sub(r'[\\/:*?"<>|]', '_', file.filename)
     safe_filename = os.path.basename(safe_filename)
 
     if file_type == "upload":
-        target_dir = os.path.join("TEMP", safe_conv_id)
+        target_dir, _ = get_workspace_dirs(current_user, conversation_id)
     elif file_type == "generated":
-        target_dir = os.path.join("Result", safe_conv_id)
+        _, target_dir = get_workspace_dirs(current_user, conversation_id)
     else:
         raise HTTPException(status_code=400, detail="Invalid file type")
 
@@ -571,48 +595,40 @@ async def delete_workspace_file(conversation_id: str, file_path: str, current_us
     注意：此路由必须在 /api/workspace/{conversation_id} 之前声明，
     否则 FastAPI 会将 "file" 匹配为 conversation_id 参数。
     """
-    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
-    
     # 规范化路径并验证安全性
     if not os.path.isabs(file_path):
         target_path = os.path.join(os.getcwd(), file_path)
     else:
         target_path = file_path
-        
+
     abs_path = os.path.abspath(target_path)
-    cwd = os.getcwd()
+    temp_dir, result_dir = get_workspace_dirs(current_user, conversation_id)
+    allowed_dirs = [temp_dir, result_dir]
+    is_allowed = any(is_within_directory(abs_path, d) for d in allowed_dirs)
     
-    allowed_dirs = [
-        os.path.join(cwd, "TEMP", safe_conv_id),
-        os.path.join(cwd, "Result", safe_conv_id)
-    ]
-    
-    is_allowed = any(
-        abs_path.startswith(os.path.abspath(d) + os.sep) or abs_path == os.path.abspath(d)
-        for d in allowed_dirs
-    )
-    
-    if is_allowed and os.path.exists(abs_path) and os.path.isfile(abs_path):
+    if not is_allowed:
+        raise HTTPException(status_code=403, detail="File not found or access denied")
+
+    if os.path.exists(abs_path):
+        if not os.path.isfile(abs_path):
+            raise HTTPException(status_code=400, detail="Target path is not a file")
         try:
             os.remove(abs_path)
             return {"status": "success"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-            
-    raise HTTPException(status_code=403, detail="File not found or access denied")
+
+    # 幂等删除：如果文件已经不存在，也视为删除成功，便于客户端同步本地状态
+    return {"status": "success"}
 
 @app.delete("/api/workspace/{conversation_id}")
 async def delete_workspace(conversation_id: str, current_user: str = Depends(get_current_user)):
     """
     当用户删除对话时，清理服务器上的相关文件
     """
-    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
-
-    temp_dir = os.path.join("TEMP", safe_conv_id)
+    temp_dir, result_dir = get_workspace_dirs(current_user, conversation_id)
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-    result_dir = os.path.join("Result", safe_conv_id)
     if os.path.exists(result_dir):
         shutil.rmtree(result_dir, ignore_errors=True)
 
@@ -623,8 +639,7 @@ async def heartbeat(conversation_id: str, current_user: str = Depends(get_curren
     """
     接收客户端心跳，更新对话最后活跃时间
     """
-    safe_conv_id = re.sub(r'[^a-zA-Z0-9_-]', '_', conversation_id)
-    active_conversations[safe_conv_id] = time.time()
+    active_conversations[get_workspace_scope(current_user, conversation_id)] = time.time()
     return {"status": "success"}
 
 
@@ -640,19 +655,15 @@ async def download_file(file_path: str, current_user: str = Depends(get_current_
 
     abs_path = os.path.abspath(target_path)
     cwd = os.getcwd()
-
-    # 2. 定义允许下载的目录
+    safe_user = sanitize_path_component(current_user)
     allowed_dirs = [
-        os.path.join(cwd, "TEMP"),
-        os.path.join(cwd, "Result")
+        os.path.join(cwd, "TEMP", safe_user),
+        os.path.join(cwd, "Result", safe_user)
     ]
 
     # 3. 校验路径是否在允许的目录内
     # 添加 os.sep 防止类似 TEMP_hack 的目录绕过前缀匹配
-    is_allowed = any(
-        abs_path.startswith(os.path.abspath(d) + os.sep) or abs_path == os.path.abspath(d)
-        for d in allowed_dirs
-    )
+    is_allowed = any(is_within_directory(abs_path, d) for d in allowed_dirs)
 
     if is_allowed and os.path.exists(abs_path) and os.path.isfile(abs_path):
         return FileResponse(path=abs_path, filename=os.path.basename(abs_path))
@@ -681,4 +692,5 @@ async def serve_spa(request: Request, full_path: str):
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 80))
-    uvicorn.run("agent:app", host="0.0.0.0", port=port, workers=4)
+    workers = max(int(os.getenv("UVICORN_WORKERS", "1")), 1)
+    uvicorn.run("agent:app", host="0.0.0.0", port=port, workers=workers)
