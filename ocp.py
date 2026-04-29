@@ -40,6 +40,7 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 3. **内容保留**：除了格式修复外，必须逐字保留原意。严禁添加新的法律意见，严禁概括或简化原句。
 4. **纯净输出**：输出结果必须【仅包含】修复后的文本正文。如果违反此条，会导致整个流程失败。
 5. **故障退回**：如果无法修复或工具调用无果，请原样输出原文，不要做任何多余的解释。
+6. **禁止回显检查过程**：严禁输出“正在检查 Markdown 语法”“已确认表格正确”“列表编号无误”等任何检查过程或确认性语句。
 </strict_rules>
 
 <checklist>
@@ -74,12 +75,16 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 4. 如果需要查询具体法条内容以规范引用格式，调用 `search_article` 工具
 5. 如果工具调用返回错误、内容为空或不符合预期，你可以换个查询参数继续重新调用该工具。对同一查询目标你最多可以重试 3 次
 6. 所有工具调用完成后，输出最终修复后的完整文本
+7. 如果只是普通 Markdown 排版修复、删除废话前缀、闭合标签、调整列表或表格，不允许调用任何工具，必须直接在当前轮完成。
+8. 如果你已经拿到足够信息，或者连续两轮准备调用相同工具却没有新增有效信息，必须立即停止工具调用并直接输出当前最佳正文。
+9. 对 Markdown 结构只允许进行一次静默检查并直接给出结果，禁止为了“再次确认格式是否正确”而重复审查或重复调用工具。
 </workflow>
 
 <output_rules>
 - 如果文本完全符合规范，原样输出，不做任何修改。
 - 如果文本需要修复，仅输出修复后的完整正文，严禁包含任何前导词、解释、总结、结论或评论（例如：“以下是修复后的文本：”或“已完成修复”）。
 - 输出必须是纯正文内容，不要包含任何解释、说明或关于你做了什么修改的描述。
+- 严禁输出以下或同类包装句：`以下是修改后的正文`、`下面是修复后的内容`、`已根据要求修正`、`审查结果如下`。
 - 严禁添加任何 `<final_answer>`、`<think>`、`[OCP]` 或类似的标签或前缀。
 - 违反此规则会导致审查失败，请务必保持输出纯净。
 </output_rules>"""
@@ -89,6 +94,12 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 
 OCP_BANNED_TOOL_NAMES = {"pdf_commit_by_sentence", "word_writer"}
 OCP_TOOLS = [t for t in all_tools if t["function"]["name"] not in OCP_BANNED_TOOL_NAMES]
+OCP_PROGRESS_MESSAGE = '\n\n**[OCP] 正在进行格式审查与信源核验...**\n'
+OCP_TOOL_LABELS = {
+    "get_linked_content": "补充法规信源",
+    "search_article": "核对法条引用",
+    "get_article": "校验法条正文",
+}
 
 
 # ── OCPStatic 类 ─────────────────────────────────────────────────────────
@@ -96,7 +107,8 @@ OCP_TOOLS = [t for t in all_tools if t["function"]["name"] not in OCP_BANNED_TOO
 class OCPStatic:
     """OCP-Static: 非流式输出格式审查与自动修复"""
 
-    MAX_TOOL_ROUNDS = 999  # 最大工具调用循环次数
+    MAX_TOOL_ROUNDS = 4  # 最大工具调用循环次数
+    MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
     MAX_RETRIES = 3      # 单次 LLM 调用最大重试次数
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
 
@@ -142,6 +154,9 @@ class OCPStatic:
                 {"role": "system", "content": OCP_SYSTEM_PROMPT},
                 {"role": "user", "content": f"请检查并修复以下文本的格式问题：\n\n{content}"}
             ]
+            best_candidate = content
+            last_tool_signature = None
+            repeated_tool_signature_count = 0
 
             # 工具调用循环
             for round_num in range(self.MAX_TOOL_ROUNDS):
@@ -156,14 +171,28 @@ class OCPStatic:
                 )
 
                 message = response.choices[0].message
+                cleaned_message = self._clean_output(message.content or "")
+                if cleaned_message:
+                    best_candidate = cleaned_message
 
                 if not message.tool_calls:
                     # 没有工具调用，审查完成
-                    result = message.content or ""
-                    result = self._clean_output(result)
+                    result = cleaned_message or best_candidate
                     print(f"[OCP-Static] 审查完成（第 {round_num + 1} 轮），结果长度: {len(result)} 字符")
                     print(f"[OCP-Static] ========== 审查结束 ==========\n")
                     return result if result else content
+
+                tool_signature = self._tool_signature_from_openai_calls(message.tool_calls)
+                if tool_signature and tool_signature == last_tool_signature:
+                    repeated_tool_signature_count += 1
+                else:
+                    repeated_tool_signature_count = 0
+                last_tool_signature = tool_signature
+
+                if repeated_tool_signature_count >= self.MAX_REPEAT_SAME_TOOL_SIGNATURE:
+                    print(f"[OCP-Static] 检测到重复工具调用签名，提前终止审查")
+                    print(f"[OCP-Static] ========== 审查结束 ==========\n")
+                    return best_candidate if best_candidate else content
 
                 # 有工具调用
                 assistant_msg = {"role": "assistant", "content": message.content or ""}
@@ -198,14 +227,8 @@ class OCPStatic:
                     })
 
             # 达到最大循环次数
-            final_response = await self._call_with_retry(
-                model=OCP_LLM_MODEL,
-                messages=context,
-                stream=False,
-            )
-            result = final_response.choices[0].message.content or ""
-            result = self._clean_output(result)
-            return result if result else content
+            print(f"[OCP-Static] 达到最大工具轮次，返回当前最佳正文")
+            return best_candidate if best_candidate else content
 
         except Exception as e:
             print(f"[OCP-Static] 审查失败，降级返回原始内容: {e}")
@@ -244,7 +267,65 @@ class OCPStatic:
             # 如果检测到身份声明，返回空，由上层逻辑触发降级
             return ""
 
+        wrapper_line_patterns = [
+            r'^(以下|下面|这是|现将|现把).{0,30}(修改后|修复后|调整后|审查后).{0,20}(正文|文本|内容|版本|结果)(如下)?[:：]?$',
+            r'^(修改后|修复后|调整后|审查后).{0,20}(正文|文本|内容|版本|结果)(如下)?[:：]?$',
+            r'^(以下|下面)是.{0,30}(正文|文本|内容|版本|结果)[:：]?$',
+            r'^已根据.{0,30}(修正|修改|调整)[:：]?$',
+            r'^审查结果如下[:：]?$',
+            r'^最终版本如下[:：]?$',
+        ]
+        trailing_noise_patterns = [
+            r'^(以上|上述)为.{0,30}(正文|文本|内容|结果)[:：]?$',
+            r'^如需进一步.*$',
+        ]
+
+        lines = text.splitlines()
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and any(re.match(pattern, lines[0].strip(), flags=re.IGNORECASE) for pattern in wrapper_line_patterns):
+            lines.pop(0)
+            while lines and not lines[0].strip():
+                lines.pop(0)
+        while lines and any(re.match(pattern, lines[-1].strip(), flags=re.IGNORECASE) for pattern in trailing_noise_patterns):
+            lines.pop()
+            while lines and not lines[-1].strip():
+                lines.pop()
+        text = "\n".join(lines).strip()
+
         return text.strip()
+
+    @staticmethod
+    def _normalize_tool_arguments(arguments: str) -> str:
+        if not arguments:
+            return ""
+        try:
+            return json.dumps(json.loads(arguments), ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return str(arguments).strip()
+
+    @classmethod
+    def _tool_signature_from_openai_calls(cls, tool_calls) -> str:
+        signature_parts = []
+        for tc in tool_calls or []:
+            signature_parts.append(
+                f"{tc.function.name}:{cls._normalize_tool_arguments(tc.function.arguments)}"
+            )
+        return " || ".join(signature_parts)
+
+    @classmethod
+    def _tool_signature_from_dict_calls(cls, tool_calls: list[dict]) -> str:
+        signature_parts = []
+        for tc in tool_calls or []:
+            function = tc.get("function", {})
+            signature_parts.append(
+                f"{function.get('name', '')}:{cls._normalize_tool_arguments(function.get('arguments', ''))}"
+            )
+        return " || ".join(signature_parts)
+
+    @staticmethod
+    def _describe_tool(function_name: str) -> str:
+        return OCP_TOOL_LABELS.get(function_name, function_name)
 
 
 # ── OCPStream 类 ─────────────────────────────────────────────────────────
@@ -252,7 +333,8 @@ class OCPStatic:
 class OCPStream:
     """OCP-Stream: 完全流式的格式审查与自动修复"""
 
-    MAX_TOOL_ROUNDS = 999
+    MAX_TOOL_ROUNDS = 4
+    MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
     MAX_RETRIES = 3
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
 
@@ -277,11 +359,17 @@ class OCPStream:
                 {"role": "system", "content": OCP_SYSTEM_PROMPT},
                 {"role": "user", "content": f"请检查并修复以下文本的格式问题：\n\n{content}"}
             ]
+            best_candidate = content
+            last_tool_signature = None
+            repeated_tool_signature_count = 0
+            has_announced_structure_check = False
 
-            yield {'type': 'thought', 'content': '\n\n**[OCP] 正在进行输出格式审查与信源核验...**\n'}
+            yield {'type': 'thought', 'content': OCP_PROGRESS_MESSAGE}
             
             for round_num in range(self.MAX_TOOL_ROUNDS):
                 print(f"[OCP-Stream] 第 {round_num + 1} 轮流式调用")
+                if round_num == 0:
+                    yield {'type': 'thought', 'content': '- OCP 正在检查正文结构、引用角标和 Markdown 语法\n'}
                 
                 stream_res = await self.client.chat.completions.create(
                     model=OCP_LLM_MODEL,
@@ -305,14 +393,17 @@ class OCPStream:
                     reasoning = getattr(delta, 'reasoning_content', None)
                     if reasoning:
                         reasoning_str += reasoning
-                        yield {'type': 'thought', 'content': reasoning}
 
                     # 正文内容
                     if delta.content:
+                        if not has_announced_structure_check:
+                            has_announced_structure_check = True
+                            yield {'type': 'thought', 'content': '- OCP 正在整理修正版正文\n'}
                         content_str += delta.content
                         full_raw_content += delta.content
                         clean_text = OCPStatic._clean_output(full_raw_content)
                         if clean_text:
+                            best_candidate = clean_text
                             yield {'type': 'content_replace', 'content': clean_text}
 
                     # 工具调用
@@ -333,8 +424,22 @@ class OCPStream:
                 if not tool_calls:
                     final_clean = OCPStatic._clean_output(full_raw_content)
                     if not final_clean or len(final_clean) < 10:
-                        yield {'type': 'content_replace', 'content': content}
+                        yield {'type': 'content_replace', 'content': best_candidate if best_candidate else content}
+                    yield {'type': 'thought', 'content': '- OCP 审查完成，已应用修正版\n'}
                     print(f"[OCP-Stream] 审查完成")
+                    return
+
+                tool_signature = OCPStatic._tool_signature_from_dict_calls(tool_calls)
+                if tool_signature and tool_signature == last_tool_signature:
+                    repeated_tool_signature_count += 1
+                else:
+                    repeated_tool_signature_count = 0
+                last_tool_signature = tool_signature
+
+                if repeated_tool_signature_count >= self.MAX_REPEAT_SAME_TOOL_SIGNATURE:
+                    print(f"[OCP-Stream] 检测到重复工具调用签名，提前终止审查")
+                    yield {'type': 'thought', 'content': '- OCP 检测到重复检查，已停止自循环并保留当前最佳版本\n'}
+                    yield {'type': 'content_replace', 'content': best_candidate if best_candidate else content}
                     return
 
                 # 执行工具并继续
@@ -342,10 +447,14 @@ class OCPStream:
                 for tc in tool_calls:
                     f_name = tc["function"]["name"]
                     f_args = tc["function"]["arguments"]
-                    yield {'type': 'thought', 'content': f'  - [OCP 工具调用] `{f_name}`\n'}
-                    res = use_tools(f_name, json.loads(f_args) if f_args else {}, conv_id=self.session_id)
+                    yield {'type': 'thought', 'content': f'- OCP 正在{OCPStatic._describe_tool(f_name)}\n'}
+                    try:
+                        parsed_args = json.loads(f_args) if f_args else {}
+                    except json.JSONDecodeError:
+                        parsed_args = {}
+                    res = use_tools(f_name, parsed_args, conv_id=self.session_id)
                     context.append({"role": "tool", "tool_call_id": tc["id"], "name": f_name, "content": str(res)})
-                    yield {'type': 'thought', 'content': f'  - [OCP 工具返回] 接收到信息\n'}
+                    yield {'type': 'thought', 'content': f'- OCP 已接收{OCPStatic._describe_tool(f_name)}结果，继续修订\n'}
 
         except Exception as e:
             print(f"[OCP-Stream] 异常: {e}")

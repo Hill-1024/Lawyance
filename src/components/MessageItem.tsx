@@ -24,6 +24,37 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onEdit,
   onUndo
 }) => {
+  const getStatusLabel = (text: string) => {
+    const trimmed = text.trim();
+    const statusMatchers: Array<{ pattern: RegExp; label: string | ((match: RegExpMatchArray) => string) }> = [
+      { pattern: /\[OCP\].*格式审查与信源核验/, label: '正在审查输出格式与信源' },
+      { pattern: /OCP 正在检查正文结构、引用角标和 Markdown 语法/, label: '正在检查正文结构与引用格式' },
+      { pattern: /OCP 正在整理修正版正文/, label: '正在整理修正版正文' },
+      { pattern: /OCP 正在补充法规信源/, label: '正在补充法规信源' },
+      { pattern: /OCP 正在核对法条引用/, label: '正在核对法条引用' },
+      { pattern: /OCP 正在校验法条正文/, label: '正在校验法条正文' },
+      { pattern: /OCP 审查完成/, label: '已完成输出审查' },
+      { pattern: /\*\*\[拟定初稿\]\*\*/, label: '正在拟定回答初稿' },
+      { pattern: /正在调用工具处理中/, label: '正在调用工具' },
+      { pattern: /执行:\s*`([^`]+)`/, label: (match) => `正在执行 ${match[1]}` },
+      { pattern: /工具执行完毕，正在生成最终回复/, label: '正在生成最终回复' },
+      { pattern: /正在制定计划/, label: '正在制定任务计划' },
+      { pattern: /开始执行计划/, label: '正在执行任务计划' },
+      { pattern: /步骤\s+\d+\/\d+/, label: (match) => `正在执行 ${match[0]}` },
+      { pattern: /\*\*执行工具\*\*:\s*`([^`]+)`/, label: (match) => `正在执行 ${match[1]}` },
+      { pattern: /\*\*观察\*\*/, label: '正在整理工具结果' },
+    ];
+
+    for (const matcher of statusMatchers) {
+      const match = trimmed.match(matcher.pattern);
+      if (match) {
+        return typeof matcher.label === 'function' ? matcher.label(match) : matcher.label;
+      }
+    }
+
+    return null;
+  };
+
   const markdownComponents: any = {
     a(props: any) {
       const { node, ...rest } = props;
@@ -164,6 +195,22 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   }
 
   const isThinkingBlock = blocks.length > 0 && (blocks[blocks.length - 1].type === 'think' || blocks[blocks.length - 1].type === 'tool');
+  const thoughtGroups = groupedBlocks.filter(b => b.type === 'thought_process');
+  let collapsedStatus = null as string | null;
+
+  for (let groupIndex = thoughtGroups.length - 1; groupIndex >= 0 && !collapsedStatus; groupIndex--) {
+    const items = thoughtGroups[groupIndex].items || [];
+    for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex--) {
+      collapsedStatus = getStatusLabel(items[itemIndex].text || '');
+      if (collapsedStatus) break;
+    }
+  }
+
+  if (!collapsedStatus && thoughtGroups.length > 0) {
+    collapsedStatus = isThinking ? '正在分析问题' : '查看工作过程';
+  } else if (!collapsedStatus && isThinking) {
+    collapsedStatus = '正在思考';
+  }
 
   return (
     <motion.div
@@ -213,10 +260,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         ) : (
           <div className="flex flex-col gap-5 w-full max-w-full">
             {/* Thought Section (Column) */}
-            {groupedBlocks.some(b => b.type === 'thought_process') && (
+            {(thoughtGroups.length > 0 || (isThinking && collapsedStatus)) && (
               <div className="flex flex-col gap-3 w-full max-w-3xl">
-                {groupedBlocks.filter(b => b.type === 'thought_process').map((group, index) => {
-                  const isLastGroup = index === groupedBlocks.filter(b => b.type === 'thought_process').length - 1;
+                {thoughtGroups.map((group, index) => {
+                  const isLastGroup = index === thoughtGroups.length - 1;
                   const showThinking = isThinking && isLastGroup && isThinkingBlock;
 
                   return (
@@ -233,6 +280,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                             </span>
                           </span>
                         ) : "Thought Process"}
+                        {collapsedStatus && (
+                          <span className="text-xs font-normal text-gray-500 dark:text-gray-400 max-w-72 truncate">
+                            {collapsedStatus}
+                          </span>
+                        )}
                       </summary>
                       <div className="mt-3 mb-2 px-5 py-4 text-[15px] text-gray-600 dark:text-gray-300 border-l-4 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/30 rounded-r-2xl flex flex-col gap-4 w-full">
                         {group.items.map((item: any, i: number) => {
@@ -261,6 +313,12 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                     </details>
                   );
                 })}
+                {thoughtGroups.length === 0 && collapsedStatus && (
+                  <div className="flex items-center gap-2 w-fit bg-gray-100 dark:bg-gray-800/50 px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400">
+                    <Loader2 size={14} className="animate-spin text-blue-500" />
+                    <span>{collapsedStatus}</span>
+                  </div>
+                )}
               </div>
             )}
 
