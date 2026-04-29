@@ -13,3 +13,5 @@ TEMP
 Result
 data/
 .DS_Store
+RAG/cache/
+RAG/__pycache__/
