@@ -6,6 +6,10 @@ export class FileDB {
   private convStoreName = 'conversations';
   private version = 2; // Incremented version to add store
 
+  private buildFileId(convId: string, fileName: string, path?: string) {
+    return `${convId}::${path || fileName}`;
+  }
+
   private async getDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, this.version);
@@ -27,13 +31,14 @@ export class FileDB {
 
   async saveFile(convId: string, fileName: string, blob: Blob, path: string) {
     const db = await this.getDB();
-    const id = `${convId}_${fileName}`;
+    const id = this.buildFileId(convId, fileName, path);
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readwrite');
       const store = transaction.objectStore(this.storeName);
       const request = store.put({ id, convId, fileName, blob, path: path || '', timestamp: Date.now() });
-      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   }
 
@@ -69,24 +74,40 @@ export class FileDB {
 
   async deleteFilesByConvId(convId: string) {
     const db = await this.getDB();
-    const transaction = db.transaction(this.storeName, 'readwrite');
-    const store = transaction.objectStore(this.storeName);
-    const request = store.getAll();
-    request.onsuccess = () => {
-      const targets = (request.result as any[]).filter(f => f.convId === convId);
-      targets.forEach(t => store.delete(t.id));
-    };
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(this.storeName, 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const targets = (request.result as any[]).filter(f => f.convId === convId);
+        targets.forEach(t => store.delete(t.id));
+      };
+      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
   }
 
-  async deleteFile(convId: string, fileName: string) {
+  async deleteFile(convId: string, fileName: string, path?: string) {
     const db = await this.getDB();
-    const id = `${convId}_${fileName}`;
-    const transaction = db.transaction(this.storeName, 'readwrite');
-    const store = transaction.objectStore(this.storeName);
     return new Promise<void>((resolve, reject) => {
-      const request = store.delete(id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
+      const transaction = db.transaction(this.storeName, 'readwrite');
+      const store = transaction.objectStore(this.storeName);
+
+      if (path) {
+        const request = store.delete(this.buildFileId(convId, fileName, path));
+        request.onerror = () => reject(request.error);
+      } else {
+        const request = store.getAll();
+        request.onsuccess = () => {
+          const targets = (request.result as any[]).filter(f => f.convId === convId && f.fileName === fileName);
+          targets.forEach(t => store.delete(t.id));
+        };
+        request.onerror = () => reject(request.error);
+      }
+
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   }
 
@@ -101,9 +122,10 @@ export class FileDB {
       const clearReq = store.clear();
       clearReq.onsuccess = () => {
         conversations.forEach(conv => store.put(conv));
-        resolve();
       };
       clearReq.onerror = () => reject(clearReq.error);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   }
 

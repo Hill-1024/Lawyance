@@ -16,7 +16,7 @@ export const storageService = {
       // Or just empty/invalid ones.
       
       if (!file.blob || file.blob.size === 0) {
-        await fileDB.deleteFile(file.convId, file.fileName);
+        await fileDB.deleteFile(file.convId, file.fileName, file.path);
         cleanedCount++;
       }
     }

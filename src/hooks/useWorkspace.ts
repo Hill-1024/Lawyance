@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { fileDB } from '../lib/db';
 import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile } from '../services/api';
 
@@ -13,6 +13,7 @@ export function useWorkspace(currentId: string) {
       const data = await getWorkspaceFiles(currentId);
       const serverFiles = data.files || [];
       const localFiles = await fileDB.getFilesByConvId(currentId);
+      const localFilesByPath = new Map(localFiles.map(file => [file.path, file]));
       
       const serverPaths = new Set(serverFiles.map((f: any) => f.path));
       const localPaths = new Set(localFiles.map(f => f.path));
@@ -43,7 +44,10 @@ export function useWorkspace(currentId: string) {
 
       // 2. Server -> Client: Persist missing files locally
       for (const serverFile of serverFiles) {
-        if (!localPaths.has(serverFile.path)) {
+        const localFile = localFilesByPath.get(serverFile.path);
+        const needsDownload = !localFile || !localFile.blob || localFile.blob.size === 0;
+
+        if (needsDownload) {
           console.log(`[Sync] Downloading missing server file to local cache: ${serverFile.name}`);
           try {
             const res = await fetch(`/api/download?file_path=${encodeURIComponent(serverFile.path)}`);
@@ -113,19 +117,24 @@ export function useWorkspace(currentId: string) {
     }
   };
 
-  const deleteFile = async (fileName: string) => {
+  const deleteFile = async (filePath: string) => {
     try {
-      const fileToDelete = workspaceFiles.find(f => f.name === fileName);
-      if (fileToDelete) {
-        try {
-          await deleteWorkspaceFile(currentId, fileToDelete.path);
-        } catch (err) {
-          console.error('Failed to delete file from server:', err);
-        }
+      const fileToDelete = workspaceFiles.find(f => f.path === filePath);
+      if (!fileToDelete) {
+        return;
       }
-      await fileDB.deleteFile(currentId, fileName);
-      setWorkspaceFiles(prev => prev.filter(f => f.name !== fileName));
-      setPendingUploads(prev => prev.filter(f => f.name !== fileName));
+
+      try {
+        await deleteWorkspaceFile(currentId, fileToDelete.path);
+      } catch (err: any) {
+        console.error('Failed to delete file from server:', err);
+        alert(err?.message || '删除服务端文件失败，本地文件已保留。');
+        return;
+      }
+
+      await fileDB.deleteFile(currentId, fileToDelete.name, fileToDelete.path);
+      setWorkspaceFiles(prev => prev.filter(f => f.path !== filePath));
+      setPendingUploads(prev => prev.filter(f => f.path !== filePath));
     } catch (error) {
       console.error('Failed to delete file:', error);
     }

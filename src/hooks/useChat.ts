@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Conversation, Message } from '../types';
 import { fileDB } from '../lib/db';
-import { chat, getWorkspaceFiles, restoreFile, deleteWorkspace } from '../services/api';
+import { chat, deleteWorkspace } from '../services/api';
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -143,21 +143,17 @@ export function useChat() {
     const titleSource = cleanMessage.length > 0 ? cleanMessage : "File Analysis";
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch('/api/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `Please summarize this message into a short title (max 15 chars, no quotes, no punctuation, just the title text): "${titleSource.substring(0, 200)}"`,
-          history: [],
-          conversation_id: 'summary_' + Date.now(),
-          stream: false,
-          agent_mode: 'default'
+          history: [{ role: 'user', content: titleSource.substring(0, 200) }]
         })
       });
 
       if (response.ok) {
         const data = await response.json();
-        let title = data.reply.replace(/["']/g, '').trim();
+        let title = String(data.title || '').replace(/["']/g, '').trim();
         if (title.length > 20) title = title.substring(0, 20) + '...';
 
         setConversations(prev => prev.map(c => {
@@ -181,7 +177,10 @@ export function useChat() {
 
   const processStream = async (response: Response, agentMessageId: string | null, convId: string, onFileGenerated?: (name: string, path: string) => void) => {
     const reader = response.body?.getReader();
-    if (!reader) return;
+    if (!reader) {
+      setIsLoading(false);
+      return;
+    }
 
     const decoder = new TextDecoder();
     let currentText = '';

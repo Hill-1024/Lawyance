@@ -5,7 +5,7 @@ interface WorkspacePanelProps {
   isWorkspaceOpen: boolean;
   setIsWorkspaceOpen: (open: boolean) => void;
   workspaceFiles: { name: string, path: string, type: 'upload' | 'generated' }[];
-  onDeleteFile: (fileName: string) => void;
+  onDeleteFile: (filePath: string) => void;
 }
 
 export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
@@ -45,7 +45,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
           <Download size={16} />
         </button>
         <button
-          onClick={() => onDeleteFile(file.name)}
+          onClick={() => onDeleteFile(file.path)}
           className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
           title="Delete"
         >

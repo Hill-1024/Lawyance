@@ -63,7 +63,8 @@ export const chat = async (
   });
 
   if (!response.ok) {
-    throw new Error('Network response was not ok');
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || errorData?.error || 'Network response was not ok');
   }
 
   return response;
