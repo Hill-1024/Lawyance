@@ -91,7 +91,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
     try:
         salt, expected_hash = hashed_password.split('$')
         actual_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
-        return actual_hash == expected_hash
+        return hmac.compare_digest(actual_hash, expected_hash)
     except ValueError:
         return False
 
@@ -154,6 +154,9 @@ def record_login_attempt(username: str, success: bool):
         else:
             record = lockouts.get(username, {"fails": 0, "locked_until": 0})
             if record["locked_until"] <= time.time():
+                if record["locked_until"] > 0:
+                    record["fails"] = 0
+                    record["locked_until"] = 0
                 record["fails"] += 1
                 if record["fails"] >= 3:
                     record["locked_until"] = int(time.time() + 2 * 3600) # 2 hours
