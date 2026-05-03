@@ -27,6 +27,9 @@ load_dotenv(".env")
 OCP_API_KEY = os.getenv("OCP_API_KEY") or os.getenv("API_KEY")
 OCP_BASE_URL = os.getenv("OCP_BASE_URL") or os.getenv("BASE_URL")
 OCP_LLM_MODEL = os.getenv("OCP_LLM_MODEL") or os.getenv("LLM_MODEL")
+OCP_TOTAL_TIMEOUT = float(os.getenv("OCP_TOTAL_TIMEOUT", "25"))
+OCP_CALL_TIMEOUT = float(os.getenv("OCP_CALL_TIMEOUT", "12"))
+OCP_TOOL_TIMEOUT = float(os.getenv("OCP_TOOL_TIMEOUT", "8"))
 
 
 # ── OCP 审查专用 System Prompt ──────────────────────────────────────────
@@ -90,10 +93,10 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 </output_rules>"""
 
 
-# ── OCP 可用的工具子集（从 mcps 统一导入，黑名单过滤具有文件写入权限的工具） ──
+# ── OCP 可用的工具子集（从 mcps 统一导入，但只允许审查必需的只读法律信源工具） ──
 
-OCP_BANNED_TOOL_NAMES = {"pdf_commit_by_sentence", "word_writer"}
-OCP_TOOLS = [t for t in all_tools if t["function"]["name"] not in OCP_BANNED_TOOL_NAMES]
+OCP_ALLOWED_TOOL_NAMES = {"get_linked_content", "search_article", "get_article"}
+OCP_TOOLS = [t for t in all_tools if t["function"]["name"] in OCP_ALLOWED_TOOL_NAMES]
 OCP_PROGRESS_MESSAGE = '\n\n**[OCP] 正在进行格式审查与信源核验...**\n'
 OCP_TOOL_LABELS = {
     "get_linked_content": "补充法规信源",
@@ -102,14 +105,41 @@ OCP_TOOL_LABELS = {
 }
 
 
+class OCPTimeout(RuntimeError):
+    pass
+
+
+def _remaining_seconds(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise OCPTimeout("OCP exceeded total timeout")
+    return remaining
+
+
+async def _run_ocp_tool(function_name: str, arguments: dict, session_id: str):
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(use_tools, function_name, arguments, conv_id=session_id),
+            timeout=OCP_TOOL_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        return json.dumps(
+            {
+                "status": "timeout",
+                "message": f"OCP tool {function_name} exceeded {OCP_TOOL_TIMEOUT:.0f}s",
+            },
+            ensure_ascii=False,
+        )
+
+
 # ── OCPStatic 类 ─────────────────────────────────────────────────────────
 
 class OCPStatic:
     """OCP-Static: 非流式输出格式审查与自动修复"""
 
-    MAX_TOOL_ROUNDS = 4  # 最大工具调用循环次数
+    MAX_TOOL_ROUNDS = 2  # 最大工具调用循环次数
     MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
-    MAX_RETRIES = 3      # 单次 LLM 调用最大重试次数
+    MAX_RETRIES = 1      # 单次 LLM 调用最大重试次数
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
 
     def __init__(self, session_id: str = "default"):
@@ -124,7 +154,7 @@ class OCPStatic:
         for attempt in range(self.MAX_RETRIES + 1):
             try:
                 if 'timeout' not in kwargs:
-                    kwargs['timeout'] = 90.0
+                    kwargs['timeout'] = OCP_CALL_TIMEOUT
                 response = await self.client.chat.completions.create(**kwargs)
                 return response
             except Exception as e:
@@ -149,25 +179,31 @@ class OCPStatic:
         print(f"[OCP-Static] 原文长度: {len(content)} 字符")
 
         try:
+            deadline = time.monotonic() + OCP_TOTAL_TIMEOUT
             # 构建记忆隔离的上下文
             context = [
                 {"role": "system", "content": OCP_SYSTEM_PROMPT},
                 {"role": "user", "content": f"请检查并修复以下文本的格式问题：\n\n{content}"}
             ]
-            best_candidate = content
+            best_candidate = self._deterministic_format_repair(content)
             last_tool_signature = None
             repeated_tool_signature_count = 0
 
             # 工具调用循环
             for round_num in range(self.MAX_TOOL_ROUNDS):
                 print(f"[OCP-Static] 第 {round_num + 1}/{self.MAX_TOOL_ROUNDS} 轮调用")
+                call_timeout = min(OCP_CALL_TIMEOUT, _remaining_seconds(deadline))
 
-                response = await self._call_with_retry(
-                    model=OCP_LLM_MODEL,
-                    messages=context,
-                    tools=OCP_TOOLS,
-                    tool_choice="auto",
-                    stream=False,
+                response = await asyncio.wait_for(
+                    self._call_with_retry(
+                        model=OCP_LLM_MODEL,
+                        messages=context,
+                        tools=OCP_TOOLS,
+                        tool_choice="auto",
+                        stream=False,
+                        timeout=call_timeout,
+                    ),
+                    timeout=call_timeout,
                 )
 
                 message = response.choices[0].message
@@ -180,7 +216,7 @@ class OCPStatic:
                     result = cleaned_message or best_candidate
                     print(f"[OCP-Static] 审查完成（第 {round_num + 1} 轮），结果长度: {len(result)} 字符")
                     print(f"[OCP-Static] ========== 审查结束 ==========\n")
-                    return result if result else content
+                    return result if result else self._deterministic_format_repair(content)
 
                 tool_signature = self._tool_signature_from_openai_calls(message.tool_calls)
                 if tool_signature and tool_signature == last_tool_signature:
@@ -217,7 +253,8 @@ class OCPStatic:
                         args = {}
 
                     print(f"[OCP-Static]   工具调用: {func_name}")
-                    tool_result = use_tools(func_name, args, conv_id=self.session_id)
+                    _remaining_seconds(deadline)
+                    tool_result = await _run_ocp_tool(func_name, args, self.session_id)
 
                     context.append({
                         "role": "tool",
@@ -228,11 +265,14 @@ class OCPStatic:
 
             # 达到最大循环次数
             print(f"[OCP-Static] 达到最大工具轮次，返回当前最佳正文")
-            return best_candidate if best_candidate else content
+            return best_candidate if best_candidate else self._deterministic_format_repair(content)
 
+        except (asyncio.TimeoutError, OCPTimeout) as e:
+            print(f"[OCP-Static] 审查超时，降级返回原始内容: {e}")
+            return self._deterministic_format_repair(content)
         except Exception as e:
             print(f"[OCP-Static] 审查失败，降级返回原始内容: {e}")
-            return content
+            return self._deterministic_format_repair(content)
 
     @staticmethod
     def _clean_output(text: str) -> str:
@@ -274,6 +314,11 @@ class OCPStatic:
             r'^已根据.{0,30}(修正|修改|调整)[:：]?$',
             r'^审查结果如下[:：]?$',
             r'^最终版本如下[:：]?$',
+            r'^\[?OCP\]?.{0,60}(正在|审查|检查|修复|完成|超时|异常).*$',
+            r'^OCP\s*.{0,80}$',
+            r'^正在调用工具处理中.*$',
+            r'^执行:\s*`?(get_linked_content|search_article|get_article|pdf_text_reader|word_reader)[^`]*`?.*$',
+            r'^工具执行完毕.*$',
         ]
         trailing_noise_patterns = [
             r'^(以上|上述)为.{0,30}(正文|文本|内容|结果)[:：]?$',
@@ -293,7 +338,152 @@ class OCPStatic:
                 lines.pop()
         text = "\n".join(lines).strip()
 
-        return text.strip()
+        return OCPStatic._deterministic_format_repair(text)
+
+    @staticmethod
+    def _deterministic_format_repair(text: str) -> str:
+        if not text:
+            return ""
+        return OCPStatic._repair_markdown_tables(text).strip()
+
+    @staticmethod
+    def _repair_markdown_tables(text: str) -> str:
+        """Normalize obvious Markdown table defects without using the OCP LLM."""
+        if "|" not in text:
+            return text
+
+        def split_quote_prefix(line: str) -> tuple[str, str]:
+            match = re.match(r'^(\s*(?:>\s*)*)(.*)$', line)
+            if not match:
+                return "", line
+            return match.group(1), match.group(2)
+
+        def expand_collapsed_table_lines(raw_text: str) -> list[str]:
+            expanded: list[str] = []
+            for original_line in raw_text.splitlines():
+                prefix, body = split_quote_prefix(original_line)
+                if body.count("|") < 6:
+                    expanded.append(original_line)
+                    continue
+
+                first_pipe_index = body.find("|")
+                if first_pipe_index <= 0:
+                    table_tail = body.strip()
+                    before_table = ""
+                else:
+                    before_table = body[:first_pipe_index].rstrip()
+                    table_tail = body[first_pipe_index:].strip()
+
+                has_collapsed_boundary = (
+                    re.search(r'\|\s+\|\s*:?-{3,}', table_tail) is not None or
+                    len(re.findall(r'\|\s+\|', table_tail)) >= 2
+                )
+                if not has_collapsed_boundary:
+                    expanded.append(original_line)
+                    continue
+
+                if before_table:
+                    expanded.append(f"{prefix}{before_table}".rstrip())
+                for row in re.sub(r'\|\s+(?=\|)', '|\n', table_tail).splitlines():
+                    if row.strip():
+                        expanded.append(f"{prefix}{row.strip()}".rstrip())
+            return expanded
+
+        def is_table_like_line(line: str) -> bool:
+            _, body = split_quote_prefix(line)
+            stripped = body.strip()
+            if not stripped or "|" not in stripped:
+                return False
+            return stripped.count("|") >= 2
+
+        def parse_cells(line: str) -> tuple[str, list[str]]:
+            prefix, body = split_quote_prefix(line)
+            row = body.strip()
+            if not row.startswith("|"):
+                row = f"| {row}"
+            if not row.endswith("|"):
+                row = f"{row} |"
+            return prefix, [cell.strip() for cell in row.strip("|").split("|")]
+
+        def is_separator_cells(cells: list[str]) -> bool:
+            if not cells:
+                return False
+            return all(re.fullmatch(r':?-{3,}:?', cell.replace(" ", "")) for cell in cells)
+
+        def normalize_row(prefix: str, cells: list[str], width: int, separator: bool = False) -> str:
+            if separator:
+                normalized_cells = ["---"] * width
+            else:
+                normalized_cells = (cells + [""] * width)[:width]
+            return f"{prefix}| " + " | ".join(normalized_cells) + " |"
+
+        def append_blank_around_table(target: list[str], prefix: str) -> None:
+            if not target or not target[-1].strip():
+                return
+            if ">" in prefix:
+                target.append(prefix.rstrip())
+            else:
+                target.append("")
+
+        def flush_table(buffer: list[str], target: list[str]) -> None:
+            if not buffer:
+                return
+            parsed_rows = [parse_cells(line) for line in buffer]
+            data_rows = [(prefix, cells) for prefix, cells in parsed_rows if not is_separator_cells(cells)]
+            if len(data_rows) < 2:
+                target.extend(buffer)
+                buffer.clear()
+                return
+
+            table_prefix = parsed_rows[0][0]
+            separator_rows = [cells for _, cells in parsed_rows if is_separator_cells(cells)]
+            width = max(2, len(separator_rows[0]) if separator_rows else max(len(cells) for _, cells in data_rows))
+            append_blank_around_table(target, table_prefix)
+            target.append(normalize_row(parsed_rows[0][0], parsed_rows[0][1], width))
+
+            second_is_separator = len(parsed_rows) > 1 and is_separator_cells(parsed_rows[1][1])
+            if second_is_separator:
+                target.append(normalize_row(parsed_rows[1][0], parsed_rows[1][1], width, separator=True))
+                row_start = 2
+            else:
+                target.append(normalize_row(table_prefix, [], width, separator=True))
+                row_start = 1
+
+            trailing_texts: list[tuple[str, str]] = []
+            for prefix, cells in parsed_rows[row_start:]:
+                if is_separator_cells(cells):
+                    continue
+                if len(cells) > width:
+                    trailing_text = " | ".join(cells[width:]).strip()
+                    if trailing_text:
+                        trailing_texts.append((prefix, trailing_text))
+                target.append(normalize_row(prefix, cells, width))
+            for prefix, trailing_text in trailing_texts:
+                target.append(f"{prefix}{trailing_text}".rstrip())
+            if target and target[-1].strip():
+                target.append(table_prefix.rstrip() if ">" in table_prefix else "")
+            buffer.clear()
+
+        lines = expand_collapsed_table_lines(text)
+        repaired: list[str] = []
+        table_buffer: list[str] = []
+        in_fence = False
+
+        for line in lines:
+            if line.strip().startswith("```"):
+                flush_table(table_buffer, repaired)
+                in_fence = not in_fence
+                repaired.append(line)
+                continue
+
+            if not in_fence and is_table_like_line(line):
+                table_buffer.append(line)
+            else:
+                flush_table(table_buffer, repaired)
+                repaired.append(line)
+
+        flush_table(table_buffer, repaired)
+        return "\n".join(repaired)
 
     @staticmethod
     def _normalize_tool_arguments(arguments: str) -> str:
@@ -333,9 +523,9 @@ class OCPStatic:
 class OCPStream:
     """OCP-Stream: 完全流式的格式审查与自动修复"""
 
-    MAX_TOOL_ROUNDS = 4
+    MAX_TOOL_ROUNDS = 2
     MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
-    MAX_RETRIES = 3
+    MAX_RETRIES = 1
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
 
     def __init__(self, session_id: str = "default"):
@@ -359,73 +549,78 @@ class OCPStream:
                 {"role": "system", "content": OCP_SYSTEM_PROMPT},
                 {"role": "user", "content": f"请检查并修复以下文本的格式问题：\n\n{content}"}
             ]
-            best_candidate = content
+            best_candidate = OCPStatic._deterministic_format_repair(content)
             last_tool_signature = None
             repeated_tool_signature_count = 0
             has_announced_structure_check = False
+            deadline = time.monotonic() + OCP_TOTAL_TIMEOUT
 
-            yield {'type': 'thought', 'content': OCP_PROGRESS_MESSAGE}
+            yield {'type': 'thought', 'content': OCP_PROGRESS_MESSAGE.strip() + "\n", 'thought_type': 'ocp', 'mode': 'new'}
             
             for round_num in range(self.MAX_TOOL_ROUNDS):
                 print(f"[OCP-Stream] 第 {round_num + 1} 轮流式调用")
                 if round_num == 0:
-                    yield {'type': 'thought', 'content': '- OCP 正在检查正文结构、引用角标和 Markdown 语法\n'}
-                
-                stream_res = await self.client.chat.completions.create(
-                    model=OCP_LLM_MODEL,
-                    messages=context,
-                    tools=OCP_TOOLS,
-                    tool_choice="auto",
-                    stream=True,
-                    timeout=90.0
-                )
+                    yield {'type': 'thought', 'content': '- OCP 正在检查正文结构、引用角标和 Markdown 语法\n', 'thought_type': 'ocp', 'mode': 'new'}
 
                 content_str = ""
                 full_raw_content = ""
                 reasoning_str = ""
                 tool_calls = []
 
-                async for chunk in stream_res:
-                    if not chunk.choices: continue
-                    delta = chunk.choices[0].delta
+                round_timeout = min(OCP_CALL_TIMEOUT, _remaining_seconds(deadline))
+                async with asyncio.timeout(round_timeout):
+                    stream_res = await self.client.chat.completions.create(
+                        model=OCP_LLM_MODEL,
+                        messages=context,
+                        tools=OCP_TOOLS,
+                        tool_choice="auto",
+                        stream=True,
+                        timeout=round_timeout
+                    )
 
-                    # 推理内容
-                    reasoning = getattr(delta, 'reasoning_content', None)
-                    if reasoning:
-                        reasoning_str += reasoning
+                    async for chunk in stream_res:
+                        if not chunk.choices: continue
+                        delta = chunk.choices[0].delta
 
-                    # 正文内容
-                    if delta.content:
-                        if not has_announced_structure_check:
-                            has_announced_structure_check = True
-                            yield {'type': 'thought', 'content': '- OCP 正在整理修正版正文\n'}
-                        content_str += delta.content
-                        full_raw_content += delta.content
-                        clean_text = OCPStatic._clean_output(full_raw_content)
-                        if clean_text:
-                            best_candidate = clean_text
-                            yield {'type': 'content_replace', 'content': clean_text}
+                        # 推理内容
+                        reasoning = getattr(delta, 'reasoning_content', None)
+                        if reasoning:
+                            reasoning_str += reasoning
+                            yield {'type': 'thought', 'content': reasoning, 'thought_type': 'ocp', 'mode': 'append'}
 
-                    # 工具调用
-                    if delta.tool_calls:
-                        for tc in delta.tool_calls:
-                            tc_index = tc.index
-                            if tc_index is None:
-                                tc_index = len(tool_calls) - 1 if tool_calls else 0
-                            
-                            while len(tool_calls) <= tc_index:
-                                tool_calls.append({"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
-                            
-                            if tc.id: tool_calls[tc_index]["id"] = tc.id
-                            if tc.function:
-                                if tc.function.name: tool_calls[tc_index]["function"]["name"] += tc.function.name
-                                if tc.function.arguments: tool_calls[tc_index]["function"]["arguments"] += tc.function.arguments
+                        # 正文内容
+                        if delta.content:
+                            if not has_announced_structure_check:
+                                has_announced_structure_check = True
+                                yield {'type': 'thought', 'content': '- OCP 正在整理修正版正文\n', 'thought_type': 'ocp', 'mode': 'new'}
+                            content_str += delta.content
+                            full_raw_content += delta.content
+                            clean_text = OCPStatic._clean_output(full_raw_content)
+                            if clean_text:
+                                best_candidate = clean_text
+                                yield {'type': 'content_replace', 'content': clean_text}
+
+                        # 工具调用
+                        if delta.tool_calls:
+                            for tc in delta.tool_calls:
+                                tc_index = tc.index
+                                if tc_index is None:
+                                    tc_index = len(tool_calls) - 1 if tool_calls else 0
+
+                                while len(tool_calls) <= tc_index:
+                                    tool_calls.append({"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+
+                                if tc.id: tool_calls[tc_index]["id"] = tc.id
+                                if tc.function:
+                                    if tc.function.name: tool_calls[tc_index]["function"]["name"] += tc.function.name
+                                    if tc.function.arguments: tool_calls[tc_index]["function"]["arguments"] += tc.function.arguments
 
                 if not tool_calls:
                     final_clean = OCPStatic._clean_output(full_raw_content)
                     if not final_clean or len(final_clean) < 10:
-                        yield {'type': 'content_replace', 'content': best_candidate if best_candidate else content}
-                    yield {'type': 'thought', 'content': '- OCP 审查完成，已应用修正版\n'}
+                        fallback_content = best_candidate if best_candidate else OCPStatic._deterministic_format_repair(content)
+                        yield {'type': 'content_replace', 'content': fallback_content}
+                    yield {'type': 'thought', 'content': '- OCP 审查完成，已应用修正版\n', 'thought_type': 'ocp', 'mode': 'new'}
                     print(f"[OCP-Stream] 审查完成")
                     return
 
@@ -438,8 +633,9 @@ class OCPStream:
 
                 if repeated_tool_signature_count >= self.MAX_REPEAT_SAME_TOOL_SIGNATURE:
                     print(f"[OCP-Stream] 检测到重复工具调用签名，提前终止审查")
-                    yield {'type': 'thought', 'content': '- OCP 检测到重复检查，已停止自循环并保留当前最佳版本\n'}
-                    yield {'type': 'content_replace', 'content': best_candidate if best_candidate else content}
+                    yield {'type': 'thought', 'content': '- OCP 检测到重复检查，已停止自循环并保留当前最佳版本\n', 'thought_type': 'ocp', 'mode': 'new'}
+                    fallback_content = best_candidate if best_candidate else OCPStatic._deterministic_format_repair(content)
+                    yield {'type': 'content_replace', 'content': fallback_content}
                     return
 
                 # 执行工具并继续
@@ -447,16 +643,21 @@ class OCPStream:
                 for tc in tool_calls:
                     f_name = tc["function"]["name"]
                     f_args = tc["function"]["arguments"]
-                    yield {'type': 'thought', 'content': f'- OCP 正在{OCPStatic._describe_tool(f_name)}\n'}
+                    yield {'type': 'thought', 'content': f'- OCP 正在{OCPStatic._describe_tool(f_name)}\n', 'thought_type': 'ocp', 'mode': 'new'}
                     try:
                         parsed_args = json.loads(f_args) if f_args else {}
                     except json.JSONDecodeError:
                         parsed_args = {}
-                    res = use_tools(f_name, parsed_args, conv_id=self.session_id)
+                    _remaining_seconds(deadline)
+                    res = await _run_ocp_tool(f_name, parsed_args, self.session_id)
                     context.append({"role": "tool", "tool_call_id": tc["id"], "name": f_name, "content": str(res)})
-                    yield {'type': 'thought', 'content': f'- OCP 已接收{OCPStatic._describe_tool(f_name)}结果，继续修订\n'}
+                    yield {'type': 'thought', 'content': f'- OCP 已接收{OCPStatic._describe_tool(f_name)}结果，继续修订\n', 'thought_type': 'ocp', 'mode': 'new'}
 
+        except (asyncio.TimeoutError, OCPTimeout) as e:
+            print(f"[OCP-Stream] 超时，保留原文: {e}")
+            yield {'type': 'thought', 'content': '**[OCP] 审查超时，已保留原文。**\n', 'thought_type': 'ocp', 'mode': 'new'}
+            yield {'type': 'content_replace', 'content': OCPStatic._deterministic_format_repair(content)}
         except Exception as e:
             print(f"[OCP-Stream] 异常: {e}")
-            yield {'type': 'thought', 'content': '**[OCP] 审查过程遇到异常，保留原文。**\n'}
-            yield {'type': 'content_replace', 'content': content}
+            yield {'type': 'thought', 'content': '**[OCP] 审查过程遇到异常，保留原文。**\n', 'thought_type': 'ocp', 'mode': 'new'}
+            yield {'type': 'content_replace', 'content': OCPStatic._deterministic_format_repair(content)}
