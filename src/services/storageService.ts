@@ -96,11 +96,25 @@ export const storageService = {
       
       // Update Conversation ID
       const newConv = { ...conv, id: newId };
+      if (newConv.memory) {
+        newConv.memory = {
+          ...newConv.memory,
+          conversation_id: newId,
+          last_synced_at: '',
+          updated_at: new Date().toISOString()
+        };
+      }
       
-      // Update Message contents and reasoning_content (replace oldId with newId)
+      // Update Message contents and structured thought blocks (replace oldId with newId)
       newConv.messages = conv.messages.map((msg: any) => {
         let content = msg.content || '';
         let reasoning_content = msg.reasoning_content || '';
+        const thought_blocks = Array.isArray(msg.thought_blocks)
+          ? msg.thought_blocks.map((block: any) => ({
+              ...block,
+              content: typeof block.content === 'string' ? block.content.replaceAll(oldId, newId) : block.content
+            }))
+          : msg.thought_blocks;
         
         if (content.includes(oldId)) {
           content = content.replaceAll(oldId, newId);
@@ -109,7 +123,7 @@ export const storageService = {
           reasoning_content = reasoning_content.replaceAll(oldId, newId);
         }
         
-        return { ...msg, content, reasoning_content };
+        return { ...msg, content, reasoning_content, thought_blocks };
       });
       
       return newConv;

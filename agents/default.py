@@ -37,7 +37,7 @@ class DefaultAgent:
                         if reasoning:
                             content_str += reasoning
                             reasoning_str += reasoning
-                            yield {'type': 'thought', 'content': reasoning}
+                            yield {'type': 'thought', 'content': reasoning, 'thought_type': 'reasoning', 'mode': 'append'}
 
                         # 捕获 thought_signature
                         ts = getattr(delta, 'thought_signature', None)
@@ -50,8 +50,8 @@ class DefaultAgent:
                             if self.use_ocp:
                                 if not is_drafting:
                                     is_drafting = True
-                                    yield {'type': 'thought', 'content': '\n\n**[拟定初稿]**\n'}
-                                yield {'type': 'thought', 'content': delta.content}
+                                    yield {'type': 'thought', 'content': '**[拟定初稿]**\n', 'thought_type': 'draft', 'mode': 'new'}
+                                yield {'type': 'thought', 'content': delta.content, 'thought_type': 'draft', 'mode': 'append'}
                             else:
                                 yield {'type': 'content', 'content': delta.content}
 
@@ -79,7 +79,7 @@ class DefaultAgent:
                                         if v: tool_calls[tc_index]["function"][k] += v
 
                     if is_tool_call:
-                        yield {'type': 'thought', 'content': '️ **正在调用工具处理中...**\n'}
+                        yield {'type': 'thought', 'content': '**正在调用工具处理中...**\n', 'thought_type': 'tool', 'mode': 'new'}
 
                         assistant_msg = create_assistant_message(
                             content=content_str or "",
@@ -99,13 +99,13 @@ class DefaultAgent:
                                 print(f"[JSON 解析失败] 参数: {args_str}, 错误: {je}")
                                 args = {}
 
-                            yield {'type': 'thought', 'content': f'️ 执行: `{func_name}`\n'}
+                            yield {'type': 'thought', 'content': f'执行: `{func_name}`\n', 'thought_type': 'tool', 'mode': 'new'}
                             result = use_tools(func_name, args, conv_id=self.workspace_scope)
 
                             current_mem.append(
                                 {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)})
                         
-                        yield {'type': 'thought', 'content': ' **工具执行完毕，正在生成最终回复...**\n'}
+                        yield {'type': 'thought', 'content': '**工具执行完毕，正在生成最终回复...**\n', 'thought_type': 'tool', 'mode': 'new'}
                         actual_content = ""  # 工具调用后重置，下一轮的 content 才是最终正文
                         continue
                     else:
@@ -115,6 +115,7 @@ class DefaultAgent:
 
                 # OCP-Stream: 流式输出格式审查
                 if self.use_ocp and actual_content.strip():
+                    yield {'type': 'memory_candidate', 'content': actual_content}
                     from ocp import OCPStream
                     ocp = OCPStream(session_id=self.workspace_scope)
                     async for ocp_chunk in ocp.check_stream(actual_content):
@@ -153,6 +154,8 @@ class DefaultAgent:
                 print(f"[DefaultAgent 非流式] 达到最大工具调用轮次 ({self.MAX_NON_STREAM_ROUNDS})")
 
             if self.use_ocp:
+                if content_output.strip():
+                    yield {'type': 'memory_candidate', 'content': content_output}
                 # OCP-Static: 非流式输出格式审查
                 from ocp import OCPStatic
                 checker = OCPStatic(session_id=self.workspace_scope)

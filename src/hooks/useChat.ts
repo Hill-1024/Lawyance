@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Conversation, Message } from '../types';
+import type { Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
 import { fileDB } from '../lib/db';
-import { chat, deleteWorkspace } from '../services/api';
+import { chat, deleteWorkspace, syncConversationMemory } from '../services/api';
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -34,6 +34,50 @@ const formatHistoryForBackend = (messages: Message[]) => {
     role: (msg.role === 'assistant' || (msg.role as string) === 'agent') ? 'assistant' : msg.role,
     content: msg.content
   }));
+};
+
+const appendThoughtBlock = (
+  blocks: ThoughtBlock[],
+  content: string,
+  blockType: ThoughtBlock['type'],
+  blockId: string,
+  shouldAppend: boolean
+) => {
+  if (!content) return blocks;
+
+  const lastBlock = blocks[blocks.length - 1];
+  if (shouldAppend && lastBlock && lastBlock.type === blockType) {
+    return [
+      ...blocks.slice(0, -1),
+      { ...lastBlock, content: `${lastBlock.content}${content}` }
+    ];
+  }
+
+  return [
+    ...blocks,
+    {
+      id: blockId,
+      type: blockType,
+      content
+    }
+  ];
+};
+
+const createEmptyConversationMemory = (conversationId: string): ConversationMemory => {
+  const now = new Date().toISOString();
+  return {
+    version: 1,
+    scope: {
+      type: 'conversation',
+      future_user_scope: null
+    },
+    conversation_id: conversationId,
+    events: [],
+    facts: [],
+    focus: [],
+    updated_at: now,
+    last_synced_at: now
+  };
 };
 
 export function useChat() {
@@ -94,7 +138,8 @@ export function useChat() {
     setConversations(prev => [{
       id: newId,
       title: 'New Conversation',
-      messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE }]
+      messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE }],
+      memory: createEmptyConversationMemory(newId)
     }, ...prev]);
     setCurrentId(newId);
   };
@@ -106,7 +151,7 @@ export function useChat() {
       if (filtered.length === 0) {
         const newId = generateUUID();
         setCurrentId(newId);
-        return [{ id: newId, title: 'New Conversation', messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE }] }];
+        return [{ id: newId, title: 'New Conversation', messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE }], memory: createEmptyConversationMemory(newId) }];
       }
       if (currentId === id) {
         setCurrentId(filtered[0].id);
@@ -130,7 +175,36 @@ export function useChat() {
     }));
   };
 
-  const summarizeConversation = async (convId: string, messagesToSummarize?: Message[]) => {
+  const updateConversationMemory = (convId: string, memory?: ConversationMemory | null) => {
+    if (!memory) return;
+    setConversations(prev => prev.map(conv => {
+      if (conv.id !== convId) return conv;
+      return {
+        ...conv,
+        memory: {
+          ...memory,
+          conversation_id: convId
+        }
+      };
+    }));
+  };
+
+  const syncMemoryFromMessages = async (convId: string, messages: Message[]) => {
+    const emptyMemory = createEmptyConversationMemory(convId);
+    updateConversationMemory(convId, emptyMemory);
+    try {
+      const data = await syncConversationMemory(convId, emptyMemory, formatHistoryForBackend(messages));
+      updateConversationMemory(convId, data.memory as ConversationMemory | undefined);
+    } catch (error) {
+      console.error('Failed to sync conversation memory:', error);
+    }
+  };
+
+  const summarizeConversation = async (
+    convId: string,
+    messagesToSummarize?: Message[],
+    expectedFirstUser?: Pick<Message, 'id' | 'content'>
+  ) => {
     const conv = conversations.find(c => c.id === convId);
     if (!conv) return;
 
@@ -138,9 +212,25 @@ export function useChat() {
     const userMessages = msgs.filter(m => m.role === 'user');
     if (userMessages.length === 0) return;
 
-    const firstUserMessage = userMessages[0].content;
-    const cleanMessage = firstUserMessage.replace(/\[用户已上传以下文件.*?\]/g, '').trim();
+    const firstUserMessage = userMessages[0];
+    const titleGuard = expectedFirstUser || {
+      id: firstUserMessage.id,
+      content: firstUserMessage.content
+    };
+    const cleanMessage = firstUserMessage.content.replace(/\[用户已上传以下文件.*?\]/g, '').trim();
     const titleSource = cleanMessage.length > 0 ? cleanMessage : "File Analysis";
+    const applyTitleIfCurrent = (title: string) => {
+      setConversations(prev => prev.map(c => {
+        if (c.id !== convId) return c;
+        const liveFirstUser = c.messages.find(m => m.role === 'user');
+        if (!liveFirstUser ||
+            liveFirstUser.id !== titleGuard.id ||
+            liveFirstUser.content !== titleGuard.content) {
+          return c;
+        }
+        return { ...c, title };
+      }));
+    };
 
     try {
       const response = await fetch('/api/summarize', {
@@ -155,23 +245,12 @@ export function useChat() {
         const data = await response.json();
         let title = String(data.title || '').replace(/["']/g, '').trim();
         if (title.length > 20) title = title.substring(0, 20) + '...';
-
-        setConversations(prev => prev.map(c => {
-          if (c.id === convId) {
-            return { ...c, title };
-          }
-          return c;
-        }));
+        applyTitleIfCurrent(title);
       }
     } catch (error) {
       console.error('Failed to summarize:', error);
       const fallbackTitle = titleSource.substring(0, 15) + (titleSource.length > 15 ? '...' : '');
-      setConversations(prev => prev.map(c => {
-        if (c.id === convId) {
-          return { ...c, title: fallbackTitle };
-        }
-        return c;
-      }));
+      applyTitleIfCurrent(fallbackTitle);
     }
   };
 
@@ -183,14 +262,30 @@ export function useChat() {
     }
 
     const decoder = new TextDecoder();
-    let currentText = '';
+    let thoughtBlocks: ThoughtBlock[] = [];
+    let bodyText = '';
     let currentSignature = '';
     let currentDownloadPath = '';
-    let isInThought = false;
+    let streamBuffer = '';
+    let thoughtIdCounter = 0;
+
+    const nextThoughtId = () => `${agentMessageId || 'assistant'}-thought-${thoughtIdCounter++}`;
+
+    const commitAssistantState = () => {
+      updateMessages(convId, prev => prev.map(msg =>
+        msg.id === agentMessageId ? {
+          ...msg,
+          content: bodyText,
+          thought_blocks: thoughtBlocks,
+          thought_signature: currentSignature || msg.thought_signature,
+          download_path: currentDownloadPath || msg.download_path
+        } : msg
+      ));
+    };
 
     if (!agentMessageId) {
       agentMessageId = (Date.now() + 1).toString();
-      updateMessages(convId, prev => [...prev, { id: agentMessageId!, role: 'assistant', content: '' }]);
+      updateMessages(convId, prev => [...prev, { id: agentMessageId!, role: 'assistant', content: '', thought_blocks: [] }]);
     }
 
     try {
@@ -198,8 +293,9 @@ export function useChat() {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        streamBuffer += decoder.decode(value, { stream: true });
+        const lines = streamBuffer.split('\n');
+        streamBuffer = lines.pop() || '';
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
@@ -209,18 +305,19 @@ export function useChat() {
             try {
               const data = JSON.parse(dataStr);
               if (data.type === 'content') {
-                // Only close thought block if there's actual non-whitespace content
-                if (isInThought && data.content.trim()) {
-                  currentText += '</think>\n\n';
-                  isInThought = false;
-                }
-                currentText += data.content;
+                bodyText += data.content || '';
               } else if (data.type === 'thought') {
-                if (!isInThought) {
-                  currentText += '<think>\n';
-                  isInThought = true;
-                }
-                currentText += data.content;
+                const thoughtType = (['reasoning', 'draft', 'tool', 'ocp'].includes(data.thought_type)
+                  ? data.thought_type
+                  : 'reasoning') as ThoughtBlock['type'];
+                const shouldAppend = data.mode === 'append' || thoughtType === 'reasoning' || thoughtType === 'draft';
+                thoughtBlocks = appendThoughtBlock(
+                  thoughtBlocks,
+                  data.content || '',
+                  thoughtType,
+                  nextThoughtId(),
+                  shouldAppend
+                );
               } else if (data.type === 'thought_signature') {
                 currentSignature = data.content;
               } else if (data.type === 'download_path') {
@@ -229,23 +326,12 @@ export function useChat() {
                   const fileName = currentDownloadPath.split('/').pop() || 'generated_file';
                   onFileGenerated?.(fileName, currentDownloadPath);
                 }
+              } else if (data.type === 'memory_sync') {
+                updateConversationMemory(convId, data.content as ConversationMemory);
               } else if (data.type === 'content_replace') {
-                // OCP-Stream: 用修正后的内容替换已有正文，保留所有思考块
-                if (isInThought) {
-                  currentText += '\n</think>\n\n';
-                  isInThought = false;
-                }
-                // 提取所有 <think>...</think> 块
-                const thinkBlocks: string[] = [];
-                const thinkRegex = /<think>[\s\S]*?<\/think>/g;
-                let thinkMatch;
-                while ((thinkMatch = thinkRegex.exec(currentText)) !== null) {
-                  thinkBlocks.push(thinkMatch[0]);
-                }
-                // 用思考块 + 修正后的正文重构
-                currentText = (thinkBlocks.length > 0 ? thinkBlocks.join('\n\n') + '\n\n' : '') + data.content;
+                bodyText = data.content || '';
               } else if (data.type === 'error') {
-                currentText += `\n\n**Error:** ${data.content}`;
+                bodyText += `\n\n**Error:** ${data.content}`;
               }
             } catch (e) {
               console.warn('Failed to parse stream data:', dataStr);
@@ -253,32 +339,38 @@ export function useChat() {
           }
         }
 
-        if (currentText || currentSignature || currentDownloadPath) {
-          let displayUpdateText = currentText;
-          if (currentSignature) {
-            displayUpdateText = `[Thought Process: ${currentSignature}]\n${displayUpdateText}`;
-          }
-
-          updateMessages(convId, prev => prev.map(msg =>
-            msg.id === agentMessageId ? {
-              ...msg,
-              content: displayUpdateText,
-              thought_signature: currentSignature || msg.thought_signature,
-              download_path: currentDownloadPath || msg.download_path
-            } : msg
-          ));
+        if (bodyText || thoughtBlocks.length > 0 || currentSignature || currentDownloadPath) {
+          commitAssistantState();
         }
       }
 
-      if (isInThought) {
-        currentText += '\n</think>';
-        isInThought = false;
-
-        // Final update to ensure the closed tag is reflected
-        updateMessages(convId, prev => prev.map(msg =>
-          msg.id === agentMessageId ? { ...msg, content: currentText } : msg
-        ));
+      if (streamBuffer.trim().startsWith('data: ')) {
+        try {
+          const dataStr = streamBuffer.trim().slice(6);
+          if (dataStr && dataStr !== '[DONE]') {
+            const data = JSON.parse(dataStr);
+            if (data.type === 'content') {
+              bodyText += data.content || '';
+            } else if (data.type === 'content_replace') {
+              bodyText = data.content || '';
+            } else if (data.type === 'thought') {
+              const thoughtType = (['reasoning', 'draft', 'tool', 'ocp'].includes(data.thought_type)
+                ? data.thought_type
+                : 'reasoning') as ThoughtBlock['type'];
+              thoughtBlocks = appendThoughtBlock(
+                thoughtBlocks,
+                data.content || '',
+                thoughtType,
+                nextThoughtId(),
+                data.mode === 'append' || thoughtType === 'reasoning' || thoughtType === 'draft'
+              );
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to parse trailing stream data:', streamBuffer);
+        }
       }
+      commitAssistantState();
     } catch (err) {
       console.error('Stream read error:', err);
     } finally {
@@ -311,6 +403,7 @@ export function useChat() {
 
     const isFirstUserMessage = conv.messages.filter(m => m.role === 'user').length === 0;
     const history = formatHistoryForBackend(conv.messages);
+    const memorySnapshot = conv.memory || createEmptyConversationMemory(convId);
 
     updateMessages(convId, prev => [...prev, userMessage]);
     setInput('');
@@ -323,7 +416,7 @@ export function useChat() {
     }
 
     try {
-      const response = await chat(messageContent, history, convId, isStreaming, agentMode, isOCPEnabled);
+      const response = await chat(messageContent, history, convId, isStreaming, agentMode, isOCPEnabled, memorySnapshot);
 
       if (isStreaming) {
         await processStream(response, null, convId, onFileGenerated);
@@ -342,6 +435,7 @@ export function useChat() {
           content: data.reply,
           download_path: data.download_path
         }]);
+        updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
         setIsLoading(false);
         onFileGenerated?.('sync', '');
       }
@@ -384,9 +478,12 @@ export function useChat() {
 
     const content = msg.content;
     const isFirstUserMessage = conv.messages.slice(0, msgIndex).filter(m => m.role === 'user').length === 0;
-    const history = formatHistoryForBackend(conv.messages.slice(0, msgIndex));
+    const retainedMessages = conv.messages.slice(0, msgIndex);
+    const history = formatHistoryForBackend(retainedMessages);
+    const memorySnapshot = createEmptyConversationMemory(convId);
 
-    updateMessages(convId, prev => prev.slice(0, msgIndex));
+    updateMessages(convId, () => retainedMessages);
+    updateConversationMemory(convId, memorySnapshot);
     setIsLoading(true);
 
     // Pre-flight sync: Ensure all files are synced to the server before sending the request
@@ -398,7 +495,7 @@ export function useChat() {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content };
       updateMessages(convId, prev => [...prev, userMessage]);
 
-      const response = await chat(content, history, convId, isStreaming, agentMode, isOCPEnabled);
+      const response = await chat(content, history, convId, isStreaming, agentMode, isOCPEnabled, memorySnapshot);
 
       if (isStreaming) {
         await processStream(response, null, convId, onFileGenerated);
@@ -417,6 +514,7 @@ export function useChat() {
           content: data.reply,
           download_path: data.download_path
         }]);
+        updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
         setIsLoading(false);
         onFileGenerated?.('sync', '');
       }
@@ -475,7 +573,14 @@ export function useChat() {
 
     setInput(textContent);
     setPendingUploads(filesToRestore);
-    updateMessages(convId, prev => prev.slice(0, msgIndex));
+    const retainedMessages = conv.messages.slice(0, msgIndex);
+    updateMessages(convId, () => retainedMessages);
+    if (!retainedMessages.some(m => m.role === 'user')) {
+      setConversations(prev => prev.map(c =>
+        c.id === convId ? { ...c, title: 'New Conversation' } : c
+      ));
+    }
+    await syncMemoryFromMessages(convId, retainedMessages);
   };
 
   const handleEdit = (convId: string, messageId: string, setPendingUploads: (val: any) => void) => {

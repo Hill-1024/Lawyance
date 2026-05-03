@@ -1,3 +1,5 @@
+import type { ConversationMemory } from '../types';
+
 export const verifyAuth = async () => {
   const res = await fetch('/api/verify_auth');
   if (!res.ok) throw new Error('Not authenticated');
@@ -47,7 +49,8 @@ export const chat = async (
   conversationId: string,
   stream: boolean,
   agentMode: string,
-  useOcp: boolean
+  useOcp: boolean,
+  memorySnapshot?: ConversationMemory | null
 ) => {
   const response = await fetch('/api/chat', {
     method: 'POST',
@@ -58,7 +61,8 @@ export const chat = async (
       conversation_id: conversationId,
       stream,
       agent_mode: agentMode,
-      use_ocp: useOcp
+      use_ocp: useOcp,
+      memory_snapshot: memorySnapshot || null
     })
   });
 
@@ -68,6 +72,27 @@ export const chat = async (
   }
 
   return response;
+};
+
+export const syncConversationMemory = async (
+  conversationId: string,
+  memorySnapshot?: ConversationMemory | null,
+  history: any[] = []
+) => {
+  const res = await fetch('/api/memory/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      memory_snapshot: memorySnapshot || null,
+      history
+    })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null);
+    throw new Error(errorData?.detail || 'Memory sync failed');
+  }
+  return res.json();
 };
 
 export const getWorkspaceFiles = async (conversationId: string) => {
