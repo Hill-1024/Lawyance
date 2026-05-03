@@ -13,7 +13,7 @@ import asyncio
 import shutil
 import logging
 from collections import defaultdict
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from function_calling import call, memory as system_memory
 from agents import ReActAgent, PlanAndSolveAgent, DefaultAgent
@@ -211,6 +211,7 @@ async def cleanup_task():
             stale_keys = [k for k, v in active_conversations.items() if v < one_hour_ago]
             for k in stale_keys:
                 del active_conversations[k]
+                _call_memory_tool("clear_conversation_memory", {}, k)
 
             for folder in ["TEMP", "Result"]:
                 if not os.path.exists(folder):
@@ -267,10 +268,77 @@ class ChatRequest(BaseModel):
     stream: bool = True
     agent_mode: str = "default"
     use_ocp: bool = True
+    memory_snapshot: Optional[dict] = None
 
 
 class SummarizeRequest(BaseModel):
     history: List[dict]
+
+
+class MemorySyncRequest(BaseModel):
+    conversation_id: str
+    memory_snapshot: Optional[dict] = None
+    history: List[dict] = Field(default_factory=list)
+
+
+def _read_tool_json(tool_result: Any) -> dict:
+    if isinstance(tool_result, dict):
+        return tool_result
+    if not isinstance(tool_result, str):
+        return {}
+    try:
+        parsed = json.loads(tool_result)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _call_memory_tool(tool_name: str, arguments: dict, workspace_scope: str) -> dict:
+    return _read_tool_json(use_tools(tool_name, arguments, conv_id=workspace_scope))
+
+
+def _sync_memory_cache(workspace_scope: str, snapshot: Optional[dict], messages: List[dict]) -> dict:
+    return _call_memory_tool(
+        "sync_conversation_memory",
+        {
+            "snapshot": snapshot or {},
+            "messages": messages,
+        },
+        workspace_scope,
+    )
+
+
+def _retrieve_memory_context(workspace_scope: str, query: str) -> tuple[str, dict]:
+    payload = _call_memory_tool(
+        "retrieve_conversation_memory",
+        {
+            "query": query,
+            "limit": 8,
+        },
+        workspace_scope,
+    )
+    return str(payload.get("context") or ""), payload
+
+
+def _remember_memory_turn(workspace_scope: str, user_message: str, assistant_message: str) -> dict:
+    return _call_memory_tool(
+        "remember_conversation_turn",
+        {
+            "user_message": user_message,
+            "assistant_message": assistant_message,
+        },
+        workspace_scope,
+    )
+
+
+def _attach_memory_context(messages: List[dict], context_packet: str) -> None:
+    if not context_packet:
+        return
+    for msg in messages:
+        if msg.get("role") == "system":
+            msg["content"] = f"{msg.get('content', '')}\n\n{context_packet}"
+            return
+    messages.insert(0, {"role": "system", "content": context_packet})
 
 
 async def compress_history(history: List[dict]) -> List[dict]:
@@ -349,6 +417,8 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     stream = request.stream
     agent_mode = request.agent_mode
     use_ocp = request.use_ocp
+    workspace_scope = get_workspace_scope(current_user, session_id)
+    active_conversations[workspace_scope] = time.time()
 
     # 为当前用户消息加上后端时间
     from datetime import datetime
@@ -382,6 +452,8 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
         sanitized_history.append(m)
 
     print(f"\n[收到请求] 会话ID: {session_id}, 模式: {agent_mode}, 流式: {stream}")
+    _sync_memory_cache(workspace_scope, request.memory_snapshot, sanitized_history)
+    memory_context, _ = _retrieve_memory_context(workspace_scope, content)
 
     # 确保历史记录包含系统提示词 (Lawver 的身份定义)
     full_history = copy.deepcopy(system_memory)
@@ -389,16 +461,17 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
 
     # 1. 历史压缩逻辑
     processed_history = await compress_history(full_history)
+    _attach_memory_context(processed_history, memory_context)
 
     # 2. 添加当前消息
     processed_history.append({"role": "user", "content": content})
 
-    workspace_scope = get_workspace_scope(current_user, session_id)
     agent = build_agent(agent_mode, processed_history, session_id, workspace_scope, use_ocp=use_ocp)
 
     if stream:
         async def generate_agent():
             full_result = ""
+            memory_written = False
             try:
                 import inspect
                 sig = inspect.signature(agent.run)
@@ -409,6 +482,22 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
 
                 async for chunk in run_iter:
                     if isinstance(chunk, dict):
+                        chunk_type = chunk.get("type")
+                        if chunk_type == "content":
+                            full_result += str(chunk.get("content") or "")
+                        elif chunk_type == "content_replace":
+                            full_result = str(chunk.get("content") or "")
+                        elif chunk_type == "memory_candidate":
+                            if not memory_written:
+                                memory_payload = _remember_memory_turn(
+                                    workspace_scope,
+                                    content,
+                                    str(chunk.get("content") or full_result)
+                                )
+                                memory_written = True
+                                if memory_payload.get("memory"):
+                                    yield f"data: {json.dumps({'type': 'memory_sync', 'content': memory_payload['memory']}, ensure_ascii=False)}\n\n"
+                            continue
                         yield f"data: {json.dumps(chunk)}\n\n"
                     elif chunk:
                         chunk_str = str(chunk)
@@ -422,6 +511,11 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                         if chunk_str:
                             full_result += chunk_str
                             yield f"data: {json.dumps({'type': 'content', 'content': chunk_str})}\n\n"
+
+                if not memory_written:
+                    memory_payload = _remember_memory_turn(workspace_scope, content, full_result)
+                    if memory_payload.get("memory"):
+                        yield f"data: {json.dumps({'type': 'memory_sync', 'content': memory_payload['memory']}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -432,6 +526,8 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
         try:
             full_result = ""
             thought_signature = None
+            memory_payload = {}
+            memory_written = False
             import inspect
             sig = inspect.signature(agent.run)
             if 'stream' in sig.parameters:
@@ -447,6 +543,13 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                         full_result = chunk.get('content', '')
                     elif chunk.get('type') == 'thought_signature':
                         thought_signature = chunk.get('content')
+                    elif chunk.get('type') == 'memory_candidate' and not memory_written:
+                        memory_payload = _remember_memory_turn(
+                            workspace_scope,
+                            content,
+                            str(chunk.get('content') or full_result)
+                        )
+                        memory_written = True
                 elif chunk:
                     chunk_str = str(chunk)
                     if "[THOUGHT_SIGNATURE:" in chunk_str:
@@ -456,10 +559,13 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                             chunk_str = chunk_str.replace(ts_match.group(0), "")
                     full_result += chunk_str
 
+            if not memory_written:
+                memory_payload = _remember_memory_turn(workspace_scope, content, full_result)
             return {
                 "reply": full_result,
                 "download_path": None,
-                "thought_signature": thought_signature
+                "thought_signature": thought_signature,
+                "memory_snapshot": memory_payload.get("memory")
             }
         except Exception as e:
             import traceback
@@ -481,6 +587,13 @@ async def summarize_endpoint(request: SummarizeRequest, current_user: str = Depe
     content = re.sub(r'</?(final_answer|think)[^>]*>', '', content, flags=re.IGNORECASE | re.DOTALL)
     title = content.strip().strip('"').strip("'")
     return {"title": title or "New Chat"}
+
+
+@app.post("/api/memory/sync")
+async def sync_memory_endpoint(request: MemorySyncRequest, current_user: str = Depends(get_current_user)):
+    workspace_scope = get_workspace_scope(current_user, request.conversation_id)
+    active_conversations[workspace_scope] = time.time()
+    return _sync_memory_cache(workspace_scope, request.memory_snapshot, request.history)
 
 
 @app.get("/api/upload")
@@ -631,6 +744,7 @@ async def delete_workspace(conversation_id: str, current_user: str = Depends(get
         shutil.rmtree(temp_dir, ignore_errors=True)
     if os.path.exists(result_dir):
         shutil.rmtree(result_dir, ignore_errors=True)
+    _call_memory_tool("clear_conversation_memory", {}, get_workspace_scope(current_user, conversation_id))
 
     return {"status": "success"}
 

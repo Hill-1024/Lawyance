@@ -3,6 +3,12 @@ from mcp.pkulaw_client import get_article, search_article, get_linked_content
 from mcp.PDF_processor import pdf_text_reader, pdf_commit_by_sentence
 from mcp.word_annotator import word_reader, word_writer
 from mcp.qcc_client import get_company_profile,get_listing_info,get_contact_info,get_shareholder_info,get_company_registration_info,get_key_personnel,get_external_investments
+from mcp.memory_client import (
+    clear_conversation_memory,
+    remember_conversation_turn,
+    retrieve_conversation_memory,
+    sync_conversation_memory,
+)
 import os
 import json
 
@@ -241,6 +247,27 @@ tools = [
     {
         "type": "function",
         "function": {
+            "name": "retrieve_conversation_memory",
+            "description": "查询当前对话级长期记忆。当用户问题依赖此前对话中的目标、约束、偏好、案件事实或工作边界，而当前上下文不足时，调用此工具进行深查。基础注意力上下文会由系统自动注入，此工具仅用于补充召回。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "需要在当前对话记忆中检索的自然语言问题或关键词"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "最多返回的记忆条数，默认8"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_company_profile",
             "description": "查询企业的简介信息，包括企业名称、简介，当需要获取企业相关信息时，必须调用此工具",
             "parameters": {
@@ -390,6 +417,8 @@ def _coerce_arguments(function_name, arguments):
                 arguments = {"file_path": arguments}
             elif function_name == "match_legal_case":
                 arguments = {"keywords": [arguments]}
+            elif function_name == "retrieve_conversation_memory":
+                arguments = {"query": arguments}
 
     if not isinstance(arguments, dict):
         return {}
@@ -425,6 +454,26 @@ def _list_workspace_files(workspace_scope):
 def _dispatch_tool(function_name, arguments, workspace_scope):
     if function_name == "list_workspace_files":
         return _list_workspace_files(workspace_scope)
+    if function_name == "retrieve_conversation_memory":
+        return retrieve_conversation_memory(
+            workspace_scope,
+            arguments.get("query", ""),
+            arguments.get("limit", 8),
+        )
+    if function_name == "sync_conversation_memory":
+        return sync_conversation_memory(
+            workspace_scope,
+            arguments.get("snapshot"),
+            arguments.get("messages"),
+        )
+    if function_name == "remember_conversation_turn":
+        return remember_conversation_turn(
+            workspace_scope,
+            arguments.get("user_message", ""),
+            arguments.get("assistant_message", ""),
+        )
+    if function_name == "clear_conversation_memory":
+        return clear_conversation_memory(workspace_scope)
 
     if function_name == "match_legal_case":
         return match_legal_case(arguments.get("keywords"), arguments.get("start_year"), arguments.get("end_year"))
