@@ -153,16 +153,20 @@ def sanitize_messages(messages):
                     tc_copy["type"] = "function"
 
                 # 确保 function 结构正确
-                if "function" in tc_copy:
-                    func = tc_copy["function"]
-                    if "name" not in func or not func["name"]:
-                        func["name"] = "unknown"
-                    if "arguments" not in func or func["arguments"] is None:
-                        func["arguments"] = "{}"
-                    elif not isinstance(func["arguments"], str):
-                        func["arguments"] = json.dumps(func["arguments"])
+                if "function" not in tc_copy or not isinstance(tc_copy["function"], dict):
+                    continue
+                func = tc_copy["function"]
+                if "name" not in func or not func["name"]:
+                    continue
+                if "arguments" not in func or func["arguments"] is None:
+                    func["arguments"] = "{}"
+                elif not isinstance(func["arguments"], str):
+                    func["arguments"] = json.dumps(func["arguments"])
                 valid_tool_calls.append(tc_copy)
-            m["tool_calls"] = valid_tool_calls
+            if valid_tool_calls:
+                m["tool_calls"] = valid_tool_calls
+            else:
+                m.pop("tool_calls", None)
 
         # 4. 移除空的推理内容与签名 (某些模型不支持空字符串或 None)
         if "reasoning_content" in m:
@@ -263,10 +267,14 @@ async def call(context, stream=False, include_tools=True):
 
             # 不可重试或已耗尽重试次数
             print(f"[LLM 调用失败]: {e}")
-            try:
-                print(f"[LLM 调用失败的 kwargs]: {json.dumps(kwargs, ensure_ascii=False, indent=2)}")
-            except Exception as je:
-                print(f"[LLM 调用失败的 kwargs (无法 JSON 序列化)]: {kwargs}")
+            messages = kwargs.get("messages") or []
+            print(
+                "[LLM 调用失败的请求摘要]: "
+                f"model={kwargs.get('model')} "
+                f"stream={kwargs.get('stream')} "
+                f"messages={len(messages)} "
+                f"tools={len(kwargs.get('tools') or [])}"
+            )
             raise e
 
 

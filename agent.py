@@ -281,6 +281,19 @@ class MemorySyncRequest(BaseModel):
     history: List[dict] = Field(default_factory=list)
 
 
+def _fallback_conversation_title(history: List[dict]) -> str:
+    for msg in history:
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = str(msg.get("content") or "")
+        content = re.sub(r'\[用户已上传以下文件.*?\]', '', content, flags=re.DOTALL)
+        content = re.sub(r'</?(final_answer|think|response)[^>]*>', '', content, flags=re.IGNORECASE | re.DOTALL)
+        content = re.sub(r'\s+', ' ', content).strip().strip('"').strip("'")
+        if content:
+            return content[:20] + ("..." if len(content) > 20 else "")
+    return "New Chat"
+
+
 def _read_tool_json(tool_result: Any) -> dict:
     if isinstance(tool_result, dict):
         return tool_result
@@ -386,27 +399,43 @@ async def compress_history(history: List[dict]) -> List[dict]:
         new_history.extend(non_system_msgs[-20:])
         return new_history
 
-def build_agent(mode: str, memory: list, session_id: str, workspace_scope: str, use_ocp: bool = True):
-    if mode == "default":
-        return DefaultAgent(memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
-    if mode in ["react", "plan_and_solve"]:
-        from mcps import tools as all_tools
-        tools_description = format_tool_descriptions(all_tools)
+def _build_tool_executor(workspace_scope: str):
+    def execute_tool(tool_name: str, raw_args):
+        parsed_args = raw_args
+        if isinstance(raw_args, str) and raw_args.strip().startswith('{'):
+            try:
+                parsed_args = json.loads(raw_args)
+            except json.JSONDecodeError:
+                parsed_args = raw_args
+        return use_tools(tool_name, parsed_args, conv_id=workspace_scope)
 
-        def execute_tool(tool_name: str, raw_args):
-            parsed_args = raw_args
-            if isinstance(raw_args, str) and raw_args.strip().startswith('{'):
-                try:
-                    parsed_args = json.loads(raw_args)
-                except json.JSONDecodeError:
-                    parsed_args = raw_args
-            return use_tools(tool_name, parsed_args, conv_id=workspace_scope)
+    return execute_tool
+
+
+def build_agent(mode: str, memory: list, session_id: str, workspace_scope: str, use_ocp: bool = True):
+    execute_tool = _build_tool_executor(workspace_scope)
+    if mode == "default":
+        return DefaultAgent(
+            memory=memory,
+            session_id=session_id,
+            workspace_scope=workspace_scope,
+            use_ocp=use_ocp,
+            execute_tool=execute_tool,
+        )
+    if mode in ["react", "plan_and_solve"]:
+        tools_description = format_tool_descriptions()
 
         if mode == "react":
             return ReActAgent(tools_description=tools_description, execute_tool=execute_tool, memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
         if mode == "plan_and_solve":
             return PlanAndSolveAgent(tools_description=tools_description, execute_tool=execute_tool, memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
-    return DefaultAgent(memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
+    return DefaultAgent(
+        memory=memory,
+        session_id=session_id,
+        workspace_scope=workspace_scope,
+        use_ocp=use_ocp,
+        execute_tool=execute_tool,
+    )
 
 
 @app.post("/api/chat")
@@ -517,8 +546,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                     if memory_payload.get("memory"):
                         yield f"data: {json.dumps({'type': 'memory_sync', 'content': memory_payload['memory']}, ensure_ascii=False)}\n\n"
             except Exception as e:
-                import traceback
-                traceback.print_exc()
+                print(f"[聊天流生成失败]: {type(e).__name__}: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
         return StreamingResponse(generate_agent(), media_type="text/event-stream")
@@ -578,15 +606,20 @@ async def summarize_endpoint(request: SummarizeRequest, current_user: str = Depe
     history = request.history
     if not history or len(history) == 0:
         return {"title": "New Chat"}
+    fallback_title = _fallback_conversation_title(history)
     temp_mem = copy.deepcopy(history)
     temp_mem.append({"role": "user",
                      "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号，也不要使用任何标签（如 <final_answer> 或 <think>）。"})
-    response = await call(temp_mem, stream=False)
-    content = response.content or ""
-    # 强制移除可能存在的 <final_answer> 标签
-    content = re.sub(r'</?(final_answer|think)[^>]*>', '', content, flags=re.IGNORECASE | re.DOTALL)
-    title = content.strip().strip('"').strip("'")
-    return {"title": title or "New Chat"}
+    try:
+        response = await call(temp_mem, stream=False, include_tools=False)
+        content = response.content or ""
+        # 强制移除可能存在的 <final_answer> 标签
+        content = re.sub(r'</?(final_answer|think)[^>]*>', '', content, flags=re.IGNORECASE | re.DOTALL)
+        title = content.strip().strip('"').strip("'")
+        return {"title": title or fallback_title}
+    except Exception as e:
+        print(f"[标题摘要] 生成失败，使用兜底标题: {e}")
+        return {"title": fallback_title}
 
 
 @app.post("/api/memory/sync")

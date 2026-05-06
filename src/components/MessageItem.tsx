@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, ChevronDown, Loader2, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
+import { Sparkles, ChevronDown, Loader2, Info, Paperclip, Undo2, Pencil, RefreshCw, Check } from 'lucide-react';
 import { motion } from 'motion/react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -199,6 +199,23 @@ const thoughtTypeLabel: Record<ThoughtBlock['type'], string> = {
   ocp: 'OCP'
 };
 
+const WorkflowStatusIcon: React.FC<{ active: boolean }> = ({ active }) => {
+  if (active) {
+    return <Loader2 size={13} className="animate-spin text-blue-500" />;
+  }
+
+  return (
+    <motion.span
+      initial={{ opacity: 0, scale: 0.72 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      className="inline-flex h-[13px] w-[13px] items-center justify-center rounded-full bg-emerald-100 text-emerald-600 ring-1 ring-emerald-200 dark:bg-emerald-900/35 dark:text-emerald-300 dark:ring-emerald-700/60"
+    >
+      <Check size={9} strokeWidth={3} />
+    </motion.span>
+  );
+};
+
 export const MessageItem: React.FC<MessageItemProps> = ({
   msg,
   isThinking,
@@ -310,7 +327,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                         return (
                           <div key={block.id} data-testid="thought-step" data-step-type={block.type} className="w-full">
                             <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                              {(block.type === 'tool' || block.type === 'ocp') && <Loader2 size={13} className={isActiveTool ? "animate-spin text-blue-500" : "text-gray-400"} />}
+                              {(block.type === 'tool' || block.type === 'ocp') && <WorkflowStatusIcon active={isActiveTool} />}
                               <span>{thoughtTypeLabel[block.type]}</span>
                             </div>
                             <div className="prose prose-sm dark:prose-invert max-w-none w-full prose-p:leading-relaxed prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-code:text-gray-900 dark:prose-code:text-gray-100 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">

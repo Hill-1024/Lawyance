@@ -1,17 +1,29 @@
 import json
 import time
+from typing import Callable, Any
 
 from function_calling import call, create_assistant_message
-from mcps import use_tools
 
 class DefaultAgent:
-    def __init__(self, memory: list = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = True):
+    def __init__(
+        self,
+        memory: list = None,
+        session_id: str = "default",
+        workspace_scope: str = None,
+        use_ocp: bool = True,
+        execute_tool: Callable[[str, Any], str] | None = None,
+    ):
         self.memory = memory or []
         self.session_id = session_id
         self.workspace_scope = workspace_scope or session_id
         self.use_ocp = use_ocp
+        self.execute_tool = execute_tool or self._missing_tool_executor
 
     MAX_NON_STREAM_ROUNDS = 10  # 非流式工具调用最大轮次，防止无限循环
+
+    @staticmethod
+    def _missing_tool_executor(function_name: str, arguments: Any) -> str:
+        return f"{function_name}工具执行器未配置,请检查主调度模块"
 
     async def run(self, content: str = None, stream: bool = True):
         # 默认模式下，主程序的 agent.py 已经将消息附加到 self.memory 中。
@@ -100,7 +112,7 @@ class DefaultAgent:
                                 args = {}
 
                             yield {'type': 'thought', 'content': f'执行: `{func_name}`\n', 'thought_type': 'tool', 'mode': 'new'}
-                            result = use_tools(func_name, args, conv_id=self.workspace_scope)
+                            result = self.execute_tool(func_name, args)
 
                             current_mem.append(
                                 {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)})
@@ -122,8 +134,7 @@ class DefaultAgent:
                         yield ocp_chunk
 
             except Exception as e:
-                import traceback
-                traceback.print_exc()
+                print(f"[DefaultAgent 流式调用失败]: {type(e).__name__}: {e}")
                 yield {'type': 'error', 'content': str(e)}
         else:
             # 非流式：多轮工具调用循环（与流式路径行为一致）
@@ -147,7 +158,7 @@ class DefaultAgent:
                     except json.JSONDecodeError:
                         args = {}
                     print(f"[工具调用] 函数: {func_name}, 参数: {json.dumps(args, ensure_ascii=False)[:200]}")
-                    result = use_tools(func_name, args, conv_id=self.workspace_scope)
+                    result = self.execute_tool(func_name, args)
                     current_mem.append(
                         {"role": "tool", "tool_call_id": tc.id, "name": func_name, "content": str(result)})
             else:

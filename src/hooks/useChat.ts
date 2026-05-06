@@ -271,6 +271,38 @@ export function useChat() {
 
     const nextThoughtId = () => `${agentMessageId || 'assistant'}-thought-${thoughtIdCounter++}`;
 
+    const handleStreamData = (data: any) => {
+      if (data.type === 'content') {
+        bodyText += data.content || '';
+      } else if (data.type === 'thought') {
+        const thoughtType = (['reasoning', 'draft', 'tool', 'ocp'].includes(data.thought_type)
+          ? data.thought_type
+          : 'reasoning') as ThoughtBlock['type'];
+        const shouldAppend = data.mode === 'append' || thoughtType === 'reasoning' || thoughtType === 'draft';
+        thoughtBlocks = appendThoughtBlock(
+          thoughtBlocks,
+          data.content || '',
+          thoughtType,
+          nextThoughtId(),
+          shouldAppend
+        );
+      } else if (data.type === 'thought_signature') {
+        currentSignature = data.content;
+      } else if (data.type === 'download_path') {
+        if (data.content && data.content !== currentDownloadPath) {
+          currentDownloadPath = data.content;
+          const fileName = currentDownloadPath.split('/').pop() || 'generated_file';
+          onFileGenerated?.(fileName, currentDownloadPath);
+        }
+      } else if (data.type === 'memory_sync') {
+        updateConversationMemory(convId, data.content as ConversationMemory);
+      } else if (data.type === 'content_replace') {
+        bodyText = data.content || '';
+      } else if (data.type === 'error') {
+        bodyText += `\n\n**Error:** ${data.content}`;
+      }
+    };
+
     const commitAssistantState = () => {
       updateMessages(convId, prev => prev.map(msg =>
         msg.id === agentMessageId ? {
@@ -304,35 +336,7 @@ export function useChat() {
 
             try {
               const data = JSON.parse(dataStr);
-              if (data.type === 'content') {
-                bodyText += data.content || '';
-              } else if (data.type === 'thought') {
-                const thoughtType = (['reasoning', 'draft', 'tool', 'ocp'].includes(data.thought_type)
-                  ? data.thought_type
-                  : 'reasoning') as ThoughtBlock['type'];
-                const shouldAppend = data.mode === 'append' || thoughtType === 'reasoning' || thoughtType === 'draft';
-                thoughtBlocks = appendThoughtBlock(
-                  thoughtBlocks,
-                  data.content || '',
-                  thoughtType,
-                  nextThoughtId(),
-                  shouldAppend
-                );
-              } else if (data.type === 'thought_signature') {
-                currentSignature = data.content;
-              } else if (data.type === 'download_path') {
-                if (data.content && data.content !== currentDownloadPath) {
-                  currentDownloadPath = data.content;
-                  const fileName = currentDownloadPath.split('/').pop() || 'generated_file';
-                  onFileGenerated?.(fileName, currentDownloadPath);
-                }
-              } else if (data.type === 'memory_sync') {
-                updateConversationMemory(convId, data.content as ConversationMemory);
-              } else if (data.type === 'content_replace') {
-                bodyText = data.content || '';
-              } else if (data.type === 'error') {
-                bodyText += `\n\n**Error:** ${data.content}`;
-              }
+              handleStreamData(data);
             } catch (e) {
               console.warn('Failed to parse stream data:', dataStr);
             }
@@ -349,22 +353,7 @@ export function useChat() {
           const dataStr = streamBuffer.trim().slice(6);
           if (dataStr && dataStr !== '[DONE]') {
             const data = JSON.parse(dataStr);
-            if (data.type === 'content') {
-              bodyText += data.content || '';
-            } else if (data.type === 'content_replace') {
-              bodyText = data.content || '';
-            } else if (data.type === 'thought') {
-              const thoughtType = (['reasoning', 'draft', 'tool', 'ocp'].includes(data.thought_type)
-                ? data.thought_type
-                : 'reasoning') as ThoughtBlock['type'];
-              thoughtBlocks = appendThoughtBlock(
-                thoughtBlocks,
-                data.content || '',
-                thoughtType,
-                nextThoughtId(),
-                data.mode === 'append' || thoughtType === 'reasoning' || thoughtType === 'draft'
-              );
-            }
+            handleStreamData(data);
           }
         } catch (e) {
           console.warn('Failed to parse trailing stream data:', streamBuffer);
