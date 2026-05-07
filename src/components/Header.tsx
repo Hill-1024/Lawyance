@@ -37,7 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
           <Menu size={22} strokeWidth={2} />
         </button>
         <BrandMark className="hidden h-8 w-8 shrink-0 text-[var(--accent)] sm:block" />
-        <h1 className="ml-1 max-w-[170px] truncate text-lg font-medium leading-none tracking-[-0.01em] text-[var(--fg-1)] sm:max-w-none sm:text-[22px]">
+        <h1 className="t-title-l ml-1 max-w-[170px] truncate sm:max-w-none">
           {title || 'Lawyance'}
         </h1>
       </div>

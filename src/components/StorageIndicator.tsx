@@ -52,7 +52,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
         title="查看存储状态"
       >
         <Database size={16} strokeWidth={2} />
-        <span className="text-xs font-medium">
+        <span className="t-label-m">
           {Math.round(usageRatio * 100)}%
         </span>
         {isLowStorage && <AlertTriangle size={14} strokeWidth={2} className="animate-pulse" />}
@@ -64,13 +64,13 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
     <>
       <div className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2 font-medium text-[var(--fg-1)]">
+          <div className="t-title-s flex items-center gap-2">
             <Database size={18} strokeWidth={2} className="text-[var(--accent)]" />
             <span>本地存储状态</span>
           </div>
           <button 
             onClick={() => setIsModalOpen(true)}
-            className="text-xs font-medium text-[var(--accent)] hover:underline"
+            className="t-label-m text-[var(--accent)] hover:underline"
           >
             管理
           </button>
@@ -78,7 +78,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
 
         <div className="space-y-2">
           {error ? (
-            <p className="text-[10px] font-medium text-[var(--color-warning-500)]">{error}</p>
+            <p className="t-label-s text-[var(--color-warning-500)]">{error}</p>
           ) : (
             <>
               <div className="h-2 overflow-hidden rounded-full bg-[var(--bg-inset)]">
@@ -90,7 +90,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                   }`}
                 />
               </div>
-              <div className="flex justify-between text-[10px] text-[var(--fg-3)]">
+              <div className="t-label-s t-muted flex justify-between">
                 <span>已用: {formatSize(usage)}</span>
                 <span>总量: {formatSize(quota)}</span>
               </div>
@@ -101,7 +101,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
         {!isPersistent && (
           <button 
             onClick={handleRequestPersistence}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-3 py-1.5 text-xs font-medium text-[var(--brand-primary-700)] transition-colors hover:bg-[rgba(59,98,184,0.16)] dark:text-[var(--accent)]"
+            className="t-label-m mt-3 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-3 py-1.5 text-[var(--brand-primary-700)] transition-colors hover:bg-[rgba(59,98,184,0.16)] dark:text-[var(--accent)]"
           >
             <ShieldAlert size={14} strokeWidth={2} />
             开启永久保护模式
@@ -109,7 +109,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
         )}
         
         {isPersistent && (
-          <div className="mt-3 flex items-center justify-center gap-1.5 text-[10px] font-medium text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
+          <div className="t-label-s mt-3 flex items-center justify-center gap-1.5 text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
             <ShieldCheck size={14} strokeWidth={2} />
             系统持久化模式已开启
           </div>
@@ -138,8 +138,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                     <Database size={24} strokeWidth={2} />
                   </div>
                   <div>
-                    <h3 className="text-xl font-semibold text-[var(--fg-1)]">存储管理</h3>
-                    <p className="text-sm text-[var(--fg-3)]">数据全本地化存储，无后端云端备份</p>
+                    <h3 className="t-title-l">存储管理</h3>
+                    <p className="t-body-m t-muted">数据全本地化存储，无后端云端备份</p>
                   </div>
                 </div>
 
@@ -147,8 +147,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                   <div className="mb-6 flex gap-3 rounded-[var(--radius-md)] border border-[rgba(184,132,42,0.3)] bg-[rgba(184,132,42,0.1)] p-4">
                     <AlertTriangle className="shrink-0 text-[var(--color-warning-500)]" size={20} strokeWidth={2} />
                     <div>
-                      <p className="text-sm font-medium text-[#5C3F0E] dark:text-[#FBEBC8]">存储空间不足</p>
-                      <p className="mt-1 text-xs text-[#5C3F0E]/80 dark:text-[#FBEBC8]/80">
+                      <p className="t-title-s text-[#5C3F0E] dark:text-[#FBEBC8]">存储空间不足</p>
+                      <p className="t-body-s mt-1 text-[#5C3F0E]/80 dark:text-[#FBEBC8]/80">
                         可用空间已不足 20%，为防止数据丢失，请及时备份并清理旧数据。
                       </p>
                     </div>
@@ -157,9 +157,9 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
 
                 <div className="space-y-4">
                   <div className="flex flex-col gap-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-[var(--fg-2)]">总体使用率</span>
-                      <span className="font-medium text-[var(--fg-1)]">{Math.round(usageRatio * 100)}%</span>
+                    <div className="flex justify-between">
+                      <span className="t-body-m">总体使用率</span>
+                      <span className="t-title-s">{Math.round(usageRatio * 100)}%</span>
                     </div>
                     <div className="h-3 overflow-hidden rounded-full bg-[var(--bg-inset)]">
                       <div 
@@ -169,7 +169,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                         style={{ width: `${usageRatio * 100}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-xs text-[var(--fg-3)]">
+                    <div className="t-body-s t-muted flex justify-between">
                       <span>{formatSize(usage)}</span>
                       <span>总额 {formatSize(quota)}</span>
                     </div>
@@ -186,8 +186,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                           <Trash2 size={20} strokeWidth={2} />
                         </div>
                         <div className="text-left">
-                          <p className="text-sm font-medium text-[var(--fg-1)]">智能清理缓存</p>
-                          <p className="text-xs text-[var(--fg-3)]">移除冗余的系统级日志和过期缓存</p>
+                          <p className="t-title-s">智能清理缓存</p>
+                          <p className="t-body-s t-muted">移除冗余的系统级日志和过期缓存</p>
                         </div>
                       </div>
                       {isCleaning && <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-warning-500)] border-t-transparent" />}
@@ -196,13 +196,13 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
 
                   <div className="border-t border-[var(--border-subtle)] pt-6">
                     <div className="mb-4 flex items-center">
-                      <h4 className="text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-4)]">数据导入与导出</h4>
+                      <h4 className="t-label-s t-weak">数据导入与导出</h4>
                     </div>
                     
                     <div className="mb-4 rounded-[var(--radius-md)] border border-[rgba(59,98,184,0.18)] bg-[rgba(59,98,184,0.06)] p-4">
                       <div className="flex gap-3">
                         <AlertTriangle className="shrink-0 text-[var(--accent)]" size={18} strokeWidth={2} />
-                        <p className="text-xs leading-relaxed text-[var(--brand-primary-800)] dark:text-[var(--accent)]">
+                        <p className="t-body-s leading-relaxed text-[var(--brand-primary-800)] dark:text-[var(--accent)]">
                           导出为经过安全混淆的单文件（.lawyer）。
                           <br />
                           <strong className="text-[var(--accent)]">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话内容，不包含臃肿的附件，附件需在新设备重新上传。
@@ -229,7 +229,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                         <div className="rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] p-2 text-[var(--accent)] transition-transform group-hover:scale-105">
                           <Download size={20} strokeWidth={2} />
                         </div>
-                        <span className="text-sm font-medium text-[var(--fg-1)]">导出文字记录</span>
+                        <span className="t-title-s">导出文字记录</span>
                       </button>
 
                       <div className="relative">
@@ -266,7 +266,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                           <div className="rounded-[var(--radius-sm)] bg-[rgba(44,118,112,0.12)] p-2 text-[var(--brand-tertiary-700)] transition-transform group-hover:scale-105 dark:text-[#8ecdc7]">
                             <Database size={20} strokeWidth={2} />
                           </div>
-                          <span className="text-sm font-medium text-[var(--fg-1)]">导入文字记录</span>
+                          <span className="t-title-s">导入文字记录</span>
                         </button>
                       </div>
                     </div>

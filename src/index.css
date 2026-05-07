@@ -6,13 +6,68 @@
 @theme {
   --font-sans: "Inter", "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
+  --font-brand: "Cormorant Garamond", var(--font-serif);
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 :root {
   --font-sans: "Inter", "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, serif;
+  --font-brand: "Cormorant Garamond", var(--font-serif);
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --type-display-l-size: 57px;
+  --type-display-l-line: 64px;
+  --type-display-l-tracking: -0.25px;
+  --type-display-m-size: 45px;
+  --type-display-m-line: 52px;
+  --type-display-m-tracking: 0;
+  --type-display-s-size: 36px;
+  --type-display-s-line: 44px;
+  --type-display-s-tracking: 0;
+  --type-headline-l-size: 32px;
+  --type-headline-l-line: 40px;
+  --type-headline-m-size: 28px;
+  --type-headline-m-line: 36px;
+  --type-headline-s-size: 24px;
+  --type-headline-s-line: 32px;
+  --type-title-l-size: 22px;
+  --type-title-l-line: 28px;
+  --type-title-l-tracking: 0;
+  --type-title-m-size: 16px;
+  --type-title-m-line: 24px;
+  --type-title-m-tracking: 0.15px;
+  --type-title-s-size: 14px;
+  --type-title-s-line: 20px;
+  --type-title-s-tracking: 0.1px;
+  --type-body-l-size: 16px;
+  --type-body-l-line: 24px;
+  --type-body-l-tracking: 0.5px;
+  --type-body-m-size: 14px;
+  --type-body-m-line: 20px;
+  --type-body-m-tracking: 0.25px;
+  --type-body-s-size: 12px;
+  --type-body-s-line: 16px;
+  --type-body-s-tracking: 0.4px;
+  --type-label-l-size: 14px;
+  --type-label-l-line: 20px;
+  --type-label-l-tracking: 0.1px;
+  --type-label-m-size: 12px;
+  --type-label-m-line: 16px;
+  --type-label-m-tracking: 0.5px;
+  --type-label-s-size: 11px;
+  --type-label-s-line: 16px;
+  --type-label-s-tracking: 0.5px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --brand-logo-tile: transparent;
+  --brand-logo-ink: #1a2238;
+  --brand-logo-border: transparent;
+  --brand-logo-inner-border: transparent;
+  --brand-wordmark: var(--brand-logo-ink);
 
   --brand-primary-50: #eef2fb;
   --brand-primary-100: #dce5f6;
@@ -129,6 +184,12 @@
 
 .dark,
 [data-theme="dark"] {
+  --brand-logo-tile: transparent;
+  --brand-logo-ink: #f6f8fb;
+  --brand-logo-border: transparent;
+  --brand-logo-inner-border: transparent;
+  --brand-wordmark: var(--brand-logo-ink);
+
   --bg-app: var(--neutral-950);
   --bg-surface: var(--neutral-900);
   --bg-surface-2: var(--neutral-800);
@@ -267,30 +328,198 @@ textarea.composer-textarea:focus-visible {
   padding-right: env(safe-area-inset-right);
 }
 
-.t-display,
-.t-headline {
+:where(
+  .t-display,
+  .t-headline,
+  .t-display-l,
+  .t-display-m,
+  .t-display-s,
+  .t-headline-l,
+  .t-headline-m,
+  .t-headline-s
+) {
   font-family: var(--font-serif);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.01em;
+  color: var(--fg-1);
+  font-synthesis: none;
+}
+
+:where(.t-display) {
+  font-size: var(--type-display-s-size);
+  line-height: var(--type-display-s-line);
+}
+
+:where(.t-headline) {
+  font-size: var(--type-headline-l-size);
+  line-height: var(--type-headline-l-line);
+}
+
+:where(.t-display-l) {
+  font-size: var(--type-display-l-size);
+  line-height: var(--type-display-l-line);
+  letter-spacing: var(--type-display-l-tracking);
+}
+
+:where(.t-display-m) {
+  font-size: var(--type-display-m-size);
+  line-height: var(--type-display-m-line);
+  letter-spacing: var(--type-display-m-tracking);
+}
+
+:where(.t-display-s) {
+  font-size: var(--type-display-s-size);
+  line-height: var(--type-display-s-line);
+  letter-spacing: var(--type-display-s-tracking);
+}
+
+:where(.t-headline-l) {
+  font-size: var(--type-headline-l-size);
+  line-height: var(--type-headline-l-line);
+}
+
+:where(.t-headline-m) {
+  font-size: var(--type-headline-m-size);
+  line-height: var(--type-headline-m-line);
+}
+
+:where(.t-headline-s) {
+  font-size: var(--type-headline-s-size);
+  line-height: var(--type-headline-s-line);
+}
+
+.brand-wordmark {
+  font-family: var(--font-brand);
+  font-size: 26px;
+  line-height: 1;
+  font-weight: 400;
   letter-spacing: 0;
+  color: var(--brand-wordmark);
+  font-synthesis: none;
+}
+
+.brand-wordmark-swash {
+  font-style: italic;
+  font-weight: 500;
+}
+
+:where(
+  .t-title,
+  .t-title-l,
+  .t-title-m,
+  .t-title-s,
+  .t-body,
+  .t-body-l,
+  .t-body-m,
+  .t-body-s,
+  .t-label,
+  .t-label-l,
+  .t-label-m,
+  .t-label-s
+) {
+  font-family: var(--font-sans);
+  font-synthesis: none;
+}
+
+:where(.t-title, .t-title-l, .t-title-m, .t-title-s) {
+  font-weight: var(--weight-medium);
   color: var(--fg-1);
 }
 
-.t-title,
-.t-label,
-.t-body {
-  font-family: var(--font-sans);
-  letter-spacing: 0;
+:where(.t-title) {
+  font-size: var(--type-title-m-size);
+  line-height: var(--type-title-m-line);
+  letter-spacing: var(--type-title-m-tracking);
 }
 
-.t-label {
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 600;
+:where(.t-title-l) {
+  font-size: var(--type-title-l-size);
+  line-height: var(--type-title-l-line);
+  letter-spacing: var(--type-title-l-tracking);
+}
+
+:where(.t-title-m) {
+  font-size: var(--type-title-m-size);
+  line-height: var(--type-title-m-line);
+  letter-spacing: var(--type-title-m-tracking);
+}
+
+:where(.t-title-s) {
+  font-size: var(--type-title-s-size);
+  line-height: var(--type-title-s-line);
+  letter-spacing: var(--type-title-s-tracking);
+}
+
+:where(.t-body, .t-body-l, .t-body-m, .t-body-s) {
+  font-weight: var(--weight-regular);
+  color: var(--fg-2);
+}
+
+:where(.t-body) {
+  font-size: var(--type-body-m-size);
+  line-height: var(--type-body-m-line);
+  letter-spacing: var(--type-body-m-tracking);
+}
+
+:where(.t-body-l) {
+  font-size: var(--type-body-l-size);
+  line-height: var(--type-body-l-line);
+  letter-spacing: var(--type-body-l-tracking);
+}
+
+:where(.t-body-m) {
+  font-size: var(--type-body-m-size);
+  line-height: var(--type-body-m-line);
+  letter-spacing: var(--type-body-m-tracking);
+}
+
+:where(.t-body-s) {
+  font-size: var(--type-body-s-size);
+  line-height: var(--type-body-s-line);
+  letter-spacing: var(--type-body-s-tracking);
+}
+
+:where(.t-label, .t-label-l, .t-label-m, .t-label-s) {
+  font-weight: var(--weight-medium);
+  color: var(--fg-2);
+}
+
+:where(.t-label) {
+  font-size: var(--type-label-m-size);
+  line-height: var(--type-label-m-line);
+  letter-spacing: var(--type-label-m-tracking);
+}
+
+:where(.t-label-l) {
+  font-size: var(--type-label-l-size);
+  line-height: var(--type-label-l-line);
+  letter-spacing: var(--type-label-l-tracking);
+}
+
+:where(.t-label-m) {
+  font-size: var(--type-label-m-size);
+  line-height: var(--type-label-m-line);
+  letter-spacing: var(--type-label-m-tracking);
+}
+
+:where(.t-label-s) {
+  font-size: var(--type-label-s-size);
+  line-height: var(--type-label-s-line);
+  letter-spacing: var(--type-label-s-tracking);
   text-transform: uppercase;
 }
 
-.t-mono {
+:where(.t-mono) {
   font-family: var(--font-mono);
+  font-size: var(--type-body-m-size);
+}
+
+.t-muted {
+  color: var(--fg-3);
+}
+
+.t-weak {
+  color: var(--fg-4);
 }
 
 .liquid-glass,
@@ -547,6 +776,136 @@ textarea.composer-textarea:focus-visible {
 
 .prose {
   color: var(--fg-1);
+}
+
+.message-copy,
+.message-copy.prose,
+.thought-copy,
+.thought-copy.prose {
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  letter-spacing: 0;
+}
+
+.message-copy.prose {
+  color: inherit;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+@media (min-width: 640px) {
+  .message-copy.prose {
+    font-size: 16px;
+    line-height: 1.7;
+  }
+}
+
+.thought-copy.prose {
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.message-copy.prose :where(h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table, thead, tbody, tr, th, td, strong, em, a):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+.thought-copy.prose :where(h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table, thead, tbody, tr, th, td, strong, em, a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+}
+
+.message-copy.prose :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--fg-1);
+  font-weight: var(--weight-semibold);
+  line-height: 1.35;
+  margin-top: 1.1em;
+  margin-bottom: 0.55em;
+}
+
+.message-copy.prose :where(h1):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.28em;
+}
+
+.message-copy.prose :where(h2):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.18em;
+}
+
+.message-copy.prose :where(h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.08em;
+}
+
+.thought-copy.prose :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--fg-2);
+  font-size: 1em;
+  font-weight: var(--weight-semibold);
+  line-height: 1.45;
+  margin-top: 0.7em;
+  margin-bottom: 0.35em;
+}
+
+.message-copy.prose :where(p, ul, ol, blockquote, table):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+.thought-copy.prose :where(p, ul, ol, blockquote, table):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.7em;
+  margin-bottom: 0.7em;
+}
+
+.thought-copy.prose :where(p, ul, ol, blockquote, table):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+}
+
+.message-copy.prose > :first-child,
+.thought-copy.prose > :first-child {
+  margin-top: 0;
+}
+
+.message-copy.prose > :last-child,
+.thought-copy.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.message-copy.prose :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+.thought-copy.prose :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: inherit;
+  font-weight: var(--weight-semibold);
+}
+
+.message-copy.prose :where(code, pre, kbd, samp):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+.thought-copy.prose :where(code, pre, kbd, samp):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-family: var(--font-mono);
+}
+
+.message-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)),
+.thought-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)) {
+  border-radius: 6px;
+  background: rgba(20, 23, 31, 0.06);
+  color: var(--fg-1);
+  font-size: 0.86em;
+  font-weight: var(--weight-medium);
+  padding: 0.14em 0.45em;
+}
+
+.thought-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 11px;
+}
+
+.dark .message-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)),
+.dark .thought-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.message-copy.prose :where(code)::before,
+.message-copy.prose :where(code)::after,
+.thought-copy.prose :where(code)::before,
+.thought-copy.prose :where(code)::after {
+  content: none;
+}
+
+.message-copy.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)),
+.thought-copy.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-inset);
+  color: var(--fg-1);
+  font-size: 0.9em;
 }
 
 .prose a {

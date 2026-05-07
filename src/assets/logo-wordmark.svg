@@ -1,17 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 64" fill="none">
-  <g transform="translate(0,0)">
-    <defs>
-      <clipPath id="arch-clip-w">
-        <path d="M8 56 V28 a24 24 0 0 1 48 0 V56 Z"></path>
-      </clipPath>
-    </defs>
-    <path d="M8 56 V28 a24 24 0 0 1 48 0 V56" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
-    <path d="M4 56 H60" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
-    <g clip-path="url(#arch-clip-w)">
-      <path d="M40 18 V50" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
-      <path d="M32 18 V50" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
-      <path d="M40 18 H26 a8 8 0 0 0 0 16 H32" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 318 96" fill="none">
+  <style>
+    .logo-tile { fill: transparent; stroke: transparent; }
+    .logo-frame { stroke: transparent; }
+    .logo-ink { stroke: #1a2238; }
+    .logo-fill { fill: #1a2238; }
+    @media (prefers-color-scheme: dark) {
+      .logo-tile { fill: transparent; stroke: transparent; }
+      .logo-frame { stroke: transparent; }
+      .logo-ink { stroke: #f6f8fb; }
+      .logo-fill { fill: #f6f8fb; }
+    }
+  </style>
+  <g>
+    <rect class="logo-tile" x="0.5" y="0.5" width="95" height="95" rx="4.5"/>
+    <rect class="logo-frame" x="10.5" y="10.5" width="75" height="75" rx="2.5"/>
+    <line class="logo-ink" x1="14" y1="78" x2="82" y2="78" stroke-width="0.75" stroke-linecap="round" opacity="0.55"/>
+    <g class="logo-ink" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M38 18 C38 18 36 20 36 26 L36 64 C36 70 38 72 42 72 L70 72" stroke-width="2.2"/>
+      <path d="M30 18 L46 18" stroke-width="1.2"/>
+      <path d="M70 70 L70 74" stroke-width="1.2"/>
+      <circle class="logo-fill" cx="26" cy="82" r="1.2" stroke="none"/>
+      <circle class="logo-fill" cx="70" cy="82" r="1.2" stroke="none"/>
     </g>
+    <circle class="logo-fill" cx="50" cy="14" r="1.4"/>
   </g>
-  <text x="80" y="44" font-family="'Noto Serif SC', Georgia, serif" font-size="34" font-weight="500" letter-spacing="-0.5" fill="currentColor">Lawyance</text>
+  <text class="logo-fill" x="122" y="61" font-family="'Cormorant Garamond', 'Noto Serif SC', Georgia, serif" font-size="56" font-weight="400" letter-spacing="0"><tspan font-style="italic" font-weight="500">L</tspan>awyance</text>
 </svg>

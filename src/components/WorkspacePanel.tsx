@@ -48,7 +48,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
             <FileText size={15} strokeWidth={2} />
           )}
         </div>
-        <span className="truncate text-[13px] leading-none text-[var(--fg-1)]" title={file.name}>{file.name}</span>
+        <span className="t-body-s truncate text-[13px] text-[var(--fg-1)]" title={file.name}>{file.name}</span>
       </div>
       <div className="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
         <button
@@ -107,7 +107,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
       >
         <div className="flex h-full shrink-0 flex-col" style={{ width: workspaceContentWidth }}>
           <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
-            <h3 className="flex items-center gap-2.5 text-[15px] font-medium leading-none text-[var(--fg-1)]">
+            <h3 className="t-title-m flex items-center gap-2.5 text-[15px]">
               <Folder size={18} strokeWidth={2} className="text-[var(--accent)]" />
               Workspace
             </h3>
@@ -119,12 +119,12 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
           <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
             {/* Uploaded Section */}
             <section>
-              <h4 className="mb-3 px-1 text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-4)]">
+              <h4 className="t-label-s t-weak mb-3 px-1">
                 Uploaded Documents
               </h4>
               <div className="flex flex-col gap-2">
                 {uploadedFiles.length === 0 ? (
-                  <p className="px-1 text-xs italic text-[var(--fg-4)]">No uploaded files</p>
+                  <p className="t-body-s t-weak px-1 italic">No uploaded files</p>
                 ) : (
                   uploadedFiles.map((file, index) => <FileItem key={`up-${index}`} file={file} />)
                 )}
@@ -133,12 +133,12 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
 
             {/* Generated Section */}
             <section>
-              <h4 className="mb-3 px-1 text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-4)]">
+              <h4 className="t-label-s t-weak mb-3 px-1">
                 Generated Results
               </h4>
               <div className="flex flex-col gap-2">
                 {generatedFiles.length === 0 ? (
-                  <p className="px-1 text-xs italic text-[var(--fg-4)]">No generated files</p>
+                  <p className="t-body-s t-weak px-1 italic">No generated files</p>
                 ) : (
                   generatedFiles.map((file, index) => <FileItem key={`gen-${index}`} file={file} />)
                 )}

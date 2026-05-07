@@ -276,7 +276,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
       <div className={`flex flex-col gap-3 min-w-0 w-full ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
         {msg.role === 'user' ? (
-          <div className="w-fit rounded-[24px_8px_24px_24px] bg-[var(--accent)] px-4 py-3 text-[15px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5 sm:text-[16px]">
+          <div className="message-copy w-fit rounded-[24px_8px_24px_24px] bg-[var(--accent)] px-4 py-3 text-[15px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5 sm:text-[16px]">
             <div className="flex flex-col gap-2">
               {(() => {
                 const fileInfoRegex = new RegExp("\\[用户已上传以下文件，请根据需要进行读取和处理\\]\\n([\\s\\S]*)$");
@@ -340,7 +340,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                               <WorkflowStatusIcon key={`${block.id}-${stepStatus}`} status={stepStatus} />
                               <span className="thought-step-label-text">{thoughtTypeLabel[block.type]}</span>
                             </div>
-                            <div className="prose prose-sm dark:prose-invert w-full max-w-none text-[13px] leading-[1.6] prose-p:my-0 prose-p:text-[13px] prose-p:leading-[1.6] prose-li:text-[13px] prose-li:leading-[1.6] prose-ol:my-1 prose-ul:my-1 prose-code:rounded-md prose-code:bg-[rgba(20,23,31,0.06)] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[11px] prose-code:text-[var(--fg-1)] prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-white/[0.08]">
+                            <div className="thought-copy prose dark:prose-invert w-full max-w-none">
                               <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{block.content.trim()}</Markdown>
                             </div>
                           </div>
@@ -358,8 +358,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             )}
 
             {mainContent && (
-              <div data-testid="assistant-content" className="w-full rounded-[8px_24px_24px_24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-[15px] leading-relaxed text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5 sm:text-[16px]">
-                <div className="prose prose-base dark:prose-invert w-full max-w-none prose-p:leading-relaxed prose-headings:font-medium prose-headings:text-[var(--fg-1)] prose-strong:font-medium prose-strong:text-[var(--fg-1)] prose-code:rounded-md prose-code:bg-[rgba(20,23,31,0.06)] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[var(--fg-1)] prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-2xl prose-pre:border prose-pre:border-[var(--border-subtle)] prose-pre:bg-[var(--bg-inset)] prose-pre:text-[var(--fg-1)] dark:prose-code:bg-white/[0.08]">
+              <div data-testid="assistant-content" className="w-full rounded-[8px_24px_24px_24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5">
+                <div className="message-copy prose dark:prose-invert w-full max-w-none">
                   <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{mainContent}</Markdown>
                 </div>
               </div>

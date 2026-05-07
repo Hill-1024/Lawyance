@@ -37,10 +37,10 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       <div className="lawyance-fade-up flex w-full max-w-md flex-col gap-7 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-3)] sm:p-10">
         <div className="text-center">
           <BrandMark className="mx-auto h-14 w-14 text-[var(--accent)]" />
-          <h2 className="mt-4 font-serif text-[28px] font-medium leading-tight text-[var(--fg-1)]">
+          <h2 className="t-headline-m mt-4">
             登录 Lawyance
           </h2>
-          <p className="mt-2 text-sm text-[var(--fg-3)]">
+          <p className="t-body-s t-muted mt-2">
             仅限内部人员使用
           </p>
         </div>

@@ -5,15 +5,15 @@
 # 如何运行demo
 ## 安装依赖
 ```
-npm install
+pnpm install
 pip install -r requirements.txt
 ```
 ## 构建
 ```
-npm run build
+pnpm run build
 ```
 
 ## 运行
 ```
-npm run dev
+pnpm run dev
 ```

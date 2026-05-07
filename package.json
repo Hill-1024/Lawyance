@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
     "dev": "python agent.py",
     "dev:frontend": "vite --port=80 --host=0.0.0.0",

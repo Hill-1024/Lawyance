@@ -132,8 +132,8 @@ export const AdminDashboard: React.FC = () => {
             <BrandMark className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-base font-semibold leading-tight text-[var(--fg-1)]">管理后台</h1>
-            <p className="text-xs leading-tight text-[var(--fg-3)]">Lawyance Admin Console</p>
+            <h1 className="t-title-m">管理后台</h1>
+            <p className="t-body-s t-muted">Lawyance Admin Console</p>
           </div>
         </div>
         <button onClick={handleLogout} className="md3-btn-text relative z-[1] !gap-1.5 !text-[var(--color-danger-500)] text-sm">
@@ -201,13 +201,13 @@ export const AdminDashboard: React.FC = () => {
                 <div className="flex-1 overflow-auto md3-scroll">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 z-10">
-                      <tr className="bg-[var(--bg-surface-2)] text-[11px] uppercase tracking-[0.08em] text-[var(--fg-3)]">
-                        <th className="text-left px-4 py-3 font-medium">时间</th>
-                        <th className="text-left px-4 py-3 font-medium">IP</th>
-                        <th className="text-left px-4 py-3 font-medium">用户</th>
-                        <th className="text-left px-4 py-3 font-medium">方法</th>
-                        <th className="text-left px-4 py-3 font-medium">路径</th>
-                        <th className="text-right px-4 py-3 font-medium">状态</th>
+                      <tr className="bg-[var(--bg-surface-2)]">
+                        <th className="t-label-s t-muted px-4 py-3 text-left">时间</th>
+                        <th className="t-label-s t-muted px-4 py-3 text-left">IP</th>
+                        <th className="t-label-s t-muted px-4 py-3 text-left">用户</th>
+                        <th className="t-label-s t-muted px-4 py-3 text-left">方法</th>
+                        <th className="t-label-s t-muted px-4 py-3 text-left">路径</th>
+                        <th className="t-label-s t-muted px-4 py-3 text-right">状态</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[var(--border-subtle)]">
@@ -306,10 +306,10 @@ export const AdminDashboard: React.FC = () => {
           <div className="relative w-full max-w-md md3-surface-card !rounded-[28px] shadow-2xl overflow-hidden" style={{ animation: 'logSlideIn 0.2s ease-out' }}>
             <form onSubmit={handleSaveAccount}>
               <div className="px-6 pt-6 pb-2">
-                <h3 className="mb-1 text-xl font-semibold text-[var(--fg-1)]">
+                <h3 className="t-title-l mb-1">
                   {modalMode === 'add' ? '新增账号' : '重置密码'}
                 </h3>
-                <p className="mb-5 text-sm text-[var(--fg-3)]">
+                <p className="t-body-m t-muted mb-5">
                   {modalMode === 'add' ? '创建一个新的系统账号' : `为 ${editUsername} 设置新的登录密码`}
                 </p>
 
@@ -319,18 +319,18 @@ export const AdminDashboard: React.FC = () => {
 
                 <div className="space-y-4">
                   <div>
-                    <label className="mb-1.5 block text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-3)]">用户名</label>
+                    <label className="t-label-s t-muted mb-1.5 block">用户名</label>
                     <input type="text" required disabled={modalMode === 'reset'} value={editUsername}
                       onChange={e => setEditUsername(e.target.value)} className="md3-input" placeholder="输入用户名" />
                   </div>
                   <div>
-                    <label className="mb-1.5 block text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-3)]">密码</label>
+                    <label className="t-label-s t-muted mb-1.5 block">密码</label>
                     <input type="password" required minLength={6} value={editPassword}
                       onChange={e => setEditPassword(e.target.value)} className="md3-input" placeholder="最少 6 位字符" />
                   </div>
                   {modalMode === 'add' && (
                     <div>
-                      <label className="mb-1.5 block text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-3)]">角色</label>
+                      <label className="t-label-s t-muted mb-1.5 block">角色</label>
                       <select value={editRole} onChange={e => setEditRole(e.target.value)} className="md3-input">
                         <option value="user">普通用户</option>
                         <option value="admin">管理员</option>

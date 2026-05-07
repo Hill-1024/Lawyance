@@ -1,17 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#3B62B8"></rect>
-  <g transform="translate(0,0)" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <defs>
-      <clipPath id="arch-clip-fav">
-        <path d="M12 52 V30 a20 20 0 0 1 40 0 V52 Z"></path>
-      </clipPath>
-    </defs>
-    <path d="M12 52 V30 a20 20 0 0 1 40 0 V52"></path>
-    <path d="M9 52 H55"></path>
-    <g clip-path="url(#arch-clip-fav)">
-      <path d="M39 22 V48"></path>
-      <path d="M32 22 V48"></path>
-      <path d="M39 22 H27 a7 7 0 0 0 0 14 H32"></path>
-    </g>
+  <style>
+    .logo-tile { fill: #ffffff; stroke: rgba(20,23,31,0.10); }
+    .logo-frame { stroke: rgba(20,23,31,0.08); }
+    .logo-ink { stroke: #1a2238; }
+    .logo-fill { fill: #1a2238; }
+    @media (prefers-color-scheme: dark) {
+      .logo-tile { fill: #1a2238; stroke: rgba(255,255,255,0.18); }
+      .logo-frame { stroke: rgba(255,255,255,0.12); }
+      .logo-ink { stroke: #f6f8fb; }
+      .logo-fill { fill: #f6f8fb; }
+    }
+  </style>
+  <rect class="logo-tile" x="0.5" y="0.5" width="63" height="63" rx="4"/>
+  <rect class="logo-frame" x="7" y="7" width="50" height="50" rx="2" fill="none"/>
+  <line class="logo-ink" x1="9.5" y1="52" x2="54.5" y2="52" stroke-width="0.75" stroke-linecap="round" opacity="0.55"/>
+  <g class="logo-ink" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M25.5 12 C25.5 12 24 13.3 24 17.3 L24 42.7 C24 46.7 25.5 48 28.2 48 L46.7 48" stroke-width="2"/>
+    <path d="M20 12 L31 12" stroke-width="1.1"/>
+    <path d="M46.7 46.7 L46.7 49.3" stroke-width="1.1"/>
+    <circle class="logo-fill" cx="17.3" cy="54.7" r="1.1" stroke="none"/>
+    <circle class="logo-fill" cx="46.7" cy="54.7" r="1.1" stroke="none"/>
   </g>
+  <circle class="logo-fill" cx="33.3" cy="9.3" r="1.2"/>
 </svg>
