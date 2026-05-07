@@ -27,8 +27,8 @@ load_dotenv(".env")
 OCP_API_KEY = os.getenv("OCP_API_KEY") or os.getenv("API_KEY")
 OCP_BASE_URL = os.getenv("OCP_BASE_URL") or os.getenv("BASE_URL")
 OCP_LLM_MODEL = os.getenv("OCP_LLM_MODEL") or os.getenv("LLM_MODEL")
-OCP_TOTAL_TIMEOUT = float(os.getenv("OCP_TOTAL_TIMEOUT", "25"))
-OCP_CALL_TIMEOUT = float(os.getenv("OCP_CALL_TIMEOUT", "12"))
+OCP_TOTAL_TIMEOUT = float(os.getenv("OCP_TOTAL_TIMEOUT", "50"))
+OCP_CALL_TIMEOUT = float(os.getenv("OCP_CALL_TIMEOUT", "25"))
 OCP_TOOL_TIMEOUT = float(os.getenv("OCP_TOOL_TIMEOUT", "8"))
 
 
@@ -208,12 +208,12 @@ class OCPStatic:
 
                 message = response.choices[0].message
                 cleaned_message = self._clean_output(message.content or "")
-                if cleaned_message:
+                if self._is_substantive_replacement(content, cleaned_message):
                     best_candidate = cleaned_message
 
                 if not message.tool_calls:
                     # 没有工具调用，审查完成
-                    result = cleaned_message or best_candidate
+                    result = cleaned_message if self._is_substantive_replacement(content, cleaned_message) else best_candidate
                     print(f"[OCP-Static] 审查完成（第 {round_num + 1} 轮），结果长度: {len(result)} 字符")
                     print(f"[OCP-Static] ========== 审查结束 ==========\n")
                     return result if result else self._deterministic_format_repair(content)
@@ -517,6 +517,36 @@ class OCPStatic:
     def _describe_tool(function_name: str) -> str:
         return OCP_TOOL_LABELS.get(function_name, function_name)
 
+    @staticmethod
+    def _is_substantive_replacement(original: str, candidate: str) -> bool:
+        """OCP is allowed to repair format, not collapse a full answer into a status line."""
+        candidate_text = (candidate or "").strip()
+        if not candidate_text:
+            return False
+
+        original_compact = re.sub(r"\s+", "", original or "")
+        candidate_compact = re.sub(r"\s+", "", candidate_text)
+        if not original_compact:
+            return True
+
+        status_only_patterns = [
+            r"^\[?OCP\]?.{0,80}(审查|检查|修复|完成|异常|超时).*$",
+            r"^审查(完成|通过|结束).{0,20}$",
+            r"^已(完成|通过).{0,30}(审查|检查|修复).*$",
+            r"^格式(正确|无误|已修复).{0,20}$",
+            r"^(我来|现在|首先|接下来).{0,100}(检查|审查|确认|调用工具|获取链接).*$",
+            r"^.*(调用工具|get_linked_content|search_article|get_article).{0,80}$",
+        ]
+        if any(re.match(pattern, candidate_text, flags=re.IGNORECASE | re.DOTALL) for pattern in status_only_patterns):
+            return False
+
+        if len(original_compact) >= 80:
+            minimum_length = max(40, int(len(original_compact) * 0.35))
+            if len(candidate_compact) < minimum_length:
+                return False
+
+        return True
+
 
 # ── OCPStream 类 ─────────────────────────────────────────────────────────
 
@@ -596,9 +626,8 @@ class OCPStream:
                             content_str += delta.content
                             full_raw_content += delta.content
                             clean_text = OCPStatic._clean_output(full_raw_content)
-                            if clean_text:
+                            if OCPStatic._is_substantive_replacement(content, clean_text):
                                 best_candidate = clean_text
-                                yield {'type': 'content_replace', 'content': clean_text}
 
                         # 工具调用
                         if delta.tool_calls:
@@ -617,9 +646,13 @@ class OCPStream:
 
                 if not tool_calls:
                     final_clean = OCPStatic._clean_output(full_raw_content)
-                    if not final_clean or len(final_clean) < 10:
-                        fallback_content = best_candidate if best_candidate else OCPStatic._deterministic_format_repair(content)
-                        yield {'type': 'content_replace', 'content': fallback_content}
+                    final_content = (
+                        final_clean
+                        if OCPStatic._is_substantive_replacement(content, final_clean)
+                        else best_candidate if OCPStatic._is_substantive_replacement(content, best_candidate)
+                        else OCPStatic._deterministic_format_repair(content)
+                    )
+                    yield {'type': 'content_replace', 'content': final_content}
                     yield {'type': 'thought', 'content': '- OCP 审查完成，已应用修正版\n', 'thought_type': 'ocp', 'mode': 'new'}
                     print(f"[OCP-Stream] 审查完成")
                     return
@@ -634,7 +667,11 @@ class OCPStream:
                 if repeated_tool_signature_count >= self.MAX_REPEAT_SAME_TOOL_SIGNATURE:
                     print(f"[OCP-Stream] 检测到重复工具调用签名，提前终止审查")
                     yield {'type': 'thought', 'content': '- OCP 检测到重复检查，已停止自循环并保留当前最佳版本\n', 'thought_type': 'ocp', 'mode': 'new'}
-                    fallback_content = best_candidate if best_candidate else OCPStatic._deterministic_format_repair(content)
+                    fallback_content = (
+                        best_candidate
+                        if OCPStatic._is_substantive_replacement(content, best_candidate)
+                        else OCPStatic._deterministic_format_repair(content)
+                    )
                     yield {'type': 'content_replace', 'content': fallback_content}
                     return
 
@@ -652,6 +689,15 @@ class OCPStream:
                     res = await _run_ocp_tool(f_name, parsed_args, self.session_id)
                     context.append({"role": "tool", "tool_call_id": tc["id"], "name": f_name, "content": str(res)})
                     yield {'type': 'thought', 'content': f'- OCP 已接收{OCPStatic._describe_tool(f_name)}结果，继续修订\n', 'thought_type': 'ocp', 'mode': 'new'}
+
+            print(f"[OCP-Stream] 达到最大工具轮次，保留当前最佳正文")
+            fallback_content = (
+                best_candidate
+                if OCPStatic._is_substantive_replacement(content, best_candidate)
+                else OCPStatic._deterministic_format_repair(content)
+            )
+            yield {'type': 'thought', 'content': '- OCP 达到最大检查轮次，已保留当前最佳版本\n', 'thought_type': 'ocp', 'mode': 'new'}
+            yield {'type': 'content_replace', 'content': fallback_content}
 
         except (asyncio.TimeoutError, OCPTimeout) as e:
             print(f"[OCP-Stream] 超时，保留原文: {e}")

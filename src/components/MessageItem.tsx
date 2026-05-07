@@ -182,7 +182,12 @@ const getStatusLabel = (block?: ThoughtBlock) => {
     return '正在调用工具';
   }
   if (block.type === 'ocp') {
-    if (block.content.includes('审查完成')) return '已完成输出审查';
+    if (
+      block.content.includes('审查完成') ||
+      block.content.includes('保留当前最佳版本') ||
+      block.content.includes('最大检查轮次') ||
+      block.content.includes('停止自循环')
+    ) return '已完成输出审查';
     if (block.content.includes('超时')) return 'OCP 超时，已使用兜底修复';
     if (block.content.includes('异常')) return 'OCP 异常，已使用兜底修复';
     if (block.content.includes('整理修正版正文')) return '正在整理修正版正文';

@@ -1,6 +1,46 @@
 import unittest
+import asyncio
+from types import SimpleNamespace
 
 import ocp
+
+
+class _FakeOCPStream:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    async def __aiter__(self):
+        for chunk in self._chunks:
+            yield chunk
+
+
+class _FakeOCPCompletions:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    async def create(self, **_kwargs):
+        return _FakeOCPStream(self._chunks)
+
+
+def _content_chunk(content: str):
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content=content,
+                    tool_calls=None,
+                )
+            )
+        ]
+    )
+
+
+def _fake_client(chunks):
+    return SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=_FakeOCPCompletions(chunks)
+        )
+    )
 
 
 class OCPTests(unittest.TestCase):
@@ -84,6 +124,74 @@ class OCPTests(unittest.TestCase):
         self.assertNotIn("[OCP]", cleaned)
         self.assertNotIn("OCP 正在", cleaned)
         self.assertIn("《民法典》第五百七十七条", cleaned)
+
+    def test_ocp_stream_commits_body_once_after_review_finishes(self):
+        checker = ocp.OCPStream(session_id="test")
+        checker.client = _fake_client([
+            _content_chunk("《民法典》第五百七十七条\n"),
+            _content_chunk("> 当事人一方不履行合同义务的，应当承担违约责任。"),
+        ])
+
+        async def collect_events():
+            return [event async for event in checker.check_stream("原始正文需要格式修复")]
+
+        events = asyncio.run(collect_events())
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertIn("《民法典》第五百七十七条", replacements[0]["content"])
+        self.assertLess(
+            events.index(replacements[0]),
+            next(i for i, event in enumerate(events) if "审查完成" in event.get("content", "")),
+        )
+
+    def test_ocp_stream_rejects_status_line_as_replacement(self):
+        original = (
+            "《民法典》第五百七十七条\n"
+            "> 当事人一方不履行合同义务或者履行合同义务不符合约定的，应当承担继续履行、"
+            "采取补救措施或者赔偿损失等违约责任。"
+        )
+        checker = ocp.OCPStream(session_id="test")
+        checker.client = _fake_client([_content_chunk("审查完成")])
+
+        async def collect_events():
+            return [event async for event in checker.check_stream(original)]
+
+        events = asyncio.run(collect_events())
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertNotEqual(replacements[0]["content"], "审查完成")
+        self.assertIn("《民法典》第五百七十七条", replacements[0]["content"])
+
+    def test_ocp_rejects_process_text_as_replacement(self):
+        original = "《民法典》第六百二十一条规定，买受人应当及时通知质量异议。"
+        candidate = (
+            "我来检查文本格式。\n\n"
+            "首先检查信源角标，需要调用工具获取《民法典》第六百二十一条的链接。"
+        )
+
+        self.assertFalse(ocp.OCPStatic._is_substantive_replacement(original, candidate))
+
+    def test_ocp_stream_falls_back_when_review_rounds_are_exhausted(self):
+        checker = ocp.OCPStream(session_id="test")
+        checker.MAX_TOOL_ROUNDS = 0
+        original = (
+            "《民法典》第六百二十一条<sup><a href=\"https://example.com/621\">1</a></sup>\n"
+            "| 项目 | 结论 |\n"
+            "|---|---|\n"
+            "| 质量异议 | 买方应及时通知 |"
+        )
+
+        async def collect_events():
+            return [event async for event in checker.check_stream(original)]
+
+        events = asyncio.run(collect_events())
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertIn("第六百二十一条", replacements[0]["content"])
+        self.assertTrue(any("最大检查轮次" in event.get("content", "") for event in events))
 
 
 if __name__ == "__main__":
