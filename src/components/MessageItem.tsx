@@ -1,11 +1,12 @@
 import React from 'react';
-import { Sparkles, ChevronDown, Loader2, Info, Paperclip, Undo2, Pencil, RefreshCw, Check } from 'lucide-react';
+import { ChevronDown, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { Message, ThoughtBlock } from '../types';
 import { Mermaid } from './Mermaid';
+import { BrandMark } from './Brand';
 
 interface MessageItemProps {
   msg: Message;
@@ -166,8 +167,8 @@ const repairMarkdownTables = (text: string) => {
 const normalizeBodyContent = (text: string) => {
   return repairMarkdownTables(
     text
-      .replace(/<\/?response>/g, '')
-      .replace(/<\/?final_answer>/g, '')
+      .replace(/<\/?\s*(?:response|final_answer)\s*>/gi, '')
+      .replace(/&lt;\/?\s*(?:response|final_answer)\s*&gt;/gi, '')
       .trim()
   ).trim();
 };
@@ -204,22 +205,25 @@ const thoughtTypeLabel: Record<ThoughtBlock['type'], string> = {
   ocp: 'OCP'
 };
 
-const WorkflowStatusIcon: React.FC<{ active: boolean }> = ({ active }) => {
-  if (active) {
-    return <Loader2 size={13} className="animate-spin text-blue-500" />;
-  }
-
-  return (
-    <motion.span
-      initial={{ opacity: 0, scale: 0.72 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-      className="inline-flex h-[13px] w-[13px] items-center justify-center rounded-full bg-emerald-100 text-emerald-600 ring-1 ring-emerald-200 dark:bg-emerald-900/35 dark:text-emerald-300 dark:ring-emerald-700/60"
-    >
-      <Check size={9} strokeWidth={3} />
-    </motion.span>
-  );
-};
+const WorkflowStatusIcon: React.FC<{ status: 'running' | 'done' }> = ({ status }) => (
+  <svg
+    className={`lawyance-status-glyph ${status === 'running' ? 'is-running' : 'is-done'}`}
+    viewBox="0 0 16 16"
+    aria-hidden="true"
+  >
+    {status === 'running' ? (
+      <>
+        <circle className="status-track" cx="8" cy="8" r="7" />
+        <circle className="status-sweep" cx="8" cy="8" r="7" pathLength="50" strokeDashoffset="0" />
+      </>
+    ) : (
+      <>
+        <circle className="status-ring" cx="8" cy="8" r="7" pathLength="50" />
+        <path className="status-check" d="M5 8.4 L7.2 10.6 L11 6.4" />
+      </>
+    )}
+  </svg>
+);
 
 export const MessageItem: React.FC<MessageItemProps> = ({
   msg,
@@ -261,17 +265,18 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`flex gap-3 sm:gap-4 max-w-[92%] sm:max-w-[85%] md:max-w-[75%] ${msg.role === 'user' ? 'self-end flex-row-reverse' : 'self-start'}`}
+      transition={{ duration: 0.24, ease: [0.2, 0, 0, 1] }}
+      className={`flex max-w-full gap-3 sm:gap-4 ${msg.role === 'user' ? 'self-end flex-row-reverse md:max-w-[85%]' : 'self-start'}`}
     >
-      <div className={`shrink-0 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center mt-1 shadow-sm ${msg.role === 'user' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400' : 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-gray-200 dark:border-gray-700'}`}>
-        {msg.role === 'user' ? <div className="font-medium text-sm sm:text-base">U</div> : <Sparkles size={18} className="sm:size-5" />}
+      <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-[var(--shadow-1)] sm:h-10 sm:w-10 ${msg.role === 'user' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
+        {msg.role === 'user' ? <div className="text-sm font-medium sm:text-base">U</div> : <BrandMark className="h-5 w-5" />}
       </div>
 
       <div className={`flex flex-col gap-3 min-w-0 w-full ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
         {msg.role === 'user' ? (
-          <div className="px-4 py-3 sm:px-6 sm:py-4 text-[15px] sm:text-[16px] leading-relaxed shadow-sm w-fit bg-blue-600 dark:bg-blue-500 text-white rounded-[20px] sm:rounded-[28px] rounded-tr-sm sm:rounded-tr-lg">
+          <div className="w-fit rounded-[24px_8px_24px_24px] bg-[var(--accent)] px-4 py-3 text-[15px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5 sm:text-[16px]">
             <div className="flex flex-col gap-2">
               {(() => {
                 const fileInfoRegex = new RegExp("\\[用户已上传以下文件，请根据需要进行读取和处理\\]\\n([\\s\\S]*)$");
@@ -288,9 +293,9 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                       {files.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-1">
                           {files.map((file: string, i: number) => (
-                            <div key={i} className="flex items-center gap-1.5 bg-blue-700/50 dark:bg-blue-600/50 rounded-full px-3 py-1 text-sm">
-                              <Paperclip size={14} />
-                              <span className="truncate max-w-50">{file}</span>
+                            <div key={i} className="flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1 text-sm">
+                              <Paperclip size={14} strokeWidth={2} />
+                              <span className="max-w-[200px] truncate">{file}</span>
                             </div>
                           ))}
                         </div>
@@ -303,39 +308,39 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-5 w-full max-w-full">
+            <div className="flex w-full max-w-full flex-col gap-5">
             {(thoughtBlocks.length > 0 || (isThinking && collapsedStatus)) && (
-              <div className="flex flex-col gap-3 w-full max-w-3xl">
+              <div className="flex w-full max-w-3xl flex-col gap-3">
                 {thoughtBlocks.length > 0 ? (
                   <details data-testid="thought-process" className="group w-full" open={showThinking}>
-                    <summary className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors list-none [&::-webkit-details-marker]:hidden select-none w-fit bg-gray-100 dark:bg-gray-800/50 px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700">
-                      <ChevronDown size={16} className="transform group-open:-rotate-180 transition-transform duration-200" />
+                    <summary className="lawyance-pressable flex w-fit cursor-pointer select-none items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-3.5 py-2 text-[13px] font-medium leading-none text-[var(--fg-2)] transition-colors list-none hover:text-[var(--fg-1)] [&::-webkit-details-marker]:hidden">
+                      <ChevronDown size={14} strokeWidth={2} className="transform transition-transform duration-200 group-open:-rotate-180" />
                       {showThinking ? (
                         <span className="flex items-center gap-2">
                           Thinking
                           <span className="flex gap-1">
-                            <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0 }} className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full" />
-                            <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.2 }} className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full" />
-                            <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1.5, delay: 0.4 }} className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full" />
+                            <span className="lawyance-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
+                            <span className="lawyance-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
+                            <span className="lawyance-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
                           </span>
                         </span>
                       ) : "Thought Process"}
                       {collapsedStatus && (
-                        <span className="text-xs font-normal text-gray-500 dark:text-gray-400 max-w-72 truncate">
+                        <span className="max-w-72 truncate text-xs font-normal text-[var(--fg-3)]">
                           {collapsedStatus}
                         </span>
                       )}
                     </summary>
-                    <div data-testid="thought-column" className="mt-3 mb-2 px-5 py-4 text-[15px] text-gray-600 dark:text-gray-300 border-l-4 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/30 rounded-r-2xl flex flex-col gap-4 w-full">
-                      {thoughtBlocks.map((block) => {
-                        const isActiveTool = showThinking && block.id === latestThought?.id && (block.type === 'tool' || block.type === 'ocp');
+                    <div data-testid="thought-column" className="mb-2 mt-3 flex w-full flex-col rounded-r-[14px] border-l-[3px] border-[var(--border-default)] bg-[rgba(59,98,184,0.04)] px-[18px] py-3.5 text-[13px] leading-[1.6] text-[var(--fg-2)]">
+                      {thoughtBlocks.map((block, index) => {
+                        const stepStatus = showThinking && block.id === latestThought?.id ? 'running' : 'done';
                         return (
-                          <div key={block.id} data-testid="thought-step" data-step-type={block.type} className="w-full">
-                            <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                              {(block.type === 'tool' || block.type === 'ocp') && <WorkflowStatusIcon active={isActiveTool} />}
-                              <span>{thoughtTypeLabel[block.type]}</span>
+                          <div key={block.id} data-testid="thought-step" data-step-type={block.type} className={`flex w-full flex-col gap-1.5 py-1 ${index > 0 ? 'mt-1.5 border-t border-dashed border-[var(--border-default)] pt-3.5' : ''}`}>
+                            <div className={`thought-step-label flex items-center gap-2 text-[10px] font-semibold uppercase leading-none tracking-[0.08em] ${stepStatus === 'running' ? 'is-running' : 'is-done'}`}>
+                              <WorkflowStatusIcon key={`${block.id}-${stepStatus}`} status={stepStatus} />
+                              <span className="thought-step-label-text">{thoughtTypeLabel[block.type]}</span>
                             </div>
-                            <div className="prose prose-sm dark:prose-invert max-w-none w-full prose-p:leading-relaxed prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-code:text-gray-900 dark:prose-code:text-gray-100 prose-code:bg-gray-200 dark:prose-code:bg-gray-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none">
+                            <div className="prose prose-sm dark:prose-invert w-full max-w-none text-[13px] leading-[1.6] prose-p:my-0 prose-p:text-[13px] prose-p:leading-[1.6] prose-li:text-[13px] prose-li:leading-[1.6] prose-ol:my-1 prose-ul:my-1 prose-code:rounded-md prose-code:bg-[rgba(20,23,31,0.06)] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[11px] prose-code:text-[var(--fg-1)] prose-code:before:content-none prose-code:after:content-none dark:prose-code:bg-white/[0.08]">
                               <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{block.content.trim()}</Markdown>
                             </div>
                           </div>
@@ -344,8 +349,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                     </div>
                   </details>
                 ) : (
-                  <div className="flex items-center gap-2 w-fit bg-gray-100 dark:bg-gray-800/50 px-4 py-2 rounded-full border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400">
-                    <Loader2 size={14} className="animate-spin text-blue-500" />
+                  <div className="flex w-fit items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-3.5 py-2 text-[13px] font-medium leading-none text-[var(--fg-2)]">
+                    <WorkflowStatusIcon status="running" />
                     <span>{collapsedStatus}</span>
                   </div>
                 )}
@@ -353,17 +358,17 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             )}
 
             {mainContent && (
-              <div data-testid="assistant-content" className="px-4 py-3 sm:px-6 sm:py-4 text-[15px] sm:text-[16px] leading-relaxed shadow-sm w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-[20px] sm:rounded-[28px] rounded-tl-sm sm:rounded-tl-lg border border-gray-200 dark:border-gray-800">
-                <div className="prose prose-base dark:prose-invert max-w-none w-full prose-p:leading-relaxed prose-headings:text-gray-900 dark:prose-headings:text-gray-100 prose-headings:font-medium prose-strong:text-gray-900 dark:prose-strong:text-gray-100 prose-strong:font-medium prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-code:text-gray-900 dark:prose-code:text-gray-100 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-100 dark:prose-pre:bg-gray-900 prose-pre:text-gray-900 dark:prose-pre:border prose-pre:border-gray-200 dark:prose-pre:border-gray-700 prose-pre:rounded-2xl">
+              <div data-testid="assistant-content" className="w-full rounded-[8px_24px_24px_24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-[15px] leading-relaxed text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5 sm:text-[16px]">
+                <div className="prose prose-base dark:prose-invert w-full max-w-none prose-p:leading-relaxed prose-headings:font-medium prose-headings:text-[var(--fg-1)] prose-strong:font-medium prose-strong:text-[var(--fg-1)] prose-code:rounded-md prose-code:bg-[rgba(20,23,31,0.06)] prose-code:px-1.5 prose-code:py-0.5 prose-code:text-[var(--fg-1)] prose-code:before:content-none prose-code:after:content-none prose-pre:rounded-2xl prose-pre:border prose-pre:border-[var(--border-subtle)] prose-pre:bg-[var(--bg-inset)] prose-pre:text-[var(--fg-1)] dark:prose-code:bg-white/[0.08]">
                   <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{mainContent}</Markdown>
                 </div>
               </div>
             )}
 
             {msg.download_path && (
-              <div className="source-list-container text-[14px] text-gray-600 dark:text-gray-400 w-full">
-                <div className="font-medium mb-2 text-gray-900 dark:text-gray-100 flex items-center gap-2 uppercase tracking-wider text-[13px]">
-                  <Info size={16} />
+              <div className="source-list-container w-full text-[14px] text-[var(--fg-2)]">
+                <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
+                  <Info size={14} strokeWidth={2} />
                   Generated file
                 </div>
               </div>
@@ -371,27 +376,27 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           </div>
         )}
         {msg.role === 'user' && !isThinking && onUndo && onEdit && onRegenerate && (
-          <div className="flex gap-2 self-end mt-1">
+          <div className="mt-1 flex gap-2 self-end">
             <button
               onClick={() => onUndo(msg.id)}
-              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+              className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
               title="Undo"
             >
-              <Undo2 size={14} />
+              <Undo2 size={14} strokeWidth={2} />
             </button>
             <button
               onClick={() => onEdit(msg.id)}
-              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+              className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
               title="Edit"
             >
-              <Pencil size={14} />
+              <Pencil size={14} strokeWidth={2} />
             </button>
             <button
               onClick={() => onRegenerate(msg.id)}
-              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
+              className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
               title="Regenerate"
             >
-              <RefreshCw size={14} />
+              <RefreshCw size={14} strokeWidth={2} />
             </button>
           </div>
         )}

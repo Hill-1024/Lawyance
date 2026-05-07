@@ -1,6 +1,7 @@
 import React from 'react';
 import { Menu, Sun, Monitor, Moon, Folder } from 'lucide-react';
 import { motion } from 'motion/react';
+import { BrandMark } from './Brand';
 
 interface HeaderProps {
   title: string;
@@ -26,34 +27,37 @@ export const Header: React.FC<HeaderProps> = ({
   windowWidth
 }) => {
   return (
-    <header className="flex items-center justify-between px-4 pt-[calc(0.75rem+env(safe-area-inset-top))] pb-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 shrink-0 z-10 sticky top-0 border-b border-gray-200 dark:border-gray-800">
-      <div className="flex items-center gap-2">
+    <header className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] text-[var(--fg-1)]">
+      <div className="flex min-w-0 items-center gap-2">
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="p-3 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-600 dark:text-gray-400"
+          className="lawyance-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
+          aria-label="Toggle conversations"
         >
-          <Menu size={24} />
+          <Menu size={22} strokeWidth={2} />
         </button>
-        <h1 className="text-lg sm:text-[22px] font-medium tracking-tight ml-1 truncate max-w-[160px] sm:max-w-none">
-          {title || 'Lawver'}
+        <BrandMark className="hidden h-8 w-8 shrink-0 text-[var(--accent)] sm:block" />
+        <h1 className="ml-1 max-w-[170px] truncate text-lg font-medium leading-none tracking-[-0.01em] text-[var(--fg-1)] sm:max-w-none sm:text-[22px]">
+          {title || 'Lawyance'}
         </h1>
       </div>
       <div className="flex items-center gap-1 relative">
         <button
           onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
-          className={`p-2 sm:p-2.5 rounded-full transition-colors ${isWorkspaceOpen ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800'}`}
+          className={`lawyance-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
           title="Workspace"
+          aria-label="Toggle workspace"
         >
           <div className="relative">
-            <Folder size={20} className="sm:size-5.5" />
+            <Folder size={20} strokeWidth={2} />
             {workspaceFilesCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-gray-50 dark:border-gray-900" />
+              <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--bg-app)] bg-[var(--accent)]" />
             )}
           </div>
         </button>
-        <div className="flex items-center bg-gray-200 dark:bg-gray-800 rounded-full p-1 relative ml-1">
+        <div className="relative ml-1 flex items-center rounded-full bg-[rgba(20,23,31,0.06)] p-1 dark:bg-white/[0.06]">
           <motion.div
-            className="absolute top-1 bottom-1 w-8 sm:w-9 bg-white dark:bg-gray-600 rounded-full shadow-sm"
+            className="absolute bottom-1 top-1 w-8 rounded-full bg-[var(--bg-surface)] shadow-[var(--shadow-1)] sm:w-9"
             initial={false}
             animate={{
               x: themeMode === 'light' ? 0 : themeMode === 'system' ? (windowWidth < 640 ? 32 : 36) : (windowWidth < 640 ? 64 : 72)
@@ -62,24 +66,24 @@ export const Header: React.FC<HeaderProps> = ({
           />
           <button
             onClick={() => setThemeMode('light')}
-            className={`relative z-10 w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'light' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+            className={`lawyance-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'light' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
             title="Light Mode"
           >
-            <Sun size={16} className="sm:size-4.5" />
+            <Sun size={16} strokeWidth={2} />
           </button>
           <button
             onClick={() => setThemeMode('system')}
-            className={`relative z-10 w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'system' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+            className={`lawyance-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'system' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
             title="System Mode"
           >
-            <Monitor size={16} className="sm:size-4.5" />
+            <Monitor size={16} strokeWidth={2} />
           </button>
           <button
             onClick={() => setThemeMode('dark')}
-            className={`relative z-10 w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-colors ${themeMode === 'dark' ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+            className={`lawyance-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'dark' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
             title="Dark Mode"
           >
-            <Moon size={16} className="sm:size-4.5" />
+            <Moon size={16} strokeWidth={2} />
           </button>
         </div>
       </div>

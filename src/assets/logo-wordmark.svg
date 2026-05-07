@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 64" fill="none">
+  <g transform="translate(0,0)">
+    <defs>
+      <clipPath id="arch-clip-w">
+        <path d="M8 56 V28 a24 24 0 0 1 48 0 V56 Z"></path>
+      </clipPath>
+    </defs>
+    <path d="M8 56 V28 a24 24 0 0 1 48 0 V56" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+    <path d="M4 56 H60" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+    <g clip-path="url(#arch-clip-w)">
+      <path d="M40 18 V50" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+      <path d="M32 18 V50" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+      <path d="M40 18 H26 a8 8 0 0 0 0 16 H32" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+    </g>
+  </g>
+  <text x="80" y="44" font-family="'Noto Serif SC', Georgia, serif" font-size="34" font-weight="500" letter-spacing="-0.5" fill="currentColor">Lawyance</text>
+</svg>

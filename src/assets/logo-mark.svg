@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <clipPath id="arch-clip">
+      <path d="M8 56 V28 a24 24 0 0 1 48 0 V56 Z"></path>
+    </clipPath>
+  </defs>
+  <path d="M8 56 V28 a24 24 0 0 1 48 0 V56" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+  <path d="M4 56 H60" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+  <g clip-path="url(#arch-clip)">
+    <path d="M40 18 V50" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+    <path d="M32 18 V50" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
+    <path d="M40 18 H26 a8 8 0 0 0 0 16 H32" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+  </g>
+</svg>

@@ -1,7 +1,12 @@
 import React from 'react';
-import { X, Plus, Trash2, LogOut } from 'lucide-react';
+import { X, Plus, Trash2, LogOut, ShieldAlert } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { Conversation } from '../types';
 import { StorageIndicator } from './StorageIndicator';
+import { BrandLockup } from './Brand';
+
+const SIDEBAR_WIDTH = 320;
+const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
 
 interface SidebarProps {
   isSidebarOpen: boolean;
@@ -14,6 +19,7 @@ interface SidebarProps {
   userRole?: string;
   onAdminClick?: () => void;
   onLogout?: () => void;
+  isDesktopLayout: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -26,80 +32,119 @@ export const Sidebar: React.FC<SidebarProps> = ({
   deleteConversation,
   userRole,
   onAdminClick,
-  onLogout
+  onLogout,
+  isDesktopLayout
 }) => {
+  const panelAnimation = isDesktopLayout
+    ? {
+      width: isSidebarOpen ? SIDEBAR_WIDTH : 0,
+      opacity: isSidebarOpen ? 1 : 0,
+      borderRightWidth: isSidebarOpen ? 1 : 0
+    }
+    : {
+      x: isSidebarOpen ? 0 : '-100%',
+      opacity: isSidebarOpen ? 1 : 0
+    };
+  const sidebarContentWidth = isDesktopLayout ? `${SIDEBAR_WIDTH}px` : 'min(85vw, 320px)';
+  const sidebarStyle: React.CSSProperties = {
+    pointerEvents: isSidebarOpen ? 'auto' : 'none',
+    ...(!isDesktopLayout ? { width: sidebarContentWidth } : {})
+  };
+
   return (
     <>
-      {/* Sidebar Overlay */}
-      {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/20 dark:bg-black/40 z-40 transition-opacity backdrop-blur-sm lg:hidden"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {!isDesktopLayout && isSidebarOpen && (
+          <motion.div
+            key="sidebar-scrim"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={PANEL_TRANSITION}
+            className="fixed inset-0 z-40 bg-[var(--bg-overlay)] backdrop-blur-sm"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+      </AnimatePresence>
 
-      {/* Sidebar */}
-      <div className={`fixed lg:relative top-0 left-0 h-full w-[85vw] max-w-[320px] lg:max-w-none bg-gray-50 dark:bg-gray-900 shadow-2xl lg:shadow-none z-50 transform transition-all duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0 lg:w-80' : '-translate-x-full lg:translate-x-0 lg:w-0'} flex flex-col lg:rounded-none rounded-r-3xl border-r border-gray-200 dark:border-gray-800 shrink-0 overflow-hidden`}>
-        <div className="p-6 pb-4 flex items-center justify-between min-w-62.5">
-          <h2 className="font-medium text-xl text-gray-900 dark:text-gray-100 whitespace-nowrap">Conversations</h2>
-          <button onClick={() => setIsSidebarOpen(false)} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-600 dark:text-gray-400 lg:hidden">
-            <X size={24} />
-          </button>
-        </div>
-        <div className="px-4 pb-4 min-w-62.5">
-          <button
-            onClick={() => handleNewChat()}
-            className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-full flex items-center justify-center gap-2 transition-all font-medium shadow-md hover:shadow-lg active:scale-[0.98] whitespace-nowrap"
-          >
-            <Plus size={20} />
-            New Chat
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto px-3 pb-2 flex flex-col gap-1 custom-scrollbar min-w-62.5">
-          {conversations.map(conv => (
-            <div
-              key={conv.id}
-              onClick={() => {
-                setCurrentId(conv.id);
-                if (window.innerWidth < 1024) setIsSidebarOpen(false);
-              }}
-              className={`w-full text-left px-4 py-3.5 rounded-full transition-colors flex items-center justify-between group cursor-pointer ${
-                conv.id === currentId ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium' : 'hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400'
-              }`}
-            >
-              <span className="truncate pr-2 text-[15px]">{conv.title}</span>
-              <button
-                onClick={(e) => deleteConversation(conv.id, e)}
-                className={`p-2 rounded-full lg:opacity-0 lg:group-hover:opacity-100 transition-opacity hover:bg-gray-300 dark:hover:bg-gray-700 ${conv.id === currentId ? 'hover:bg-blue-200 dark:hover:bg-blue-800' : ''}`}
-                title="Delete chat"
-              >
-                <Trash2 size={18} className={conv.id === currentId ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-400'} />
+      <motion.aside
+        initial={false}
+        animate={panelAnimation}
+        transition={PANEL_TRANSITION}
+        className={`flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--border-subtle)] bg-[var(--bg-app)] ${
+          isDesktopLayout
+            ? 'relative shadow-none'
+            : 'fixed left-0 top-0 z-50 rounded-r-[var(--radius-xl)] shadow-[var(--shadow-4)]'
+        }`}
+        style={sidebarStyle}
+        aria-hidden={!isSidebarOpen}
+      >
+        <div className="flex h-full shrink-0 flex-col" style={{ width: sidebarContentWidth }}>
+          <div className="flex items-center justify-between p-6 pb-4">
+            <BrandLockup />
+            {!isDesktopLayout && (
+              <button onClick={() => setIsSidebarOpen(false)} className="lawyance-pressable inline-flex h-10 w-10 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close conversations">
+                <X size={22} strokeWidth={2} />
               </button>
-            </div>
-          ))}
-        </div>
-        <div className="p-4 border-t border-gray-200 dark:border-gray-800 pb-[calc(1rem+env(safe-area-inset-bottom))] flex flex-col gap-3">
-          {userRole === 'admin' && onAdminClick && (
+            )}
+          </div>
+          <div className="px-4 pb-4">
             <button
-              onClick={onAdminClick}
-              className="w-full py-2.5 px-4 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-700 dark:text-indigo-300 rounded-xl text-sm font-medium transition-colors shadow-sm flex items-center justify-center gap-2"
+              onClick={() => handleNewChat()}
+              className="md3-btn-filled lawyance-pressable w-full whitespace-nowrap py-3.5"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              管理后台
+              <Plus size={20} strokeWidth={2} />
+              New Chat
             </button>
-          )}
-          {onLogout && (
-            <button
-              onClick={onLogout}
-              className="w-full py-2.5 px-4 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <LogOut size={16} />
-              退出登录
-            </button>
-          )}
-          <StorageIndicator />
+          </div>
+          <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-1 overflow-y-auto px-3 pb-2">
+            {conversations.map(conv => (
+              <div
+                key={conv.id}
+                onClick={() => {
+                  setCurrentId(conv.id);
+                  if (!isDesktopLayout) setIsSidebarOpen(false);
+                }}
+                className={`lawyance-pressable group flex w-full cursor-pointer items-center justify-between rounded-full px-4 py-3 text-left transition-colors ${
+                  conv.id === currentId ? 'bg-[var(--accent-quiet)] font-medium text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.05)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
+                }`}
+              >
+                <span className="truncate pr-2 text-[14px]">{conv.title}</span>
+                <button
+                  onClick={(e) => deleteConversation(conv.id, e)}
+                  className="lawyance-pressable inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:opacity-0 lg:group-hover:opacity-100"
+                  title="Delete chat"
+                  aria-label="Delete chat"
+                >
+                  <Trash2 size={16} strokeWidth={2} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col gap-3 border-t border-[var(--border-subtle)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            {userRole === 'admin' && onAdminClick && (
+              <button
+                onClick={onAdminClick}
+                className="md3-btn-tonal lawyance-pressable w-full rounded-[var(--radius-md)] py-2.5 text-sm"
+              >
+                <ShieldAlert size={16} strokeWidth={2} />
+                管理后台
+              </button>
+            )}
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="lawyance-pressable flex w-full items-center justify-center gap-2 rounded-[var(--radius-md)] px-4 py-2.5 text-sm font-medium text-[var(--color-danger-500)] transition-colors hover:bg-[rgba(176,70,62,0.08)]"
+              >
+                <LogOut size={16} strokeWidth={2} />
+                退出登录
+              </button>
+            )}
+            <StorageIndicator />
+          </div>
         </div>
-      </div>
+      </motion.aside>
     </>
   );
 };

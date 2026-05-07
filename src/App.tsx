@@ -13,6 +13,7 @@ import { InputArea } from './components/InputArea';
 import { MessageList } from './components/MessageList';
 import { Login } from './components/Login';
 import { AdminDashboard } from './components/AdminDashboard';
+import { BrandMark } from './components/Brand';
 
 const SECURE_DOMAIN = 'law.mutsumi.moe';
 
@@ -65,11 +66,12 @@ function App() {
     removeUploadedFile,
     deleteFile,
     syncFiles
-  } = useWorkspace(currentId);
+  } = useWorkspace(currentId, isAuthenticated && isInitialized);
   const { isLowStorage, requestPersistence } = useStorage();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
   const isIpAccess = typeof window !== 'undefined' && isIpHostname(window.location.hostname);
   const secureAccessUrl = typeof window !== 'undefined'
@@ -151,17 +153,17 @@ function App() {
 
   if (isAuthChecking) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      <div className="flex h-screen items-center justify-center bg-[var(--bg-app)] text-[var(--accent)] transition-colors duration-300">
+        <div className="h-12 w-12 animate-spin rounded-full border-2 border-[var(--accent-quiet)] border-t-[var(--accent)]" />
       </div>
     );
   }
 
   const secureAccessBanner = isIpAccess ? (
-    <div className="mx-4 mt-4 mb-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100">
+    <div className="mx-4 mt-4 mb-2 rounded-[var(--radius-lg)] border border-[rgba(184,132,42,0.3)] bg-[rgba(184,132,42,0.1)] px-4 py-3 text-[#5C3F0E] shadow-[var(--shadow-1)] dark:text-[#FBEBC8]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
-          <ShieldAlert size={18} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-300" />
+          <ShieldAlert size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--color-warning-500)]" />
           <div className="text-sm leading-6">
             <div className="font-medium">当前正在通过 IP 访问。</div>
             <div>建议改用 <span className="font-semibold">https://{SECURE_DOMAIN}</span> 进行安全访问，避免证书与登录状态问题。</div>
@@ -169,10 +171,10 @@ function App() {
         </div>
         <a
           href={secureAccessUrl}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 dark:bg-amber-500 dark:hover:bg-amber-400"
+          className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-warning-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#9A6F22]"
         >
           前往安全地址
-          <ExternalLink size={16} />
+          <ExternalLink size={16} strokeWidth={2} />
         </a>
       </div>
     </div>
@@ -180,7 +182,7 @@ function App() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+      <div className="min-h-screen bg-[var(--bg-app)] transition-colors duration-300">
         {secureAccessBanner}
         <Login onLoginSuccess={async () => {
           try {
@@ -198,7 +200,7 @@ function App() {
   if (!isInitialized) return null;
 
   const chatLayout = (
-    <div className="flex h-screen bg-white dark:bg-gray-900 font-sans overflow-hidden transition-colors duration-300">
+    <div className="flex h-screen overflow-hidden bg-[var(--bg-app)] font-sans text-[var(--fg-1)] transition-colors duration-300">
       <Sidebar
         isSidebarOpen={isSidebarOpen}
         setIsSidebarOpen={setIsSidebarOpen}
@@ -210,6 +212,7 @@ function App() {
         userRole={userRole}
         onAdminClick={() => navigate('/admin')}
         onLogout={handleLogout}
+        isDesktopLayout={windowWidth >= 1024}
       />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
@@ -227,18 +230,21 @@ function App() {
         />
 
         <div className="flex-1 flex overflow-hidden relative">
-          <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900">
+          <div className="flex-1 flex flex-col min-w-0 bg-[var(--bg-app)]">
             {messages.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">
-                <div className="text-center">
-                  <h2 className="text-2xl font-medium mb-2 text-gray-900 dark:text-gray-100">Welcome to Lawver</h2>
-                  <p>Start a conversation or upload a document to begin.</p>
+              <div className="relative flex flex-1 items-center justify-center overflow-hidden text-[var(--fg-3)]">
+                <div className="pointer-events-none absolute inset-x-0 top-1/4 mx-auto h-72 max-w-xl rounded-full bg-[var(--accent)] opacity-[0.06] blur-3xl" />
+                <div className="relative max-w-md px-6 text-center">
+                  <BrandMark className="mx-auto mb-6 h-[72px] w-[72px] text-[var(--accent)]" />
+                  <h2 className="font-serif text-[32px] font-medium leading-tight text-[var(--fg-1)]">Welcome to Lawyance</h2>
+                  <p className="mt-2 text-[15px] leading-6">Start a conversation or upload a document to begin.</p>
                 </div>
               </div>
             ) : (
               <MessageList
                 messages={messages}
                 isLoading={isLoading}
+                bottomInset={composerOverlayHeight}
                 onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
                 onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}
                 onUndo={(id) => handleUndo(currentId, id, setPendingUploads)}
@@ -261,6 +267,7 @@ function App() {
               setAgentMode={setAgentMode}
               isOCPEnabled={isOCPEnabled}
               setIsOCPEnabled={setIsOCPEnabled}
+              onSettingsClearanceChange={setComposerOverlayHeight}
             />
           </div>
 
@@ -269,6 +276,7 @@ function App() {
             setIsWorkspaceOpen={setIsWorkspaceOpen}
             workspaceFiles={workspaceFiles}
             onDeleteFile={deleteFile}
+            isDesktopLayout={windowWidth >= 1024}
           />
         </div>
       </div>
@@ -278,7 +286,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={chatLayout} />
-      <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex h-screen w-full items-center justify-center text-red-500 font-medium text-lg dark:bg-gray-900">403 Forbidden: Access Denied</div>} />
+      <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex h-screen w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>} />
     </Routes>
   );
 }

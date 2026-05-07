@@ -14,7 +14,7 @@ const generateUUID = () => {
   });
 };
 
-const GREETING_MESSAGE = `您好，我是 **Lawver**，由 **工大法智团队** 开发的专业法律AI助手。
+const GREETING_MESSAGE = `您好，我是 **Lawyance**，由 **工大法智团队** 开发的专业法律AI助手。
 
 ## 我的核心能力：
 - 法律检索：精准查询法律法规条文、司法解释及经典判例

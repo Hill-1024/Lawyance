@@ -26,7 +26,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
     setIsCleaning(true);
     try {
       const result = await storageService.garbageCollect();
-      alert(`清理完成！移除了 ${result.cleanedCount} 个无效文件。`);
+      alert(`清理完成。已移除 ${result.cleanedCount} 个无效文件。`);
     } finally {
       setIsCleaning(false);
       updateEstimate();
@@ -45,32 +45,32 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
   if (compact) {
     return (
       <div 
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
-          isLowStorage ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400'
+        className={`flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-3 py-1.5 transition-colors ${
+          isLowStorage ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.06)] dark:hover:bg-white/[0.06]'
         }`}
         onClick={() => setIsModalOpen(true)}
         title="查看存储状态"
       >
-        <Database size={16} />
+        <Database size={16} strokeWidth={2} />
         <span className="text-xs font-medium">
           {Math.round(usageRatio * 100)}%
         </span>
-        {isLowStorage && <AlertTriangle size={14} className="animate-pulse" />}
+        {isLowStorage && <AlertTriangle size={14} strokeWidth={2} className="animate-pulse" />}
       </div>
     );
   }
 
   return (
     <>
-      <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700">
+      <div className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2 text-gray-900 dark:text-gray-100 font-medium">
-            <Database size={18} className="text-blue-500" />
+          <div className="flex items-center gap-2 font-medium text-[var(--fg-1)]">
+            <Database size={18} strokeWidth={2} className="text-[var(--accent)]" />
             <span>本地存储状态</span>
           </div>
           <button 
             onClick={() => setIsModalOpen(true)}
-            className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            className="text-xs font-medium text-[var(--accent)] hover:underline"
           >
             管理
           </button>
@@ -78,19 +78,19 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
 
         <div className="space-y-2">
           {error ? (
-            <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">{error}</p>
+            <p className="text-[10px] font-medium text-[var(--color-warning-500)]">{error}</p>
           ) : (
             <>
-              <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-2 overflow-hidden rounded-full bg-[var(--bg-inset)]">
                 <motion.div 
                   initial={{ width: 0 }}
                   animate={{ width: `${usageRatio * 100}%` }}
                   className={`h-full rounded-full ${
-                    usageRatio > 0.8 ? 'bg-amber-500' : 'bg-blue-500'
+                    usageRatio > 0.8 ? 'bg-[var(--color-warning-500)]' : 'bg-[var(--accent)]'
                   }`}
                 />
               </div>
-              <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-400">
+              <div className="flex justify-between text-[10px] text-[var(--fg-3)]">
                 <span>已用: {formatSize(usage)}</span>
                 <span>总量: {formatSize(quota)}</span>
               </div>
@@ -101,16 +101,16 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
         {!isPersistent && (
           <button 
             onClick={handleRequestPersistence}
-            className="mt-3 w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-lg text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-3 py-1.5 text-xs font-medium text-[var(--brand-primary-700)] transition-colors hover:bg-[rgba(59,98,184,0.16)] dark:text-[var(--accent)]"
           >
-            <ShieldAlert size={14} />
+            <ShieldAlert size={14} strokeWidth={2} />
             开启永久保护模式
           </button>
         )}
         
         {isPersistent && (
-          <div className="mt-3 flex items-center justify-center gap-1.5 text-emerald-600 dark:text-emerald-400 text-[10px] font-medium">
-            <ShieldCheck size={14} />
+          <div className="mt-3 flex items-center justify-center gap-1.5 text-[10px] font-medium text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
+            <ShieldCheck size={14} strokeWidth={2} />
             系统持久化模式已开启
           </div>
         )}
@@ -123,32 +123,32 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              className="absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm"
               onClick={() => setIsModalOpen(false)}
             />
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-md max-h-[90vh] flex flex-col bg-white dark:bg-gray-900 rounded-2xl shadow-2xl overflow-hidden border border-gray-200 dark:border-gray-700"
+              className="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-5)]"
             >
               <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
                 <div className="flex items-center gap-3 mb-6">
-                  <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl">
-                    <Database size={24} />
+                  <div className="rounded-[var(--radius-md)] bg-[var(--accent-quiet)] p-3 text-[var(--accent)]">
+                    <Database size={24} strokeWidth={2} />
                   </div>
                   <div>
-                    <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">存储管理</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">数据全本地化存储，无后端云端备份</p>
+                    <h3 className="text-xl font-semibold text-[var(--fg-1)]">存储管理</h3>
+                    <p className="text-sm text-[var(--fg-3)]">数据全本地化存储，无后端云端备份</p>
                   </div>
                 </div>
 
                 {isLowStorage && (
-                  <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex gap-3">
-                    <AlertTriangle className="text-amber-500 shrink-0" size={20} />
+                  <div className="mb-6 flex gap-3 rounded-[var(--radius-md)] border border-[rgba(184,132,42,0.3)] bg-[rgba(184,132,42,0.1)] p-4">
+                    <AlertTriangle className="shrink-0 text-[var(--color-warning-500)]" size={20} strokeWidth={2} />
                     <div>
-                      <p className="text-sm font-medium text-amber-800 dark:text-amber-300">存储空间告急</p>
-                      <p className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-1">
+                      <p className="text-sm font-medium text-[#5C3F0E] dark:text-[#FBEBC8]">存储空间不足</p>
+                      <p className="mt-1 text-xs text-[#5C3F0E]/80 dark:text-[#FBEBC8]/80">
                         可用空间已不足 20%，为防止数据丢失，请及时备份并清理旧数据。
                       </p>
                     </div>
@@ -158,18 +158,18 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                 <div className="space-y-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">总体使用率</span>
-                      <span className="font-medium text-gray-900 dark:text-gray-100">{Math.round(usageRatio * 100)}%</span>
+                      <span className="text-[var(--fg-2)]">总体使用率</span>
+                      <span className="font-medium text-[var(--fg-1)]">{Math.round(usageRatio * 100)}%</span>
                     </div>
-                    <div className="h-3 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                    <div className="h-3 overflow-hidden rounded-full bg-[var(--bg-inset)]">
                       <div 
                         className={`h-full rounded-full transition-all duration-500 ${
-                          usageRatio > 0.8 ? 'bg-amber-500' : 'bg-blue-500'
+                          usageRatio > 0.8 ? 'bg-[var(--color-warning-500)]' : 'bg-[var(--accent)]'
                         }`}
                         style={{ width: `${usageRatio * 100}%` }}
                       />
                     </div>
-                    <div className="flex justify-between text-xs text-gray-500">
+                    <div className="flex justify-between text-xs text-[var(--fg-3)]">
                       <span>{formatSize(usage)}</span>
                       <span>总额 {formatSize(quota)}</span>
                     </div>
@@ -179,34 +179,33 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                     <button 
                       onClick={handleGC}
                       disabled={isCleaning}
-                      className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 hover:bg-amber-50 dark:hover:bg-amber-900/20 border border-gray-100 dark:border-gray-700 rounded-xl transition-colors group"
+                      className="group flex w-full items-center justify-between rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4 transition-colors hover:bg-[rgba(184,132,42,0.08)]"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="p-2 bg-white dark:bg-gray-700 rounded-lg group-hover:text-amber-500 transition-colors">
-                          <Trash2 size={20} />
+                        <div className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] p-2 transition-colors group-hover:text-[var(--color-warning-500)]">
+                          <Trash2 size={20} strokeWidth={2} />
                         </div>
                         <div className="text-left">
-                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">智能清理缓存</p>
-                          <p className="text-xs text-gray-500">移除冗余的系统级日志和过期缓存</p>
+                          <p className="text-sm font-medium text-[var(--fg-1)]">智能清理缓存</p>
+                          <p className="text-xs text-[var(--fg-3)]">移除冗余的系统级日志和过期缓存</p>
                         </div>
                       </div>
-                      {isCleaning && <div className="animate-spin rounded-full h-4 w-4 border-2 border-amber-500 border-t-transparent" />}
+                      {isCleaning && <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-warning-500)] border-t-transparent" />}
                     </button>
                   </div>
 
-                  <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
-                    <div className="flex items-center gap-2 mb-4 text-gray-900 dark:text-gray-100 font-semibold">
-                      <div className="w-1.5 h-4 bg-blue-500 rounded-full" />
-                      <h4>数据导入与导出</h4>
+                  <div className="border-t border-[var(--border-subtle)] pt-6">
+                    <div className="mb-4 flex items-center">
+                      <h4 className="text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-4)]">数据导入与导出</h4>
                     </div>
                     
-                    <div className="p-4 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-xl mb-4">
+                    <div className="mb-4 rounded-[var(--radius-md)] border border-[rgba(59,98,184,0.18)] bg-[rgba(59,98,184,0.06)] p-4">
                       <div className="flex gap-3">
-                        <AlertTriangle className="text-blue-500 shrink-0" size={18} />
-                        <p className="text-xs text-blue-800/80 dark:text-blue-300/80 leading-relaxed">
+                        <AlertTriangle className="shrink-0 text-[var(--accent)]" size={18} strokeWidth={2} />
+                        <p className="text-xs leading-relaxed text-[var(--brand-primary-800)] dark:text-[var(--accent)]">
                           导出为经过安全混淆的单文件（.lawyer）。
                           <br />
-                          <strong className="text-blue-600 dark:text-blue-400">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话内容，不包含臃肿的附件，附件需在新设备重新上传。
+                          <strong className="text-[var(--accent)]">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话内容，不包含臃肿的附件，附件需在新设备重新上传。
                         </p>
                       </div>
                     </div>
@@ -219,18 +218,18 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             await storageService.exportConversationsText();
                           } catch (err) {
                             console.error(err);
-                            alert('导出失败: ' + (err as Error).message);
+                            alert('导出失败：' + (err as Error).message);
                           } finally {
                             setIsExporting(false);
                           }
                         }}
                         disabled={isExporting}
-                        className="flex flex-col items-center justify-center gap-2 p-4 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 rounded-xl transition-all group"
+                        className="group flex flex-col items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 transition-all hover:bg-[var(--accent-quiet)]"
                       >
-                        <div className="p-2 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg group-hover:scale-110 transition-transform">
-                          <Download size={20} />
+                        <div className="rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] p-2 text-[var(--accent)] transition-transform group-hover:scale-105">
+                          <Download size={20} strokeWidth={2} />
                         </div>
-                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">导出文字记录</span>
+                        <span className="text-sm font-medium text-[var(--fg-1)]">导出文字记录</span>
                       </button>
 
                       <div className="relative">
@@ -246,7 +245,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             setIsExporting(true);
                             try {
                               const count = await storageService.importConversationsFromFile(file);
-                              alert(`成功导入 ${count} 个对话！\n请刷新页面以查看更新。`);
+                              alert(`成功导入 ${count} 个对话。\n请刷新页面以查看更新。`);
                               updateEstimate();
                             } catch (err) {
                               console.error(err);
@@ -262,12 +261,12 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             document.getElementById('import-dialogues-input')?.click();
                           }}
                           disabled={isExporting}
-                          className="w-full flex flex-col items-center justify-center gap-2 p-4 bg-white dark:bg-gray-800 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border border-gray-200 dark:border-gray-700 rounded-xl transition-all group"
+                          className="group flex w-full flex-col items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 transition-all hover:bg-[rgba(44,118,112,0.08)]"
                         >
-                          <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-lg group-hover:scale-110 transition-transform">
-                            <Database size={20} />
+                          <div className="rounded-[var(--radius-sm)] bg-[rgba(44,118,112,0.12)] p-2 text-[var(--brand-tertiary-700)] transition-transform group-hover:scale-105 dark:text-[#8ecdc7]">
+                            <Database size={20} strokeWidth={2} />
                           </div>
-                          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">导入文字记录</span>
+                          <span className="text-sm font-medium text-[var(--fg-1)]">导入文字记录</span>
                         </button>
                       </div>
                     </div>
@@ -275,10 +274,10 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                 </div>
               </div>
 
-              <div className="p-4 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-100 dark:border-gray-700 flex justify-end shrink-0">
+              <div className="flex shrink-0 justify-end border-t border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4">
                 <button 
                   onClick={() => setIsModalOpen(false)}
-                  className="px-6 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  className="md3-btn-tonal px-6 py-2"
                 >
                   关闭
                 </button>

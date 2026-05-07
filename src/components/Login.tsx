@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { login } from '../services/api';
+import { BrandMark } from './Brand';
 
 interface LoginProps {
   onLoginSuccess: (username: string) => void;
@@ -32,23 +33,24 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8 transition-colors duration-300">
-      <div className="max-w-md w-full space-y-8 bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-white">
-            登录 Lawver
+    <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(120%_80%_at_50%_0%,rgba(59,98,184,0.08)_0%,transparent_50%),var(--bg-app)] px-4 py-12 transition-colors duration-300 sm:px-6 lg:px-8">
+      <div className="lawyance-fade-up flex w-full max-w-md flex-col gap-7 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-3)] sm:p-10">
+        <div className="text-center">
+          <BrandMark className="mx-auto h-14 w-14 text-[var(--accent)]" />
+          <h2 className="mt-4 font-serif text-[28px] font-medium leading-tight text-[var(--fg-1)]">
+            登录 Lawyance
           </h2>
-          <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
+          <p className="mt-2 text-sm text-[var(--fg-3)]">
             仅限内部人员使用
           </p>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form className="space-y-5" onSubmit={handleSubmit}>
           {error && (
-            <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm text-center">
+            <div className="rounded-[var(--radius-md)] border border-[rgba(176,70,62,0.3)] bg-[rgba(176,70,62,0.1)] px-4 py-3 text-center text-sm text-[var(--color-danger-500)]">
               {error}
             </div>
           )}
-          <div className="rounded-md shadow-sm space-y-4">
+          <div className="space-y-4">
             <div>
               <label className="sr-only" htmlFor="username">
                 账号
@@ -57,7 +59,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 id="username"
                 type="text"
                 required
-                className="appearance-none rounded-xl relative block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm transition-colors"
+                className="md3-input"
                 placeholder="账号"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -71,7 +73,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                 id="password"
                 type="password"
                 required
-                className="appearance-none rounded-xl relative block w-full px-4 py-3 border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm transition-colors"
+                className="md3-input"
                 placeholder="密码"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -83,9 +85,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="md3-btn-filled lawyance-pressable w-full rounded-[var(--radius-md)] py-3"
             >
-              {isLoading ? '登录中...' : '登录'}
+              {isLoading ? '登录中…' : '登录'}
             </button>
           </div>
         </form>

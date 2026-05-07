@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Settings2, Paperclip, X, Send } from 'lucide-react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 
 interface InputAreaProps {
   input: string;
@@ -18,6 +19,7 @@ interface InputAreaProps {
   setAgentMode: (val: string) => void;
   isOCPEnabled: boolean;
   setIsOCPEnabled: (val: boolean) => void;
+  onSettingsClearanceChange?: (height: number) => void;
 }
 
 export const InputArea: React.FC<InputAreaProps> = ({
@@ -35,10 +37,79 @@ export const InputArea: React.FC<InputAreaProps> = ({
   agentMode,
   setAgentMode,
   isOCPEnabled,
-  setIsOCPEnabled
+  setIsOCPEnabled,
+  onSettingsClearanceChange
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
+  const [settingsPosition, setSettingsPosition] = useState({ left: 0, width: 0, bottom: 0 });
+
+  const updateSettingsPosition = useCallback(() => {
+    const rect = composerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    setSettingsPosition({
+      left: rect.left,
+      width: rect.width,
+      bottom: window.innerHeight - rect.top + 12
+    });
+  }, []);
+
+  const updateSettingsClearance = useCallback(() => {
+    if (!isInputExpanded) {
+      onSettingsClearanceChange?.(0);
+      return;
+    }
+
+    const panelHeight = settingsPanelRef.current?.getBoundingClientRect().height ?? 0;
+    onSettingsClearanceChange?.((panelHeight || 168) + 20);
+  }, [isInputExpanded, onSettingsClearanceChange]);
+
+  useLayoutEffect(() => {
+    if (isInputExpanded) {
+      updateSettingsPosition();
+      updateSettingsClearance();
+    } else {
+      onSettingsClearanceChange?.(0);
+    }
+  }, [isInputExpanded, pendingUploads.length, onSettingsClearanceChange, updateSettingsClearance, updateSettingsPosition]);
+
+  useLayoutEffect(() => {
+    updateSettingsClearance();
+  }, [settingsPosition.width, updateSettingsClearance]);
+
+  useEffect(() => {
+    if (!isInputExpanded) return;
+
+    updateSettingsPosition();
+    updateSettingsClearance();
+    const handleViewportChange = () => {
+      updateSettingsPosition();
+      updateSettingsClearance();
+    };
+    const composerResizeObserver = typeof ResizeObserver !== 'undefined' && composerRef.current
+      ? new ResizeObserver(handleViewportChange)
+      : null;
+    const settingsResizeObserver = typeof ResizeObserver !== 'undefined' && settingsPanelRef.current
+      ? new ResizeObserver(updateSettingsClearance)
+      : null;
+
+    window.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('scroll', handleViewportChange);
+    composerResizeObserver?.observe(composerRef.current as Element);
+    settingsResizeObserver?.observe(settingsPanelRef.current as Element);
+
+    return () => {
+      window.removeEventListener('resize', handleViewportChange);
+      window.visualViewport?.removeEventListener('resize', handleViewportChange);
+      window.visualViewport?.removeEventListener('scroll', handleViewportChange);
+      composerResizeObserver?.disconnect();
+      settingsResizeObserver?.disconnect();
+    };
+  }, [isInputExpanded, updateSettingsClearance, updateSettingsPosition]);
 
   const onSendWrapper = () => {
     handleSend();
@@ -57,55 +128,65 @@ export const InputArea: React.FC<InputAreaProps> = ({
     }
   };
 
-  return (
-    <footer className="bg-gray-50 dark:bg-gray-900 p-2 sm:p-4 shrink-0 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:pb-8 border-t border-gray-200 dark:border-gray-800">
-      <div className="max-w-3xl mx-auto relative flex flex-col gap-3">
-
-        {isInputExpanded && (
+  const settingsLayer = typeof document !== 'undefined'
+    ? createPortal(
+      <AnimatePresence>
+        {isInputExpanded && settingsPosition.width > 0 && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="absolute bottom-full mb-3 left-0 right-0 bg-white dark:bg-gray-800 rounded-3xl p-4 sm:p-5 flex flex-col gap-4 sm:gap-5 border border-gray-200 dark:border-gray-700 shadow-lg z-10"
+            ref={settingsPanelRef}
+            key="composer-settings"
+            initial={{ opacity: 0, y: 10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            transition={{ duration: 0.24, ease: [0.2, 0, 0, 1] }}
+            style={{
+              left: settingsPosition.left,
+              width: settingsPosition.width,
+              bottom: settingsPosition.bottom
+            }}
+            className="glass lawyance-popover z-[80] flex flex-col gap-0 rounded-[var(--radius-xl)] p-0 shadow-[var(--shadow-5)]"
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Settings2 size={20} className="text-gray-600 dark:text-gray-400 sm:size-6" />
-                <span className="text-sm sm:text-[15px] font-medium text-gray-900 dark:text-gray-100">Enable Streaming Output</span>
+            <div className="pointer-events-none absolute -bottom-1.5 left-6 h-3 w-3 rotate-45 border-b border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl" />
+            <div className="relative z-[1] flex min-h-12 items-center justify-between gap-4 px-4 py-2.5">
+              <div className="flex min-w-0 items-center gap-3">
+                <Settings2 size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-3)]" />
+                <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">Enable Streaming Output</span>
               </div>
               <button
                 onClick={() => setIsStreaming(!isStreaming)}
-                className={`relative inline-flex h-6 w-11 sm:h-7 sm:w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 ${isStreaming ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`}
+                className={`lawyance-pressable relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${isStreaming ? 'bg-[var(--accent)]' : 'bg-[rgba(20,23,31,0.12)] dark:bg-white/[0.1]'}`}
+                aria-pressed={isStreaming}
               >
-                <span className={`inline-block h-4 w-4 sm:h-5 sm:w-5 transform rounded-full bg-white transition-transform ${isStreaming ? 'translate-x-6 sm:translate-x-6' : 'translate-x-1'}`} />
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${isStreaming ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
-            
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Settings2 size={20} className="text-gray-600 dark:text-gray-400 sm:size-6" />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm sm:text-[15px] font-medium text-gray-900 dark:text-gray-100">Output Check Process (OCP)</span>
-                  <span className="px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-semibold bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400">Beta</span>
+
+            <div className="relative z-[1] flex min-h-12 items-center justify-between gap-4 px-4 py-2.5">
+              <div className="flex min-w-0 items-center gap-3">
+                <Settings2 size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-3)]" />
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">Output Check Process (OCP)</span>
+                  <span className="shrink-0 rounded bg-[rgba(20,23,31,0.08)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--fg-3)]">Beta</span>
                 </div>
               </div>
               <button
                 onClick={() => setIsOCPEnabled(!isOCPEnabled)}
-                className={`relative inline-flex h-6 w-11 sm:h-7 sm:w-12 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900 
-                  ${isOCPEnabled ? 'bg-blue-600 dark:bg-blue-500' : 'bg-gray-200 dark:bg-gray-700'}`}
+                className={`lawyance-pressable relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${isOCPEnabled ? 'bg-[var(--accent)]' : 'bg-[rgba(20,23,31,0.12)] dark:bg-white/[0.1]'}`}
+                aria-pressed={isOCPEnabled}
               >
-                <span className={`inline-block h-4 w-4 sm:h-5 sm:w-5 transform rounded-full bg-white transition-transform ${isOCPEnabled ? 'translate-x-6 sm:translate-x-6' : 'translate-x-1'}`} />
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${isOCPEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
-            <div className="h-px bg-gray-100 dark:bg-gray-700 w-full" />
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Settings2 size={20} className="text-gray-600 dark:text-gray-400 sm:size-6" />
-                <span className="text-sm sm:text-[15px] font-medium text-gray-900 dark:text-gray-100">Agent Mode</span>
+            <div className="relative z-[1] mx-4 h-px bg-[var(--border-default)]" />
+            <div className="relative z-[1] flex min-h-12 items-center justify-between gap-4 px-4 py-2.5">
+              <div className="flex min-w-0 items-center gap-3">
+                <Settings2 size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-3)]" />
+                <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">Agent Mode</span>
               </div>
               <select
                 value={agentMode}
                 onChange={(e) => setAgentMode(e.target.value)}
-                className="text-sm sm:text-[15px] border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 cursor-pointer px-3 py-1.5 sm:px-4 sm:py-2 outline-none font-medium"
+                className="lawyance-pressable h-9 w-32 shrink-0 cursor-pointer rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[rgba(255,255,255,0.5)] px-3 text-sm font-medium text-[var(--fg-1)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] dark:bg-white/[0.05]"
               >
                 <option value="default">Default</option>
                 <option value="plan_and_solve">Plan & Solve</option>
@@ -114,7 +195,16 @@ export const InputArea: React.FC<InputAreaProps> = ({
             </div>
           </motion.div>
         )}
+      </AnimatePresence>,
+      document.body
+    )
+    : null;
 
+  return (
+    <>
+      {settingsLayer}
+      <footer className="pointer-events-none shrink-0 bg-transparent px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-0 sm:px-4 sm:pb-4">
+      <div ref={composerRef} className="pointer-events-auto relative mx-auto flex max-w-3xl flex-col">
         {pendingUploads.length > 0 && (
           <div className="flex flex-wrap gap-2 px-2 pb-1">
             {pendingUploads.map((file, index) => (
@@ -122,36 +212,39 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 key={index}
-                className="flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full px-3 py-1 sm:px-4 sm:py-1.5 shadow-sm"
+                className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1 text-[var(--fg-2)] shadow-[var(--shadow-1)] sm:px-4 sm:py-1.5"
               >
-                <Paperclip size={12} className="text-blue-600 dark:text-blue-400 sm:size-3.5" />
-                <span className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 max-w-30 sm:max-w-50 truncate">{file.name}</span>
+                <Paperclip size={12} strokeWidth={2} className="text-[var(--accent)] sm:size-3.5" />
+                <span className="max-w-[120px] truncate text-xs sm:max-w-[200px] sm:text-sm">{file.name}</span>
                 <button
                   onClick={() => removeUploadedFile(index)}
-                  className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full text-gray-500 hover:text-red-500 transition-colors"
+                  className="rounded-full p-1 text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+                  aria-label="Remove upload"
                 >
-                  <X size={12} className="sm:size-3.5" />
+                  <X size={12} strokeWidth={2} className="sm:size-3.5" />
                 </button>
               </motion.div>
             ))}
           </div>
         )}
 
-        <div className="flex items-end gap-1 sm:gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-800 rounded-3xl sm:rounded-4xl p-1.5 sm:p-2 focus-within:border-blue-500 dark:focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-500 dark:focus-within:ring-blue-400 transition-all duration-300 shadow-sm">
+        <div className="lawyance-composer-shell">
           <button
             onClick={() => setIsInputExpanded(!isInputExpanded)}
-            className={`p-3 sm:p-4 rounded-full shrink-0 transition-colors ${isInputExpanded ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+            className={`lawyance-composer-action lawyance-pressable transition-colors ${isInputExpanded ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+            aria-label="Open composer settings"
+            aria-expanded={isInputExpanded}
           >
-            <Settings2 size={20} className="sm:size-6" />
+            <Settings2 size={20} strokeWidth={2} />
           </button>
           
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isLoading}
-            className="p-3 sm:p-4 rounded-full shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+            className="lawyance-composer-action lawyance-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
             title="Upload file (Max 50MB)"
           >
-            <Paperclip size={20} className="sm:size-6" />
+            <Paperclip size={20} strokeWidth={2} />
           </button>
           <input
             type="file"
@@ -170,23 +263,25 @@ export const InputArea: React.FC<InputAreaProps> = ({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message Lawver... (Ctrl+Enter to send)"
-            className="flex-1 max-h-32 min-h-11 sm:min-h-14 bg-transparent border-none focus:ring-0 resize-none py-3 sm:py-4 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 text-sm sm:text-[16px] leading-relaxed outline-none"
+            placeholder="Message Lawyance... (Ctrl+Enter to send)"
+            className="composer-textarea lawyance-composer-textarea max-h-32 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
             rows={1}
           />
           <button
             onClick={onSendWrapper}
             disabled={isLoading || (!input.trim() && pendingUploads.length === 0)}
-            className={`p-3 sm:p-4 rounded-full shrink-0 transition-colors shadow-sm flex items-center justify-center ${
+            className={`lawyance-composer-action lawyance-pressable shadow-[var(--shadow-1)] transition-colors ${
               input.trim() || pendingUploads.length > 0
-                ? 'text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
-                : 'text-gray-400 bg-gray-100 dark:bg-gray-800 dark:text-gray-600 cursor-not-allowed'
+                ? 'bg-[var(--accent)] text-[var(--accent-on)] hover:bg-[var(--accent-hover)]'
+                : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] shadow-none dark:bg-white/[0.08]'
             }`}
+            aria-label="Send message"
           >
-            <Send size={20} className="sm:size-6" />
+            <Send size={20} strokeWidth={2} />
           </button>
         </div>
       </div>
-    </footer>
+      </footer>
+    </>
   );
 };

@@ -1,35 +1,56 @@
 import React from 'react';
 import { Folder, X, Paperclip, Download, Trash2, FileText } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+
+const WORKSPACE_PANEL_WIDTH = 320;
+const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
 
 interface WorkspacePanelProps {
   isWorkspaceOpen: boolean;
   setIsWorkspaceOpen: (open: boolean) => void;
   workspaceFiles: { name: string, path: string, type: 'upload' | 'generated' }[];
   onDeleteFile: (filePath: string) => void;
+  isDesktopLayout: boolean;
 }
 
 export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
   isWorkspaceOpen,
   setIsWorkspaceOpen,
   workspaceFiles,
-  onDeleteFile
+  onDeleteFile,
+  isDesktopLayout
 }) => {
   const uploadedFiles = workspaceFiles.filter(f => f.type === 'upload');
   const generatedFiles = workspaceFiles.filter(f => f.type === 'generated');
+  const panelAnimation = isDesktopLayout
+    ? {
+      width: isWorkspaceOpen ? WORKSPACE_PANEL_WIDTH : 0,
+      opacity: isWorkspaceOpen ? 1 : 0,
+      borderLeftWidth: isWorkspaceOpen ? 1 : 0
+    }
+    : {
+      x: isWorkspaceOpen ? 0 : '100%',
+      opacity: isWorkspaceOpen ? 1 : 0
+    };
+  const workspaceContentWidth = isDesktopLayout ? `${WORKSPACE_PANEL_WIDTH}px` : 'min(85vw, 320px)';
+  const workspaceStyle: React.CSSProperties = {
+    pointerEvents: isWorkspaceOpen ? 'auto' : 'none',
+    ...(!isDesktopLayout ? { width: workspaceContentWidth } : {})
+  };
 
   const FileItem = ({ file }: { file: { name: string, path: string, type: 'upload' | 'generated' } }) => (
-    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700 group">
-      <div className="flex items-center gap-3 overflow-hidden">
-        <div className={`p-2 rounded-lg shrink-0 ${file.type === 'upload' ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-green-100 dark:bg-green-900/30'}`}>
+    <div className="lawyance-fade-up group flex items-center justify-between rounded-[12px] border border-[var(--border-subtle)] bg-[rgba(59,98,184,0.04)] px-3 py-2.5 dark:bg-white/[0.03]">
+      <div className="flex min-w-0 items-center gap-3 overflow-hidden">
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${file.type === 'upload' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
           {file.type === 'upload' ? (
-            <Paperclip size={16} className="text-blue-600 dark:text-blue-400" />
+            <Paperclip size={15} strokeWidth={2} />
           ) : (
-            <FileText size={16} className="text-green-600 dark:text-green-400" />
+            <FileText size={15} strokeWidth={2} />
           )}
         </div>
-        <span className="text-sm text-gray-700 dark:text-gray-300 truncate" title={file.name}>{file.name}</span>
+        <span className="truncate text-[13px] leading-none text-[var(--fg-1)]" title={file.name}>{file.name}</span>
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
         <button
           onClick={() => {
             const link = document.createElement('a');
@@ -39,63 +60,93 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
             link.click();
             document.body.removeChild(link);
           }}
-          className="p-2 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
+          className="lawyance-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
           title="Download"
         >
-          <Download size={16} />
+          <Download size={14} strokeWidth={2} />
         </button>
         <button
           onClick={() => onDeleteFile(file.path)}
-          className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+          className="lawyance-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
           title="Delete"
         >
-          <Trash2 size={16} />
+          <Trash2 size={14} strokeWidth={2} />
         </button>
       </div>
     </div>
   );
 
   return (
-    <div className={`w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col shrink-0 transition-all duration-300 ${isWorkspaceOpen ? 'translate-x-0' : 'translate-x-full absolute right-0 h-full'}`}>
-      <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-        <h3 className="font-medium flex items-center gap-2 text-gray-900 dark:text-gray-100">
-          <Folder size={18} className="text-blue-600 dark:text-blue-400" />
-          Workspace
-        </h3>
-        <button onClick={() => setIsWorkspaceOpen(false)} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full text-gray-500 transition-colors">
-          <X size={18} />
-        </button>
-      </div>
+    <>
+      <AnimatePresence>
+        {!isDesktopLayout && isWorkspaceOpen && (
+          <motion.div
+            key="workspace-scrim"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={PANEL_TRANSITION}
+            className="fixed inset-0 z-40 bg-[var(--bg-overlay)] backdrop-blur-sm"
+            onClick={() => setIsWorkspaceOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+      </AnimatePresence>
 
-      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-6 custom-scrollbar">
-        {/* Uploaded Section */}
-        <section>
-          <h4 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3 px-1">
-            Uploaded Documents
-          </h4>
-          <div className="flex flex-col gap-2">
-            {uploadedFiles.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-600 italic px-1">No uploaded files</p>
-            ) : (
-              uploadedFiles.map((file, index) => <FileItem key={`up-${index}`} file={file} />)
-            )}
+      <motion.aside
+        initial={false}
+        animate={panelAnimation}
+        transition={PANEL_TRANSITION}
+        className={`flex h-full shrink-0 flex-col overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] ${
+          isDesktopLayout
+            ? 'relative'
+            : 'fixed right-0 top-0 z-50 rounded-l-[var(--radius-xl)] shadow-[var(--shadow-4)]'
+        }`}
+        style={workspaceStyle}
+        aria-hidden={!isWorkspaceOpen}
+      >
+        <div className="flex h-full shrink-0 flex-col" style={{ width: workspaceContentWidth }}>
+          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
+            <h3 className="flex items-center gap-2.5 text-[15px] font-medium leading-none text-[var(--fg-1)]">
+              <Folder size={18} strokeWidth={2} className="text-[var(--accent)]" />
+              Workspace
+            </h3>
+            <button onClick={() => setIsWorkspaceOpen(false)} className="lawyance-pressable rounded-full p-1.5 text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close workspace">
+              <X size={18} strokeWidth={2} />
+            </button>
           </div>
-        </section>
 
-        {/* Generated Section */}
-        <section>
-          <h4 className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3 px-1">
-            Generated Results
-          </h4>
-          <div className="flex flex-col gap-2">
-            {generatedFiles.length === 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-600 italic px-1">No generated files</p>
-            ) : (
-              generatedFiles.map((file, index) => <FileItem key={`gen-${index}`} file={file} />)
-            )}
+          <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
+            {/* Uploaded Section */}
+            <section>
+              <h4 className="mb-3 px-1 text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-4)]">
+                Uploaded Documents
+              </h4>
+              <div className="flex flex-col gap-2">
+                {uploadedFiles.length === 0 ? (
+                  <p className="px-1 text-xs italic text-[var(--fg-4)]">No uploaded files</p>
+                ) : (
+                  uploadedFiles.map((file, index) => <FileItem key={`up-${index}`} file={file} />)
+                )}
+              </div>
+            </section>
+
+            {/* Generated Section */}
+            <section>
+              <h4 className="mb-3 px-1 text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-4)]">
+                Generated Results
+              </h4>
+              <div className="flex flex-col gap-2">
+                {generatedFiles.length === 0 ? (
+                  <p className="px-1 text-xs italic text-[var(--fg-4)]">No generated files</p>
+                ) : (
+                  generatedFiles.map((file, index) => <FileItem key={`gen-${index}`} file={file} />)
+                )}
+              </div>
+            </section>
           </div>
-        </section>
-      </div>
-    </div>
+        </div>
+      </motion.aside>
+    </>
   );
 };

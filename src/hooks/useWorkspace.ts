@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { fileDB } from '../lib/db';
 import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile } from '../services/api';
 
-export function useWorkspace(currentId: string) {
+export function useWorkspace(currentId: string, enabled = true) {
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [workspaceFiles, setWorkspaceFiles] = useState<{ name: string, path: string, type: 'upload' | 'generated' }[]>([]);
   const [pendingUploads, setPendingUploads] = useState<{ name: string, path: string }[]>([]);
 
   const syncFiles = useCallback(async () => {
-    if (!currentId) return;
+    if (!enabled || !currentId) return;
     try {
       const data = await getWorkspaceFiles(currentId);
       const serverFiles = data.files || [];
@@ -73,7 +73,7 @@ export function useWorkspace(currentId: string) {
         type: (f.path && f.path.toUpperCase().includes('TEMP/')) ? 'upload' : 'generated'
       })));
     }
-  }, [currentId]);
+  }, [currentId, enabled]);
 
   useEffect(() => {
     syncFiles();
