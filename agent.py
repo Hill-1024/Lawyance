@@ -15,7 +15,8 @@ import logging
 from collections import defaultdict
 from typing import Any, List, Optional
 
-from function_calling import call, memory as system_memory
+from function_calling import call
+from prompt_loader import build_system_memory
 from agents import ReActAgent, PlanAndSolveAgent, DefaultAgent
 from mcps import use_tools, format_tool_descriptions
 from auth import authenticate_user, create_token, verify_token, get_user_role, list_accounts, add_or_update_account, delete_account
@@ -344,17 +345,38 @@ def _remember_memory_turn(workspace_scope: str, user_message: str, assistant_mes
     )
 
 
-def _attach_memory_context(messages: List[dict], context_packet: str) -> None:
-    if not context_packet:
-        return
-    for msg in messages:
-        if msg.get("role") == "system":
-            msg["content"] = f"{msg.get('content', '')}\n\n{context_packet}"
-            return
-    messages.insert(0, {"role": "system", "content": context_packet})
+FILE_FOCUS_PATTERN = re.compile(
+    r"(\[用户已上传以下文件|\.pdf\b|\.docx?\b|\.wps\b|文件|附件|批注|读取|上传)",
+    re.IGNORECASE,
+)
+LEGAL_FOCUS_PATTERN = re.compile(
+    r"(法律|法条|法规|司法解释|案例|判例|法院|起诉|诉讼|仲裁|合同|赔偿|侵权|劳动|婚姻|继承|借款|租赁|处罚|刑事|民事|行政|证据|律师|维权)"
+)
 
 
-async def compress_history(history: List[dict]) -> List[dict]:
+def _infer_prompt_focus(content: str, history: List[dict]) -> list[str]:
+    recent_texts = [content or ""]
+    for msg in history[-6:]:
+        if isinstance(msg, dict):
+            recent_texts.append(str(msg.get("content") or ""))
+    combined = "\n".join(recent_texts)
+
+    focus = []
+    if FILE_FOCUS_PATTERN.search(combined):
+        focus.append("file_processing")
+    if LEGAL_FOCUS_PATTERN.search(combined):
+        focus.append("legal_retrieval")
+    if not focus:
+        focus.append("general_gate")
+    return focus
+
+
+async def compress_history(
+    history: List[dict],
+    agent_mode: str = "default",
+    focus: Optional[list[str]] = None,
+    memory_context: str = "",
+) -> List[dict]:
     """
     对超出20条范围的记忆上下文启用“摘要 + 最近10条”的压缩方式
     """
@@ -380,7 +402,9 @@ async def compress_history(history: List[dict]) -> List[dict]:
 
     try:
         # 调用 LLM 进行摘要
-        summary_res = await call([{"role": "user", "content": summary_prompt}], stream=False)
+        summary_messages = build_system_memory(task="history_summary")
+        summary_messages.append({"role": "user", "content": summary_prompt})
+        summary_res = await call(summary_messages, stream=False, include_tools=False)
         content = summary_res.content or ""
         # 强制移除可能存在的 <final_answer> 标签
         content = re.sub(r'</?(final_answer|think)[^>]*>', '', content, flags=re.IGNORECASE | re.DOTALL).strip()
@@ -388,14 +412,22 @@ async def compress_history(history: List[dict]) -> List[dict]:
         print("[历史压缩] 摘要生成成功")
 
         # 重新构造历史：System + 摘要消息 + 最近10条
-        new_history = copy.deepcopy(system_memory)
+        new_history = build_system_memory(
+            agent_mode=agent_mode,
+            focus=focus,
+            memory_context=memory_context,
+        )
         new_history.append({"role": "assistant", "content": summary_text})
         new_history.extend(last_10)
         return new_history
     except Exception as e:
         print(f"[历史压缩] 摘要生成失败: {e}，回退到截断模式")
         # 如果摘要失败，回退到只保留最近 20 条
-        new_history = copy.deepcopy(system_memory)
+        new_history = build_system_memory(
+            agent_mode=agent_mode,
+            focus=focus,
+            memory_context=memory_context,
+        )
         new_history.extend(non_system_msgs[-20:])
         return new_history
 
@@ -458,6 +490,8 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     sanitized_history = []
     for msg in history:
         m = copy.deepcopy(msg)
+        if m.get("role") == "system":
+            continue
         # 确保 content 是字符串
         if "content" not in m or m["content"] is None:
             m["content"] = ""
@@ -483,14 +517,23 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     print(f"\n[收到请求] 会话ID: {session_id}, 模式: {agent_mode}, 流式: {stream}")
     _sync_memory_cache(workspace_scope, request.memory_snapshot, sanitized_history)
     memory_context, _ = _retrieve_memory_context(workspace_scope, content)
+    prompt_focus = _infer_prompt_focus(content, sanitized_history)
 
-    # 确保历史记录包含系统提示词 (Lawver 的身份定义)
-    full_history = copy.deepcopy(system_memory)
+    # 确保历史记录只使用服务端动态加载的系统提示词
+    full_history = build_system_memory(
+        agent_mode=agent_mode,
+        focus=prompt_focus,
+        memory_context=memory_context,
+    )
     full_history.extend(sanitized_history)
 
     # 1. 历史压缩逻辑
-    processed_history = await compress_history(full_history)
-    _attach_memory_context(processed_history, memory_context)
+    processed_history = await compress_history(
+        full_history,
+        agent_mode=agent_mode,
+        focus=prompt_focus,
+        memory_context=memory_context,
+    )
 
     # 2. 添加当前消息
     processed_history.append({"role": "user", "content": content})

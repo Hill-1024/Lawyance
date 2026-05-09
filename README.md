@@ -114,6 +114,23 @@ pnpm run dev:frontend
 | `pnpm run lint` | TypeScript 静态检查 |
 | `pnpm run clean` | 清理前端构建产物 |
 
+## 动态 Prompt
+
+Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对话上下文时都会重新读取这些片段：
+
+- `core/`：身份、硬约束、工具信源规则、输出契约、文件处理规则
+- `modes/`：`default`、`react`、`plan_and_solve` 三种 agent 模式的注意力焦点
+- `focus/`：按当前请求动态追加的法律检索、文件处理、任务边界焦点
+- `tasks/`：历史摘要等内部任务专用 prompt
+
+工具 schema 不放进动态 prompt，也不从 prompt 目录读取；模型工具能力仍由 `function_calling.call()` 中的 `tools=tools` 常态传入。
+
+可选环境变量：
+
+- `LAWVER_PROMPT_ROOT`：指定完整 prompt 根目录
+- `LAWVER_PROMPT_PROFILE`：指定 `prompts/<profile>`，默认 `lawver`
+- `LAWVER_PROMPT_INCLUDE_EXAMPLES=1`：将 `examples/` 中的 few-shot 示例追加到系统 prompt
+
 ## 测试
 
 ```bash
