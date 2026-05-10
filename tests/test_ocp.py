@@ -125,6 +125,19 @@ class OCPTests(unittest.TestCase):
         self.assertNotIn("OCP 正在", cleaned)
         self.assertIn("《民法典》第五百七十七条", cleaned)
 
+    def test_clean_output_prefers_final_answer_payload(self):
+        cleaned = ocp.OCPStatic._clean_output(
+            "需要注意：\n"
+            "- 最终回复必须包裹在 <final_answer> 标签中\n"
+            "现在让我构建答案。<final_answer>\n"
+            "外卖被偷，通常应先区分刑事、治安和民事赔偿路径。\n"
+            "</final_answer>"
+        )
+
+        self.assertEqual(cleaned, "外卖被偷，通常应先区分刑事、治安和民事赔偿路径。")
+        self.assertNotIn("需要注意", cleaned)
+        self.assertNotIn("final_answer", cleaned)
+
     def test_ocp_stream_commits_body_once_after_review_finishes(self):
         checker = ocp.OCPStream(session_id="test")
         checker.client = _fake_client([
@@ -144,6 +157,41 @@ class OCPTests(unittest.TestCase):
             events.index(replacements[0]),
             next(i for i, event in enumerate(events) if "审查完成" in event.get("content", "")),
         )
+
+    def test_ocp_stream_fallback_uses_final_answer_payload(self):
+        checker = ocp.OCPStream(session_id="test")
+        checker.MAX_TOOL_ROUNDS = 0
+        raw = (
+            "需要注意：最终回复必须包裹在 <final_answer> 中。\n"
+            "<final_answer>\n"
+            "OK\n"
+            "</final_answer>"
+        )
+
+        async def collect_events():
+            return [event async for event in checker.check_stream(raw)]
+
+        events = asyncio.run(collect_events())
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertEqual(replacements[0]["content"], "OK")
+        self.assertNotIn("需要注意", replacements[0]["content"])
+
+    def test_ocp_stream_preserves_short_answer_when_checker_drifts(self):
+        checker = ocp.OCPStream(session_id="test")
+        checker.client = _fake_client([
+            _content_chunk("好的，收到您的请求。请提供需要我检查并修复格式的文本内容。"),
+        ])
+
+        async def collect_events():
+            return [event async for event in checker.check_stream("OK")]
+
+        events = asyncio.run(collect_events())
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertEqual(replacements[0]["content"], "OK")
 
     def test_ocp_stream_rejects_status_line_as_replacement(self):
         original = (

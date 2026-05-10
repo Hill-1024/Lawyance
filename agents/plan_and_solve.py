@@ -102,7 +102,6 @@ class Planner:
                 delta = chunk.choices[0].delta
                 reasoning = getattr(delta, 'reasoning_content', None)
                 if reasoning:
-                    full_plan_text += reasoning
                     yield reasoning
                 if delta.content:
                     full_plan_text += delta.content
@@ -165,7 +164,6 @@ class Executor:
                     delta = chunk.choices[0].delta
                     reasoning = getattr(delta, 'reasoning_content', None)
                     if reasoning:
-                        step_result += reasoning
                         yield reasoning
                     if delta.content:
                         step_result += delta.content
@@ -226,8 +224,7 @@ Action: {{tool_name}}[{{tool_input}}]
                     delta = chunk.choices[0].delta
                     reasoning = getattr(delta, 'reasoning_content', None)
                     if reasoning:
-                        step_result += reasoning
-                        yield {'type': 'thought', 'content': reasoning}
+                        yield {'type': 'thought', 'content': reasoning, 'thought_type': 'reasoning', 'mode': 'append'}
                     if delta.content:
                         step_result += delta.content
                         yield {'type': 'thought', 'content': delta.content}
@@ -279,7 +276,7 @@ Action: {{tool_name}}[{{tool_input}}]
                 delta = chunk.choices[0].delta
                 reasoning = getattr(delta, 'reasoning_content', None)
                 if reasoning:
-                    yield {'type': 'thought', 'content': reasoning}
+                    yield {'type': 'thought', 'content': reasoning, 'thought_type': 'reasoning', 'mode': 'append'}
 
                 ts = getattr(delta, 'thought_signature', None)
                 if ts:
@@ -289,9 +286,9 @@ Action: {{tool_name}}[{{tool_input}}]
                     final_answer += delta.content
                     if self.use_ocp:
                         if not is_drafting:
-                            yield {'type': 'thought', 'content': '\n\n**[拟定初稿]**\n'}
+                            yield {'type': 'thought', 'content': '正在拟定回答初稿\n', 'thought_type': 'draft', 'mode': 'new'}
                             is_drafting = True
-                        yield {'type': 'thought', 'content': delta.content}
+                        yield {'type': 'thought', 'content': delta.content, 'thought_type': 'draft', 'mode': 'append'}
                     else:
                         yield {'type': 'content', 'content': delta.content}
 

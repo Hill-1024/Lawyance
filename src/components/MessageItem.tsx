@@ -164,12 +164,60 @@ const repairMarkdownTables = (text: string) => {
   return repaired.join('\n');
 };
 
-const normalizeBodyContent = (text: string) => {
-  return repairMarkdownTables(
+const extractFinalAnswerContent = (text: string) => {
+  const extractByTags = (openPattern: RegExp, closePattern: RegExp) => {
+    const closeMatches = [...text.matchAll(closePattern)];
+    const openMatches = [...text.matchAll(openPattern)];
+    if (openMatches.length === 0) return null;
+
+    const closeMatch = closeMatches[closeMatches.length - 1];
+    const closeIndex = closeMatch?.index ?? -1;
+    const prefix = closeIndex >= 0 ? text.slice(0, closeIndex) : text;
+    const prefixOpenMatches = [...prefix.matchAll(openPattern)];
+    const openMatch = prefixOpenMatches[prefixOpenMatches.length - 1] || openMatches[openMatches.length - 1];
+    const openIndex = openMatch.index ?? -1;
+    if (openIndex < 0) return null;
+
+    const candidate = text.slice(openIndex + openMatch[0].length, closeIndex >= 0 ? closeIndex : undefined).trim();
+    return candidate || null;
+  };
+
+  return (
+    extractByTags(/<\s*final_answer\s*>/gi, /<\s*\/\s*final_answer\s*>/gi) ||
+    extractByTags(/&lt;\s*final_answer\s*&gt;/gi, /&lt;\s*\/\s*final_answer\s*&gt;/gi) ||
     text
-      .replace(/<\/?\s*(?:response|final_answer)\s*>/gi, '')
-      .replace(/&lt;\/?\s*(?:response|final_answer)\s*&gt;/gi, '')
-      .trim()
+  );
+};
+
+const stripBodyWrapperLines = (value: string) => {
+  const wrapperPatterns = [
+    /^文本内容.{0,120}(无需修复|原样输出).*$/i,
+    /^\[?OCP\]?.{0,80}(正在|审查|检查|修复|完成|超时|异常).*$/i,
+    /^OCP\s*.{0,80}$/i,
+    /^\*\*\[拟定初稿\]\*\*$/i,
+    /^\[拟定初稿\]$/i,
+    /^正在拟定回答初稿$/i
+  ];
+  const lines = value.trim().split('\n');
+  while (lines.length > 0 && wrapperPatterns.some(pattern => pattern.test(lines[0].trim()))) {
+    lines.shift();
+    while (lines.length > 0 && !lines[0].trim()) {
+      lines.shift();
+    }
+  }
+  return lines.join('\n').trim();
+};
+
+const normalizeBodyContent = (text: string) => {
+  const taggedFinalAnswer = extractFinalAnswerContent(text);
+
+  return repairMarkdownTables(
+    stripBodyWrapperLines(
+      taggedFinalAnswer
+        .replace(/<\/?\s*(?:response|final_answer)\s*>/gi, '')
+        .replace(/&lt;\/?\s*(?:response|final_answer)\s*&gt;/gi, '')
+        .trim()
+    )
   ).trim();
 };
 
@@ -203,6 +251,54 @@ const thoughtTypeLabel: Record<ThoughtBlock['type'], string> = {
   draft: 'Draft',
   tool: 'Tool',
   ocp: 'OCP'
+};
+
+const sanitizeThoughtContent = (content: string, type: ThoughtBlock['type']) => {
+  if (type === 'draft') {
+    const draft = stripBodyWrapperLines(
+      extractFinalAnswerContent(content)
+        .replace(/<\/?\s*(?:response|final_answer)\s*>/gi, '')
+        .replace(/&lt;\/?\s*(?:response|final_answer)\s*&gt;/gi, '')
+        .trim()
+    );
+    return draft || '正在拟定回答初稿';
+  }
+
+  const leakedInstructionPatterns = [
+    /<\/?\s*final_answer\s*>/i,
+    /final_answer/i,
+    /禁止\s*emoji/i,
+    /纯文本\s*和\s*Markdown/i,
+    /必须使用纯文本/i,
+    /最终回复必须/i,
+    /引用格式要规范/i,
+    /底部信源必须/i,
+    /底部列出参考信源/i,
+    /检查约束/i,
+    /^限制[:：]/i,
+    /系统指令/i,
+    /禁止凭记忆/i,
+    /工具未返回内容/i,
+    /严禁泄露/i,
+    /严禁闲聊/i,
+    /不要输出文件路径/i,
+    /确保没有\s*emoji/i,
+    /retrieve_conversation_memory/i,
+    /我应该只输出/i,
+    /不要有任何解释/i,
+    /包含了标签/i,
+    /错误地给了分析/i
+  ];
+
+  const cleaned = content
+    .split('\n')
+    .filter(line => !leakedInstructionPatterns.some(pattern => pattern.test(line)))
+    .join('\n')
+    .replace(/<\/?\s*(?:response|final_answer)\s*>/gi, '')
+    .replace(/&lt;\/?\s*(?:response|final_answer)\s*&gt;/gi, '')
+    .trim();
+
+  return cleaned || getStatusLabel({ id: 'sanitized', type, content }) || '正在分析问题';
 };
 
 const WorkflowStatusIcon: React.FC<{ status: 'running' | 'done' }> = ({ status }) => (
@@ -334,6 +430,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                     <div data-testid="thought-column" className="mb-2 mt-3 flex w-full flex-col rounded-r-[14px] border-l-[3px] border-[var(--border-default)] bg-[rgba(59,98,184,0.04)] px-[18px] py-3.5 text-[13px] leading-[1.6] text-[var(--fg-2)]">
                       {thoughtBlocks.map((block, index) => {
                         const stepStatus = showThinking && block.id === latestThought?.id ? 'running' : 'done';
+                        const blockContent = sanitizeThoughtContent(block.content, block.type);
                         return (
                           <div key={block.id} data-testid="thought-step" data-step-type={block.type} className={`flex w-full flex-col gap-1.5 py-1 ${index > 0 ? 'mt-1.5 border-t border-dashed border-[var(--border-default)] pt-3.5' : ''}`}>
                             <div className={`thought-step-label flex items-center gap-2 text-[10px] font-semibold uppercase leading-none tracking-[0.08em] ${stepStatus === 'running' ? 'is-running' : 'is-done'}`}>
@@ -341,7 +438,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                               <span className="thought-step-label-text">{thoughtTypeLabel[block.type]}</span>
                             </div>
                             <div className="thought-copy prose dark:prose-invert w-full max-w-none">
-                              <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{block.content.trim()}</Markdown>
+                              <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{blockContent}</Markdown>
                             </div>
                           </div>
                         );

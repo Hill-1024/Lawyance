@@ -86,8 +86,7 @@ class ReActAgent:
                     delta = chunk.choices[0].delta
                     reasoning = getattr(delta, 'reasoning_content', None)
                     if reasoning:
-                        full_response_text += reasoning
-                        yield {'type': 'thought', 'content': reasoning}
+                        yield {'type': 'thought', 'content': reasoning, 'thought_type': 'reasoning', 'mode': 'append'}
 
                     ts = getattr(delta, 'thought_signature', None)
                     if ts:
@@ -111,8 +110,8 @@ class ReActAgent:
                 # 提取最终答案
                 final_answer = self._parse_action_input(action)
                 if self.use_ocp and final_answer.strip():
-                    yield {'type': 'thought', 'content': '\n\n**[拟定初稿]**\n'}
-                    yield {'type': 'thought', 'content': final_answer}
+                    yield {'type': 'thought', 'content': '正在拟定回答初稿\n', 'thought_type': 'draft', 'mode': 'new'}
+                    yield {'type': 'thought', 'content': final_answer, 'thought_type': 'draft', 'mode': 'append'}
                     from ocp import OCPStream
                     ocp = OCPStream(session_id=self.workspace_scope)
                     async for ocp_chunk in ocp.check_stream(final_answer):

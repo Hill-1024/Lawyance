@@ -35,7 +35,7 @@ class DefaultAgent:
                 while True:
                     response = await call(current_mem, True)
                     tool_calls = []
-                    content_str = ""
+                    assistant_content = ""
                     reasoning_str = ""
                     thought_signature_str = ""
                     is_tool_call = False
@@ -47,7 +47,6 @@ class DefaultAgent:
 
                         reasoning = getattr(delta, 'reasoning_content', None)
                         if reasoning:
-                            content_str += reasoning
                             reasoning_str += reasoning
                             yield {'type': 'thought', 'content': reasoning, 'thought_type': 'reasoning', 'mode': 'append'}
 
@@ -57,12 +56,12 @@ class DefaultAgent:
                             thought_signature_str = ts
 
                         if delta.content is not None:
-                            content_str += delta.content
+                            assistant_content += delta.content
                             actual_content += delta.content
                             if self.use_ocp:
                                 if not is_drafting:
                                     is_drafting = True
-                                    yield {'type': 'thought', 'content': '**[拟定初稿]**\n', 'thought_type': 'draft', 'mode': 'new'}
+                                    yield {'type': 'thought', 'content': '正在拟定回答初稿\n', 'thought_type': 'draft', 'mode': 'new'}
                                 yield {'type': 'thought', 'content': delta.content, 'thought_type': 'draft', 'mode': 'append'}
                             else:
                                 yield {'type': 'content', 'content': delta.content}
@@ -94,7 +93,7 @@ class DefaultAgent:
                         yield {'type': 'thought', 'content': '**正在调用工具处理中...**\n', 'thought_type': 'tool', 'mode': 'new'}
 
                         assistant_msg = create_assistant_message(
-                            content=content_str or "",
+                            content=assistant_content or "",
                             reasoning_content=reasoning_str,
                             tool_calls=tool_calls,
                             thought_signature=thought_signature_str
