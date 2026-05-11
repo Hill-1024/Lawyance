@@ -1,8 +1,8 @@
-# GDUT-Lawyer
+# Lawyance
 
 [中文](./README.md) | English | [日本語](./README.ja.md)
 
-GDUT-Lawyer is a Chinese legal AI assistant project built by the GDUT legal intelligence team. It combines legal consultation, statute retrieval, case matching, company information lookup, contract/PDF/Word document handling, conversation-level memory, and a frontend workspace into one application. The goal is not to return unverifiable one-line answers, but to structure legal questions into facts, authorities, retrieved evidence, and analysis paths that can be checked further.
+Lawyance is a Chinese legal AI assistant project built by the GDUT legal intelligence team. It combines legal consultation, statute retrieval, case matching, company information lookup, contract/PDF/Word document handling, conversation-level memory, and a frontend workspace into one application. The goal is not to return unverifiable one-line answers, but to structure legal questions into facts, authorities, retrieved evidence, and analysis paths that can be checked further.
 
 The repository contains a FastAPI backend, a React/Vite frontend, a tool forwarding layer, legal data clients, document processors, a conversation memory system, and an output review flow. Module boundaries matter: business tools are exposed to agents through `mcps`, and product code should not bypass that middleware.
 
