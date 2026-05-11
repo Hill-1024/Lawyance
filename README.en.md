@@ -136,6 +136,7 @@ Current tests focus on:
 ## Security Notes
 
 - `.env`, real contracts, client materials, generated results, and logs may contain sensitive information and should not be committed casually.
+- First deployment must set `SECRET_KEY` with at least 32 random characters and a one-time `INITIAL_ADMIN_PASSWORD`; remove the initial password variable after `data/account.json` is created.
 - Current CORS, rate limit, and auth defaults fit an internal prototype. Public deployment requires domain-specific hardening.
 - Admin APIs can manage accounts and read logs, so they should only be available to trusted administrators.
 - File annotation, document reading, and download APIs require ongoing attention to path isolation and permissions.

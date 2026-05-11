@@ -1,3 +1,7 @@
+/*
+ * 模块描述：本地存储状态组件，展示容量、持久化保护、清理和备份操作。
+ */
+
 import React, { useState } from 'react';
 import { Database, AlertTriangle, Download, Trash2, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { useStorage } from '../hooks/useStorage';

@@ -1,3 +1,7 @@
+/*
+ * 模块描述：存储状态 Hook，读取浏览器容量估算、持久化授权和低空间告警。
+ */
+
 import { useState, useEffect, useCallback } from 'react';
 import { fileDB } from '../lib/db';
 

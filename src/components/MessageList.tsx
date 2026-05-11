@@ -1,3 +1,7 @@
+/*
+ * 模块描述：消息列表组件，负责渲染消息流并在内容变化时滚动到底部。
+ */
+
 import React, { useEffect, useRef } from 'react';
 import { Message } from '../types';
 import { MessageItem } from './MessageItem';

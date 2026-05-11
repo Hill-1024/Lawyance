@@ -1,3 +1,7 @@
+/*
+ * 模块描述：React 应用根组件，串联认证状态、聊天布局、工作区、主题和管理路由。
+ */
+
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { ShieldAlert, ExternalLink } from 'lucide-react';

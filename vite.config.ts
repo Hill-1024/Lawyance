@@ -1,3 +1,7 @@
+/*
+ * 模块描述：Vite 构建与开发服务器配置，接入 React、Tailwind、路径别名和 API 代理。
+ */
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'

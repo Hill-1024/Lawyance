@@ -1,7 +1,12 @@
+"""
+模块描述：命令行密码哈希生成工具，用于为账号文件生成 PBKDF2 密码摘要。
+"""
+
 import getpass
 import hashlib
 import os
 import json
+
 
 def hash_password(password: str) -> str:
     # Use a fixed salt for simplicity or generate a random one and prepend it.
@@ -17,6 +22,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
         return actual_hash == expected_hash
     except ValueError:
         return False
+
 
 if __name__ == "__main__":
     print("=== GDUT-Lawyer 密码哈希生成工具 ===")

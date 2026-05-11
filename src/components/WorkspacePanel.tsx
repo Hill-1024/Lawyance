@@ -1,3 +1,7 @@
+/*
+ * 模块描述：工作区面板组件，展示上传文件和生成结果并提供下载/删除操作。
+ */
+
 import React from 'react';
 import { Folder, X, Paperclip, Download, Trash2, FileText } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';

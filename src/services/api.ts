@@ -1,3 +1,7 @@
+/*
+ * 模块描述：前端 API 客户端，封装认证、聊天、工作区、记忆同步和管理后台请求。
+ */
+
 import type { ConversationMemory } from '../types';
 
 export const verifyAuth = async () => {

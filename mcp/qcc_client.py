@@ -1,14 +1,7 @@
 """
-该客户端连接了企查查的mcp服务，目前接入了7个工具
-- get_company_profile
-- get_company_registration_info
-- get_contact_info
-- get_external_investments
-- get_key_personnel
-- get_listing_info
-- get_shareholder_info
-每个工具只需要一个参数company，表示需要查询的公司名称，类型为字符串
+模块描述：企查查企业信息客户端，封装企业画像、登记、股东、高管、联系方式等查询工具。
 """
+
 import os
 from dotenv import load_dotenv
 load_dotenv(".env")

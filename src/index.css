@@ -1,3 +1,5 @@
+/* 模块描述：全局样式入口，定义 Lawyance 设计 token、布局结构、动效和组件级样式。 */
+
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 

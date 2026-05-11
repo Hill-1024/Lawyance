@@ -1,3 +1,7 @@
+/*
+ * 模块描述：Lawyance 品牌组件，提供标识图形和文字组合。
+ */
+
 import React from 'react';
 
 interface BrandMarkProps {

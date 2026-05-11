@@ -1,3 +1,7 @@
+/*
+ * 模块描述：聊天页顶部栏组件，提供侧栏、工作区、标题和主题切换入口。
+ */
+
 import React from 'react';
 import { Menu, Sun, Monitor, Moon, Folder } from 'lucide-react';
 import { motion } from 'motion/react';

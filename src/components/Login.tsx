@@ -1,3 +1,7 @@
+/*
+ * 模块描述：登录表单组件，负责账号密码提交、错误展示和登录成功回调。
+ */
+
 import React, { useState } from 'react';
 import { login } from '../services/api';
 import { BrandMark } from './Brand';

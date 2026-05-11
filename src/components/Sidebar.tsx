@@ -1,3 +1,7 @@
+/*
+ * 模块描述：会话侧栏组件，提供新建会话、历史切换、删除、存储状态和管理入口。
+ */
+
 import React from 'react';
 import { X, Plus, Trash2, LogOut, ShieldAlert } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';

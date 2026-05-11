@@ -1,3 +1,7 @@
+/*
+ * 模块描述：工作区状态 Hook，同步本地 IndexedDB 文件与后端会话工作区。
+ */
+
 import { useState, useEffect, useCallback } from 'react';
 import { fileDB } from '../lib/db';
 import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile } from '../services/api';

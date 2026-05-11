@@ -1,3 +1,7 @@
+/*
+ * 模块描述：主题状态 Hook，管理亮色、暗色和跟随系统主题。
+ */
+
 import { useState, useEffect } from 'react';
 
 export function useTheme() {
