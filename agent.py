@@ -1,3 +1,7 @@
+"""
+模块描述：FastAPI 应用入口，负责认证、CORS/CSRF 防护、会话编排、文件工作区和聊天 API。
+"""
+
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Cookie, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,8 +16,11 @@ import time
 import asyncio
 import shutil
 import logging
+from logging.handlers import RotatingFileHandler
 from collections import defaultdict
 from typing import Any, List, Optional
+from urllib.parse import urlparse
+from urllib.parse import quote
 
 from function_calling import call
 from prompt_loader import build_system_memory
@@ -40,10 +47,57 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+SECURE_ORIGIN = "https://law.mutsumi.moe"
+SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
+LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$")
+
+
+def _configured_origins() -> set[str]:
+    origins = {SECURE_ORIGIN}
+    for raw_name in ("LAWYANCE_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
+        raw_value = os.getenv(raw_name, "")
+        for item in raw_value.split(","):
+            origin = item.strip().rstrip("/")
+            if origin and origin != "*":
+                origins.add(origin)
+    return origins
+
+
+ALLOWED_ORIGINS = sorted(_configured_origins())
+
+
+def _origin_from_url(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+
+def _is_trusted_origin(origin: str | None) -> bool:
+    if not origin:
+        return False
+    normalized = origin.rstrip("/")
+    return normalized in ALLOWED_ORIGINS or bool(LOCAL_ORIGIN_RE.match(normalized))
+
+
+def _is_local_host(hostname: str | None) -> bool:
+    return hostname in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+
+def _secure_cookie_for_request(request: Request) -> bool:
+    raw = os.getenv("COOKIE_SECURE")
+    if raw is not None:
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return not _is_local_host(request.url.hostname)
+
+
 # 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=LOCAL_ORIGIN_RE.pattern,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,17 +107,26 @@ app.add_middleware(
 os.makedirs("data", exist_ok=True)
 usage_logger = logging.getLogger("usage_logger")
 usage_logger.setLevel(logging.INFO)
-file_handler = logging.FileHandler("data/usage.log", encoding="utf-8")
+file_handler = RotatingFileHandler(
+    "data/usage.log",
+    maxBytes=int(os.environ.get("LAWYANCE_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
+    backupCount=int(os.environ.get("LAWYANCE_USAGE_LOG_BACKUPS", 5)),
+    encoding="utf-8",
+)
 file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
 if not usage_logger.handlers:
     usage_logger.addHandler(file_handler)
 
 ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
 RATE_LIMIT = 100 # requests per minute per IP
+last_rate_limit_prune = 0.0
 
 
 def sanitize_path_component(value: str) -> str:
-    return re.sub(r'[^a-zA-Z0-9_-]', '_', value or "")
+    encoded = quote(str(value or ""), safe="")
+    for char in "._-~":
+        encoded = encoded.replace(char, f"%{ord(char):02X}")
+    return encoded or "_"
 
 
 def get_workspace_scope(current_user: str, conversation_id: str) -> str:
@@ -85,20 +148,37 @@ def is_within_directory(path: str, directory: str) -> bool:
 
 @app.middleware("http")
 async def security_and_logging_middleware(request: Request, call_next):
+    global last_rate_limit_prune
     client_ip = request.client.host or "unknown"
     method = request.method
     path = request.url.path
-    
+
+    if path.startswith("/api") and method not in SAFE_HTTP_METHODS:
+        origin = request.headers.get("origin")
+        referer_origin = _origin_from_url(request.headers.get("referer"))
+        if origin and not _is_trusted_origin(origin):
+            return Response(content="Forbidden origin", status_code=403)
+        if not origin and referer_origin and not _is_trusted_origin(referer_origin):
+            return Response(content="Forbidden referer", status_code=403)
+        if not origin and not referer_origin and request.cookies.get("auth_token"):
+            return Response(content="Missing origin", status_code=403)
+
     # Rate Limiting
     now = time.time()
-    ip_data = ip_request_counts[client_ip]
-    if now > ip_data["reset_time"]:
-        ip_data["count"] = 1
-        ip_data["reset_time"] = now + 60
-    else:
-        ip_data["count"] += 1
-        if ip_data["count"] > RATE_LIMIT:
-            if path.startswith("/api"):
+    if path.startswith("/api") and method != "OPTIONS":
+        if now - last_rate_limit_prune > 60:
+            stale_ips = [ip for ip, data in ip_request_counts.items() if now > data["reset_time"]]
+            for ip in stale_ips:
+                del ip_request_counts[ip]
+            last_rate_limit_prune = now
+
+        ip_data = ip_request_counts[client_ip]
+        if now > ip_data["reset_time"]:
+            ip_data["count"] = 1
+            ip_data["reset_time"] = now + 60
+        else:
+            ip_data["count"] += 1
+            if ip_data["count"] > RATE_LIMIT:
                 return Response(content="Rate limit exceeded", status_code=429)
 
     response = await call_next(request)
@@ -137,18 +217,25 @@ class LoginRequest(BaseModel):
     password: str
 
 @app.post("/api/login")
-async def login(req: LoginRequest, response: Response):
+async def login(req: LoginRequest, response: Response, request: Request):
     success, msg = authenticate_user(req.username, req.password)
     if not success:
         raise HTTPException(status_code=401, detail=msg)
     
     token = create_token(req.username)
-    response.set_cookie(key="auth_token", value=token, httponly=True, max_age=7*24*3600, samesite="lax")
+    response.set_cookie(
+        key="auth_token",
+        value=token,
+        httponly=True,
+        secure=_secure_cookie_for_request(request),
+        max_age=7*24*3600,
+        samesite="strict",
+    )
     return {"status": "success", "message": "登录成功"}
 
 @app.post("/api/logout")
 async def logout(response: Response):
-    response.delete_cookie(key="auth_token")
+    response.delete_cookie(key="auth_token", httponly=True, samesite="strict")
     return {"status": "success"}
 
 @app.get("/api/verify_auth")
@@ -200,6 +287,41 @@ async def delete_admin_account(username: str, admin_user: str = Depends(require_
 # 全局在线状态记录
 active_conversations: dict[str, float] = {}
 
+
+def _cleanup_expired_workspace_dirs(one_hour_ago: float, active_scopes: set[str]):
+    for folder in ["TEMP", "Result"]:
+        if not os.path.exists(folder):
+            continue
+
+        for user_dir_name in os.listdir(folder):
+            user_dir = os.path.join(folder, user_dir_name)
+            if not os.path.isdir(user_dir):
+                continue
+
+            for conv_id in os.listdir(user_dir):
+                conv_dir = os.path.join(user_dir, conv_id)
+                if not os.path.isdir(conv_dir):
+                    continue
+
+                scope = os.path.join(user_dir_name, conv_id)
+                if scope in active_scopes:
+                    continue
+
+                try:
+                    mtime = os.path.getmtime(conv_dir)
+                    if mtime < one_hour_ago:
+                        shutil.rmtree(conv_dir, ignore_errors=True)
+                        print(f"[清理] 已彻底删除过期会话缓存: {conv_dir}")
+                except Exception as e:
+                    print(f"[清理] 删除会话缓存失败 {conv_dir}: {e}")
+
+            try:
+                if not os.listdir(user_dir):
+                    os.rmdir(user_dir)
+            except OSError:
+                pass
+
+
 async def cleanup_task():
     """
     后台清理任务：每10分钟运行一次，删除超过1小时未活跃会话的 TEMP 和 Result 缓存。
@@ -213,39 +335,13 @@ async def cleanup_task():
             stale_keys = [k for k, v in active_conversations.items() if v < one_hour_ago]
             for k in stale_keys:
                 del active_conversations[k]
-                _call_memory_tool("clear_conversation_memory", {}, k)
+                await asyncio.to_thread(_call_memory_tool, "clear_conversation_memory", {}, k)
 
-            for folder in ["TEMP", "Result"]:
-                if not os.path.exists(folder):
-                    continue
-
-                for user_dir_name in os.listdir(folder):
-                    user_dir = os.path.join(folder, user_dir_name)
-                    if not os.path.isdir(user_dir):
-                        continue
-
-                    for conv_id in os.listdir(user_dir):
-                        conv_dir = os.path.join(user_dir, conv_id)
-                        if not os.path.isdir(conv_dir):
-                            continue
-
-                        scope = os.path.join(user_dir_name, conv_id)
-                        if scope in active_conversations:
-                            continue
-
-                        try:
-                            mtime = os.path.getmtime(conv_dir)
-                            if mtime < one_hour_ago:
-                                shutil.rmtree(conv_dir, ignore_errors=True)
-                                print(f"[清理] 已彻底删除过期会话缓存: {conv_dir}")
-                        except Exception as e:
-                            print(f"[清理] 删除会话缓存失败 {conv_dir}: {e}")
-
-                    try:
-                        if not os.listdir(user_dir):
-                            os.rmdir(user_dir)
-                    except OSError:
-                        pass
+            await asyncio.to_thread(
+                _cleanup_expired_workspace_dirs,
+                one_hour_ago,
+                set(active_conversations),
+            )
 
         except Exception as e:
             print(f"[清理] 任务运行出错: {e}")
@@ -372,6 +468,48 @@ def _infer_prompt_focus(content: str, history: List[dict]) -> list[str]:
     return focus
 
 
+def _assistant_tool_call_ids(message: dict) -> set[str]:
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return set()
+    ids = set()
+    for tool_call in message.get("tool_calls") or []:
+        if isinstance(tool_call, dict) and tool_call.get("id"):
+            ids.add(str(tool_call["id"]))
+    return ids
+
+
+def _tool_response_id(message: dict) -> Optional[str]:
+    if not isinstance(message, dict) or message.get("role") != "tool":
+        return None
+    tool_call_id = message.get("tool_call_id")
+    return str(tool_call_id) if tool_call_id else None
+
+
+def _tool_pair_safe_cutoff(messages: List[dict], keep_count: int) -> int:
+    cutoff = max(0, len(messages) - keep_count)
+    while cutoff > 0:
+        kept_tool_ids = {
+            tool_id
+            for msg in messages[cutoff:]
+            for tool_id in [_tool_response_id(msg)]
+            if tool_id
+        }
+        if not kept_tool_ids:
+            return cutoff
+
+        owner_index = None
+        for index in range(cutoff - 1, -1, -1):
+            if _assistant_tool_call_ids(messages[index]) & kept_tool_ids:
+                owner_index = index
+                break
+
+        if owner_index is None or owner_index == cutoff:
+            return cutoff
+        cutoff = owner_index
+
+    return cutoff
+
+
 async def compress_history(
     history: List[dict],
     agent_mode: str = "default",
@@ -389,10 +527,9 @@ async def compress_history(
 
     print(f"[历史压缩] 当前消息数 {len(non_system_msgs)} > 20，开始压缩...")
 
-    # 保留最近的 10 条
-    last_10 = non_system_msgs[-10:]
-    # 需要摘要的部分
-    to_summarize = non_system_msgs[:-10]
+    cutoff = _tool_pair_safe_cutoff(non_system_msgs, 10)
+    last_10 = non_system_msgs[cutoff:]
+    to_summarize = non_system_msgs[:cutoff]
 
     # 构造摘要请求
     summary_prompt = "请简要总结以下对话的核心内容和已达成的共识，以便作为后续对话的上下文参考。注意：只输出纯文本总结，不要包含任何标签（如 <final_answer> 或 <think>）。\n\n"
@@ -432,7 +569,8 @@ async def compress_history(
             focus=focus,
             memory_context=memory_context,
         )
-        new_history.extend(non_system_msgs[-20:])
+        fallback_cutoff = _tool_pair_safe_cutoff(non_system_msgs, 20)
+        new_history.extend(non_system_msgs[fallback_cutoff:])
         return new_history
 
 def _build_tool_executor(workspace_scope: str):
@@ -460,11 +598,12 @@ def build_agent(mode: str, memory: list, session_id: str, workspace_scope: str, 
         )
     if mode in ["react", "plan_and_solve"]:
         tools_description = format_tool_descriptions()
+        agent_memory = memory[:-1] if memory and memory[-1].get("role") == "user" else memory
 
         if mode == "react":
-            return ReActAgent(tools_description=tools_description, execute_tool=execute_tool, memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
+            return ReActAgent(tools_description=tools_description, execute_tool=execute_tool, memory=agent_memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
         if mode == "plan_and_solve":
-            return PlanAndSolveAgent(tools_description=tools_description, execute_tool=execute_tool, memory=memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
+            return PlanAndSolveAgent(tools_description=tools_description, execute_tool=execute_tool, memory=agent_memory, session_id=session_id, workspace_scope=workspace_scope, use_ocp=use_ocp)
     return DefaultAgent(
         memory=memory,
         session_id=session_id,
@@ -484,11 +623,6 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     use_ocp = request.use_ocp
     workspace_scope = get_workspace_scope(current_user, session_id)
     active_conversations[workspace_scope] = time.time()
-
-    # 为当前用户消息加上后端时间
-    from datetime import datetime
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    content = f"[{current_time}] {content}"
 
     # Sanitize history: ensure content is always a string and no nulls
     sanitized_history = []
@@ -547,6 +681,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     if stream:
         async def generate_agent():
             full_result = ""
+            context_messages = []
             memory_written = False
             try:
                 import inspect
@@ -574,6 +709,14 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                                 if memory_payload.get("memory"):
                                     yield f"data: {json.dumps({'type': 'memory_sync', 'content': memory_payload['memory']}, ensure_ascii=False)}\n\n"
                             continue
+                        elif chunk_type == "history_trace":
+                            messages = chunk.get("content") or []
+                            if isinstance(messages, dict):
+                                messages = [messages]
+                            if isinstance(messages, list):
+                                context_messages.extend(messages)
+                            yield f"data: {json.dumps({'type': 'history_trace', 'content': messages}, ensure_ascii=False)}\n\n"
+                            continue
                         yield f"data: {json.dumps(chunk)}\n\n"
                     elif chunk:
                         chunk_str = str(chunk)
@@ -600,6 +743,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     else:
         try:
             full_result = ""
+            context_messages = []
             thought_signature = None
             memory_payload = {}
             memory_written = False
@@ -618,6 +762,12 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                         full_result = chunk.get('content', '')
                     elif chunk.get('type') == 'thought_signature':
                         thought_signature = chunk.get('content')
+                    elif chunk.get('type') == 'history_trace':
+                        messages = chunk.get('content') or []
+                        if isinstance(messages, dict):
+                            messages = [messages]
+                        if isinstance(messages, list):
+                            context_messages.extend(messages)
                     elif chunk.get('type') == 'memory_candidate' and not memory_written:
                         memory_payload = _remember_memory_turn(
                             workspace_scope,
@@ -640,6 +790,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                 "reply": full_result,
                 "download_path": None,
                 "thought_signature": thought_signature,
+                "context_messages": context_messages,
                 "memory_snapshot": memory_payload.get("memory")
             }
         except Exception as e:

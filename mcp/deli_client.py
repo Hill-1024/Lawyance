@@ -1,3 +1,7 @@
+"""
+模块描述：得理案例检索客户端，封装认证请求、异常处理和案例匹配工具。
+"""
+
 import requests
 import json
 import os
@@ -81,7 +85,7 @@ class DELIClient:
         :return: 请求结果
         """
         try:
-            response = requests.post(api_url, headers=self.session.headers, data=json.dumps(request_body))
+            response = requests.post(api_url, headers=self.session.headers, data=json.dumps(request_body), timeout=30)
             response.raise_for_status()  # 检查请求是否成功
 
             # 5. 解析响应
@@ -93,8 +97,10 @@ class DELIClient:
 
         except requests.exceptions.RequestException as e:
             print(f"请求发生错误: {e}")
+            return {"success": False, "message": f"案例检索网络请求失败: {e}"}
         except json.JSONDecodeError as e:
             print(f"响应JSON解析错误: {e}")
+            return {"success": False, "message": f"案例检索响应解析失败: {e}"}
 
 def build_client():
     Client = DELIClient(
@@ -126,6 +132,12 @@ def match_legal_case(
         request_body
     )
     # print(json.dumps(result_data, indent=2, ensure_ascii=False))
+
+    if not isinstance(result_data, dict) or not isinstance(result_data.get("body"), dict):
+        return {
+            "success": False,
+            "message": result_data.get("message", "案例检索服务返回异常") if isinstance(result_data, dict) else "案例检索服务返回异常"
+        }
 
     if result_data["body"]["totalCount"] == 0:
         mock_result = {

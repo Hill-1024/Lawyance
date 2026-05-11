@@ -1,9 +1,6 @@
 """
-这个PDF批注器提供了两个工具函数
-pdf_commit_by_sentence：根据提供的文件路径，文本内容，坐标参数，对pdf文件进行批注
-pdf_text_reader：解析pdf文件并返回json对象，内容为每句文本的坐标，给llm批注提供坐标参数
+模块描述：PDF 文本定位与批注工具，负责按句提取坐标并生成带批注的 PDF 副本。
 """
-
 
 import fitz  # PyMuPDF
 import json
@@ -315,15 +312,15 @@ class PDFCommitor:
 
         Args:
             input_pdf_path (str): 原始PDF文件路径
-            output_pdf_path (str, optional): 输出PDF文件路径。默认为原始文件名后添加_lawver
+            output_pdf_path (str, optional): 输出PDF文件路径。默认为原始文件名后添加_lawyance
         """
         self.input_pdf_path = input_pdf_path
 
         if output_pdf_path is None:
-            # 默认输出路径：原始文件名后添加_lawver
+            # 默认输出路径：原始文件名后添加_lawyance
             base_name, ext = os.path.splitext(input_pdf_path)
-            if not base_name.endswith('_lawver'):
-                base_name = f"{base_name}_lawver"
+            if not base_name.endswith('_lawyance'):
+                base_name = f"{base_name}_lawyance"
             self.output_pdf_path = f"{base_name}{ext}"
         else:
             self.output_pdf_path = output_pdf_path
@@ -519,8 +516,10 @@ def pdf_text_reader(pdf_path):
         str: JSON格式的文本数据
     """
     extractor = PDFTextExtractor(pdf_path)
-    data = extractor.extract_sentences_with_coords()
-    extractor.close()
+    try:
+        data = extractor.extract_sentences_with_coords()
+    finally:
+        extractor.close()
 
     if data is None:
         return json.dumps({"error": "无法提取PDF文本"}, ensure_ascii=False, indent=2)
@@ -582,8 +581,8 @@ def pdf_commit_by_sentence(pdf_path, note_text, page_index=0, sentence_index=0, 
         tuple: (是否成功, 输出文件路径)
     """
     extractor = PDFTextExtractor(pdf_path)
-    sentence_data = extractor.extract_sentences_with_coords()
     try:
+        sentence_data = extractor.extract_sentences_with_coords()
         # 如果是JSON字符串，先解析
         if isinstance(sentence_data, str):
             try:
@@ -633,6 +632,8 @@ def pdf_commit_by_sentence(pdf_path, note_text, page_index=0, sentence_index=0, 
     except Exception as e:
         print(f"❌ 根据句子添加批注失败: {str(e)}")
         return False, None
+    finally:
+        extractor.close()
 
 # 最简测试用例
 if __name__ == "__main__":

@@ -1,8 +1,5 @@
 """
-本地法律法规检索引擎。
-
-数据源来自 `RAG/data_doc` 中的原始法条文本，首次检索时会自动构建
-`RAG/cache/law.db` 本地索引，后续仅在语料变更时增量重建。
+模块描述：本地法律法规检索引擎，负责从 RAG/data_doc 构建索引并提供精确、模糊和关联检索。
 """
 
 from __future__ import annotations
@@ -12,6 +9,7 @@ import re
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -106,7 +104,7 @@ class LawSearchEngine:
             result["search_time"] = time.time() - start_time
             return json.dumps(result, ensure_ascii=False)
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 """
                 SELECT laws.law_name, laws.category, laws.url, laws.cli,
@@ -159,7 +157,7 @@ class LawSearchEngine:
         terms = build_query_terms(query)
         candidates: List[Tuple[int, Dict[str, str]]] = []
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             cursor = conn.execute(
                 """
                 SELECT laws.law_name, laws.category, laws.url, laws.cli,
@@ -312,7 +310,7 @@ class LawSearchEngine:
         if not query:
             return None
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             exact = conn.execute(
                 """
                 SELECT laws.*
@@ -347,7 +345,7 @@ class LawSearchEngine:
             return []
 
         matches: List[Tuple[str, str, int]] = []
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             cursor = conn.execute(
                 """
                 SELECT laws.law_name, laws.url, law_aliases.alias, law_aliases.normalized_alias
@@ -741,12 +739,15 @@ def format_references(references: Iterable[Dict[str, str]]) -> str:
 
 
 _ENGINE: Optional[LawSearchEngine] = None
+_ENGINE_LOCK = threading.Lock()
 
 
 def get_engine() -> LawSearchEngine:
     global _ENGINE
     if _ENGINE is None:
-        _ENGINE = LawSearchEngine()
+        with _ENGINE_LOCK:
+            if _ENGINE is None:
+                _ENGINE = LawSearchEngine()
     return _ENGINE
 
 

@@ -1,3 +1,7 @@
+"""
+模块描述：业务工具转发中间件，统一暴露法律检索、文件处理、企业查询和记忆工具。
+"""
+
 from mcp.deli_client import match_legal_case
 from mcp.pkulaw_client import get_article, search_article, get_linked_content
 from mcp.PDF_processor import pdf_text_reader, pdf_commit_by_sentence
@@ -13,50 +17,54 @@ import os
 import json
 
 
-def get_result_path(input_path):
+class WorkspacePathError(ValueError):
+    pass
+
+
+def _is_within_directory(path, directory):
+    abs_path = os.path.abspath(path)
+    abs_dir = os.path.abspath(directory)
+    return abs_path == abs_dir or abs_path.startswith(abs_dir + os.sep)
+
+
+def _validate_workspace_scope(workspace_scope):
+    if not workspace_scope or os.path.isabs(workspace_scope):
+        raise WorkspacePathError("无法获取当前工作区作用域。")
+    parts = workspace_scope.replace("\\", "/").split("/")
+    if len(parts) != 2 or any(not part or part in {".", ".."} for part in parts):
+        raise WorkspacePathError("工作区作用域格式非法。")
+    return os.path.join(*parts)
+
+
+def _workspace_dir(root, workspace_scope):
+    return os.path.abspath(os.path.join(root, _validate_workspace_scope(workspace_scope)))
+
+
+def resolve_workspace_file(input_path, workspace_scope, allowed_roots=("TEMP", "Result")):
     if not input_path:
-        return None
-    # 统一使用正斜杠并去除首尾空格
-    normalized_path = input_path.replace('\\', '/').strip()
-    parts = [p for p in normalized_path.split('/') if p]  # 去除空字符串
+        raise WorkspacePathError("未提供文件路径。")
 
-    # 查找 TEMP 所在的索引
-    try:
-        if 'TEMP' in parts:
-            temp_idx = parts.index('TEMP')
-            # 保留 TEMP 后直到文件名之前的全部层级，兼容 TEMP/<conv>/... 与 TEMP/<user>/<conv>/...
-            if len(parts) > temp_idx + 2:
-                workspace_parts = parts[temp_idx + 1:-1]
-                filename = parts[-1]
-                base, ext = os.path.splitext(filename)
+    normalized_path = str(input_path).replace("\\", "/").strip()
+    if os.path.isabs(normalized_path):
+        raise WorkspacePathError("不允许使用绝对路径。")
 
-                # 构造 Result 路径
-                result_dir = os.path.join('Result', *workspace_parts)
-                os.makedirs(result_dir, exist_ok=True)
+    candidate = os.path.abspath(normalized_path)
+    allowed_dirs = [_workspace_dir(root, workspace_scope) for root in allowed_roots]
+    if not any(_is_within_directory(candidate, directory) for directory in allowed_dirs):
+        raise WorkspacePathError("文件路径不属于当前工作区。")
+    return candidate
 
-                if not base.endswith('_lawver'):
-                    base = f"{base}_lawver"
-                return os.path.join(result_dir, f"{base}{ext}").replace('\\', '/')
-    except Exception:
-        pass
 
-    # 如果没找到 TEMP，或者格式不对，回退到原始逻辑但确保在 Result 目录下
-    filename = os.path.basename(normalized_path)
+def get_result_path(input_path, workspace_scope):
+    source_path = resolve_workspace_file(input_path, workspace_scope, allowed_roots=("TEMP", "Result"))
+    filename = os.path.basename(source_path)
     base, ext = os.path.splitext(filename)
-    if not base.endswith('_lawver'):
-        base = f"{base}_lawver"
+    if not base.endswith("_lawyance"):
+        base = f"{base}_lawyance"
 
-    # 尝试寻找可能存在的 conv_id (假设路径中包含类似 UUID 的结构)
-    # 如果路径中包含 Result/xxx/，则保留
-    if 'Result' in parts:
-        res_idx = parts.index('Result')
-        if len(parts) > res_idx + 1:
-            return normalized_path  # 已经是在 Result 目录下的路径了
-
-    # 默认保存在 Result/misc 目录下，防止前端正则匹配失败
-    result_dir = os.path.join('Result', 'misc')
+    result_dir = os.path.join("Result", _validate_workspace_scope(workspace_scope))
     os.makedirs(result_dir, exist_ok=True)
-    return os.path.join(result_dir, f"{base}{ext}").replace('\\', '/')
+    return os.path.join(result_dir, f"{base}{ext}").replace("\\", "/")
 
 
 tools = [
@@ -419,6 +427,26 @@ def _coerce_arguments(function_name, arguments):
                 arguments = {"keywords": [arguments]}
             elif function_name == "retrieve_conversation_memory":
                 arguments = {"query": arguments}
+            elif function_name == "get_article":
+                parts = arguments.strip().rsplit(" ", 1)
+                if len(parts) == 2 and parts[1].startswith("第"):
+                    arguments = {"title": parts[0], "number": parts[1]}
+                else:
+                    arguments = {"title": arguments, "number": ""}
+            elif function_name == "pdf_commit_by_sentence":
+                arguments = {"pdf_path": arguments}
+            elif function_name == "word_writer":
+                arguments = {"file_path": arguments}
+            elif function_name in {
+                "get_company_profile",
+                "get_company_registration_info",
+                "get_contact_info",
+                "get_external_investments",
+                "get_key_personnel",
+                "get_listing_info",
+                "get_shareholder_info",
+            }:
+                arguments = {"company": arguments}
 
     if not isinstance(arguments, dict):
         return {}
@@ -427,12 +455,14 @@ def _coerce_arguments(function_name, arguments):
 
 
 def _list_workspace_files(workspace_scope):
-    if not workspace_scope:
+    try:
+        safe_scope = _validate_workspace_scope(workspace_scope)
+    except WorkspacePathError:
         return "无法获取当前工作区作用域，无法列出文件。"
 
     files = []
     for base_dir, file_type in (("TEMP", "upload"), ("Result", "generated")):
-        workspace_dir = os.path.join(base_dir, workspace_scope)
+        workspace_dir = os.path.join(base_dir, safe_scope)
         if not os.path.exists(workspace_dir):
             continue
 
@@ -487,14 +517,22 @@ def _dispatch_tool(function_name, arguments, workspace_scope):
         path = arguments.get("pdf_path") or arguments.get("file_path") or arguments.get("path")
         if not path:
             return "错误：未提供PDF文件路径。"
-        return pdf_text_reader(path)
+        try:
+            safe_path = resolve_workspace_file(path, workspace_scope, allowed_roots=("TEMP", "Result"))
+        except WorkspacePathError as e:
+            return f"错误：{e}"
+        return pdf_text_reader(safe_path)
     if function_name == "pdf_commit_by_sentence":
         path = arguments.get("pdf_path") or arguments.get("file_path") or arguments.get("path")
         if not path:
             return "错误：未提供PDF文件路径。"
-        output_path = get_result_path(path)
+        try:
+            safe_path = resolve_workspace_file(path, workspace_scope, allowed_roots=("TEMP", "Result"))
+            output_path = get_result_path(path, workspace_scope)
+        except WorkspacePathError as e:
+            return f"错误：{e}"
         success, out_path = pdf_commit_by_sentence(
-            path,
+            safe_path,
             arguments.get("note_text"),
             arguments.get("page_index", 0),
             arguments.get("sentence_index", 0),
@@ -505,13 +543,21 @@ def _dispatch_tool(function_name, arguments, workspace_scope):
         path = arguments.get("file_path") or arguments.get("pdf_path") or arguments.get("path")
         if not path:
             return "错误：未提供Word文件路径。"
-        return word_reader(path)
+        try:
+            safe_path = resolve_workspace_file(path, workspace_scope, allowed_roots=("TEMP", "Result"))
+        except WorkspacePathError as e:
+            return f"错误：{e}"
+        return word_reader(safe_path)
     if function_name == "word_writer":
         path = arguments.get("file_path") or arguments.get("pdf_path") or arguments.get("path")
         if not path:
             return "错误：未提供Word文件路径。"
-        output_path = get_result_path(path)
-        success = word_writer(path, arguments.get("index"), arguments.get("text"), output_path=output_path)
+        try:
+            safe_path = resolve_workspace_file(path, workspace_scope, allowed_roots=("TEMP", "Result"))
+            output_path = get_result_path(path, workspace_scope)
+        except WorkspacePathError as e:
+            return f"错误：{e}"
+        success = word_writer(safe_path, arguments.get("index"), arguments.get("text"), output_path=output_path)
         return f"批注成功，文件保存在: {output_path}" if success else "批注失败"
     if function_name == "get_company_profile":
         return get_company_profile(arguments.get("company"))
