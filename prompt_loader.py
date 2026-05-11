@@ -17,6 +17,9 @@ CORE_SECTIONS = (
     "core/90-disclaimer.md",
 )
 
+# 约束重申段 — 必须放在 system prompt 最尾部（利用 recency 效应）
+CONSTRAINT_RECAP_SECTION = "core/50-constraint-recap.md"
+
 MODE_SECTIONS = {
     "default": ("modes/default.md",),
     "react": ("modes/react.md",),
@@ -109,6 +112,11 @@ def build_system_prompt(
     memory = str(memory_context or "").strip()
     if memory:
         sections.append(f"<active_conversation_context>\n{memory}\n</active_conversation_context>")
+
+    # 约束重申段放在 system prompt 最末尾，利用 recency 效应强化核心约束
+    recap = _read_section(root, CONSTRAINT_RECAP_SECTION, required=False)
+    if recap:
+        sections.append(recap)
 
     return "\n\n".join(section for section in sections if section)
 

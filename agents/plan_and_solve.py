@@ -24,12 +24,17 @@ except ImportError:
 
     from function_calling import call
 
-# Planner 定义
+from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
+
+# Planner 模板 — 不再硬编码身份，依赖 system prompt 的 core constraints
 PLANNER_PROMPT_TEMPLATE = """
-你是由工大法智团队开发的规划专家，擅长为法律任务规划行动计划。
-你的任务是将用户提出的任务分解成一个由多个简单步骤组成的行动计划。
-请确保计划中的每个步骤都是一个独立的、可执行的子任务，并且严格按照逻辑顺序排列。
-你的输出必须是一个Python列表，其中每个元素都是一个描述子任务的字符串。
+你的任务是将用户提出的法律问题分解成一个由多个简单步骤组成的行动计划。
+
+关键规则：
+1. 规划阶段只拆解任务，不输出任何法律结论或法条引用。
+2. 涉及法律依据的步骤必须明确标注"需要检索"（如"检索《XX法》关于XX的规定"）。
+3. 每个步骤必须是独立的、可执行的子任务。
+4. 输出必须是一个 Python 列表格式。
 
 问题: {question}
 
@@ -38,48 +43,17 @@ PLANNER_PROMPT_TEMPLATE = """
 ["步骤1", "步骤2", "步骤3", ...]
 ```
 
-Few Shot Examples:
-
-示例1:
+示例:
 问题: 我被公司无故解雇，想申请劳动仲裁，应该怎么做？
 ```python
 [
-    "明确案件基本事实：梳理被解雇的时间、原因及公司给出的理由",
-    "检索适用法律条文：查找《劳动合同法》中关于违法解除劳动合同的相关规定（如第48条、第87条）",
-    "判断是否构成违法解除：对比公司行为与法定解除条件，评估公司是否存在违法情形",
-    "计算可主张的赔偿金额：根据工作年限和月薪计算二倍经济补偿金（N×2）",
-    "确认仲裁时效：确认劳动争议仲裁时效为1年，并核实是否在时效内",
-    "准备仲裁申请材料：列明需收集的证据清单（劳动合同、工资流水、解雇通知书等）",
-    "指引仲裁申请流程：说明向用人单位所在地劳动仲裁委员会提交申请的具体步骤"
-]
-```
-
-示例2:
-问题: 我借给朋友10万元，约定6个月还款，现在已经逾期3个月，我想通过法律途径追回借款。
-```python
-[
-    "梳理借贷事实：确认借款金额、借款时间、约定还款期限及当前逾期情况",
-    "审查债权凭证效力：评估借条、转账记录、微信聊天记录等证据的法律效力",
-    "检索适用法律条文：查找《民法典》关于民间借贷、诉讼时效的相关规定（第667-680条）",
-    "核实利息约定合法性：判断约定利率是否超过法定上限（LPR的4倍），评估逾期利息的可主张范围",
-    "评估诉讼时效：确认普通诉讼时效为3年，核实是否存在时效中断情形",
-    "选择诉讼策略：比较直接起诉与申请支付令两种途径的适用条件和效率",
-    "确定管辖法院：根据被告住所地或合同履行地确定有管辖权的基层人民法院",
-    "准备起诉材料：列明起诉状撰写要点及需提交的证据清单"
-]
-```
-
-示例3:
-问题: 我购买的新房存在严重质量问题，开发商拒绝维修，我该如何维权？
-```python
-[
-    "固定房屋质量问题证据：说明如何通过拍照、录像、第三方检测报告等方式保全证据",
-    "检索房屋质量法律标准：查找《建筑法》《商品房销售管理办法》及相关工程质量强制标准",
-    "审查购房合同条款：分析合同中关于工程质量保修责任、违约责任的具体约定",
-    "判断开发商违约责任：对比质量问题与合同约定及法定标准，认定开发商是否构成违约",
-    "评估可主张的救济方式：分析要求维修、减少价款、赔偿损失乃至解除合同的适用条件",
-    "尝试行政投诉途径：指引向当地住房和城乡建设局投诉的流程及预期效果",
-    "制定诉讼方案：确定诉讼请求、管辖法院及诉讼费用预估"
+    "梳理案件事实：确认被解雇的时间、原因及公司给出的理由",
+    "检索适用法律：查找《劳动合同法》中关于违法解除劳动合同的规定",
+    "判断违法情形：对比公司行为与法定解除条件",
+    "计算赔偿金额：根据工作年限和月薪计算经济补偿金",
+    "确认仲裁时效：核实劳动争议仲裁时效",
+    "准备申请材料：列明需收集的证据清单",
+    "指引申请流程：说明向劳动仲裁委员会提交申请的步骤"
 ]
 ```
 """
@@ -118,11 +92,15 @@ class Planner:
         except Exception:
             self.current_plan = []
 
-# --- 3. 执行器 (Executor) 定义 ---
+# --- 执行器 (Executor) ---
+# 执行器模板中注入核心约束
 EXECUTOR_PROMPT_TEMPLATE = """
-你是一位顶级的AI执行专家。你的任务是严格按照给定的计划，一步步地解决问题。
-你将收到原始问题、完整的计划、以及到目前为止已经完成的步骤和结果。
-请你专注于解决“当前步骤”，并仅输出该步骤的最终答案，不要输出任何额外的解释或对话。
+你的任务是严格按照给定的计划，一步步地解决法律问题。
+
+核心约束（执行过程中必须遵守）：
+- 涉及法律依据的步骤，必须通过工具检索获取，禁止凭记忆作答。
+- 如果当前步骤需要调用工具，使用格式 `Action: tool_name[tool_input]`。
+- 每步只输出该步骤的执行结果，不要输出额外的对话或解释。
 
 # 原始问题:
 {question}
@@ -136,7 +114,7 @@ EXECUTOR_PROMPT_TEMPLATE = """
 # 当前步骤:
 {current_step}
 
-请仅输出针对“当前步骤”的回答:
+请仅输出针对"当前步骤"的回答:
 """
 
 class Executor:
@@ -173,7 +151,24 @@ class Executor:
 
         yield "\n\n**任务执行完毕。**\n"
 
-# --- 4. 智能体 (Agent) 整合 ---
+# --- 智能体 (Agent) 整合 ---
+# 最终总结模板 — 注入输出格式要求
+FINAL_SUMMARY_TEMPLATE = """
+请根据以下执行过程，给出最终的详细法律分析回答。
+
+要求：
+1. 所有法律依据必须引用执行过程中工具检索到的内容，禁止自行添加未经检索的法条。
+2. 正文引用法条时附带信源角标 `<sup><a href="URL">N</a></sup>`。
+3. 文末必须包含 `## 参考信源` 区域。
+4. 最终回复必须包裹在 `<final_answer>` 与 `</final_answer>` 标签中。
+
+问题：{question}
+
+执行过程：
+{history}
+"""
+
+
 class PlanAndSolveAgent:
     def __init__(self, tools_description: str = "", execute_tool: Callable[[str, str], str] = None, memory: list = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
         self.planner = Planner()
@@ -184,6 +179,16 @@ class PlanAndSolveAgent:
         self.session_id = session_id
         self.workspace_scope = workspace_scope or session_id
         self.use_ocp = use_ocp
+
+    @staticmethod
+    def _sanitize_final_answer(raw: str) -> str:
+        """清洗最终答案输出"""
+        result = sanitize_llm_output(raw, enforce_final_answer=True)
+        if not result.strip():
+            fallback = strip_think_blocks(raw)
+            fallback = strip_wrapper_tags(fallback)
+            return fallback.strip()
+        return result
 
     async def run(self, question: str):
         # 1. 制定计划
@@ -201,7 +206,7 @@ class PlanAndSolveAgent:
         for i, step in enumerate(plan, 1):
             yield {'type': 'thought', 'content': f"\n\n--- 步骤 {i}/{len(plan)}: {step} ---\n\n"}
 
-            # 在执行每个步骤前，先让模型判断是否需要调用工具
+            # 在执行每个步骤前，让模型判断是否需要调用工具
             thought_prompt = f"""
 原始问题: {question}
 当前步骤: {step}
@@ -209,6 +214,8 @@ class PlanAndSolveAgent:
 
 可用工具:
 {self.tools_description or "无"}
+
+核心约束：涉及法律依据的内容必须通过工具检索获取，禁止凭记忆作答。
 
 请分析当前步骤，如果需要调用工具，请输出：
 Action: {{tool_name}}[{{tool_input}}]
@@ -260,13 +267,14 @@ Action: {{tool_name}}[{{tool_input}}]
 
             self.executor.history += f"步骤 {i}: {step}\n结果: {step_result}\n\n"
 
-        # 3. 最终总结
-        summary_prompt = f"请根据以下执行过程，给出最终的详细回答：\n\n问题：{question}\n\n执行过程：\n{self.executor.history}"
+        # 3. 最终总结 — 使用带约束的模板
+        summary_prompt = FINAL_SUMMARY_TEMPLATE.format(
+            question=question,
+            history=self.executor.history,
+        )
         messages = (self.memory or []) + [{"role": "user", "content": summary_prompt}]
         # 最终总结不需要工具
         response_stream = await call(context=messages, stream=True, include_tools=False)
-        has_started_reasoning = False
-        has_finished_reasoning = False
         current_signature = ""
         is_drafting = False
         final_answer = ""
@@ -284,19 +292,22 @@ Action: {{tool_name}}[{{tool_input}}]
 
                 if delta.content:
                     final_answer += delta.content
-                    if self.use_ocp:
-                        if not is_drafting:
-                            yield {'type': 'thought', 'content': '正在拟定回答初稿\n', 'thought_type': 'draft', 'mode': 'new'}
-                            is_drafting = True
-                        yield {'type': 'thought', 'content': delta.content, 'thought_type': 'draft', 'mode': 'append'}
-                    else:
-                        yield {'type': 'content', 'content': delta.content}
+                    if not is_drafting:
+                        yield {'type': 'thought', 'content': '正在拟定回答初稿\n', 'thought_type': 'draft', 'mode': 'new'}
+                        is_drafting = True
+                    yield {'type': 'thought', 'content': delta.content, 'thought_type': 'draft', 'mode': 'append'}
 
-        if self.use_ocp and final_answer.strip():
+        # ── 后处理管道 ──
+        sanitized_answer = self._sanitize_final_answer(final_answer)
+
+        if self.use_ocp and sanitized_answer.strip():
+            yield {'type': 'memory_candidate', 'content': sanitized_answer}
             from ocp import OCPStream
             ocp = OCPStream(session_id=self.workspace_scope)
-            async for ocp_chunk in ocp.check_stream(final_answer):
+            async for ocp_chunk in ocp.check_stream(sanitized_answer):
                 yield ocp_chunk
+        else:
+            yield {'type': 'content_replace', 'content': sanitized_answer}
 
         if current_signature:
             yield {'type': 'thought_signature', 'content': current_signature}

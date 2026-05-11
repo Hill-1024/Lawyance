@@ -20,6 +20,13 @@ import asyncio
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from mcps import tools as all_tools, use_tools
+from output_sanitizer import (
+    extract_final_answer as _shared_extract_final_answer,
+    strip_think_blocks,
+    strip_wrapper_tags,
+    strip_noise,
+    detect_identity_leak,
+)
 
 load_dotenv(".env")
 
@@ -280,106 +287,33 @@ class OCPStatic:
 
     @staticmethod
     def _extract_final_answer(text: str) -> str | None:
-        tag_pairs = [
-            (r'<\s*final_answer\s*>', r'<\s*/\s*final_answer\s*>'),
-            (r'&lt;\s*final_answer\s*&gt;', r'&lt;\s*/\s*final_answer\s*&gt;'),
-        ]
-        for open_pattern, close_pattern in tag_pairs:
-            close_matches = list(re.finditer(close_pattern, text, flags=re.IGNORECASE))
-            if close_matches:
-                close_match = close_matches[-1]
-                open_matches = list(re.finditer(open_pattern, text[:close_match.start()], flags=re.IGNORECASE))
-                if open_matches:
-                    open_match = open_matches[-1]
-                    candidate = text[open_match.end():close_match.start()]
-                    if candidate.strip():
-                        return candidate.strip()
-
-        unclosed = re.search(
-            r'.*<\s*final_answer\s*>(.*)$',
-            text,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        if not unclosed:
-            unclosed = re.search(
-                r'.*&lt;\s*final_answer\s*&gt;(.*)$',
-                text,
-                flags=re.IGNORECASE | re.DOTALL,
-            )
-        if unclosed and unclosed.group(1).strip():
-            return unclosed.group(1).strip()
-
-        return None
+        """委托给共享的 output_sanitizer 模块"""
+        return _shared_extract_final_answer(text)
 
     @staticmethod
     def _clean_output(text: str) -> str:
-        """清理审查 LLM 输出中可能残留的标签及内部内容"""
+        """清理审查 LLM 输出中可能残留的标签及内部内容。
+        使用共享的 output_sanitizer 模块处理通用清洗，
+        再叠加 OCP 特有的确定性格式修复。
+        """
         if not text:
             return ""
 
+        # 1. 提取 <final_answer>（如果存在）
         final_answer = OCPStatic._extract_final_answer(text)
         if final_answer is not None:
             text = final_answer
-            
-        # 1. 移除已闭合的 <think> 块及其内部内容
-        text = re.sub(r'<think>.*?</think>', '', text, flags=re.IGNORECASE | re.DOTALL)
-        
-        # 2. 如果存在未闭合的 <think>，拦截其后的所有内容
-        if re.search(r'<think>(?!.*?</think>)', text, flags=re.IGNORECASE | re.DOTALL):
-            text = re.sub(r'<think>.*$', '', text, flags=re.IGNORECASE | re.DOTALL)
-        
-        # 3. 剥离干扰标签
-        text = re.sub(r'</?think[^>]*>', '', text, flags=re.IGNORECASE | re.DOTALL)
-        text = re.sub(r'</?final_answer[^>]*>', '', text, flags=re.IGNORECASE | re.DOTALL)
-        text = re.sub(r'<\|.*?\|>', '', text, flags=re.IGNORECASE | re.DOTALL)
-        
-        # 4. 强力清除 AI 常用废话前缀和引导语
-        noise_patterns = [
-            r'^好的，.*?：', r'^好的。.*?：', r'^以下是.*?：', r'^修复后的文本如下：',
-            r'^根据您的要求，.*?', r'^我已经为您.*?。', r'^审查结果：', r'^Assistant:',
-            r'^修正方案：', r'^这里是修复后的内容：'
-        ]
-        for pattern in noise_patterns:
-            text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE).strip()
 
-        # 5. 安全拦截：如果输出中包含明显的 AI 身份声明，且内容异常，则判定为失控
-        identity_keywords = ["作为AI助手", "我无法完成", "我的职责是", "抱歉，作为", "AI模型"]
-        if any(kw in text for kw in identity_keywords):
-            # 如果检测到身份声明，返回空，由上层逻辑触发降级
+        # 2. 使用共享清洗管道（移除 think 块、标签壳、噪声）
+        text = strip_think_blocks(text)
+        text = strip_wrapper_tags(text)
+        text = strip_noise(text)
+
+        # 3. 安全拦截
+        if detect_identity_leak(text):
             return ""
 
-        wrapper_line_patterns = [
-            r'^(以下|下面|这是|现将|现把).{0,30}(修改后|修复后|调整后|审查后).{0,20}(正文|文本|内容|版本|结果)(如下)?[:：]?$',
-            r'^(修改后|修复后|调整后|审查后).{0,20}(正文|文本|内容|版本|结果)(如下)?[:：]?$',
-            r'^(以下|下面)是.{0,30}(正文|文本|内容|版本|结果)[:：]?$',
-            r'^已根据.{0,30}(修正|修改|调整)[:：]?$',
-            r'^审查结果如下[:：]?$',
-            r'^最终版本如下[:：]?$',
-            r'^文本内容.{0,80}(无需修复|原样输出).*$',
-            r'^\[?OCP\]?.{0,60}(正在|审查|检查|修复|完成|超时|异常).*$',
-            r'^OCP\s*.{0,80}$',
-            r'^正在调用工具处理中.*$',
-            r'^执行:\s*`?(get_linked_content|search_article|get_article|pdf_text_reader|word_reader)[^`]*`?.*$',
-            r'^工具执行完毕.*$',
-        ]
-        trailing_noise_patterns = [
-            r'^(以上|上述)为.{0,30}(正文|文本|内容|结果)[:：]?$',
-            r'^如需进一步.*$',
-        ]
-
-        lines = text.splitlines()
-        while lines and not lines[0].strip():
-            lines.pop(0)
-        while lines and any(re.match(pattern, lines[0].strip(), flags=re.IGNORECASE) for pattern in wrapper_line_patterns):
-            lines.pop(0)
-            while lines and not lines[0].strip():
-                lines.pop(0)
-        while lines and any(re.match(pattern, lines[-1].strip(), flags=re.IGNORECASE) for pattern in trailing_noise_patterns):
-            lines.pop()
-            while lines and not lines[-1].strip():
-                lines.pop()
-        text = "\n".join(lines).strip()
-
+        # 4. OCP 特有的确定性格式修复
         return OCPStatic._deterministic_format_repair(text)
 
     @staticmethod

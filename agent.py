@@ -18,6 +18,7 @@ from typing import Any, List, Optional
 from function_calling import call
 from prompt_loader import build_system_memory
 from agents import ReActAgent, PlanAndSolveAgent, DefaultAgent
+from output_sanitizer import strip_think_blocks, strip_wrapper_tags
 from mcps import use_tools, format_tool_descriptions
 from auth import authenticate_user, create_token, verify_token, get_user_role, list_accounts, add_or_update_account, delete_account
 
@@ -411,13 +412,16 @@ async def compress_history(
         summary_text = f"[前情提要]: {content}"
         print("[历史压缩] 摘要生成成功")
 
-        # 重新构造历史：System + 摘要消息 + 最近10条
+        # 重新构造历史：System + 摘要消息 + 约束提醒 + 最近10条
         new_history = build_system_memory(
             agent_mode=agent_mode,
             focus=focus,
             memory_context=memory_context,
         )
         new_history.append({"role": "assistant", "content": summary_text})
+        # 注入约束提醒，防止长对话中约束遗忘
+        new_history.append({"role": "user", "content": "请继续遵守所有系统约束。以下是对话的继续。"})
+        new_history.append({"role": "assistant", "content": "明白，我将继续严格遵守所有约束规则。"})
         new_history.extend(last_10)
         return new_history
     except Exception as e:
@@ -650,14 +654,15 @@ async def summarize_endpoint(request: SummarizeRequest, current_user: str = Depe
     if not history or len(history) == 0:
         return {"title": "New Chat"}
     fallback_title = _fallback_conversation_title(history)
-    temp_mem = copy.deepcopy(history)
+    temp_mem = [{"role": "system", "content": "你是一个对话标题生成器。只输出简短标题文本，不要包含标点符号、引号或任何 XML 标签。"}]
     temp_mem.append({"role": "user",
-                     "content": "请用一句话（不超过10个字）总结我们目前的对话内容，作为对话标题。只输出标题文本，不要包含任何标点符号，也不要使用任何标签（如 <final_answer> 或 <think>）。"})
+                     "content": "请用一句话（不超过10个字）总结以下对话内容作为标题。只输出标题文本。\n\n" + "\n".join([f"{m.get('role','')}: {(m.get('content','') or '')[:100]}" for m in history[:6]])})
     try:
         response = await call(temp_mem, stream=False, include_tools=False)
         content = response.content or ""
-        # 强制移除可能存在的 <final_answer> 标签
-        content = re.sub(r'</?(final_answer|think)[^>]*>', '', content, flags=re.IGNORECASE | re.DOTALL)
+        # 使用 output_sanitizer 清洗
+        content = strip_think_blocks(content)
+        content = strip_wrapper_tags(content)
         title = content.strip().strip('"').strip("'")
         return {"title": title or fallback_title}
     except Exception as e:

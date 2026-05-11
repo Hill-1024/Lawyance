@@ -3,6 +3,7 @@ import time
 from typing import Callable, Any
 
 from function_calling import call, create_assistant_message
+from output_sanitizer import sanitize_llm_output, extract_final_answer, strip_think_blocks, strip_wrapper_tags
 
 class DefaultAgent:
     def __init__(
@@ -24,6 +25,20 @@ class DefaultAgent:
     @staticmethod
     def _missing_tool_executor(function_name: str, arguments: Any) -> str:
         return f"{function_name}工具执行器未配置,请检查主调度模块"
+
+    @staticmethod
+    def _sanitize_for_user(raw_content: str) -> str:
+        """
+        对 LLM 原始输出进行清洗：提取 <final_answer>，移除 <think>，清除噪声。
+        使用 soft enforcement：如果 LLM 没有输出 <final_answer>，fallback 为清洗全文。
+        """
+        result = sanitize_llm_output(raw_content, enforce_final_answer=True)
+        # 如果清洗后为空（身份泄漏或废话），fallback 为仅移除标签的版本
+        if not result.strip():
+            fallback = strip_think_blocks(raw_content)
+            fallback = strip_wrapper_tags(fallback)
+            return fallback.strip()
+        return result
 
     async def run(self, content: str = None, stream: bool = True):
         # 默认模式下，主程序的 agent.py 已经将消息附加到 self.memory 中。
@@ -64,7 +79,7 @@ class DefaultAgent:
                                     yield {'type': 'thought', 'content': '正在拟定回答初稿\n', 'thought_type': 'draft', 'mode': 'new'}
                                 yield {'type': 'thought', 'content': delta.content, 'thought_type': 'draft', 'mode': 'append'}
                             else:
-                                yield {'type': 'content', 'content': delta.content}
+                                yield {'type': 'thought', 'content': delta.content, 'thought_type': 'draft', 'mode': 'append'}
 
                         if delta.tool_calls:
                             is_tool_call = True
@@ -124,19 +139,26 @@ class DefaultAgent:
                             yield {'type': 'thought_signature', 'content': thought_signature_str}
                         break
 
-                # OCP-Stream: 流式输出格式审查
-                if self.use_ocp and actual_content.strip():
-                    yield {'type': 'memory_candidate', 'content': actual_content}
+                # ── 后处理管道：<final_answer> 提取 → OCP 审查 ──
+                sanitized_content = self._sanitize_for_user(actual_content)
+
+                if self.use_ocp and sanitized_content.strip():
+                    # 发送未经 OCP 的版本作为 memory 候选
+                    yield {'type': 'memory_candidate', 'content': sanitized_content}
                     from ocp import OCPStream
                     ocp = OCPStream(session_id=self.workspace_scope)
-                    async for ocp_chunk in ocp.check_stream(actual_content):
+                    async for ocp_chunk in ocp.check_stream(sanitized_content):
                         yield ocp_chunk
+                else:
+                    # 不使用 OCP 时，直接输出清洗后的内容
+                    yield {'type': 'content_replace', 'content': sanitized_content}
 
             except Exception as e:
                 print(f"[DefaultAgent 流式调用失败]: {type(e).__name__}: {e}")
                 yield {'type': 'error', 'content': str(e)}
         else:
             # 非流式：多轮工具调用循环（与流式路径行为一致）
+            content_output = ""
             for round_num in range(self.MAX_NON_STREAM_ROUNDS):
                 print(f"[DefaultAgent 非流式] 第 {round_num + 1} 轮调用")
                 res = await call(current_mem, stream=False)
@@ -162,6 +184,9 @@ class DefaultAgent:
                         {"role": "tool", "tool_call_id": tc.id, "name": func_name, "content": str(result)})
             else:
                 print(f"[DefaultAgent 非流式] 达到最大工具调用轮次 ({self.MAX_NON_STREAM_ROUNDS})")
+
+            # ── 后处理管道 ──
+            content_output = self._sanitize_for_user(content_output)
 
             if self.use_ocp:
                 if content_output.strip():

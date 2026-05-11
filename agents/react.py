@@ -23,27 +23,35 @@ except ImportError:
 
     from function_calling import call
 
-#  Prompt 模板
+from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
+
+# ReAct Prompt 模板 — 不再硬编码身份声明，依赖 system prompt 中的 core constraints
 REACT_PROMPT_TEMPLATE = """
-请注意，你是由工大法智团队开发的，有能力调用外部工具的名为Lawver的AI助手。
+请严格按照以下 ReAct 格式进行推理和行动。你必须遵守 system prompt 中的所有约束规则。
 
 可用工具如下：
 {tools}
 
-请严格按照以下格式进行回应：
+格式要求（必须严格遵循）：
 
 Thought: 你的思考过程，用于分析问题、拆解任务和规划下一步行动。
 Action: 你决定采取的行动，必须是以下格式之一：
 - {{tool_name}}[{{tool_input}}]：调用一个可用工具。
-- Finish[最终答案]：当你认为已经获得最终答案时。
-- 当你收集到足够的信息，能够回答用户的最终问题时，你必须在`Action:`字段后使用 `Finish[最终答案]` 来输出最终答案。
+- Finish[最终答案]：当你收集到足够信息，能够回答用户问题时。
+
+关键规则：
+1. 涉及法律依据的回答，必须先通过工具检索获取依据，禁止凭记忆直接作答。
+2. 工具返回空结果时，可换关键词重试，但禁止编造法条、案例或 URL。
+3. Finish[] 中的最终答案必须包含信源引用，格式为 `<sup><a href="URL">N</a></sup>`。
+4. 非法律问题直接 Finish[简短边界说明] 拒绝，不要调用工具。
 
 Few Shot Example:
-Question: 苹果最新的手机是哪一款？它的主要卖点是什么？
-Thought: 首先，我需要确定现在的日期为 2026年3月份，然后查询苹果最新的手机型号。然后，我需要查找该型号的主要卖点。
-Action: Search[苹果最新的手机型号 2026年3月份]
-Observation: 苹果最新的手机是iPhone 15。它的主要卖点是搭载了A17 Pro芯片，支持120Hz ProMotion显示屏
-...
+Question: 劳动合同到期不续签，公司需要赔偿吗？
+Thought: 这是一个劳动法问题，我需要检索《劳动合同法》中关于合同期满不续签的赔偿规定。
+Action: search_article[劳动合同期满不续签 经济补偿]
+Observation: 《劳动合同法》第四十六条规定...
+Thought: 已获得法律依据，可以给出最终答案。
+Action: Finish[根据《劳动合同法》第四十六条... <sup><a href="URL">1</a></sup> ...]
 
 现在，请开始解决以下问题：
 Question: {question}
@@ -61,6 +69,16 @@ class ReActAgent:
         self.session_id = session_id
         self.workspace_scope = workspace_scope or session_id
         self.use_ocp = use_ocp
+
+    @staticmethod
+    def _sanitize_final_answer(raw: str) -> str:
+        """清洗 ReAct 的最终答案输出"""
+        result = sanitize_llm_output(raw, enforce_final_answer=True)
+        if not result.strip():
+            fallback = strip_think_blocks(raw)
+            fallback = strip_wrapper_tags(fallback)
+            return fallback.strip()
+        return result
 
     async def run(self, question: str):
         self.history = []
@@ -107,8 +125,10 @@ class ReActAgent:
                 break
 
             if action.startswith("Finish"):
-                # 提取最终答案
-                final_answer = self._parse_action_input(action)
+                # 提取最终答案并清洗
+                raw_answer = self._parse_action_input(action)
+                final_answer = self._sanitize_final_answer(raw_answer)
+
                 if self.use_ocp and final_answer.strip():
                     yield {'type': 'thought', 'content': '正在拟定回答初稿\n', 'thought_type': 'draft', 'mode': 'new'}
                     yield {'type': 'thought', 'content': final_answer, 'thought_type': 'draft', 'mode': 'append'}
