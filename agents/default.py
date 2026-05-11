@@ -11,16 +11,19 @@ from function_calling import call, create_assistant_message
 from output_sanitizer import sanitize_llm_output, extract_final_answer, strip_think_blocks, strip_wrapper_tags
 
 
-def _optional_positive_int_env(name: str):
-    raw_value = os.getenv(name, "").strip()
+def _optional_positive_int_env(name: str, default: int | None = None):
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    raw_value = raw_value.strip()
     if not raw_value:
-        return None
+        return default
     if raw_value.lower() in {"none", "unlimited", "off", "0", "-1"}:
         return None
     try:
         parsed = int(raw_value)
     except ValueError:
-        return None
+        return default
     return parsed if parsed > 0 else None
 
 
@@ -40,7 +43,7 @@ class DefaultAgent:
         self.execute_tool = execute_tool or self._missing_tool_executor
 
     MAX_TOOL_ROUNDS = _optional_positive_int_env("LAWYANCE_MAX_TOOL_ROUNDS")
-    MAX_NON_STREAM_ROUNDS = _optional_positive_int_env("LAWYANCE_MAX_NON_STREAM_TOOL_ROUNDS") or MAX_TOOL_ROUNDS
+    MAX_NON_STREAM_ROUNDS = _optional_positive_int_env("LAWYANCE_MAX_NON_STREAM_TOOL_ROUNDS", MAX_TOOL_ROUNDS)
 
     @staticmethod
     def _missing_tool_executor(function_name: str, arguments: Any) -> str:

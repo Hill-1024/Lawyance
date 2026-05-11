@@ -3,6 +3,7 @@
 """
 
 import ast
+import os
 import re
 
 from typing import Callable
@@ -20,6 +21,21 @@ except ImportError:
     from function_calling import call
 
 from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
+
+
+def _optional_positive_int_env(name: str, default: int | None = None):
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    raw_value = raw_value.strip()
+    if raw_value.lower() in {"none", "unlimited", "off", "0", "-1"}:
+        return None
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else None
+
 
 PLANNER_TASK_TEMPLATE = """# 当前问题
 {question}
@@ -155,6 +171,8 @@ class Executor:
 
 # --- 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
+    MAX_PLAN_STEPS = _optional_positive_int_env("LAWYANCE_PLAN_MAX_STEPS", 8)
+
     def __init__(self, tools_description: str = "", execute_tool: Callable[[str, str], str] = None, memory: list = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
         self.planner = Planner()
         self.executor = Executor()
@@ -186,6 +204,12 @@ class PlanAndSolveAgent:
             yield {'type': 'thought', 'content': f"\n\n{message}\n"}
             yield {'type': 'content', 'content': message}
             return
+        if isinstance(self.MAX_PLAN_STEPS, int) and len(plan) > self.MAX_PLAN_STEPS:
+            yield {
+                'type': 'thought',
+                'content': f"\n\n计划步骤超过最大限制 ({self.MAX_PLAN_STEPS})，已截断后续步骤以避免循环失控。\n",
+            }
+            plan = plan[:self.MAX_PLAN_STEPS]
 
         # 2. 执行计划
         yield {'type': 'thought', 'content': "\n\n**开始执行计划...**\n"}

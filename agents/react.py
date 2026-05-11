@@ -2,6 +2,7 @@
 模块描述：ReAct 文本循环 Agent，解析 Thought/Action/Observation 并通过 mcps 中转执行工具。
 """
 
+import os
 import re
 from typing import Callable
 
@@ -21,6 +22,20 @@ except ImportError:
 from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
 
 
+def _optional_positive_int_env(name: str, default: int | None = None):
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    raw_value = raw_value.strip()
+    if raw_value.lower() in {"none", "unlimited", "off", "0", "-1"}:
+        return None
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else None
+
+
 REACT_TASK_TEMPLATE = """# 可用工具
 {tools}
 
@@ -33,10 +48,12 @@ REACT_TASK_TEMPLATE = """# 可用工具
 
 
 class ReActAgent:
+    DEFAULT_MAX_STEPS = _optional_positive_int_env("LAWYANCE_REACT_MAX_STEPS", 8)
+
     def __init__(self, tools_description: str, execute_tool: Callable[[str, str], str], memory: list = None, max_steps: int | None = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
         self.tools_description = tools_description
         self.execute_tool = execute_tool
-        self.max_steps = max_steps
+        self.max_steps = max_steps if max_steps is not None else self.DEFAULT_MAX_STEPS
         self.history = []
         self.memory = memory or []
         self.session_id = session_id

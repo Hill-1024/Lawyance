@@ -60,7 +60,7 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
 
         try:
             default_module.call = fake_call
-            agent = DefaultAgent(memory=[{"role": "user", "content": "x"}], execute_tool=lambda name, args: "ok")
+            agent = DefaultAgent(memory=[{"role": "user", "content": "x"}], use_ocp=False, execute_tool=lambda name, args: "ok")
             agent.MAX_TOOL_ROUNDS = 2
             events = [event async for event in agent.run(stream=True)]
         finally:
@@ -79,7 +79,7 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
 
         try:
             default_module.call = fake_call
-            agent = DefaultAgent(memory=[{"role": "user", "content": "x"}], execute_tool=lambda name, args: "ok")
+            agent = DefaultAgent(memory=[{"role": "user", "content": "x"}], use_ocp=False, execute_tool=lambda name, args: "ok")
             agent.MAX_NON_STREAM_ROUNDS = 2
             events = [event async for event in agent.run(stream=False)]
         finally:
@@ -88,7 +88,31 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["type"], "content")
         self.assertIn("最大轮次", events[-1]["content"])
 
-    async def test_default_non_streaming_has_no_round_limit_by_default(self):
+    async def test_default_non_streaming_round_limit_can_be_disabled_explicitly(self):
+        import agents.default as default_module
+        from agents.default import DefaultAgent
+
+        original_call = default_module.call
+        calls = {"count": 0}
+
+        async def fake_call(context, stream=False, include_tools=True):
+            calls["count"] += 1
+            if calls["count"] <= 12:
+                return types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall()])
+            return types.SimpleNamespace(content="<final_answer>完成</final_answer>", tool_calls=None)
+
+        try:
+            default_module.call = fake_call
+            agent = DefaultAgent(memory=[{"role": "user", "content": "x"}], use_ocp=False, execute_tool=lambda name, args: "ok")
+            agent.MAX_NON_STREAM_ROUNDS = None
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            default_module.call = original_call
+
+        self.assertEqual(calls["count"], 13)
+        self.assertEqual(events[-1], {"type": "content", "content": "完成"})
+
+    async def test_default_non_streaming_does_not_limit_rounds_by_default(self):
         import agents.default as default_module
         from agents.default import DefaultAgent
 
