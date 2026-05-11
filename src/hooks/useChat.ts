@@ -261,14 +261,15 @@ export function useChat() {
     history: BackendHistoryMessage[],
     convId: string,
     stream: boolean,
-    memorySnapshot: ConversationMemory
+    memorySnapshot: ConversationMemory,
+    memorySyncMode: 'merge' | 'rebuild' = 'merge'
   ) => {
     try {
-      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot);
+      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode);
     } catch (error) {
       if (!(error instanceof MemoryRevisionConflictError)) throw error;
       updateConversationMemory(convId, error.detail?.memory_snapshot as ConversationMemory | undefined);
-      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, 'server_merge');
+      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, 'server_merge');
     }
   };
 
@@ -573,7 +574,7 @@ export function useChat() {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content, created_at: now, updated_at: now };
       updateMessages(convId, prev => [...prev, userMessage]);
 
-      const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot);
+      const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild');
 
       if (isStreaming) {
         await processStream(response, null, convId, onFileGenerated);

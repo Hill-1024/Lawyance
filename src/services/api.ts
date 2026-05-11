@@ -65,6 +65,7 @@ export const chat = async (
   agentMode: string,
   useOcp: boolean,
   memorySnapshot?: ConversationMemory | null,
+  memorySyncMode?: 'merge' | 'rebuild',
   memoryConflictStrategy?: 'server_merge'
 ) => {
   const response = await fetch('/api/chat', {
@@ -78,6 +79,7 @@ export const chat = async (
       agent_mode: agentMode,
       use_ocp: useOcp,
       memory_snapshot: memorySnapshot || null,
+      memory_sync_mode: memorySyncMode,
       expected_revision: memorySnapshot?.revision,
       memory_conflict_strategy: memoryConflictStrategy
     })

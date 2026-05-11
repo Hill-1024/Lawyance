@@ -399,6 +399,7 @@ class ChatRequest(BaseModel):
     agent_mode: str = "default"
     use_ocp: bool = True
     memory_snapshot: Optional[dict] = None
+    memory_sync_mode: Optional[str] = None
     expected_revision: Optional[int] = None
     memory_conflict_strategy: Optional[str] = None
 
@@ -485,6 +486,21 @@ def _memory_conflict_detail(exc: MemoryRevisionConflict) -> dict:
         "actual_revision": exc.actual_revision,
         "memory_snapshot": exc.snapshot,
     }
+
+
+def _is_empty_reset_memory_snapshot(snapshot: Optional[dict]) -> bool:
+    if not isinstance(snapshot, dict):
+        return False
+    try:
+        revision = int(snapshot.get("revision", 0) or 0)
+    except (TypeError, ValueError):
+        revision = 0
+    return (
+        revision == 0
+        and not snapshot.get("events")
+        and not snapshot.get("facts")
+        and not snapshot.get("focus")
+    )
 
 
 def _remember_memory_turn(workspace_scope: str, user_message: str, assistant_message: str, turn_id: str | None = None) -> dict:
@@ -736,11 +752,17 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
         sanitized_history.append(m)
 
     print(f"\n[收到请求] 会话ID: {session_id}, 模式: {agent_mode}, 流式: {stream}")
+    memory_sync_mode = (
+        request.memory_sync_mode
+        if request.memory_sync_mode in {"merge", "rebuild"}
+        else ("rebuild" if _is_empty_reset_memory_snapshot(request.memory_snapshot) else "merge")
+    )
     try:
         _sync_memory_cache(
             workspace_scope,
             request.memory_snapshot,
-            mode="merge",
+            messages=sanitized_history if memory_sync_mode == "rebuild" else None,
+            mode=memory_sync_mode,
             expected_revision=request.expected_revision,
             memory_conflict_strategy=request.memory_conflict_strategy,
         )
