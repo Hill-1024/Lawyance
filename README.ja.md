@@ -125,10 +125,22 @@ python -m pytest
 - `tests/test_memory_system.py`: 会話記憶の記録、検索、制約処理、コンテキスト生成。
 - `tests/test_ocp.py`: 出力レビューのフォールバック、完了状態、例外処理。
 
+## 会話記憶と RAG 重み
+
+記憶システムは引き続き会話単位の構造化記憶です。検索ではキーワード、意味タグ、エンティティ、鮮度、優先度、現在の焦点など複数の信号を統合します。任意で embedding 検索を有効にした場合、ベクトル類似度は既存の多路検索を置き換えるのではなく、同じ RAG 重み付きランカー内の `embedding` 信号として扱われます。
+
+任意の環境変数：
+
+- `MEMORY_EMBEDDING_ENABLED=1`: embedding を検索重みとして有効化。既定では無効
+- `EMBEDDING_API_KEY`: embedding サービスの API Key
+- `EMBEDDING_BASE_URL`: OpenAI 互換 embedding Base URL。既定値は `https://api.siliconflow.cn/v1`
+- `EMBEDDING_MODEL`: embedding モデル。既定値は `Qwen/Qwen3-Embedding-8B`
+- `MEMORY_EMBEDDING_TIMEOUT`: embedding リクエストのタイムアウト。既定値は 8 秒
+
 ## 開発境界
 
 - `mcps.py` は agent 向け業務ツールの統一入口です。新しいツールは `mcp/` クライアントに実装し、`mcps` から公開してください。agent や API ルートが直接迂回して呼び出すべきではありません。
-- 記憶システムは会話単位の構造化記憶です。ユーザー単位の長期プロファイルでも、古典的なベクトル RAG でもありません。
+- 記憶システムは会話単位の構造化記憶です。ユーザー単位の長期プロファイルではなく、任意の embedding は検索重み信号としてのみ利用します。
 - アップロードファイルと生成ファイルは、ユーザー/会話ごとのワークスペース境界内に置く必要があります。
 - 法律回答では、事実、法条、判例、出典リンクなどの検証可能な経路を残すべきです。
 - フロントエンド移行や UI 調整は Lawyance デザインシステムに従い、padding の小手先対応や互換レイヤーでレイアウト問題を隠さないでください。

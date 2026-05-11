@@ -125,10 +125,22 @@ Current tests focus on:
 - `tests/test_memory_system.py`: conversation memory recording, retrieval, constraint handling, and context generation.
 - `tests/test_ocp.py`: output review fallbacks, completion state, and exceptional paths.
 
+## Conversation Memory and RAG Weights
+
+The memory system remains conversation-level structured memory. Retrieval fuses multiple signals: lexical matches, semantic tags, entities, recency, priority, and active focus. When optional embedding retrieval is enabled, vector similarity is added as one `embedding` signal in the same RAG-weighted ranker instead of replacing the existing multi-route retrieval.
+
+Optional environment variables:
+
+- `MEMORY_EMBEDDING_ENABLED=1`: enable embedding as a retrieval weight, disabled by default
+- `EMBEDDING_API_KEY`: API key for the embedding service
+- `EMBEDDING_BASE_URL`: OpenAI-compatible embedding base URL, default `https://api.siliconflow.cn/v1`
+- `EMBEDDING_MODEL`: embedding model, default `Qwen/Qwen3-Embedding-8B`
+- `MEMORY_EMBEDDING_TIMEOUT`: embedding request timeout, default 8 seconds
+
 ## Development Boundaries
 
 - `mcps.py` is the unified business-facing tool entry point for agents. New tools should be implemented in `mcp/` clients and exposed through `mcps`, instead of being called directly by agents or API routes.
-- The memory system is conversation-level structured memory. It is not user-level profiling, and it is not classic vector RAG.
+- The memory system is conversation-level structured memory. It is not user-level profiling; optional embedding is only a retrieval weight signal.
 - Uploaded and generated files must stay inside the user/conversation workspace boundary.
 - Legal answers should preserve a verifiable chain: facts, statutes, cases, or source links should remain traceable.
 - Frontend migration and UI work should follow the Lawyance design system, not hide layout issues with padding hacks or compatibility layers.
