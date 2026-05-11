@@ -3,15 +3,23 @@
 """
 
 from .service import (
+    MemoryRevisionConflict,
     clear_conversation_memory,
+    inspect_conversation_memory,
+    prune_conversation_memory,
     remember_conversation_turn,
     retrieve_conversation_memory,
     sync_conversation_memory,
+    update_conversation_memory,
 )
 
 __all__ = [
     "clear_conversation_memory",
+    "MemoryRevisionConflict",
+    "inspect_conversation_memory",
+    "prune_conversation_memory",
     "remember_conversation_turn",
     "retrieve_conversation_memory",
     "sync_conversation_memory",
+    "update_conversation_memory",
 ]
