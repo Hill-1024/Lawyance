@@ -155,4 +155,6 @@ Optional environment variables:
 
 ## License
 
-This repository does not declare an open-source license yet. Confirm team authorization and data compliance requirements before reuse, redistribution, or external deployment.
+The project source code is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). See [LICENSE](./LICENSE).
+
+Reuse, modification, redistribution, or offering this project as a network service must comply with AGPL-3.0. Business data, third-party data sources, model services, and real client materials are not automatically licensed by this repository; confirm team authorization and data compliance requirements before use.
