@@ -9,9 +9,11 @@ from mcp.word_annotator import word_reader, word_writer
 from mcp.qcc_client import get_company_profile,get_listing_info,get_contact_info,get_shareholder_info,get_company_registration_info,get_key_personnel,get_external_investments
 from mcp.memory_client import (
     clear_conversation_memory,
+    inspect_conversation_memory,
     remember_conversation_turn,
     retrieve_conversation_memory,
     sync_conversation_memory,
+    update_conversation_memory,
 )
 import os
 import json
@@ -276,6 +278,98 @@ tools = [
     {
         "type": "function",
         "function": {
+            "name": "inspect_conversation_memory",
+            "description": "查看当前对话的事实库、焦点和最近事件，返回可用于修改记忆的 fact/focus/event id。当你准备新增、修正、废弃记忆，或不确定旧事实是否已存在时，必须先调用此工具确认当前库状态。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "可选。用于筛选相关记忆的自然语言问题或关键词。"
+                    },
+                    "include_deprecated": {
+                        "type": "boolean",
+                        "description": "是否包含已废弃事实。只有在判断修正链或回滚时设为 true。"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "最多返回的事实条数，默认20，最大40。"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_conversation_memory",
+            "description": "修改当前对话级事实库。仅在用户明确提供新的稳定事实、偏好、约束、案件焦点，或明确修正/否定旧事实时调用。不要把普通问题、临时推理、法条检索结果或无来源总结写入记忆。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operations": {
+                        "type": "array",
+                        "description": "记忆修改操作列表。复杂信息可拆成多条操作，不设三条硬上限；每条都必须有 source_text 证据。",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "op": {
+                                    "type": "string",
+                                    "enum": ["create_fact", "update_fact", "deprecate_fact", "update_focus", "deprecate_focus"],
+                                    "description": "create_fact 新增事实；update_fact 用新事实替换旧 fact；deprecate_fact 废弃旧 fact；update_focus 新增或更新焦点；deprecate_focus 废弃旧焦点。"
+                                },
+                                "target_id": {
+                                    "type": "string",
+                                    "description": "update_fact/deprecate_fact/update_focus/deprecate_focus 修改已有条目时填写目标 id。"
+                                },
+                                "text": {
+                                    "type": "string",
+                                    "description": "create_fact/update_focus 的文本。必须忠实于用户明示信息。"
+                                },
+                                "new_text": {
+                                    "type": "string",
+                                    "description": "update_fact 的新事实文本。"
+                                },
+                                "kind": {
+                                    "type": "string",
+                                    "enum": ["fact", "constraint", "preference", "goal", "legal_assessment"],
+                                    "description": "事实类型。案件事实用 fact；用户偏好用 preference；稳定约束用 constraint。"
+                                },
+                                "focus_type": {
+                                    "type": "string",
+                                    "enum": ["case", "dialog"],
+                                    "description": "update_focus 使用。案件主线用 case，当前任务用 dialog。"
+                                },
+                                "source_text": {
+                                    "type": "string",
+                                    "description": "本次修改的原文证据，必须来自当前用户明确表达或 inspect_conversation_memory 返回的既有事实。"
+                                },
+                                "reason": {
+                                    "type": "string",
+                                    "enum": ["new_information", "correction", "user_preference", "focus_shift", "duplicate_merge"],
+                                    "description": "修改原因。"
+                                },
+                                "confidence": {
+                                    "type": "number",
+                                    "description": "置信度，0 到 1。"
+                                },
+                                "priority": {
+                                    "type": "number",
+                                    "description": "优先级，0 到 1。"
+                                }
+                            },
+                            "required": ["op", "source_text", "reason"]
+                        }
+                    }
+                },
+                "required": ["operations"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_company_profile",
             "description": "查询企业的简介信息，包括企业名称、简介，当需要获取企业相关信息时，必须调用此工具",
             "parameters": {
@@ -427,6 +521,8 @@ def _coerce_arguments(function_name, arguments):
                 arguments = {"keywords": [arguments]}
             elif function_name == "retrieve_conversation_memory":
                 arguments = {"query": arguments}
+            elif function_name == "inspect_conversation_memory":
+                arguments = {"query": arguments}
             elif function_name == "get_article":
                 parts = arguments.strip().rsplit(" ", 1)
                 if len(parts) == 2 and parts[1].startswith("第"):
@@ -490,21 +586,36 @@ def _dispatch_tool(function_name, arguments, workspace_scope):
             arguments.get("query", ""),
             arguments.get("limit", 8),
         )
+    if function_name == "inspect_conversation_memory":
+        return inspect_conversation_memory(
+            workspace_scope,
+            arguments.get("query", ""),
+            bool(arguments.get("include_deprecated", False)),
+            arguments.get("limit", 20),
+        )
+    if function_name == "update_conversation_memory":
+        return update_conversation_memory(
+            workspace_scope,
+            arguments.get("operations", []),
+        )
     if function_name == "sync_conversation_memory":
         return sync_conversation_memory(
             workspace_scope,
             arguments.get("snapshot"),
             arguments.get("messages"),
+            arguments.get("mode"),
+            arguments.get("expected_revision"),
+            arguments.get("memory_conflict_strategy"),
         )
     if function_name == "remember_conversation_turn":
         return remember_conversation_turn(
             workspace_scope,
             arguments.get("user_message", ""),
             arguments.get("assistant_message", ""),
+            arguments.get("turn_id"),
         )
     if function_name == "clear_conversation_memory":
         return clear_conversation_memory(workspace_scope)
-
     if function_name == "match_legal_case":
         return match_legal_case(arguments.get("keywords"), arguments.get("start_year"), arguments.get("end_year"))
     if function_name == "get_article":

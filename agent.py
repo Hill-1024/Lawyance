@@ -16,6 +16,7 @@ import time
 import asyncio
 import shutil
 import logging
+import uuid
 from logging.handlers import RotatingFileHandler
 from collections import defaultdict
 from typing import Any, List, Optional
@@ -27,6 +28,8 @@ from prompt_loader import build_system_memory
 from agents import ReActAgent, PlanAndSolveAgent, DefaultAgent
 from output_sanitizer import strip_think_blocks, strip_wrapper_tags
 from mcps import use_tools, format_tool_descriptions
+from mcp.memory_client import reset_current_memory_turn_id, set_current_memory_turn_id
+from memory_system import MemoryRevisionConflict, prune_conversation_memory
 from auth import authenticate_user, create_token, verify_token, get_user_role, list_accounts, add_or_update_account, delete_account
 
 from contextlib import asynccontextmanager
@@ -130,10 +133,7 @@ def sanitize_path_component(value: str) -> str:
 
 
 def get_workspace_scope(current_user: str, conversation_id: str) -> str:
-    return os.path.join(
-        sanitize_path_component(current_user),
-        sanitize_path_component(conversation_id)
-    )
+    return f"{sanitize_path_component(current_user)}/{sanitize_path_component(conversation_id)}"
 
 
 def get_workspace_dirs(current_user: str, conversation_id: str) -> tuple[str, str]:
@@ -338,6 +338,11 @@ async def cleanup_task():
                 await asyncio.to_thread(_call_memory_tool, "clear_conversation_memory", {}, k)
 
             await asyncio.to_thread(
+                prune_conversation_memory,
+                int(os.getenv("LAWYANCE_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600))),
+            )
+
+            await asyncio.to_thread(
                 _cleanup_expired_workspace_dirs,
                 one_hour_ago,
                 set(active_conversations),
@@ -367,6 +372,8 @@ class ChatRequest(BaseModel):
     agent_mode: str = "default"
     use_ocp: bool = True
     memory_snapshot: Optional[dict] = None
+    expected_revision: Optional[int] = None
+    memory_conflict_strategy: Optional[str] = None
 
 
 class SummarizeRequest(BaseModel):
@@ -377,6 +384,9 @@ class MemorySyncRequest(BaseModel):
     conversation_id: str
     memory_snapshot: Optional[dict] = None
     history: List[dict] = Field(default_factory=list)
+    mode: str = "rebuild"
+    expected_revision: Optional[int] = None
+    memory_conflict_strategy: Optional[str] = None
 
 
 def _fallback_conversation_title(history: List[dict]) -> str:
@@ -408,12 +418,22 @@ def _call_memory_tool(tool_name: str, arguments: dict, workspace_scope: str) -> 
     return _read_tool_json(use_tools(tool_name, arguments, conv_id=workspace_scope))
 
 
-def _sync_memory_cache(workspace_scope: str, snapshot: Optional[dict], messages: List[dict]) -> dict:
+def _sync_memory_cache(
+    workspace_scope: str,
+    snapshot: Optional[dict],
+    messages: Optional[List[dict]] = None,
+    mode: str = "merge",
+    expected_revision: Optional[int] = None,
+    memory_conflict_strategy: Optional[str] = None,
+) -> dict:
     return _call_memory_tool(
         "sync_conversation_memory",
         {
             "snapshot": snapshot or {},
             "messages": messages,
+            "mode": mode,
+            "expected_revision": expected_revision,
+            "memory_conflict_strategy": memory_conflict_strategy,
         },
         workspace_scope,
     )
@@ -431,12 +451,22 @@ def _retrieve_memory_context(workspace_scope: str, query: str) -> tuple[str, dic
     return str(payload.get("context") or ""), payload
 
 
-def _remember_memory_turn(workspace_scope: str, user_message: str, assistant_message: str) -> dict:
+def _memory_conflict_detail(exc: MemoryRevisionConflict) -> dict:
+    return {
+        "error": "memory_revision_conflict",
+        "expected_revision": exc.expected_revision,
+        "actual_revision": exc.actual_revision,
+        "memory_snapshot": exc.snapshot,
+    }
+
+
+def _remember_memory_turn(workspace_scope: str, user_message: str, assistant_message: str, turn_id: str | None = None) -> dict:
     return _call_memory_tool(
         "remember_conversation_turn",
         {
             "user_message": user_message,
             "assistant_message": assistant_message,
+            "turn_id": turn_id,
         },
         workspace_scope,
     )
@@ -510,6 +540,23 @@ def _tool_pair_safe_cutoff(messages: List[dict], keep_count: int) -> int:
     return cutoff
 
 
+def _tool_pair_fallback_split(messages: List[dict], keep_count: int) -> tuple[List[dict], List[dict]]:
+    keep_start = max(0, len(messages) - keep_count)
+    keep_indexes = set(range(keep_start, len(messages)))
+    kept_tool_ids = {
+        tool_id
+        for msg in messages[keep_start:]
+        for tool_id in [_tool_response_id(msg)]
+        if tool_id
+    }
+    for index, msg in enumerate(messages[:keep_start]):
+        if _assistant_tool_call_ids(msg) & kept_tool_ids:
+            keep_indexes.add(index)
+    kept = [msg for index, msg in enumerate(messages) if index in keep_indexes]
+    summarized = [msg for index, msg in enumerate(messages) if index not in keep_indexes]
+    return summarized, kept
+
+
 async def compress_history(
     history: List[dict],
     agent_mode: str = "default",
@@ -528,8 +575,12 @@ async def compress_history(
     print(f"[历史压缩] 当前消息数 {len(non_system_msgs)} > 20，开始压缩...")
 
     cutoff = _tool_pair_safe_cutoff(non_system_msgs, 10)
-    last_10 = non_system_msgs[cutoff:]
-    to_summarize = non_system_msgs[:cutoff]
+    if cutoff == 0:
+        print("[历史压缩] 工具调用配对导致安全截断点为0，启用工具对保留 fallback")
+        to_summarize, last_10 = _tool_pair_fallback_split(non_system_msgs, 10)
+    else:
+        last_10 = non_system_msgs[cutoff:]
+        to_summarize = non_system_msgs[:cutoff]
 
     # 构造摘要请求
     summary_prompt = "请简要总结以下对话的核心内容和已达成的共识，以便作为后续对话的上下文参考。注意：只输出纯文本总结，不要包含任何标签（如 <final_answer> 或 <think>）。\n\n"
@@ -570,7 +621,11 @@ async def compress_history(
             memory_context=memory_context,
         )
         fallback_cutoff = _tool_pair_safe_cutoff(non_system_msgs, 20)
-        new_history.extend(non_system_msgs[fallback_cutoff:])
+        if fallback_cutoff == 0:
+            _, fallback_tail = _tool_pair_fallback_split(non_system_msgs, 20)
+            new_history.extend(fallback_tail)
+        else:
+            new_history.extend(non_system_msgs[fallback_cutoff:])
         return new_history
 
 def _build_tool_executor(workspace_scope: str):
@@ -622,6 +677,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     agent_mode = request.agent_mode
     use_ocp = request.use_ocp
     workspace_scope = get_workspace_scope(current_user, session_id)
+    turn_id = f"turn_{uuid.uuid4().hex}"
     active_conversations[workspace_scope] = time.time()
 
     # Sanitize history: ensure content is always a string and no nulls
@@ -653,7 +709,16 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
         sanitized_history.append(m)
 
     print(f"\n[收到请求] 会话ID: {session_id}, 模式: {agent_mode}, 流式: {stream}")
-    _sync_memory_cache(workspace_scope, request.memory_snapshot, sanitized_history)
+    try:
+        _sync_memory_cache(
+            workspace_scope,
+            request.memory_snapshot,
+            mode="merge",
+            expected_revision=request.expected_revision,
+            memory_conflict_strategy=request.memory_conflict_strategy,
+        )
+    except MemoryRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=_memory_conflict_detail(exc))
     memory_context, _ = _retrieve_memory_context(workspace_scope, content)
     prompt_focus = _infer_prompt_focus(content, sanitized_history)
 
@@ -683,6 +748,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
             full_result = ""
             context_messages = []
             memory_written = False
+            turn_token = set_current_memory_turn_id(turn_id)
             try:
                 import inspect
                 sig = inspect.signature(agent.run)
@@ -700,14 +766,17 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                             full_result = str(chunk.get("content") or "")
                         elif chunk_type == "memory_candidate":
                             if not memory_written:
+                                yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '正在整理记忆\\n'}, ensure_ascii=False)}\n\n"
                                 memory_payload = _remember_memory_turn(
                                     workspace_scope,
                                     content,
-                                    str(chunk.get("content") or full_result)
+                                    str(chunk.get("content") or full_result),
+                                    turn_id,
                                 )
                                 memory_written = True
                                 if memory_payload.get("memory"):
                                     yield f"data: {json.dumps({'type': 'memory_sync', 'content': memory_payload['memory']}, ensure_ascii=False)}\n\n"
+                                yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '记忆整理完成\\n'}, ensure_ascii=False)}\n\n"
                             continue
                         elif chunk_type == "history_trace":
                             messages = chunk.get("content") or []
@@ -732,16 +801,21 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                             yield f"data: {json.dumps({'type': 'content', 'content': chunk_str})}\n\n"
 
                 if not memory_written:
-                    memory_payload = _remember_memory_turn(workspace_scope, content, full_result)
+                    yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '正在整理记忆\\n'}, ensure_ascii=False)}\n\n"
+                    memory_payload = _remember_memory_turn(workspace_scope, content, full_result, turn_id)
                     if memory_payload.get("memory"):
                         yield f"data: {json.dumps({'type': 'memory_sync', 'content': memory_payload['memory']}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '记忆整理完成\\n'}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 print(f"[聊天流生成失败]: {type(e).__name__}: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            finally:
+                reset_current_memory_turn_id(turn_token)
 
         return StreamingResponse(generate_agent(), media_type="text/event-stream")
     else:
         try:
+            turn_token = set_current_memory_turn_id(turn_id)
             full_result = ""
             context_messages = []
             thought_signature = None
@@ -772,7 +846,8 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                         memory_payload = _remember_memory_turn(
                             workspace_scope,
                             content,
-                            str(chunk.get('content') or full_result)
+                            str(chunk.get('content') or full_result),
+                            turn_id,
                         )
                         memory_written = True
                 elif chunk:
@@ -785,7 +860,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                     full_result += chunk_str
 
             if not memory_written:
-                memory_payload = _remember_memory_turn(workspace_scope, content, full_result)
+                memory_payload = _remember_memory_turn(workspace_scope, content, full_result, turn_id)
             return {
                 "reply": full_result,
                 "download_path": None,
@@ -797,6 +872,8 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
             import traceback
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            reset_current_memory_turn_id(turn_token)
 
 
 @app.post("/api/summarize")
@@ -825,7 +902,17 @@ async def summarize_endpoint(request: SummarizeRequest, current_user: str = Depe
 async def sync_memory_endpoint(request: MemorySyncRequest, current_user: str = Depends(get_current_user)):
     workspace_scope = get_workspace_scope(current_user, request.conversation_id)
     active_conversations[workspace_scope] = time.time()
-    return _sync_memory_cache(workspace_scope, request.memory_snapshot, request.history)
+    try:
+        return _sync_memory_cache(
+            workspace_scope,
+            request.memory_snapshot,
+            request.history,
+            request.mode,
+            request.expected_revision,
+            request.memory_conflict_strategy,
+        )
+    except MemoryRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=_memory_conflict_detail(exc))
 
 
 @app.get("/api/upload")
