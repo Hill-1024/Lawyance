@@ -123,6 +123,33 @@ if not usage_logger.handlers:
 ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
 RATE_LIMIT = 100 # requests per minute per IP
 last_rate_limit_prune = 0.0
+ALLOWED_WORKSPACE_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
+MAX_UPLOAD_BYTES = int(os.getenv("LAWYANCE_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
+
+def safe_upload_filename(filename: str | None) -> str:
+    raw_name = str(filename or "").strip()
+    safe_filename = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", raw_name)
+    safe_filename = os.path.basename(safe_filename).strip()
+    if not safe_filename or safe_filename in {".", ".."}:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    return safe_filename
+
+
+def validate_workspace_filename(filename: str | None) -> str:
+    safe_filename = safe_upload_filename(filename)
+    file_ext = os.path.splitext(safe_filename)[1].lower()
+    if file_ext not in ALLOWED_WORKSPACE_EXTENSIONS:
+        allowed = ", ".join(sorted(ALLOWED_WORKSPACE_EXTENSIONS))
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {allowed}")
+    return safe_filename
+
+
+async def read_limited_upload(file: UploadFile) -> bytes:
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail=f"File size exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit")
+    return content
 
 
 def sanitize_path_component(value: str) -> str:
@@ -921,36 +948,14 @@ async def upload_file_get(current_user: str = Depends(get_current_user)):
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...), conversation_id: str = Form(...), current_user: str = Depends(get_current_user)):
-    # 修复上传漏洞：限制文件类型并清理文件名
-    # 1. 限制允许上传的扩展名
-    ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
-    file_ext = os.path.splitext(file.filename)[1].lower()
-    if file_ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}")
+    safe_filename = validate_workspace_filename(file.filename)
+    content = await read_limited_upload(file)
 
-    # 1.5 限制文件大小为 50MB
-    file.file.seek(0, 2)
-    file_size = file.file.tell()
-    file.file.seek(0)
-    if file_size > 50 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File size exceeds 50MB limit")
-
-    # 2. 清理文件名，防止路径穿越，保留中文字符和常用字符
-    # 只过滤掉路径分隔符和一些极其危险的控制字符，保留中文、字母、数字和常用标点
-    # [^\w\s\u4e00-\u9fa5._-] 这种写法在 Python re 中通常能很好工作
-    safe_filename = re.sub(r'[\\/:*?"<>|]', '_', file.filename)
-    # 进一步防止路径穿越
-    safe_filename = os.path.basename(safe_filename)
-
-    # 3. 确保目录安全
     temp_dir, _ = get_workspace_dirs(current_user, conversation_id)
     os.makedirs(temp_dir, exist_ok=True)
-
     file_path = os.path.join(temp_dir, safe_filename)
 
-    # 4. 写入文件
     with open(file_path, "wb") as f:
-        content = await file.read()
         f.write(content)
 
     return {"status": "success", "file_path": file_path.replace("\\", "/")}
@@ -1000,8 +1005,8 @@ async def restore_workspace_file(
     """
     从客户端恢复丢失的文件到服务器缓存
     """
-    safe_filename = re.sub(r'[\\/:*?"<>|]', '_', file.filename)
-    safe_filename = os.path.basename(safe_filename)
+    safe_filename = validate_workspace_filename(file.filename)
+    content = await read_limited_upload(file)
 
     if file_type == "upload":
         target_dir, _ = get_workspace_dirs(current_user, conversation_id)
@@ -1014,7 +1019,6 @@ async def restore_workspace_file(
     file_path = os.path.join(target_dir, safe_filename)
 
     with open(file_path, "wb") as f:
-        content = await file.read()
         f.write(content)
 
     return {"status": "success", "file_path": file_path.replace("\\", "/")}
