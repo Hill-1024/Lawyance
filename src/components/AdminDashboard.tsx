@@ -1,7 +1,12 @@
+/*
+ * 模块描述：管理员后台组件，展示访问日志、账号管理和管理员操作入口。
+ */
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchLogs, fetchAccounts, setAccount, logout as apiLogout, deleteAccount } from '../services/api';
 import { Search, ShieldAlert, Users, Activity, EyeOff, RefreshCw, ArrowLeft, LogOut, Plus, KeyRound, Globe, Clock, User, Trash2 } from 'lucide-react';
+import { AnimatedSwitch } from './AnimatedSwitch';
 import { BrandMark } from './Brand';
 
 /* ── helpers ── */
@@ -170,15 +175,12 @@ export const AdminDashboard: React.FC = () => {
                   className="md3-input !pl-10 !rounded-full !py-2.5"
                 />
               </div>
-              <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-[var(--fg-2)]">
-                <div className="relative">
-                  <input type="checkbox" checked={ignoreHeartbeat} onChange={e => setIgnoreHeartbeat(e.target.checked)}
-                    className="peer sr-only" />
-                  <div className="h-5 w-9 rounded-full bg-[rgba(20,23,31,0.12)] transition-colors peer-checked:bg-[var(--accent)] dark:bg-white/[0.1]" />
-                  <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
-                </div>
-                隐藏心跳
-              </label>
+              <AnimatedSwitch
+                checked={ignoreHeartbeat}
+                onCheckedChange={setIgnoreHeartbeat}
+                label="隐藏心跳"
+                size="sm"
+              />
               <button onClick={loadLogs} disabled={isLogsLoading} className="md3-btn-tonal">
                 <RefreshCw className={`h-4 w-4 ${isLogsLoading ? 'animate-spin' : ''}`} strokeWidth={2} /> 刷新
               </button>

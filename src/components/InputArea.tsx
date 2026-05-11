@@ -1,7 +1,12 @@
+/*
+ * 模块描述：聊天输入区组件，处理消息输入、文件上传、发送按钮和悬浮设置面板。
+ */
+
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings2, Paperclip, X, Send } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { AnimatedSwitch } from './AnimatedSwitch';
 
 interface InputAreaProps {
   input: string;
@@ -152,13 +157,11 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 <Settings2 size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-3)]" />
                 <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">Enable Streaming Output</span>
               </div>
-              <button
-                onClick={() => setIsStreaming(!isStreaming)}
-                className={`lawyance-pressable relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${isStreaming ? 'bg-[var(--accent)]' : 'bg-[rgba(20,23,31,0.12)] dark:bg-white/[0.1]'}`}
-                aria-pressed={isStreaming}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${isStreaming ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+              <AnimatedSwitch
+                checked={isStreaming}
+                onCheckedChange={setIsStreaming}
+                ariaLabel="切换流式输出"
+              />
             </div>
 
             <div className="relative z-[1] flex min-h-12 items-center justify-between gap-4 px-4 py-2.5">
@@ -169,13 +172,11 @@ export const InputArea: React.FC<InputAreaProps> = ({
                   <span className="shrink-0 rounded bg-[rgba(20,23,31,0.08)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--fg-3)]">Beta</span>
                 </div>
               </div>
-              <button
-                onClick={() => setIsOCPEnabled(!isOCPEnabled)}
-                className={`lawyance-pressable relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${isOCPEnabled ? 'bg-[var(--accent)]' : 'bg-[rgba(20,23,31,0.12)] dark:bg-white/[0.1]'}`}
-                aria-pressed={isOCPEnabled}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${isOCPEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+              <AnimatedSwitch
+                checked={isOCPEnabled}
+                onCheckedChange={setIsOCPEnabled}
+                ariaLabel="切换 OCP"
+              />
             </div>
             <div className="relative z-[1] mx-4 h-px bg-[var(--border-default)]" />
             <div className="relative z-[1] flex min-h-12 items-center justify-between gap-4 px-4 py-2.5">
