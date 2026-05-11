@@ -275,6 +275,11 @@ const getStatusLabel = (block?: ThoughtBlock) => {
     if (block.content.includes('检查正文结构')) return '正在检查正文结构与引用格式';
     return '正在审查输出格式与信源';
   }
+  if (block.type === 'memory') {
+    if (block.content.includes('完成')) return '记忆整理完成';
+    if (block.content.includes('失败') || block.content.includes('异常')) return '记忆整理未完成';
+    return '正在整理记忆';
+  }
   return '正在分析问题';
 };
 
@@ -282,7 +287,8 @@ const thoughtTypeLabel: Record<ThoughtBlock['type'], string> = {
   reasoning: 'Reasoning',
   draft: 'Draft',
   tool: 'Tool',
-  ocp: 'OCP'
+  ocp: 'OCP',
+  memory: 'Memory'
 };
 
 const sanitizeThoughtContent = (content: string, type: ThoughtBlock['type']) => {

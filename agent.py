@@ -766,7 +766,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                             full_result = str(chunk.get("content") or "")
                         elif chunk_type == "memory_candidate":
                             if not memory_written:
-                                yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '正在整理记忆\\n'}, ensure_ascii=False)}\n\n"
+                                yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '正在整理记忆'}, ensure_ascii=False)}\n\n"
                                 memory_payload = _remember_memory_turn(
                                     workspace_scope,
                                     content,
@@ -776,7 +776,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                                 memory_written = True
                                 if memory_payload.get("memory"):
                                     yield f"data: {json.dumps({'type': 'memory_sync', 'content': memory_payload['memory']}, ensure_ascii=False)}\n\n"
-                                yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '记忆整理完成\\n'}, ensure_ascii=False)}\n\n"
+                                yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '记忆整理完成'}, ensure_ascii=False)}\n\n"
                             continue
                         elif chunk_type == "history_trace":
                             messages = chunk.get("content") or []
@@ -801,11 +801,11 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
                             yield f"data: {json.dumps({'type': 'content', 'content': chunk_str})}\n\n"
 
                 if not memory_written:
-                    yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '正在整理记忆\\n'}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '正在整理记忆'}, ensure_ascii=False)}\n\n"
                     memory_payload = _remember_memory_turn(workspace_scope, content, full_result, turn_id)
                     if memory_payload.get("memory"):
                         yield f"data: {json.dumps({'type': 'memory_sync', 'content': memory_payload['memory']}, ensure_ascii=False)}\n\n"
-                    yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '记忆整理完成\\n'}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'thought', 'thought_type': 'memory', 'mode': 'new', 'content': '记忆整理完成'}, ensure_ascii=False)}\n\n"
             except Exception as e:
                 print(f"[聊天流生成失败]: {type(e).__name__}: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
