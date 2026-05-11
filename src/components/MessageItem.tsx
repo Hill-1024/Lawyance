@@ -1,9 +1,14 @@
+/*
+ * 模块描述：单条消息渲染组件，处理 Markdown、思考过程、工具过程、OCP 状态和操作按钮。
+ */
+
 import React from 'react';
 import { ChevronDown, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { Message, ThoughtBlock } from '../types';
 import { Mermaid } from './Mermaid';
 import { BrandMark } from './Brand';
@@ -16,6 +21,33 @@ interface MessageItemProps {
   onEdit?: (id: string) => void;
   onUndo?: (id: string) => void;
 }
+
+const markdownSanitizeSchema: any = {
+  ...defaultSchema,
+  tagNames: [
+    ...(defaultSchema.tagNames || []),
+    'sup',
+    'sub'
+  ],
+  attributes: {
+    ...defaultSchema.attributes,
+    a: [
+      ...(defaultSchema.attributes?.a || []),
+      'href',
+      'title'
+    ],
+    code: [
+      ...(defaultSchema.attributes?.code || []),
+      ['className', /^language-[\w-]+$/]
+    ],
+    sup: [],
+    sub: []
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    href: ['http', 'https', 'mailto']
+  }
+};
 
 const splitQuotePrefix = (line: string) => {
   const match = line.match(/^(\s*(?:>\s*)*)(.*)$/);
@@ -438,7 +470,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                               <span className="thought-step-label-text">{thoughtTypeLabel[block.type]}</span>
                             </div>
                             <div className="thought-copy prose dark:prose-invert w-full max-w-none">
-                              <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{blockContent}</Markdown>
+                              <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]} components={markdownComponents}>{blockContent}</Markdown>
                             </div>
                           </div>
                         );
@@ -457,7 +489,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             {mainContent && (
               <div data-testid="assistant-content" className="w-full rounded-[8px_24px_24px_24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5">
                 <div className="message-copy prose dark:prose-invert w-full max-w-none">
-                  <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={markdownComponents}>{mainContent}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]} components={markdownComponents}>{mainContent}</Markdown>
                 </div>
               </div>
             )}

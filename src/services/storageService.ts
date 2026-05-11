@@ -1,7 +1,24 @@
+/*
+ * 模块描述：浏览器本地存储服务，负责垃圾回收、导出备份和容量维护。
+ */
+
 import JSZip from 'jszip/dist/jszip.min.js';
 import { fileDB } from '../lib/db';
 
 export const storageService = {
+  getConversationTimestamp(c: any): number {
+    const timestamps = [
+      Date.parse(c.updated_at || ''),
+      Date.parse(c.created_at || ''),
+      ...(c.messages || []).map((msg: any) => {
+        const explicit = Date.parse(msg.updated_at || msg.created_at || '');
+        if (!Number.isNaN(explicit)) return explicit;
+        const numericId = Number(msg.id);
+        return Number.isFinite(numericId) ? numericId : 0;
+      })
+    ].filter(value => Number.isFinite(value));
+    return Math.max(...timestamps, 0);
+  },
 
   async garbageCollect() {
     const files = await fileDB.getAllFiles();
@@ -30,9 +47,7 @@ export const storageService = {
     const threshold = daysThreshold * 24 * 60 * 60 * 1000;
     
     const oldConvs = conversations.filter(c => {
-      // Find the latest message timestamp
-      const lastMsg = c.messages[c.messages.length - 1];
-      const ts = lastMsg ? (parseInt(lastMsg.id) || now) : now; 
+      const ts = this.getConversationTimestamp(c);
       return (now - ts) > threshold;
     });
 

@@ -1,3 +1,7 @@
+/*
+ * 模块描述：IndexedDB 数据访问层，持久化会话、上传文件和生成文件元数据。
+ */
+
 import { Conversation } from '../types';
 
 export class FileDB {
@@ -8,6 +12,20 @@ export class FileDB {
 
   private buildFileId(convId: string, fileName: string, path?: string) {
     return `${convId}::${path || fileName}`;
+  }
+
+  private conversationTimestamp(conv: Conversation): number {
+    const candidates = [
+      Date.parse(conv.updated_at || ''),
+      Date.parse(conv.created_at || ''),
+      ...conv.messages.map(msg => {
+        const explicit = Date.parse(msg.updated_at || msg.created_at || '');
+        if (!Number.isNaN(explicit)) return explicit;
+        const numericId = Number(msg.id);
+        return Number.isFinite(numericId) ? numericId : 0;
+      })
+    ];
+    return Math.max(...candidates.filter(value => Number.isFinite(value)), 0);
   }
 
   private async getDB(): Promise<IDBDatabase> {
@@ -118,12 +136,18 @@ export class FileDB {
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.convStoreName, 'readwrite');
       const store = transaction.objectStore(this.convStoreName);
-      
-      const clearReq = store.clear();
-      clearReq.onsuccess = () => {
+
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = () => {
+        const incomingIds = new Set(conversations.map(conv => conv.id));
+        (keysReq.result as IDBValidKey[]).forEach(key => {
+          if (!incomingIds.has(String(key))) {
+            store.delete(key);
+          }
+        });
         conversations.forEach(conv => store.put(conv));
       };
-      clearReq.onerror = () => reject(clearReq.error);
+      keysReq.onerror = () => reject(keysReq.error);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
     });
@@ -147,7 +171,12 @@ export class FileDB {
       const transaction = db.transaction(this.convStoreName, 'readonly');
       const store = transaction.objectStore(this.convStoreName);
       const request = store.getAll();
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const conversations = (request.result as Conversation[])
+          .slice()
+          .sort((a, b) => this.conversationTimestamp(b) - this.conversationTimestamp(a));
+        resolve(conversations);
+      };
       request.onerror = () => reject(request.error);
     });
   }

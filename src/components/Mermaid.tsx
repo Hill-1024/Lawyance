@@ -1,10 +1,21 @@
+/*
+ * 模块描述：安全 Mermaid 渲染组件，负责图表渲染、SVG 清洗和错误降级展示。
+ */
+
 import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
+import DOMPurify from 'dompurify';
 
 mermaid.initialize({
   startOnLoad: false,
   theme: 'default',
-  securityLevel: 'loose',
+  securityLevel: 'strict',
+  flowchart: {
+    htmlLabels: false,
+  },
+  sequence: {
+    useMaxWidth: true,
+  },
 });
 
 interface MermaidProps {
@@ -22,8 +33,13 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
     const renderChart = async () => {
       try {
         const { svg: renderedSvg } = await mermaid.render(id.current, chart);
+        const sanitizedSvg = DOMPurify.sanitize(renderedSvg, {
+          USE_PROFILES: { svg: true, svgFilters: true },
+          FORBID_TAGS: ['foreignObject', 'script'],
+          SAFE_FOR_XML: true,
+        });
         if (isMounted) {
-          setSvg(renderedSvg);
+          setSvg(sanitizedSvg);
           setError('');
         }
       } catch (e: any) {

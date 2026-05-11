@@ -1,5 +1,9 @@
+/*
+ * 模块描述：聊天状态 Hook，管理会话、消息、发送流程、编辑/撤回和对话级记忆同步。
+ */
+
 import { useState, useEffect } from 'react';
-import type { Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
+import type { BackendHistoryMessage, Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
 import { fileDB } from '../lib/db';
 import { chat, deleteWorkspace, syncConversationMemory } from '../services/api';
 
@@ -29,11 +33,43 @@ const GREETING_MESSAGE = `您好，我是 **Lawyance**，由 **工大法智团�
 - 信源可溯 — 所有法条与案例均提供权威出处
 请问有什么法律问题需要我协助分析？`;
 
+const normalizeBackendMessage = (msg: Partial<Message> | BackendHistoryMessage): BackendHistoryMessage | null => {
+  const rawRole = (msg.role as string) || '';
+  const role = rawRole === 'agent' ? 'assistant' : rawRole;
+  if (!['user', 'assistant', 'tool', 'system'].includes(role)) return null;
+
+  const normalized: BackendHistoryMessage = {
+    role: role as BackendHistoryMessage['role'],
+    content: typeof msg.content === 'string' ? msg.content : ''
+  };
+
+  if ('tool_calls' in msg && msg.tool_calls) {
+    normalized.tool_calls = msg.tool_calls;
+  }
+  if ('tool_call_id' in msg && msg.tool_call_id) {
+    normalized.tool_call_id = msg.tool_call_id;
+  }
+  if ('name' in msg && msg.name) {
+    normalized.name = msg.name;
+  }
+  if (normalized.role === 'tool' && !normalized.tool_call_id) {
+    return null;
+  }
+  return normalized;
+};
+
 const formatHistoryForBackend = (messages: Message[]) => {
-  return messages.map(msg => ({
-    role: (msg.role === 'assistant' || (msg.role as string) === 'agent') ? 'assistant' : msg.role,
-    content: msg.content
-  }));
+  return messages.flatMap(msg => {
+    const formatted: BackendHistoryMessage[] = [];
+    for (const contextMessage of msg.context_messages || []) {
+      const normalized = normalizeBackendMessage(contextMessage);
+      if (normalized) formatted.push(normalized);
+    }
+
+    const normalized = normalizeBackendMessage(msg);
+    if (normalized) formatted.push(normalized);
+    return formatted;
+  });
 };
 
 const appendThoughtBlock = (
@@ -92,6 +128,7 @@ export function useChat() {
 
   const currentConversation = conversations.find(c => c.id === currentId) || { id: '', title: '', messages: [] };
   const messages = currentConversation.messages;
+  const nowIso = () => new Date().toISOString();
 
   useEffect(() => {
     const initData = async () => {
@@ -135,11 +172,14 @@ export function useChat() {
 
   const handleNewChat = () => {
     const newId = generateUUID();
+    const now = nowIso();
     setConversations(prev => [{
       id: newId,
       title: 'New Conversation',
-      messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE }],
-      memory: createEmptyConversationMemory(newId)
+      messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE, created_at: now, updated_at: now }],
+      memory: createEmptyConversationMemory(newId),
+      created_at: now,
+      updated_at: now
     }, ...prev]);
     setCurrentId(newId);
   };
@@ -150,8 +190,16 @@ export function useChat() {
       const filtered = prev.filter(c => c.id !== id);
       if (filtered.length === 0) {
         const newId = generateUUID();
+        const now = nowIso();
         setCurrentId(newId);
-        return [{ id: newId, title: 'New Conversation', messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE }], memory: createEmptyConversationMemory(newId) }];
+        return [{
+          id: newId,
+          title: 'New Conversation',
+          messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE, created_at: now, updated_at: now }],
+          memory: createEmptyConversationMemory(newId),
+          created_at: now,
+          updated_at: now
+        }];
       }
       if (currentId === id) {
         setCurrentId(filtered[0].id);
@@ -169,7 +217,7 @@ export function useChat() {
   const updateMessages = (convId: string, updater: (prev: Message[]) => Message[]) => {
     setConversations(prev => prev.map(conv => {
       if (conv.id === convId) {
-        return { ...conv, messages: updater(conv.messages) };
+        return { ...conv, messages: updater(conv.messages), updated_at: nowIso() };
       }
       return conv;
     }));
@@ -263,6 +311,7 @@ export function useChat() {
 
     const decoder = new TextDecoder();
     let thoughtBlocks: ThoughtBlock[] = [];
+    let contextMessages: BackendHistoryMessage[] = [];
     let bodyText = '';
     let currentSignature = '';
     let currentDownloadPath = '';
@@ -296,6 +345,14 @@ export function useChat() {
         }
       } else if (data.type === 'memory_sync') {
         updateConversationMemory(convId, data.content as ConversationMemory);
+      } else if (data.type === 'history_trace') {
+        const traceMessages = Array.isArray(data.content) ? data.content : [data.content];
+        contextMessages = [
+          ...contextMessages,
+          ...traceMessages
+            .map((item: BackendHistoryMessage) => normalizeBackendMessage(item))
+            .filter((item: BackendHistoryMessage | null): item is BackendHistoryMessage => Boolean(item))
+        ];
       } else if (data.type === 'content_replace') {
         bodyText = data.content || '';
       } else if (data.type === 'error') {
@@ -309,6 +366,7 @@ export function useChat() {
           ...msg,
           content: bodyText,
           thought_blocks: thoughtBlocks,
+          context_messages: contextMessages,
           thought_signature: currentSignature || msg.thought_signature,
           download_path: currentDownloadPath || msg.download_path
         } : msg
@@ -317,7 +375,8 @@ export function useChat() {
 
     if (!agentMessageId) {
       agentMessageId = (Date.now() + 1).toString();
-      updateMessages(convId, prev => [...prev, { id: agentMessageId!, role: 'assistant', content: '', thought_blocks: [] }]);
+      const now = nowIso();
+      updateMessages(convId, prev => [...prev, { id: agentMessageId!, role: 'assistant', content: '', thought_blocks: [], created_at: now, updated_at: now }]);
     }
 
     try {
@@ -383,7 +442,9 @@ export function useChat() {
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: messageContent
+      content: messageContent,
+      created_at: nowIso(),
+      updated_at: nowIso()
     };
 
     let convId = currentId;
@@ -422,7 +483,10 @@ export function useChat() {
           id: agentMessageId,
           role: 'assistant',
           content: data.reply,
-          download_path: data.download_path
+          download_path: data.download_path,
+          context_messages: data.context_messages || [],
+          created_at: nowIso(),
+          updated_at: nowIso()
         }]);
         updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
         setIsLoading(false);
@@ -481,7 +545,8 @@ export function useChat() {
     }
 
     try {
-      const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content };
+      const now = nowIso();
+      const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content, created_at: now, updated_at: now };
       updateMessages(convId, prev => [...prev, userMessage]);
 
       const response = await chat(content, history, convId, isStreaming, agentMode, isOCPEnabled, memorySnapshot);
@@ -501,7 +566,10 @@ export function useChat() {
           id: agentMessageId,
           role: 'assistant',
           content: data.reply,
-          download_path: data.download_path
+          download_path: data.download_path,
+          context_messages: data.context_messages || [],
+          created_at: nowIso(),
+          updated_at: nowIso()
         }]);
         updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
         setIsLoading(false);
