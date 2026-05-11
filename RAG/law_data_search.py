@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -19,7 +20,13 @@ RAW_DATA_DIR = BASE_DIR / "data_doc"
 CACHE_DIR = BASE_DIR / "cache"
 DB_PATH = CACHE_DIR / "law.db"
 MANIFEST_PATH = CACHE_DIR / "manifest.json"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+MAX_TITLE_CHARS = 160
+MAX_ARTICLE_NUMBER_CHARS = 40
+MAX_QUERY_CHARS = 4000
+MAX_SEARCH_LIMIT = 20
+MAX_QUERY_TERMS = 32
+MIN_PARTIAL_TITLE_CHARS = 2
 
 CN_NUM = {
     "零": 0,
@@ -87,6 +94,8 @@ class LawSearchEngine:
             "search_time": 0.0,
         }
 
+        law_name = trim_text(law_name, MAX_TITLE_CHARS)
+        article_number = trim_text(article_number, MAX_ARTICLE_NUMBER_CHARS)
         if not law_name or not article_number:
             result["message"] = "法律名称和条号不能为空"
             result["search_time"] = time.time() - start_time
@@ -139,6 +148,7 @@ class LawSearchEngine:
 
     def fuzzy_search(self, keyword: str, limit: int = 5) -> str:
         start_time = time.time()
+        safe_limit = normalize_limit(limit)
         result = {
             "success": False,
             "message": "",
@@ -148,7 +158,7 @@ class LawSearchEngine:
             "search_time": 0.0,
         }
 
-        query = normalize_query(keyword)
+        query = normalize_query(trim_text(keyword, MAX_QUERY_CHARS))
         if not query:
             result["message"] = "检索关键词不能为空"
             result["search_time"] = time.time() - start_time
@@ -192,7 +202,7 @@ class LawSearchEngine:
                 len(item[1]["content"]),
             )
         )
-        selected = [item[1] for item in candidates[: max(1, limit)]]
+        selected = [item[1] for item in candidates[:safe_limit]]
 
         result["success"] = bool(selected)
         result["message"] = "找到相关法条" if selected else "未检索到相关法条,请调整输入的描述"
@@ -204,6 +214,8 @@ class LawSearchEngine:
 
     def link_search(self, message: str, limit: int = 5) -> str:
         start_time = time.time()
+        message = trim_text(message, MAX_QUERY_CHARS)
+        safe_limit = normalize_limit(limit)
         references: List[Dict[str, str]] = []
         seen = set()
 
@@ -225,7 +237,7 @@ class LawSearchEngine:
                 }
             )
 
-        for title, number in self._extract_unquoted_citations(message, limit):
+        for title, number in self._extract_unquoted_citations(message, safe_limit):
             exact = json.loads(self.exact_search(title, number))
             if not exact.get("success"):
                 continue
@@ -244,7 +256,7 @@ class LawSearchEngine:
             )
 
         if not references:
-            for law_name, url in self._find_law_mentions(message, limit):
+            for law_name, url in self._find_law_mentions(message, safe_limit):
                 key = (law_name, "")
                 if key in seen:
                     continue
@@ -259,7 +271,7 @@ class LawSearchEngine:
                 )
 
         if not references:
-            fuzzy = json.loads(self.fuzzy_search(message, limit))
+            fuzzy = json.loads(self.fuzzy_search(message, safe_limit))
             for item in fuzzy.get("data") or []:
                 key = (item.get("law_name", ""), item.get("article_number", ""))
                 if key in seen:
@@ -325,17 +337,20 @@ class LawSearchEngine:
             if exact:
                 return exact
 
+            if len(query) < MIN_PARTIAL_TITLE_CHARS:
+                return None
+
             partial = conn.execute(
                 """
                 SELECT DISTINCT laws.*
                 FROM law_aliases
                 JOIN laws ON laws.id = law_aliases.law_id
-                WHERE law_aliases.normalized_alias LIKE ?
-                   OR ? LIKE '%' || law_aliases.normalized_alias || '%'
+                WHERE instr(law_aliases.normalized_alias, ?) > 0
+                   OR instr(?, law_aliases.normalized_alias) > 0
                 ORDER BY LENGTH(law_aliases.alias) ASC, laws.implement_date DESC
                 LIMIT 1
                 """,
-                (f"%{query}%", query),
+                (query, query),
             ).fetchone()
             return partial
 
@@ -449,6 +464,19 @@ def normalize_query(query: str) -> str:
     return re.sub(r"\s+", " ", (query or "").strip())
 
 
+def trim_text(value: str, max_chars: int) -> str:
+    text = str(value or "").strip()
+    return text[:max_chars]
+
+
+def normalize_limit(limit: int, default: int = 5) -> int:
+    try:
+        value = int(limit)
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, 1), MAX_SEARCH_LIMIT)
+
+
 def clean_title(raw_title: str) -> str:
     title = (raw_title or "").strip()
     title = TITLE_SUFFIX_RE.sub("", title).strip()
@@ -523,19 +551,42 @@ def clean_article_content(content: str) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
-def build_source_manifest() -> Dict[str, int]:
-    file_paths = sorted(
-        path for path in RAW_DATA_DIR.rglob("*") if path.is_file() and path.suffix.lower() in {".txt", ".md"}
+def iter_source_files() -> List[Path]:
+    return sorted(
+        path
+        for path in RAW_DATA_DIR.rglob("*")
+        if path.is_file() and path.suffix.lower() in {".txt", ".md"}
     )
-    latest_mtime_ns = max((path.stat().st_mtime_ns for path in file_paths), default=0)
+
+
+def build_source_manifest() -> Dict[str, object]:
+    file_paths = iter_source_files()
+    digest = hashlib.sha256()
+    latest_mtime_ns = 0
+    total_size = 0
+
+    for path in file_paths:
+        stat = path.stat()
+        latest_mtime_ns = max(latest_mtime_ns, stat.st_mtime_ns)
+        total_size += stat.st_size
+        relative_path = path.relative_to(RAW_DATA_DIR).as_posix()
+        digest.update(relative_path.encode("utf-8"))
+        digest.update(b"\0")
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+
     return {
         "schema_version": SCHEMA_VERSION,
         "file_count": len(file_paths),
         "latest_mtime_ns": latest_mtime_ns,
+        "total_size": total_size,
+        "content_sha256": digest.hexdigest(),
     }
 
 
-def needs_rebuild(source_manifest: Dict[str, int]) -> bool:
+def needs_rebuild(source_manifest: Dict[str, object]) -> bool:
     if not DB_PATH.exists() or not MANIFEST_PATH.exists():
         return True
     try:
@@ -587,9 +638,7 @@ def build_database(db_path: Path) -> None:
             """
         )
 
-        for source_file in sorted(
-            path for path in RAW_DATA_DIR.rglob("*") if path.is_file() and path.suffix.lower() in {".txt", ".md"}
-        ):
+        for source_file in iter_source_files():
             text = source_file.read_text(encoding="utf-8", errors="ignore")
             metadata = extract_metadata(text)
             effectiveness = metadata.get("effectiveness", "")
@@ -681,10 +730,16 @@ def build_query_terms(query: str) -> List[str]:
             continue
         seen.add(token)
         ordered.append(token)
+        if len(ordered) >= MAX_QUERY_TERMS:
+            break
         for alias in QUERY_SYNONYMS.get(token, []):
             if alias not in seen:
                 seen.add(alias)
                 ordered.append(alias)
+                if len(ordered) >= MAX_QUERY_TERMS:
+                    break
+        if len(ordered) >= MAX_QUERY_TERMS:
+            break
     return ordered
 
 
