@@ -1,3 +1,7 @@
+"""
+模块描述：OpenAI 兼容模型调用封装，集中处理静态工具 schema、重试和工具消息配对。
+"""
+
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 import os
@@ -5,7 +9,6 @@ import json
 import time
 import copy
 from mcps import tools
-from prompt_loader import build_system_memory
 
 # 工具定义保持常态加载：从 mcps 导入后原样传给 API，不进入动态 prompt 加载链路。
 
@@ -28,9 +31,6 @@ client = AsyncOpenAI(
     api_key=API_KEY,
     base_url=BASE_URL,
 )
-
-memory = build_system_memory()
-
 
 def sanitize_messages(messages):
     """

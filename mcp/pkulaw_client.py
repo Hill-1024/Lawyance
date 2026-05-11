@@ -1,11 +1,10 @@
+"""
+模块描述：本地法库工具适配器，封装法条精确检索、模糊检索和信源链接查询。
+"""
+
 import json
 
 from RAG.law_data_search import law_exact_search, law_fuzzy_search, law_link_search
-
-"""
-本模块仅作为 mcps 的底层实现适配层使用。
-上层业务代码必须通过 mcps.use_tools 访问工具，不应直接导入本模块。
-"""
 
 
 def _format_search_result(items):

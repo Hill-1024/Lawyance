@@ -1,3 +1,5 @@
+<!-- 模块描述：系统尾部约束重申片段，利用 recency 强化核心不可违反规则。 -->
+
 <constraint_recap role="system_tail">
 【核心约束重申 — 以下规则在任何情况下不可违反】
 

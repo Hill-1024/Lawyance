@@ -1,3 +1,7 @@
+"""
+模块描述：对话级记忆服务，负责从历史消息抽取事件、事实、焦点并执行结构化检索。
+"""
+
 from __future__ import annotations
 
 import copy
@@ -500,7 +504,7 @@ def _event_from_message(role: str, content: Any, turn_id: str | None = None) -> 
     text = _strip_message_noise(content)
     if not text:
         return None
-    if role == "assistant" and "您好，我是 **Lawver**" in text:
+    if role == "assistant" and "您好，我是 **Lawyance**" in text:
         return None
     now = _now_iso()
     event = {

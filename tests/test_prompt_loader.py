@@ -1,3 +1,7 @@
+"""
+模块描述：动态 prompt loader 测试，覆盖 profile 片段组合、焦点注入和可选示例加载。
+"""
+
 import os
 import unittest
 
@@ -6,7 +10,7 @@ from prompt_loader import build_system_memory, build_system_prompt
 
 class PromptLoaderTest(unittest.TestCase):
     def tearDown(self):
-        os.environ.pop("LAWVER_PROMPT_INCLUDE_EXAMPLES", None)
+        os.environ.pop("LAWYANCE_PROMPT_INCLUDE_EXAMPLES", None)
 
     def test_builds_default_prompt_with_focus_and_memory_context(self):
         prompt = build_system_prompt(
@@ -15,12 +19,13 @@ class PromptLoaderTest(unittest.TestCase):
             memory_context="<conversation_memory>强解耦</conversation_memory>",
         )
 
-        self.assertIn("Lawver", prompt)
+        self.assertIn("Lawyance", prompt)
         self.assertIn("<hard_constraints", prompt)
         self.assertIn('name="default"', prompt)
         self.assertIn('name="legal_retrieval"', prompt)
         self.assertIn("<active_conversation_context>", prompt)
         self.assertIn("强解耦", prompt)
+        self.assertNotIn("模块描述", prompt)
 
     def test_unknown_mode_falls_back_to_default(self):
         prompt = build_system_prompt(agent_mode="unknown")
@@ -34,12 +39,13 @@ class PromptLoaderTest(unittest.TestCase):
         self.assertEqual(messages[0]["role"], "system")
         self.assertIn("对话摘要器", prompt)
         self.assertNotIn("<hard_constraints", prompt)
+        self.assertNotIn("模块描述", prompt)
 
     def test_examples_are_optional(self):
         prompt_without_examples = build_system_prompt()
         self.assertNotIn("<example", prompt_without_examples)
 
-        os.environ["LAWVER_PROMPT_INCLUDE_EXAMPLES"] = "1"
+        os.environ["LAWYANCE_PROMPT_INCLUDE_EXAMPLES"] = "1"
         prompt_with_examples = build_system_prompt()
         self.assertIn("<example", prompt_with_examples)
 

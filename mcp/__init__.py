@@ -1,3 +1,7 @@
+"""
+模块描述：底层 MCP 工具适配层导出模块，为 mcps 提供统一的工具实现入口。
+"""
+
 from .deli_client import match_legal_case
 from .pkulaw_client import get_article, search_article, get_linked_content
 from .word_annotator import word_reader, word_writer

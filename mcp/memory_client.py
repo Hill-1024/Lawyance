@@ -1,3 +1,7 @@
+"""
+模块描述：对话级记忆工具适配器，将 mcps 工具调用转换为 memory_system 的同步、检索和清理操作。
+"""
+
 import json
 from typing import Any
 

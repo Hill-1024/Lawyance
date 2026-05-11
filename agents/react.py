@@ -1,12 +1,7 @@
 """
-ReAct 范式：Reasoning + Acting
-每一轮循环包含三个步骤：
-    Thought  —— 模型输出推理过程
-    Action   —— 模型决定调用哪个工具（或输出 Final Answer）
-    Observation —— 执行工具后把结果喂回模型
-
-循环直到模型输出 "Final Answer: ..." 或达到最大轮次。
+模块描述：ReAct 文本循环 Agent，解析 Thought/Action/Observation 并通过 mcps 中转执行工具。
 """
+
 import re
 from typing import Callable
 
@@ -25,42 +20,20 @@ except ImportError:
 
 from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
 
-# ReAct Prompt 模板 — 不再硬编码身份声明，依赖 system prompt 中的 core constraints
-REACT_PROMPT_TEMPLATE = """
-请严格按照以下 ReAct 格式进行推理和行动。你必须遵守 system prompt 中的所有约束规则。
 
-可用工具如下：
+REACT_TASK_TEMPLATE = """# 可用工具
 {tools}
 
-格式要求（必须严格遵循）：
+# 当前问题
+{question}
 
-Thought: 你的思考过程，用于分析问题、拆解任务和规划下一步行动。
-Action: 你决定采取的行动，必须是以下格式之一：
-- {{tool_name}}[{{tool_input}}]：调用一个可用工具。
-- Finish[最终答案]：当你收集到足够信息，能够回答用户问题时。
-
-关键规则：
-1. 涉及法律依据的回答，必须先通过工具检索获取依据，禁止凭记忆直接作答。
-2. 工具返回空结果时，可换关键词重试，但禁止编造法条、案例或 URL。
-3. Finish[] 中的最终答案必须包含信源引用，格式为 `<sup><a href="URL">N</a></sup>`。
-4. 非法律问题直接 Finish[简短边界说明] 拒绝，不要调用工具。
-
-Few Shot Example:
-Question: 劳动合同到期不续签，公司需要赔偿吗？
-Thought: 这是一个劳动法问题，我需要检索《劳动合同法》中关于合同期满不续签的赔偿规定。
-Action: search_article[劳动合同期满不续签 经济补偿]
-Observation: 《劳动合同法》第四十六条规定...
-Thought: 已获得法律依据，可以给出最终答案。
-Action: Finish[根据《劳动合同法》第四十六条... <sup><a href="URL">1</a></sup> ...]
-
-现在，请开始解决以下问题：
-Question: {question}
-History: {history}
+# 已执行的 ReAct 步骤
+{history}
 """
 
 
 class ReActAgent:
-    def __init__(self, tools_description: str, execute_tool: Callable[[str, str], str], memory: list = None, max_steps: int = 3, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
+    def __init__(self, tools_description: str, execute_tool: Callable[[str, str], str], memory: list = None, max_steps: int | None = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
         self.tools_description = tools_description
         self.execute_tool = execute_tool
         self.max_steps = max_steps
@@ -84,12 +57,16 @@ class ReActAgent:
         self.history = []
         current_step = 0
 
-        while current_step < self.max_steps:
+        while self.max_steps is None or current_step < self.max_steps:
             current_step += 1
             yield {'type': 'thought', 'content': f"\n\n--- 第 {current_step} 步推理 ---\n\n"}
 
-            history_str = "\n".join(self.history)
-            prompt = REACT_PROMPT_TEMPLATE.format(tools=self.tools_description, question=question, history=history_str)
+            history_str = "\n".join(self.history) or "无"
+            prompt = REACT_TASK_TEMPLATE.format(
+                tools=self.tools_description or "无",
+                question=question,
+                history=history_str,
+            )
 
             messages = self.memory + [{"role": "user", "content": prompt}]
 
@@ -115,14 +92,18 @@ class ReActAgent:
                         yield {'type': 'thought', 'content': delta.content}
 
             if not full_response_text:
-                yield {'type': 'thought', 'content': "\n错误：LLM未能返回有效响应。\n"}
-                break
+                message = "ReAct 模式未能获得有效模型响应，流程已停止。"
+                yield {'type': 'thought', 'content': f"\n错误：{message}\n"}
+                yield {'type': 'content', 'content': message}
+                return
 
             thought, action = self._parse_output(full_response_text)
 
             if not action:
-                yield {'type': 'thought', 'content': "\n警告：未能解析出有效的Action，流程终止。\n"}
-                break
+                message = "ReAct 模式未能解析出有效 Action，流程已停止。"
+                yield {'type': 'thought', 'content': f"\n警告：{message}\n"}
+                yield {'type': 'content', 'content': message}
+                return
 
             if action.startswith("Finish"):
                 # 提取最终答案并清洗
@@ -159,7 +140,9 @@ class ReActAgent:
             self.history.append(f"Action: {action}")
             self.history.append(f"Observation: {observation}")
 
-        yield {'type': 'thought', 'content': "\n已达到最大步数，流程终止。\n"}
+        message = f"ReAct 模式已达到最大步数 ({self.max_steps})，已停止。"
+        yield {'type': 'thought', 'content': f"\n{message}\n"}
+        yield {'type': 'content', 'content': message}
 
     def _parse_output(self, text: str):
         # Thought: 匹配到 Action: 或文本末尾

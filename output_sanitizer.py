@@ -1,14 +1,5 @@
 """
-output_sanitizer.py — 统一输出清洗模块
-
-所有 Agent（Default / ReAct / PlanAndSolve）和 OCP 共同使用此模块，
-确保 LLM 原始输出经过一致的清洗后再交给用户。
-
-主要职责：
-1. 提取 <final_answer> 标签内容（soft enforcement）
-2. 移除 <think> 块及推理过程
-3. 清除 AI 身份声明和废话前缀/后缀
-4. 清除残留的内部标签和 prompt 泄漏
+模块描述：LLM 输出清洗模块，统一提取最终答案并移除内部标签、思考块和身份泄漏文本。
 """
 
 import re

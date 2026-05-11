@@ -1,3 +1,7 @@
+"""
+模块描述：模型调用工具加载测试，验证 function_calling 按静态工具边界传递 tools。
+"""
+
 import os
 import types
 import unittest

@@ -1,10 +1,16 @@
+"""
+模块描述：动态系统 prompt 加载器，按 profile、模式、焦点和任务组合提示词片段。
+"""
+
 import os
+import re
 from pathlib import Path
 from typing import Iterable
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_PROMPT_PROFILE = "lawver"
+DEFAULT_PROMPT_PROFILE = "lawyance"
+PROMPT_MODULE_DESCRIPTION_RE = re.compile(r"\A\s*<!--\s*模块描述：.*?-->\s*", re.DOTALL)
 
 # 这里只加载系统提示词文本。工具 schema 必须由 function_calling.call 直接 tools=tools 传入。
 
@@ -42,10 +48,10 @@ OPTIONAL_SECTIONS = {
 
 
 def _prompt_root() -> Path:
-    configured_root = os.getenv("LAWVER_PROMPT_ROOT")
+    configured_root = os.getenv("LAWYANCE_PROMPT_ROOT")
     if configured_root:
         return Path(configured_root).expanduser().resolve()
-    profile = os.getenv("LAWVER_PROMPT_PROFILE", DEFAULT_PROMPT_PROFILE)
+    profile = os.getenv("LAWYANCE_PROMPT_PROFILE", DEFAULT_PROMPT_PROFILE)
     return (BASE_DIR / "prompts" / profile).resolve()
 
 
@@ -61,8 +67,8 @@ def _read_section(root: Path, relative_path: str, *, required: bool = True) -> s
             raise FileNotFoundError(f"Prompt section not found: {path}")
         return ""
 
-    content = path.read_text(encoding="utf-8").strip()
-    return content
+    content = path.read_text(encoding="utf-8")
+    return PROMPT_MODULE_DESCRIPTION_RE.sub("", content).strip()
 
 
 def _read_sections(root: Path, relative_paths: Iterable[str], *, required: bool = True) -> list[str]:
@@ -106,7 +112,7 @@ def build_system_prompt(
     focus_sections = [FOCUS_SECTIONS[key] for key in _normalise_focus(focus)]
     sections.extend(_read_sections(root, focus_sections, required=False))
 
-    if os.getenv("LAWVER_PROMPT_INCLUDE_EXAMPLES") == "1":
+    if os.getenv("LAWYANCE_PROMPT_INCLUDE_EXAMPLES") == "1":
         sections.extend(_read_sections(root, OPTIONAL_SECTIONS["examples"], required=False))
 
     memory = str(memory_context or "").strip()

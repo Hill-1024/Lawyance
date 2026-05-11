@@ -1,14 +1,5 @@
 """
-OCP-Static (Output Check Process - 非流式版本)
-
-在 LLM 完成最终正文回复后，将正文交给一个记忆隔离的 LLM 进行格式审查与自动修复。
-审查员拥有 get_linked_content 和 search_article 工具，可主动查询缺失的法条信源。
-
-设计原则：
-- 记忆隔离：审查 LLM 使用全新上下文，不携带对话历史
-- 可工具调用：审查 LLM 与主 LLM 工作流一致（调用工具 -> 接收结果 -> 继续工作 -> 直到输出最终内容）
-- 降级保障：任何异常降级返回原始内容
-- 独立配置：支持为审查 LLM 配置独立的模型，未配置时回退到主模型
+模块描述：Output Check Process 审查模块，在主回复生成后执行格式校验、信源补全和降级保护。
 """
 
 import os
@@ -147,7 +138,7 @@ async def _run_ocp_tool(function_name: str, arguments: dict, session_id: str):
 class OCPStatic:
     """OCP-Static: 非流式输出格式审查与自动修复"""
 
-    MAX_TOOL_ROUNDS = 2  # 最大工具调用循环次数
+    MAX_TOOL_ROUNDS = None
     MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
     MAX_RETRIES = 1      # 单次 LLM 调用最大重试次数
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
@@ -200,9 +191,16 @@ class OCPStatic:
             last_tool_signature = None
             repeated_tool_signature_count = 0
 
-            # 工具调用循环
-            for round_num in range(self.MAX_TOOL_ROUNDS):
-                print(f"[OCP-Static] 第 {round_num + 1}/{self.MAX_TOOL_ROUNDS} 轮调用")
+            # 工具调用循环：默认不按轮次截断，依赖总超时和重复工具签名保护。
+            round_num = 0
+            while True:
+                if isinstance(self.MAX_TOOL_ROUNDS, int) and round_num >= self.MAX_TOOL_ROUNDS:
+                    print(f"[OCP-Static] 达到最大工具轮次，返回当前最佳正文")
+                    return best_candidate if best_candidate else self._deterministic_format_repair(content_to_check)
+
+                round_num += 1
+                round_label = f"{round_num}/{self.MAX_TOOL_ROUNDS}" if isinstance(self.MAX_TOOL_ROUNDS, int) else str(round_num)
+                print(f"[OCP-Static] 第 {round_label} 轮调用")
                 call_timeout = min(OCP_CALL_TIMEOUT, _remaining_seconds(deadline))
 
                 response = await asyncio.wait_for(
@@ -225,7 +223,7 @@ class OCPStatic:
                 if not message.tool_calls:
                     # 没有工具调用，审查完成
                     result = cleaned_message if self._is_substantive_replacement(content_to_check, cleaned_message) else best_candidate
-                    print(f"[OCP-Static] 审查完成（第 {round_num + 1} 轮），结果长度: {len(result)} 字符")
+                    print(f"[OCP-Static] 审查完成（第 {round_num} 轮），结果长度: {len(result)} 字符")
                     print(f"[OCP-Static] ========== 审查结束 ==========\n")
                     return result if result else self._deterministic_format_repair(content_to_check)
 
@@ -273,10 +271,6 @@ class OCPStatic:
                         "name": func_name,
                         "content": str(tool_result)
                     })
-
-            # 达到最大循环次数
-            print(f"[OCP-Static] 达到最大工具轮次，返回当前最佳正文")
-            return best_candidate if best_candidate else self._deterministic_format_repair(content_to_check)
 
         except (asyncio.TimeoutError, OCPTimeout) as e:
             print(f"[OCP-Static] 审查超时，降级返回原始内容: {e}")
@@ -537,7 +531,7 @@ class OCPStatic:
 class OCPStream:
     """OCP-Stream: 完全流式的格式审查与自动修复"""
 
-    MAX_TOOL_ROUNDS = 2
+    MAX_TOOL_ROUNDS = None
     MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
     MAX_RETRIES = 1
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
@@ -572,9 +566,22 @@ class OCPStream:
 
             yield {'type': 'thought', 'content': OCP_PROGRESS_MESSAGE.strip() + "\n", 'thought_type': 'ocp', 'mode': 'new'}
             
-            for round_num in range(self.MAX_TOOL_ROUNDS):
-                print(f"[OCP-Stream] 第 {round_num + 1} 轮流式调用")
-                if round_num == 0:
+            round_num = 0
+            while True:
+                if isinstance(self.MAX_TOOL_ROUNDS, int) and round_num >= self.MAX_TOOL_ROUNDS:
+                    print(f"[OCP-Stream] 达到最大工具轮次，保留当前最佳正文")
+                    fallback_content = (
+                        best_candidate
+                        if OCPStatic._is_substantive_replacement(content_to_check, best_candidate)
+                        else OCPStatic._deterministic_format_repair(content_to_check)
+                    )
+                    yield {'type': 'thought', 'content': '- OCP 达到最大检查轮次，已保留当前最佳版本\n', 'thought_type': 'ocp', 'mode': 'new'}
+                    yield {'type': 'content_replace', 'content': fallback_content}
+                    return
+
+                round_num += 1
+                print(f"[OCP-Stream] 第 {round_num} 轮流式调用")
+                if round_num == 1:
                     yield {'type': 'thought', 'content': '- OCP 正在检查正文结构、引用角标和 Markdown 语法\n', 'thought_type': 'ocp', 'mode': 'new'}
 
                 content_str = ""
@@ -674,15 +681,6 @@ class OCPStream:
                     res = await _run_ocp_tool(f_name, parsed_args, self.session_id)
                     context.append({"role": "tool", "tool_call_id": tc["id"], "name": f_name, "content": str(res)})
                     yield {'type': 'thought', 'content': f'- OCP 已接收{OCPStatic._describe_tool(f_name)}结果，继续修订\n', 'thought_type': 'ocp', 'mode': 'new'}
-
-            print(f"[OCP-Stream] 达到最大工具轮次，保留当前最佳正文")
-            fallback_content = (
-                best_candidate
-                if OCPStatic._is_substantive_replacement(content_to_check, best_candidate)
-                else OCPStatic._deterministic_format_repair(content_to_check)
-            )
-            yield {'type': 'thought', 'content': '- OCP 达到最大检查轮次，已保留当前最佳版本\n', 'thought_type': 'ocp', 'mode': 'new'}
-            yield {'type': 'content_replace', 'content': fallback_content}
 
         except (asyncio.TimeoutError, OCPTimeout) as e:
             print(f"[OCP-Stream] 超时，保留原文: {e}")

@@ -1,9 +1,28 @@
+"""
+模块描述：默认工具调用 Agent，使用模型原生 tool_calls 循环完成检索、工具执行和最终回答。
+"""
+
 import json
+import os
 import time
 from typing import Callable, Any
 
 from function_calling import call, create_assistant_message
 from output_sanitizer import sanitize_llm_output, extract_final_answer, strip_think_blocks, strip_wrapper_tags
+
+
+def _optional_positive_int_env(name: str):
+    raw_value = os.getenv(name, "").strip()
+    if not raw_value:
+        return None
+    if raw_value.lower() in {"none", "unlimited", "off", "0", "-1"}:
+        return None
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
+
 
 class DefaultAgent:
     def __init__(
@@ -20,7 +39,8 @@ class DefaultAgent:
         self.use_ocp = use_ocp
         self.execute_tool = execute_tool or self._missing_tool_executor
 
-    MAX_NON_STREAM_ROUNDS = 10  # 非流式工具调用最大轮次，防止无限循环
+    MAX_TOOL_ROUNDS = _optional_positive_int_env("LAWYANCE_MAX_TOOL_ROUNDS")
+    MAX_NON_STREAM_ROUNDS = _optional_positive_int_env("LAWYANCE_MAX_NON_STREAM_TOOL_ROUNDS") or MAX_TOOL_ROUNDS
 
     @staticmethod
     def _missing_tool_executor(function_name: str, arguments: Any) -> str:
@@ -40,6 +60,15 @@ class DefaultAgent:
             return fallback.strip()
         return result
 
+    @staticmethod
+    def _history_context_message(message: dict) -> dict:
+        allowed_keys = {"role", "content", "tool_calls", "tool_call_id", "name"}
+        return {key: value for key, value in message.items() if key in allowed_keys and value is not None}
+
+    @staticmethod
+    def _has_reached_round_limit(limit, round_num: int) -> bool:
+        return isinstance(limit, int) and limit >= 0 and round_num >= limit
+
     async def run(self, content: str = None, stream: bool = True):
         # 默认模式下，主程序的 agent.py 已经将消息附加到 self.memory 中。
         current_mem = self.memory
@@ -47,7 +76,16 @@ class DefaultAgent:
         if stream:
             actual_content = ""  # 仅追踪正文内容（不含 reasoning），用于 OCP 审查
             try:
+                round_num = 0
                 while True:
+                    if self._has_reached_round_limit(self.MAX_TOOL_ROUNDS, round_num):
+                        msg = f"工具调用超过最大轮次 ({self.MAX_TOOL_ROUNDS})，已停止。"
+                        print(f"[DefaultAgent 流式] {msg}")
+                        yield {'type': 'error', 'content': msg}
+                        return
+
+                    round_num += 1
+                    print(f"[DefaultAgent 流式] 第 {round_num} 轮调用")
                     response = await call(current_mem, True)
                     tool_calls = []
                     assistant_content = ""
@@ -114,6 +152,7 @@ class DefaultAgent:
                             thought_signature=thought_signature_str
                         )
                         current_mem.append(assistant_msg)
+                        yield {'type': 'history_trace', 'content': [self._history_context_message(assistant_msg)]}
                         for tc in tool_calls:
                             func_name = tc["function"]["name"]
                             args_str = tc["function"]["arguments"]
@@ -128,8 +167,9 @@ class DefaultAgent:
                             yield {'type': 'thought', 'content': f'执行: `{func_name}`\n', 'thought_type': 'tool', 'mode': 'new'}
                             result = self.execute_tool(func_name, args)
 
-                            current_mem.append(
-                                {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)})
+                            tool_msg = {"role": "tool", "tool_call_id": tc["id"], "name": func_name, "content": str(result)}
+                            current_mem.append(tool_msg)
+                            yield {'type': 'history_trace', 'content': [self._history_context_message(tool_msg)]}
                         
                         yield {'type': 'thought', 'content': '**工具执行完毕，正在生成最终回复...**\n', 'thought_type': 'tool', 'mode': 'new'}
                         actual_content = ""  # 工具调用后重置，下一轮的 content 才是最终正文
@@ -159,8 +199,15 @@ class DefaultAgent:
         else:
             # 非流式：多轮工具调用循环（与流式路径行为一致）
             content_output = ""
-            for round_num in range(self.MAX_NON_STREAM_ROUNDS):
-                print(f"[DefaultAgent 非流式] 第 {round_num + 1} 轮调用")
+            round_num = 0
+            while True:
+                if self._has_reached_round_limit(self.MAX_NON_STREAM_ROUNDS, round_num):
+                    print(f"[DefaultAgent 非流式] 达到最大工具调用轮次 ({self.MAX_NON_STREAM_ROUNDS})")
+                    yield {'type': 'content', 'content': f"工具调用超过最大轮次 ({self.MAX_NON_STREAM_ROUNDS})，已停止。"}
+                    return
+
+                round_num += 1
+                print(f"[DefaultAgent 非流式] 第 {round_num} 轮调用")
                 res = await call(current_mem, stream=False)
                 content_output = res.content or ""
 
@@ -170,7 +217,9 @@ class DefaultAgent:
 
                 # 有工具调用，执行工具并继续循环
                 tool_calls = [t.model_dump(exclude_unset=True) for t in res.tool_calls]
-                current_mem.append(create_assistant_message(content=content_output, tool_calls=tool_calls))
+                assistant_msg = create_assistant_message(content=content_output, tool_calls=tool_calls)
+                current_mem.append(assistant_msg)
+                yield {'type': 'history_trace', 'content': [self._history_context_message(assistant_msg)]}
 
                 for tc in res.tool_calls:
                     func_name = tc.function.name
@@ -180,10 +229,9 @@ class DefaultAgent:
                         args = {}
                     print(f"[工具调用] 函数: {func_name}, 参数: {json.dumps(args, ensure_ascii=False)[:200]}")
                     result = self.execute_tool(func_name, args)
-                    current_mem.append(
-                        {"role": "tool", "tool_call_id": tc.id, "name": func_name, "content": str(result)})
-            else:
-                print(f"[DefaultAgent 非流式] 达到最大工具调用轮次 ({self.MAX_NON_STREAM_ROUNDS})")
+                    tool_msg = {"role": "tool", "tool_call_id": tc.id, "name": func_name, "content": str(result)}
+                    current_mem.append(tool_msg)
+                    yield {'type': 'history_trace', 'content': [self._history_context_message(tool_msg)]}
 
             # ── 后处理管道 ──
             content_output = self._sanitize_for_user(content_output)

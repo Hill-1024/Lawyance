@@ -1,3 +1,7 @@
+"""
+模块描述：对话记忆系统测试，覆盖记忆同步、检索、清理和用户侧快照恢复。
+"""
+
 import json
 import unittest
 from uuid import uuid4
