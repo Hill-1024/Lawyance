@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import type { BackendHistoryMessage, Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
 import { fileDB } from '../lib/db';
-import { chat, deleteWorkspace, syncConversationMemory } from '../services/api';
+import { chat, deleteWorkspace, MemoryRevisionConflictError, syncConversationMemory } from '../services/api';
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -101,9 +101,10 @@ const appendThoughtBlock = (
 
 const createEmptyConversationMemory = (conversationId: string): ConversationMemory => {
   const now = new Date().toISOString();
-  return {
-    version: 1,
-    scope: {
+    return {
+      version: 1,
+      revision: 0,
+      scope: {
       type: 'conversation',
       future_user_scope: null
     },
@@ -241,10 +242,33 @@ export function useChat() {
     const emptyMemory = createEmptyConversationMemory(convId);
     updateConversationMemory(convId, emptyMemory);
     try {
-      const data = await syncConversationMemory(convId, emptyMemory, formatHistoryForBackend(messages));
+      let data;
+      try {
+        data = await syncConversationMemory(convId, emptyMemory, formatHistoryForBackend(messages), 'rebuild');
+      } catch (error) {
+        if (!(error instanceof MemoryRevisionConflictError)) throw error;
+        updateConversationMemory(convId, error.detail?.memory_snapshot as ConversationMemory | undefined);
+        data = await syncConversationMemory(convId, emptyMemory, formatHistoryForBackend(messages), 'rebuild', 'server_merge');
+      }
       updateConversationMemory(convId, data.memory as ConversationMemory | undefined);
     } catch (error) {
       console.error('Failed to sync conversation memory:', error);
+    }
+  };
+
+  const sendChatWithMemoryRetry = async (
+    message: string,
+    history: BackendHistoryMessage[],
+    convId: string,
+    stream: boolean,
+    memorySnapshot: ConversationMemory
+  ) => {
+    try {
+      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot);
+    } catch (error) {
+      if (!(error instanceof MemoryRevisionConflictError)) throw error;
+      updateConversationMemory(convId, error.detail?.memory_snapshot as ConversationMemory | undefined);
+      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, 'server_merge');
     }
   };
 
@@ -324,7 +348,7 @@ export function useChat() {
       if (data.type === 'content') {
         bodyText += data.content || '';
       } else if (data.type === 'thought') {
-        const thoughtType = (['reasoning', 'draft', 'tool', 'ocp'].includes(data.thought_type)
+        const thoughtType = (['reasoning', 'draft', 'tool', 'ocp', 'memory'].includes(data.thought_type)
           ? data.thought_type
           : 'reasoning') as ThoughtBlock['type'];
         const shouldAppend = data.mode === 'append' || thoughtType === 'reasoning' || thoughtType === 'draft';
@@ -466,7 +490,7 @@ export function useChat() {
     }
 
     try {
-      const response = await chat(messageContent, history, convId, isStreaming, agentMode, isOCPEnabled, memorySnapshot);
+      const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot);
 
       if (isStreaming) {
         await processStream(response, null, convId, onFileGenerated);
@@ -549,7 +573,7 @@ export function useChat() {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content, created_at: now, updated_at: now };
       updateMessages(convId, prev => [...prev, userMessage]);
 
-      const response = await chat(content, history, convId, isStreaming, agentMode, isOCPEnabled, memorySnapshot);
+      const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot);
 
       if (isStreaming) {
         await processStream(response, null, convId, onFileGenerated);

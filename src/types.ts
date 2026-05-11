@@ -4,7 +4,7 @@
 
 export type ThoughtBlock = {
   id: string;
-  type: 'reasoning' | 'draft' | 'tool' | 'ocp';
+  type: 'reasoning' | 'draft' | 'tool' | 'ocp' | 'memory';
   content: string;
 };
 
@@ -54,28 +54,37 @@ export type ConversationMemoryFact = {
   priority: number;
   confidence: number;
   source_event_ids: string[];
+  source_turn_id?: string;
   created_at: string;
   updated_at: string;
   keywords: string[];
   entities?: string[];
   semantic_tags?: string[];
+  fact_key?: string;
+  source_text?: string;
+  memory_reason?: string;
   superseded_by?: string;
+  supersedes?: string;
 };
 
 export type ConversationMemoryFocus = {
   id: string;
   text: string;
-  status: 'active';
+  status: 'active' | 'deprecated';
   priority: number;
   created_at: string;
   updated_at: string;
   keywords: string[];
   entities?: string[];
   semantic_tags?: string[];
+  focus_type?: 'case' | 'dialog';
+  source_text?: string;
+  memory_reason?: string;
 };
 
 export type ConversationMemory = {
   version: number;
+  revision?: number;
   scope: {
     type: 'conversation';
     future_user_scope?: string | null;

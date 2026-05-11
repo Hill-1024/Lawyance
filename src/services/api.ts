@@ -4,6 +4,16 @@
 
 import type { ConversationMemory } from '../types';
 
+export class MemoryRevisionConflictError extends Error {
+  detail: any;
+
+  constructor(detail: any) {
+    super('Memory revision conflict');
+    this.name = 'MemoryRevisionConflictError';
+    this.detail = detail;
+  }
+}
+
 export const verifyAuth = async () => {
   const res = await fetch('/api/verify_auth');
   if (!res.ok) throw new Error('Not authenticated');
@@ -54,7 +64,8 @@ export const chat = async (
   stream: boolean,
   agentMode: string,
   useOcp: boolean,
-  memorySnapshot?: ConversationMemory | null
+  memorySnapshot?: ConversationMemory | null,
+  memoryConflictStrategy?: 'server_merge'
 ) => {
   const response = await fetch('/api/chat', {
     method: 'POST',
@@ -66,12 +77,18 @@ export const chat = async (
       stream,
       agent_mode: agentMode,
       use_ocp: useOcp,
-      memory_snapshot: memorySnapshot || null
+      memory_snapshot: memorySnapshot || null,
+      expected_revision: memorySnapshot?.revision,
+      memory_conflict_strategy: memoryConflictStrategy
     })
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => null);
+    const detail = errorData?.detail || errorData;
+    if (response.status === 409 && detail?.error === 'memory_revision_conflict') {
+      throw new MemoryRevisionConflictError(detail);
+    }
     throw new Error(errorData?.detail || errorData?.error || 'Network response was not ok');
   }
 
@@ -81,7 +98,9 @@ export const chat = async (
 export const syncConversationMemory = async (
   conversationId: string,
   memorySnapshot?: ConversationMemory | null,
-  history: any[] = []
+  history: any[] = [],
+  mode: 'merge' | 'rebuild' = 'rebuild',
+  memoryConflictStrategy?: 'server_merge'
 ) => {
   const res = await fetch('/api/memory/sync', {
     method: 'POST',
@@ -89,11 +108,18 @@ export const syncConversationMemory = async (
     body: JSON.stringify({
       conversation_id: conversationId,
       memory_snapshot: memorySnapshot || null,
-      history
+      history,
+      mode,
+      expected_revision: memorySnapshot?.revision,
+      memory_conflict_strategy: memoryConflictStrategy
     })
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => null);
+    const detail = errorData?.detail || errorData;
+    if (res.status === 409 && detail?.error === 'memory_revision_conflict') {
+      throw new MemoryRevisionConflictError(detail);
+    }
     throw new Error(errorData?.detail || 'Memory sync failed');
   }
   return res.json();
