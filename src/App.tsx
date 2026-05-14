@@ -157,7 +157,7 @@ function App() {
 
   if (isAuthChecking) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[var(--bg-app)] text-[var(--accent)] transition-colors duration-300">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--bg-app)] text-[var(--accent)] transition-colors duration-300">
         <div className="h-12 w-12 animate-spin rounded-full border-2 border-[var(--accent-quiet)] border-t-[var(--accent)]" />
       </div>
     );
@@ -204,7 +204,7 @@ function App() {
   if (!isInitialized) return null;
 
   const chatLayout = (
-    <div className="flex h-screen overflow-hidden bg-[var(--bg-app)] font-sans text-[var(--fg-1)] transition-colors duration-300">
+    <div className="lawver-chat-shell flex overflow-hidden bg-[var(--bg-app)] font-sans text-[var(--fg-1)] transition-colors duration-300">
       <Sidebar
         isSidebarOpen={isSidebarOpen}
         setIsSidebarOpen={setIsSidebarOpen}
@@ -219,7 +219,7 @@ function App() {
         isDesktopLayout={windowWidth >= 1024}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 relative">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {secureAccessBanner}
         <Header
           title={currentConversation.title}
@@ -233,10 +233,10 @@ function App() {
           windowWidth={windowWidth}
         />
 
-        <div className="flex-1 flex overflow-hidden relative">
-          <div className="flex-1 flex flex-col min-w-0 bg-[var(--bg-app)]">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-app)]">
             {messages.length === 0 ? (
-              <div className="relative flex flex-1 items-center justify-center overflow-hidden text-[var(--fg-3)]">
+              <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden text-[var(--fg-3)]">
                 <div className="pointer-events-none absolute inset-x-0 top-1/4 mx-auto h-72 max-w-xl rounded-full bg-[var(--accent)] opacity-[0.06] blur-3xl" />
                 <div className="relative max-w-md px-6 text-center">
                   <BrandMark className="mx-auto mb-6 h-[72px] w-[72px] text-[var(--accent)]" />
@@ -290,7 +290,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={chatLayout} />
-      <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex h-screen w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>} />
+      <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>} />
     </Routes>
   );
 }

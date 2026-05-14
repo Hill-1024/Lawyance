@@ -248,6 +248,46 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+.lawver-chat-shell {
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+  min-height: 100svh;
+}
+
+.lawver-topbar {
+  min-height: calc(56px + env(safe-area-inset-top));
+}
+
+.lawver-header-title {
+  font-size: 17px;
+  line-height: 24px;
+}
+
+.lawver-composer-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background:
+    linear-gradient(180deg, rgba(246, 248, 251, 0), var(--bg-app) 34%);
+}
+
+.dark .lawver-composer-footer {
+  background:
+    linear-gradient(180deg, rgba(11, 13, 20, 0), var(--bg-app) 34%);
+}
+
+@media (min-width: 640px) {
+  .lawver-topbar {
+    min-height: calc(64px + env(safe-area-inset-top));
+  }
+
+  .lawver-header-title {
+    font-size: var(--type-title-l-size);
+    line-height: var(--type-title-l-line);
+  }
+}
+
 button,
 input,
 textarea,
@@ -275,6 +315,8 @@ textarea.composer-textarea:focus-visible {
   display: flex;
   height: 52px;
   min-height: 52px;
+  width: 100%;
+  min-width: 0;
   align-items: center;
   gap: 6px;
   border: 1px solid var(--border-default);
@@ -308,10 +350,33 @@ textarea.composer-textarea:focus-visible {
 .lawver-composer-textarea {
   height: 40px;
   min-height: 40px;
+  min-width: 0;
   align-self: center;
   padding: 8.75px 6px;
   font-size: 15px;
   line-height: 1.5;
+}
+
+@media (max-width: 420px) {
+  .lawver-composer-shell {
+    height: 50px;
+    min-height: 50px;
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .lawver-composer-action {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+
+  .lawver-composer-textarea {
+    height: 38px;
+    min-height: 38px;
+    padding: 7px 4px;
+    font-size: 14px;
+  }
 }
 
 @utility safe-area-pb {

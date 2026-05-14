@@ -54,11 +54,18 @@ export const InputArea: React.FC<InputAreaProps> = ({
   const updateSettingsPosition = useCallback(() => {
     const rect = composerRef.current?.getBoundingClientRect();
     if (!rect) return;
+    const viewport = window.visualViewport;
+    const viewportWidth = viewport?.width ?? window.innerWidth;
+    const viewportHeight = viewport?.height ?? window.innerHeight;
+    const viewportOffsetTop = viewport?.offsetTop ?? 0;
+    const horizontalInset = 8;
+    const width = Math.min(rect.width, viewportWidth - horizontalInset * 2);
+    const left = Math.max(horizontalInset, Math.min(rect.left, viewportWidth - width - horizontalInset));
 
     setSettingsPosition({
-      left: rect.left,
-      width: rect.width,
-      bottom: window.innerHeight - rect.top + 12
+      left,
+      width,
+      bottom: Math.max(12, viewportHeight + viewportOffsetTop - rect.top + 12)
     });
   }, []);
 
@@ -147,7 +154,9 @@ export const InputArea: React.FC<InputAreaProps> = ({
             style={{
               left: settingsPosition.left,
               width: settingsPosition.width,
-              bottom: settingsPosition.bottom
+              bottom: settingsPosition.bottom,
+              maxHeight: `calc(100dvh - ${settingsPosition.bottom}px - env(safe-area-inset-top) - 12px)`,
+              overflowY: 'auto'
             }}
             className="glass lawver-popover z-[80] flex flex-col gap-0 rounded-[var(--radius-xl)] p-0 shadow-[var(--shadow-5)]"
           >
@@ -204,84 +213,84 @@ export const InputArea: React.FC<InputAreaProps> = ({
   return (
     <>
       {settingsLayer}
-      <footer className="pointer-events-none shrink-0 bg-transparent px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-0 sm:px-4 sm:pb-4">
-      <div ref={composerRef} className="pointer-events-auto relative mx-auto flex max-w-3xl flex-col">
-        {pendingUploads.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-2 pb-1">
-            {pendingUploads.map((file, index) => (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                key={index}
-                className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1 text-[var(--fg-2)] shadow-[var(--shadow-1)] sm:px-4 sm:py-1.5"
-              >
-                <Paperclip size={12} strokeWidth={2} className="text-[var(--accent)] sm:size-3.5" />
-                <span className="max-w-[120px] truncate text-xs sm:max-w-[200px] sm:text-sm">{file.name}</span>
-                <button
-                  onClick={() => removeUploadedFile(index)}
-                  className="rounded-full p-1 text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-                  aria-label="Remove upload"
+      <footer className="lawver-composer-footer pointer-events-none shrink-0 px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-1 sm:px-4 sm:pb-4 sm:pt-2">
+        <div ref={composerRef} className="pointer-events-auto relative mx-auto flex w-full max-w-3xl min-w-0 flex-col">
+          {pendingUploads.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-2 pb-1">
+              {pendingUploads.map((file, index) => (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  key={index}
+                  className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1 text-[var(--fg-2)] shadow-[var(--shadow-1)] sm:px-4 sm:py-1.5"
                 >
-                  <X size={12} strokeWidth={2} className="sm:size-3.5" />
-                </button>
-              </motion.div>
-            ))}
+                  <Paperclip size={12} strokeWidth={2} className="text-[var(--accent)] sm:size-3.5" />
+                  <span className="max-w-[120px] truncate text-xs sm:max-w-[200px] sm:text-sm">{file.name}</span>
+                  <button
+                    onClick={() => removeUploadedFile(index)}
+                    className="rounded-full p-1 text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+                    aria-label="Remove upload"
+                  >
+                    <X size={12} strokeWidth={2} className="sm:size-3.5" />
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+          )}
+
+          <div className="lawver-composer-shell">
+            <button
+              onClick={() => setIsInputExpanded(!isInputExpanded)}
+              className={`lawver-composer-action lawver-pressable transition-colors ${isInputExpanded ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+              aria-label="Open composer settings"
+              aria-expanded={isInputExpanded}
+            >
+              <Settings2 size={20} strokeWidth={2} />
+            </button>
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+              className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+              title="Upload file (Max 50MB)"
+            >
+              <Paperclip size={20} strokeWidth={2} />
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+              className="hidden"
+              accept=".pdf,.doc,.docx,.txt,.md"
+            />
+
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Message Lawver..."
+              className="composer-textarea lawver-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+              rows={1}
+            />
+            <button
+              onClick={onSendWrapper}
+              disabled={isLoading || (!input.trim() && pendingUploads.length === 0)}
+              className={`lawver-composer-action lawver-pressable shadow-[var(--shadow-1)] transition-colors ${
+                input.trim() || pendingUploads.length > 0
+                  ? 'bg-[var(--accent)] text-[var(--accent-on)] hover:bg-[var(--accent-hover)]'
+                  : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] shadow-none dark:bg-white/[0.08]'
+              }`}
+              aria-label="Send message"
+            >
+              <Send size={20} strokeWidth={2} />
+            </button>
           </div>
-        )}
-
-        <div className="lawver-composer-shell">
-          <button
-            onClick={() => setIsInputExpanded(!isInputExpanded)}
-            className={`lawver-composer-action lawver-pressable transition-colors ${isInputExpanded ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
-            aria-label="Open composer settings"
-            aria-expanded={isInputExpanded}
-          >
-            <Settings2 size={20} strokeWidth={2} />
-          </button>
-          
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isLoading}
-            className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
-            title="Upload file (Max 50MB)"
-          >
-            <Paperclip size={20} strokeWidth={2} />
-          </button>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileUpload(file);
-              if (fileInputRef.current) fileInputRef.current.value = '';
-            }}
-            className="hidden"
-            accept=".pdf,.doc,.docx,.txt,.md"
-          />
-
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Message Lawver... (Ctrl+Enter to send)"
-            className="composer-textarea lawver-composer-textarea max-h-32 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
-            rows={1}
-          />
-          <button
-            onClick={onSendWrapper}
-            disabled={isLoading || (!input.trim() && pendingUploads.length === 0)}
-            className={`lawver-composer-action lawver-pressable shadow-[var(--shadow-1)] transition-colors ${
-              input.trim() || pendingUploads.length > 0
-                ? 'bg-[var(--accent)] text-[var(--accent-on)] hover:bg-[var(--accent-hover)]'
-                : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] shadow-none dark:bg-white/[0.08]'
-            }`}
-            aria-label="Send message"
-          >
-            <Send size={20} strokeWidth={2} />
-          </button>
         </div>
-      </div>
       </footer>
     </>
   );
