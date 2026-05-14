@@ -35,20 +35,20 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex min-w-0 items-center gap-2">
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="lawyance-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
+          className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
           aria-label="Toggle conversations"
         >
           <Menu size={22} strokeWidth={2} />
         </button>
         <BrandMark className="hidden h-8 w-8 shrink-0 text-[var(--accent)] sm:block" />
         <h1 className="t-title-l ml-1 max-w-[170px] truncate sm:max-w-none">
-          {title || 'Lawyance'}
+          {title || 'Lawver'}
         </h1>
       </div>
       <div className="flex items-center gap-1 relative">
         <button
           onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
-          className={`lawyance-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+          className={`lawver-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
           title="Workspace"
           aria-label="Toggle workspace"
         >
@@ -70,21 +70,21 @@ export const Header: React.FC<HeaderProps> = ({
           />
           <button
             onClick={() => setThemeMode('light')}
-            className={`lawyance-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'light' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+            className={`lawver-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'light' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
             title="Light Mode"
           >
             <Sun size={16} strokeWidth={2} />
           </button>
           <button
             onClick={() => setThemeMode('system')}
-            className={`lawyance-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'system' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+            className={`lawver-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'system' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
             title="System Mode"
           >
             <Monitor size={16} strokeWidth={2} />
           </button>
           <button
             onClick={() => setThemeMode('dark')}
-            className={`lawyance-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'dark' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+            className={`lawver-pressable relative z-10 flex h-8 w-8 items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'dark' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
             title="Dark Mode"
           >
             <Moon size={16} strokeWidth={2} />

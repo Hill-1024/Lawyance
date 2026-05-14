@@ -138,7 +138,7 @@ export const AdminDashboard: React.FC = () => {
           </div>
           <div>
             <h1 className="t-title-m">管理后台</h1>
-            <p className="t-body-s t-muted">Lawyance Admin Console</p>
+            <p className="t-body-s t-muted">Lawver Admin Console</p>
           </div>
         </div>
         <button onClick={handleLogout} className="md3-btn-text relative z-[1] !gap-1.5 !text-[var(--color-danger-500)] text-sm">

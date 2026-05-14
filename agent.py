@@ -57,7 +57,7 @@ LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\
 
 def _configured_origins() -> set[str]:
     origins = {SECURE_ORIGIN}
-    for raw_name in ("LAWYANCE_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
+    for raw_name in ("LAWVER_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
         raw_value = os.getenv(raw_name, "")
         for item in raw_value.split(","):
             origin = item.strip().rstrip("/")
@@ -112,8 +112,8 @@ usage_logger = logging.getLogger("usage_logger")
 usage_logger.setLevel(logging.INFO)
 file_handler = RotatingFileHandler(
     "data/usage.log",
-    maxBytes=int(os.environ.get("LAWYANCE_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
-    backupCount=int(os.environ.get("LAWYANCE_USAGE_LOG_BACKUPS", 5)),
+    maxBytes=int(os.environ.get("LAWVER_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
+    backupCount=int(os.environ.get("LAWVER_USAGE_LOG_BACKUPS", 5)),
     encoding="utf-8",
 )
 file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
@@ -124,7 +124,7 @@ ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
 RATE_LIMIT = 100 # requests per minute per IP
 last_rate_limit_prune = 0.0
 ALLOWED_WORKSPACE_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
-MAX_UPLOAD_BYTES = int(os.getenv("LAWYANCE_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+MAX_UPLOAD_BYTES = int(os.getenv("LAWVER_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 
 def safe_upload_filename(filename: str | None) -> str:
@@ -366,7 +366,7 @@ async def cleanup_task():
 
             await asyncio.to_thread(
                 prune_conversation_memory,
-                int(os.getenv("LAWYANCE_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600))),
+                int(os.getenv("LAWVER_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600))),
             )
 
             await asyncio.to_thread(
