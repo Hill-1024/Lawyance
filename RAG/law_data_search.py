@@ -1,5 +1,5 @@
 """
-模块描述：本地法律法规检索引擎，负责从 RAG/data_doc 构建索引并提供精确、模糊和关联检索。
+模块描述：本地法律法规检索引擎，负责从 RAG/data 构建索引并提供精确、模糊和关联检索。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent
-RAW_DATA_DIR = BASE_DIR / "data_doc"
+RAW_DATA_DIR = BASE_DIR / "data"
 CACHE_DIR = BASE_DIR / "cache"
 DB_PATH = CACHE_DIR / "law.db"
 MANIFEST_PATH = CACHE_DIR / "manifest.json"
@@ -75,6 +75,15 @@ class Article:
     category: str = ""
     url: str = ""
     cli: str = ""
+
+
+@dataclass
+class SourceLaw:
+    law_name: str
+    short_name: str
+    metadata: Dict[str, str]
+    articles: List[Tuple[str, str]]
+    category: str
 
 
 class LawSearchEngine:
@@ -555,7 +564,80 @@ def iter_source_files() -> List[Path]:
     return sorted(
         path
         for path in RAW_DATA_DIR.rglob("*")
-        if path.is_file() and path.suffix.lower() in {".txt", ".md"}
+        if path.is_file() and path.suffix.lower() in {".json", ".txt", ".md"}
+    )
+
+
+def parse_source_file(source_file: Path) -> Optional[SourceLaw]:
+    if source_file.suffix.lower() == ".json":
+        return parse_json_source_file(source_file)
+    return parse_text_source_file(source_file)
+
+
+def parse_json_source_file(source_file: Path) -> Optional[SourceLaw]:
+    payload = json.loads(source_file.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return None
+
+    law_name = clean_title(str(payload.get("law_name") or source_file.stem))
+    short_name = clean_title(str(payload.get("short_name") or ""))
+    articles = extract_json_articles(payload.get("articles"))
+    if not law_name or not articles:
+        return None
+
+    metadata = {
+        "url": str(payload.get("url") or "").strip(),
+        "cli": str(payload.get("cli") or "").strip(),
+        "effectiveness": str(payload.get("effectiveness") or "").strip(),
+        "publish_date": str(payload.get("publish_date") or "").strip(),
+        "implement_date": str(payload.get("implement_date") or "").strip(),
+    }
+    return SourceLaw(
+        law_name=law_name,
+        short_name=short_name,
+        metadata=metadata,
+        articles=articles,
+        category=source_file.parent.name,
+    )
+
+
+def extract_json_articles(raw_articles: object) -> List[Tuple[str, str]]:
+    articles: List[Tuple[str, str]] = []
+    if isinstance(raw_articles, dict):
+        for article_number, content in raw_articles.items():
+            number = str(article_number or "").strip()
+            body = clean_article_content(str(content or ""))
+            if number and body:
+                articles.append((number, body))
+    elif isinstance(raw_articles, list):
+        for item in raw_articles:
+            if not isinstance(item, dict):
+                continue
+            number = str(
+                item.get("article_number")
+                or item.get("number")
+                or item.get("title")
+                or ""
+            ).strip()
+            body = clean_article_content(str(item.get("content") or item.get("text") or ""))
+            if number and body:
+                articles.append((number, body))
+    return articles
+
+
+def parse_text_source_file(source_file: Path) -> Optional[SourceLaw]:
+    text = source_file.read_text(encoding="utf-8", errors="ignore")
+    law_name = extract_title(text, source_file.stem)
+    articles = extract_articles(text)
+    if not law_name or not articles:
+        return None
+
+    return SourceLaw(
+        law_name=law_name,
+        short_name="",
+        metadata=extract_metadata(text),
+        articles=articles,
+        category=source_file.parent.name,
     )
 
 
@@ -639,19 +721,21 @@ def build_database(db_path: Path) -> None:
         )
 
         for source_file in iter_source_files():
-            text = source_file.read_text(encoding="utf-8", errors="ignore")
-            metadata = extract_metadata(text)
+            parsed = parse_source_file(source_file)
+            if parsed is None:
+                continue
+
+            metadata = parsed.metadata
             effectiveness = metadata.get("effectiveness", "")
             if any(keyword in effectiveness for keyword in SKIP_EFFECTIVENESS_KEYWORDS):
                 continue
 
-            title = extract_title(text, source_file.stem)
-            articles = extract_articles(text)
-            if not title or not articles:
-                continue
+            title = parsed.law_name
 
             aliases = build_aliases(title)
-            short_name = aliases[1] if len(aliases) > 1 else aliases[0]
+            if parsed.short_name and parsed.short_name not in aliases:
+                aliases.insert(1 if len(aliases) > 1 else len(aliases), parsed.short_name)
+            short_name = parsed.short_name or (aliases[1] if len(aliases) > 1 else aliases[0])
             law_key = source_file.relative_to(RAW_DATA_DIR).as_posix()
 
             cursor = conn.execute(
@@ -666,7 +750,7 @@ def build_database(db_path: Path) -> None:
                     law_key,
                     title,
                     short_name,
-                    source_file.parent.name,
+                    parsed.category,
                     metadata.get("url", ""),
                     metadata.get("cli", ""),
                     effectiveness,
@@ -682,7 +766,7 @@ def build_database(db_path: Path) -> None:
             )
 
             article_rows = []
-            for article_number, content in articles:
+            for article_number, content in parsed.articles:
                 normalized_article = normalize_article_number(article_number)
                 if not normalized_article:
                     continue
@@ -690,7 +774,7 @@ def build_database(db_path: Path) -> None:
                     [
                         title,
                         short_name,
-                        source_file.parent.name,
+                        parsed.category,
                         article_number,
                         content,
                     ]
