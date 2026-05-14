@@ -6,6 +6,19 @@ from typing import Any
 from .state import *
 from .utils import *
 
+def _metadata_text(value: Any, limit: int = 120) -> str:
+    return _clip(value, limit)
+
+def _optional_metadata_text(value: Any, limit: int = 120) -> str | None:
+    if value is None:
+        return None
+    text = _metadata_text(value, limit)
+    return text or None
+
+def _memory_view_text(value: Any, limit: int) -> str:
+    safe = _context_memory_text(value, limit)
+    return safe or "[已隐藏疑似提示注入内容]"
+
 def _blank_snapshot() -> dict[str, Any]:
     now = _now_iso()
     return {
@@ -33,8 +46,8 @@ def _sanitize_event(raw: Any) -> dict[str, Any] | None:
         return None
     created_at = raw.get("created_at") if isinstance(raw.get("created_at"), str) else _now_iso()
     event = {
-        "id": str(raw.get("id") or _stable_id("evt", role, content)),
-        "type": str(raw.get("type") or "message"),
+        "id": _metadata_text(raw.get("id") or _stable_id("evt", role, content)),
+        "type": _metadata_text(raw.get("type") or "message", 40),
         "role": role,
         "content": content,
         "summary": _clip(raw.get("summary") or content, 360),
@@ -45,7 +58,7 @@ def _sanitize_event(raw: Any) -> dict[str, Any] | None:
         "updated_at": raw.get("updated_at") if isinstance(raw.get("updated_at"), str) else created_at,
     }
     if raw.get("turn_id"):
-        event["turn_id"] = str(raw["turn_id"])
+        event["turn_id"] = _metadata_text(raw["turn_id"])
     return event
 
 def _sanitize_fact(raw: Any) -> dict[str, Any] | None:
@@ -65,13 +78,18 @@ def _sanitize_fact(raw: Any) -> dict[str, Any] | None:
     if not isinstance(source_event_ids, list):
         source_event_ids = []
     fact = {
-        "id": str(raw.get("id") or _stable_id("mem", kind, text)),
+        "id": _metadata_text(raw.get("id") or _stable_id("mem", kind, text)),
         "kind": kind,
         "text": text,
         "status": status,
         "priority": _clamp(raw.get("priority", 0.5) or 0.5),
         "confidence": _clamp(raw.get("confidence", 0.75) or 0.75),
-        "source_event_ids": [str(item) for item in source_event_ids[:8]],
+        "source_event_ids": [
+            item_id
+            for item in source_event_ids[:8]
+            for item_id in [_metadata_text(item)]
+            if item_id
+        ],
         "created_at": raw.get("created_at") if isinstance(raw.get("created_at"), str) else now,
         "updated_at": raw.get("updated_at") if isinstance(raw.get("updated_at"), str) else now,
         "keywords": _sanitize_keywords(raw.get("keywords"), text),
@@ -79,17 +97,17 @@ def _sanitize_fact(raw: Any) -> dict[str, Any] | None:
         "semantic_tags": _sanitize_semantic_tags(raw.get("semantic_tags"), text),
     }
     if raw.get("fact_key"):
-        fact["fact_key"] = str(raw["fact_key"])
+        fact["fact_key"] = _metadata_text(raw["fact_key"], 160)
     if raw.get("source_text"):
         fact["source_text"] = _clip(raw["source_text"], 360)
     if raw.get("source_turn_id"):
-        fact["source_turn_id"] = str(raw["source_turn_id"])
+        fact["source_turn_id"] = _metadata_text(raw["source_turn_id"])
     if raw.get("memory_reason") in MEMORY_EDIT_REASONS:
         fact["memory_reason"] = raw["memory_reason"]
     if raw.get("superseded_by"):
-        fact["superseded_by"] = str(raw["superseded_by"])
+        fact["superseded_by"] = _metadata_text(raw["superseded_by"])
     if raw.get("supersedes"):
-        fact["supersedes"] = str(raw["supersedes"])
+        fact["supersedes"] = _metadata_text(raw["supersedes"])
     return fact
 
 def _sanitize_focus(raw: Any) -> dict[str, Any] | None:
@@ -103,7 +121,7 @@ def _sanitize_focus(raw: Any) -> dict[str, Any] | None:
     if status not in {"active", "deprecated"}:
         status = "active"
     focus = {
-        "id": str(raw.get("id") or _stable_id("focus", text)),
+        "id": _metadata_text(raw.get("id") or _stable_id("focus", text)),
         "text": text,
         "status": status,
         "priority": _clamp(raw.get("priority", 0.6) or 0.6),
@@ -132,10 +150,10 @@ def _sanitize_snapshot(snapshot: Any) -> dict[str, Any]:
     if isinstance(scope, dict):
         clean["scope"] = {
             "type": "conversation",
-            "future_user_scope": scope.get("future_user_scope"),
+            "future_user_scope": _optional_metadata_text(scope.get("future_user_scope"), 160),
         }
     if snapshot.get("conversation_id"):
-        clean["conversation_id"] = str(snapshot["conversation_id"])
+        clean["conversation_id"] = _metadata_text(snapshot["conversation_id"], 160)
     try:
         clean["revision"] = max(0, int(snapshot.get("revision", 0) or 0))
     except (TypeError, ValueError):
@@ -144,9 +162,9 @@ def _sanitize_snapshot(snapshot: Any) -> dict[str, Any]:
     raw_events = snapshot.get("events") if isinstance(snapshot.get("events"), list) else []
     raw_facts = snapshot.get("facts") if isinstance(snapshot.get("facts"), list) else []
     raw_focus = snapshot.get("focus") if isinstance(snapshot.get("focus"), list) else []
-    events = [_sanitize_event(item) for item in raw_events]
-    facts = [_sanitize_fact(item) for item in raw_facts]
-    focus = [_sanitize_focus(item) for item in raw_focus]
+    events = [_sanitize_event(item) for item in raw_events[: MAX_EVENTS * 2]]
+    facts = [_sanitize_fact(item) for item in raw_facts[: MAX_FACTS * 2]]
+    focus = [_sanitize_focus(item) for item in raw_focus[: MAX_FOCUS * 2]]
     clean["events"] = [item for item in events if item]
     clean["facts"] = [item for item in facts if item]
     clean["focus"] = [item for item in focus if item]
@@ -162,7 +180,7 @@ def _prefer_newer(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[st
 def _merge_items(base_items: list[dict[str, Any]], incoming_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     for item in base_items + incoming_items:
-        item_id = str(item.get("id") or _stable_id("item", item.get("text") or item.get("content") or ""))
+        item_id = _metadata_text(item.get("id") or _stable_id("item", item.get("text") or item.get("content") or ""))
         if item_id in merged:
             merged[item_id] = _prefer_newer(merged[item_id], item)
         else:
@@ -174,10 +192,16 @@ def _merge_snapshots(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str
     incoming = incoming or _blank_snapshot()
     result["version"] = MEMORY_VERSION
     if incoming.get("conversation_id"):
-        result["conversation_id"] = incoming["conversation_id"]
+        result["conversation_id"] = _metadata_text(incoming["conversation_id"], 160)
+    base_future_scope = (result.get("scope") or {}).get("future_user_scope")
+    incoming_future_scope = (incoming.get("scope") or {}).get("future_user_scope")
     result["scope"] = {
         "type": "conversation",
-        "future_user_scope": incoming.get("scope", {}).get("future_user_scope"),
+        "future_user_scope": (
+            _optional_metadata_text(incoming_future_scope, 160)
+            if incoming_future_scope is not None
+            else _optional_metadata_text(base_future_scope, 160)
+        ),
     }
     result["events"] = _merge_items(result.get("events", []), incoming.get("events", []))
     result["facts"] = _merge_items(result.get("facts", []), incoming.get("facts", []))
@@ -192,10 +216,10 @@ def _merge_snapshots(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str
 def _snapshot_shell_from_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     result = _blank_snapshot()
     if snapshot.get("conversation_id"):
-        result["conversation_id"] = snapshot["conversation_id"]
+        result["conversation_id"] = _metadata_text(snapshot["conversation_id"], 160)
     result["scope"] = {
         "type": "conversation",
-        "future_user_scope": snapshot.get("scope", {}).get("future_user_scope"),
+        "future_user_scope": _optional_metadata_text(snapshot.get("scope", {}).get("future_user_scope"), 160),
     }
     return result
 
@@ -231,7 +255,7 @@ def _memory_fact_view(fact: dict[str, Any]) -> dict[str, Any]:
     result = {
         "id": fact.get("id"),
         "kind": fact.get("kind"),
-        "text": fact.get("text"),
+        "text": _memory_view_text(fact.get("text"), 420),
         "status": fact.get("status"),
         "priority": fact.get("priority"),
         "confidence": fact.get("confidence"),
@@ -240,13 +264,13 @@ def _memory_fact_view(fact: dict[str, Any]) -> dict[str, Any]:
     }
     for key in ("fact_key", "superseded_by", "supersedes", "source_text", "source_turn_id", "memory_reason"):
         if fact.get(key):
-            result[key] = fact[key]
+            result[key] = _memory_view_text(fact[key], 360) if key == "source_text" else fact[key]
     return result
 
 def _memory_focus_view(focus: dict[str, Any]) -> dict[str, Any]:
     result = {
         "id": focus.get("id"),
-        "text": focus.get("text"),
+        "text": _memory_view_text(focus.get("text"), 420),
         "status": focus.get("status"),
         "priority": focus.get("priority"),
         "focus_type": focus.get("focus_type"),
@@ -254,14 +278,14 @@ def _memory_focus_view(focus: dict[str, Any]) -> dict[str, Any]:
     }
     for key in ("source_text", "memory_reason"):
         if focus.get(key):
-            result[key] = focus[key]
+            result[key] = _memory_view_text(focus[key], 360) if key == "source_text" else focus[key]
     return result
 
 def _memory_event_view(event: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": event.get("id"),
         "role": event.get("role"),
-        "summary": event.get("summary"),
+        "summary": _memory_view_text(event.get("summary"), 360),
         "turn_id": event.get("turn_id"),
         "updated_at": event.get("updated_at"),
     }

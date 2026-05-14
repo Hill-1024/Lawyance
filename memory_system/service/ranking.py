@@ -39,9 +39,11 @@ def _rank_items(snapshot: dict[str, Any], query: str, limit: int, scope: str | N
         for event in snapshot.get("events", [])
     ]
     item_texts = [
-        str(item.get(text_key) or "")
+        str(text)
         for _, item, text_key in retrievable_items
         if item.get("status") != "deprecated"
+        for text in [item.get(text_key) or ""]
+        if _context_memory_text(text, MAX_EMBEDDING_TEXT_CHARS)
     ]
     try:
         query_embedding, item_embeddings = embeddings._embedding_vectors_for_ranking(query_text, item_texts, scope)
@@ -61,6 +63,9 @@ def _rank_items(snapshot: dict[str, Any], query: str, limit: int, scope: str | N
         if item.get("status") == "deprecated":
             return
         text = item.get(text_key) or ""
+        safe_text = _context_memory_text(text, 420)
+        if not safe_text:
+            return
         item_tokens = set(item.get("keywords") or _extract_keywords(text))
         item_entities = set(item.get("entities") or _extract_entities(text))
         item_features = _semantic_features(" ".join(item.get("semantic_tags", [])) + " " + text)
@@ -118,7 +123,7 @@ def _rank_items(snapshot: dict[str, Any], query: str, limit: int, scope: str | N
                     "rag_weight": rag_weight,
                     "rag_profile": ranking["profile"],
                     "rag_contributions": contributions,
-                    "text": _clip(text, 420),
+                    "text": safe_text,
                     "source_id": item.get("id"),
                     "memory_kind": item.get("kind"),
                     "updated_at": item.get("updated_at"),

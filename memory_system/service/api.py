@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import copy
-import sqlite3
 import time
 from contextlib import closing
 from datetime import datetime, timezone

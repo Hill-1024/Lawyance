@@ -47,18 +47,14 @@ def _trim_embedding_cache_locked() -> None:
             bucket.popitem(last=False)
 
     while _embedding_cache_total_locked() > MAX_EMBEDDING_CACHE_ITEMS:
-        victim_scope = None
-        victim_time = None
-        for scope, bucket in _EMBEDDING_CACHE.items():
-            if len(bucket) <= MIN_EMBEDDING_CACHE_ITEMS_PER_SCOPE:
-                continue
-            if not bucket:
-                continue
-            oldest_key = next(iter(bucket))
-            candidate = (scope, oldest_key)
-            if victim_time is None:
-                victim_scope = scope
-                victim_time = candidate
+        victim_scope = next(
+            (
+                scope
+                for scope, bucket in _EMBEDDING_CACHE.items()
+                if bucket and len(bucket) > MIN_EMBEDDING_CACHE_ITEMS_PER_SCOPE
+            ),
+            None,
+        )
         if victim_scope is None:
             victim_scope = max(_EMBEDDING_CACHE, key=lambda key: len(_EMBEDDING_CACHE[key]), default=None)
             if victim_scope is None or not _EMBEDDING_CACHE[victim_scope]:
@@ -71,7 +67,6 @@ def _load_embedding_scope_cache(scope: str, model: str) -> None:
     loaded_key = (scope, model)
     if loaded_key in _EMBEDDING_LOADED_SCOPES:
         return
-    _EMBEDDING_LOADED_SCOPES.add(loaded_key)
     from .store import _connect_memory_db
 
     try:
@@ -89,6 +84,7 @@ def _load_embedding_scope_cache(scope: str, model: str) -> None:
     except sqlite3.Error as exc:
         _LOGGER.warning("embedding cache load failed: %s", _clip(exc, 120))
         return
+    _EMBEDDING_LOADED_SCOPES.add(loaded_key)
     bucket = _EMBEDDING_CACHE.setdefault(scope, OrderedDict())
     for cache_key, dim, vector_blob in reversed(rows):
         vector = _unpack_embedding(vector_blob, int(dim))

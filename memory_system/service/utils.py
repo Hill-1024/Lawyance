@@ -38,7 +38,9 @@ def _clip(text: Any, limit: int) -> str:
     value = _SPACE_RE.sub(" ", value).strip()
     if len(value) <= limit:
         return value
-    return value[: limit - 1].rstrip() + "..."
+    if limit <= 3:
+        return value[:limit]
+    return value[: limit - 3].rstrip() + "..."
 
 def _clip_context(text: str, limit: int) -> str:
     value = text.strip()
@@ -49,7 +51,9 @@ def _clip_context(text: str, limit: int) -> str:
         suffix = "\n...\n" + closing_tag
         if limit > len(suffix):
             return value[: limit - len(suffix)].rstrip() + suffix
-    return value[: limit - 1].rstrip() + "..."
+    if limit <= 3:
+        return value[:limit]
+    return value[: limit - 3].rstrip() + "..."
 
 def _strip_message_noise(content: Any) -> str:
     text = _clip(content, MAX_EVENT_CONTENT_CHARS)
