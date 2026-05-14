@@ -1,5 +1,5 @@
 /*
- * 模块描述：Lawyance 品牌组件，提供标识图形和文字组合。
+ * 模块描述：Lawver 品牌组件，提供标识图形和文字组合。
  */
 
 import React from 'react';
@@ -34,10 +34,10 @@ interface BrandLockupProps {
 }
 
 export const BrandLockup: React.FC<BrandLockupProps> = ({ className }) => (
-  <div className={`flex items-center gap-3 ${className || ''}`} aria-label="Lawyance">
+  <div className={`flex items-center gap-3 ${className || ''}`} aria-label="Lawver">
     <BrandMark className="h-10 w-10 shrink-0" />
     <span className="brand-wordmark">
-      <span className="brand-wordmark-swash">L</span>awyance
+      <span className="brand-wordmark-swash">L</span>awver
     </span>
   </div>
 );

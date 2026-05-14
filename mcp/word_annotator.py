@@ -33,8 +33,8 @@ class WordAnnotator:
     def writer(self, index, text, output_path=None):
         if output_path is None:
             base_name, ext = os.path.splitext(self.file_path)
-            if not base_name.endswith('_lawyance'):
-                base_name = f"{base_name}_lawyance"
+            if not base_name.endswith('_lawver'):
+                base_name = f"{base_name}_lawver"
             output_path = f"{base_name}{ext}"
 
         if not exists(output_path):
@@ -61,7 +61,7 @@ class WordAnnotator:
                 runs=target_para.runs,
                 text=text,
                 author="工大法智",
-                initials="lawyance",
+                initials="lawver",
             )
             doc.save(output_path)
             return True

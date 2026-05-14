@@ -88,7 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between p-6 pb-4">
             <BrandLockup />
             {!isDesktopLayout && (
-              <button onClick={() => setIsSidebarOpen(false)} className="lawyance-pressable inline-flex h-10 w-10 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close conversations">
+              <button onClick={() => setIsSidebarOpen(false)} className="lawver-pressable inline-flex h-10 w-10 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close conversations">
                 <X size={22} strokeWidth={2} />
               </button>
             )}
@@ -96,7 +96,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="px-4 pb-4">
             <button
               onClick={() => handleNewChat()}
-              className="md3-btn-filled lawyance-pressable w-full whitespace-nowrap py-3.5"
+              className="md3-btn-filled lawver-pressable w-full whitespace-nowrap py-3.5"
             >
               <Plus size={20} strokeWidth={2} />
               New Chat
@@ -110,14 +110,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   setCurrentId(conv.id);
                   if (!isDesktopLayout) setIsSidebarOpen(false);
                 }}
-                className={`lawyance-pressable group flex w-full cursor-pointer items-center justify-between rounded-full px-4 py-3 text-left transition-colors ${
+                className={`lawver-pressable group flex w-full cursor-pointer items-center justify-between rounded-full px-4 py-3 text-left transition-colors ${
                   conv.id === currentId ? 'bg-[var(--accent-quiet)] font-medium text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.05)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
                 }`}
               >
                 <span className="truncate pr-2 text-[14px]">{conv.title}</span>
                 <button
                   onClick={(e) => deleteConversation(conv.id, e)}
-                  className="lawyance-pressable inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:opacity-0 lg:group-hover:opacity-100"
+                  className="lawver-pressable inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:opacity-0 lg:group-hover:opacity-100"
                   title="Delete chat"
                   aria-label="Delete chat"
                 >
@@ -130,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {userRole === 'admin' && onAdminClick && (
               <button
                 onClick={onAdminClick}
-                className="md3-btn-tonal lawyance-pressable w-full rounded-[var(--radius-md)] py-2.5 text-sm"
+                className="md3-btn-tonal lawver-pressable w-full rounded-[var(--radius-md)] py-2.5 text-sm"
               >
                 <ShieldAlert size={16} strokeWidth={2} />
                 管理后台
@@ -139,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {onLogout && (
               <button
                 onClick={onLogout}
-                className="lawyance-pressable flex w-full items-center justify-center gap-2 rounded-[var(--radius-md)] px-4 py-2.5 text-sm font-medium text-[var(--color-danger-500)] transition-colors hover:bg-[rgba(176,70,62,0.08)]"
+                className="lawver-pressable flex w-full items-center justify-center gap-2 rounded-[var(--radius-md)] px-4 py-2.5 text-sm font-medium text-[var(--color-danger-500)] transition-colors hover:bg-[rgba(176,70,62,0.08)]"
               >
                 <LogOut size={16} strokeWidth={2} />
                 退出登录

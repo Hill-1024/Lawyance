@@ -37,7 +37,7 @@ def _get_required_secret_key() -> str:
 
 SECRET_KEY = _get_required_secret_key()
 
-DATA_DIR = os.environ.get("LAWYANCE_DATA_DIR") or os.path.join(os.getcwd(), "data")
+DATA_DIR = os.environ.get("LAWVER_DATA_DIR") or os.path.join(os.getcwd(), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 ACCOUNT_FILE = os.path.join(DATA_DIR, "account.json")
 LOCKOUT_FILE = os.path.join(DATA_DIR, "lockout.json")

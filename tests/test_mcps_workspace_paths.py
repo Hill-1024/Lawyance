@@ -30,7 +30,7 @@ class McpsWorkspacePathTests(unittest.TestCase):
                 os.chdir(old_cwd)
 
         self.assertTrue(resolved.endswith(os.path.join("TEMP", "user_a", "conv_a", "doc.pdf")))
-        self.assertEqual(result_path, "Result/user_a/conv_a/doc_lawyance.pdf")
+        self.assertEqual(result_path, "Result/user_a/conv_a/doc_lawver.pdf")
 
     def test_rejects_absolute_and_cross_workspace_paths(self):
         with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp:

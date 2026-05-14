@@ -15,7 +15,7 @@ def _event_from_message(role: str, content: Any, turn_id: str | None = None, seq
     text = _strip_message_noise(content)
     if not text:
         return None
-    if role == "assistant" and "您好，我是 **Lawyance**" in text:
+    if role == "assistant" and "您好，我是 **Lawver**" in text:
         return None
     now = _now_iso()
     event_nonce = turn_id if turn_id else (sequence if sequence is not None else time.time_ns())

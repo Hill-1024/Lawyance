@@ -240,7 +240,7 @@ function App() {
                 <div className="pointer-events-none absolute inset-x-0 top-1/4 mx-auto h-72 max-w-xl rounded-full bg-[var(--accent)] opacity-[0.06] blur-3xl" />
                 <div className="relative max-w-md px-6 text-center">
                   <BrandMark className="mx-auto mb-6 h-[72px] w-[72px] text-[var(--accent)]" />
-                  <h2 className="t-headline-l">Welcome to Lawyance</h2>
+                  <h2 className="t-headline-l">Welcome to Lawver</h2>
                   <p className="t-body-l t-muted mt-2 text-[15px]">Start a conversation or upload a document to begin.</p>
                 </div>
               </div>

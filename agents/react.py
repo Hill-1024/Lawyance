@@ -48,7 +48,7 @@ REACT_TASK_TEMPLATE = """# 可用工具
 
 
 class ReActAgent:
-    DEFAULT_MAX_STEPS = _optional_positive_int_env("LAWYANCE_REACT_MAX_STEPS", 8)
+    DEFAULT_MAX_STEPS = _optional_positive_int_env("LAWVER_REACT_MAX_STEPS", 8)
 
     def __init__(self, tools_description: str, execute_tool: Callable[[str, str], str], memory: list = None, max_steps: int | None = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
         self.tools_description = tools_description
