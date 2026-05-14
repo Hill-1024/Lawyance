@@ -22,23 +22,26 @@ def isolated_law_corpus():
     )
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        data_dir = root / "data_doc"
+        data_dir = root / "data"
         cache_dir = root / "cache"
         law_dir = data_dir / "法律"
         law_dir.mkdir(parents=True)
-        (law_dir / "中华人民共和国测试法.txt").write_text(
-            "\n".join(
-                [
-                    "URL: https://example.test/law",
-                    "中华人民共和国测试法",
-                    "时效性：现行有效",
-                    "公布日期：2026-01-01",
-                    "施行日期：2026-01-01",
-                    "第一条",
-                    "本法用于测试本地法律数据库检索。",
-                    "第二条",
-                    "检索系统不得把 LIKE 通配符当成法律名称。",
-                ]
+        (law_dir / "中华人民共和国测试法.json").write_text(
+            json.dumps(
+                {
+                    "law_name": "中华人民共和国测试法",
+                    "short_name": "测试法",
+                    "url": "https://example.test/law",
+                    "cli": "CLI.TEST",
+                    "effectiveness": "现行有效",
+                    "publish_date": "2026-01-01",
+                    "implement_date": "2026-01-01",
+                    "articles": {
+                        "第一条": "本法用于测试本地法律数据库检索。",
+                        "第二条": "检索系统不得把 LIKE 通配符当成法律名称。",
+                    },
+                },
+                ensure_ascii=False,
             ),
             encoding="utf-8",
         )
@@ -76,9 +79,11 @@ class LawDataSearchHardeningTests(unittest.TestCase):
 
     def test_source_manifest_changes_when_file_content_changes(self):
         with isolated_law_corpus() as data_dir:
-            source_file = data_dir / "法律" / "中华人民共和国测试法.txt"
+            source_file = data_dir / "法律" / "中华人民共和国测试法.json"
             first = law_search.build_source_manifest()
-            source_file.write_text(source_file.read_text(encoding="utf-8") + "\n第三条\n内容变更。", encoding="utf-8")
+            payload = json.loads(source_file.read_text(encoding="utf-8"))
+            payload["articles"]["第三条"] = "内容变更。"
+            source_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
             second = law_search.build_source_manifest()
 
         self.assertNotEqual(first["content_sha256"], second["content_sha256"])

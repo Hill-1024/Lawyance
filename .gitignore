@@ -11,8 +11,9 @@ package-lock.json
 .codebuddy
 TEMP
 Result
-./data/
+/data/
 .DS_Store
 RAG/cache/
+RAG/data_doc/
 RAG/__pycache__/
 .claude/
