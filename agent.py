@@ -1157,6 +1157,6 @@ async def serve_spa(request: Request, full_path: str):
 
 
 if __name__ == '__main__':
-    port = int(os.getenv("PORT", 80))
+    port = int(os.getenv("PORT", 8080))
     workers = max(int(os.getenv("UVICORN_WORKERS", "1")), 1)
     uvicorn.run("agent:app", host="0.0.0.0", port=port, workers=workers)
