@@ -32,6 +32,21 @@ def _content_chunk(content: str):
             SimpleNamespace(
                 delta=SimpleNamespace(
                     content=content,
+                    reasoning_content=None,
+                    tool_calls=None,
+                )
+            )
+        ]
+    )
+
+
+def _reasoning_chunk(content: str):
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content=None,
+                    reasoning_content=content,
                     tool_calls=None,
                 )
             )
@@ -224,6 +239,57 @@ class OCPTests(unittest.TestCase):
         )
 
         self.assertFalse(ocp.OCPStatic._is_substantive_replacement(original, candidate))
+
+    def test_ocp_stream_does_not_emit_checker_reasoning(self):
+        original = "偷窃外卖的行为可能涉及治安管理处罚、刑事责任和民事赔偿。"
+        checker = ocp.OCPStream(session_id="test")
+        checker.client = _fake_client([
+            _reasoning_chunk("检查结果：信源角标 ✅，表格格式正确。"),
+            _content_chunk(original),
+        ])
+
+        async def collect_events():
+            return [event async for event in checker.check_stream(original)]
+
+        events = asyncio.run(collect_events())
+        thought_text = "\n".join(event.get("content", "") for event in events if event.get("type") == "thought")
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertEqual(replacements[0]["content"], original)
+        self.assertNotIn("检查结果：信源角标", thought_text)
+        self.assertNotIn("表格格式正确", thought_text)
+
+    def test_ocp_stream_rejects_escaped_checker_report(self):
+        original = (
+            "偷窃外卖的行为可能涉及行政责任、刑事责任和民事责任。\n\n"
+            "## 一、行政责任\n\n"
+            "单次低价值外卖被盗，通常可先报警并由公安机关依法处理。"
+        )
+        escaped_report = (
+            "检查结果：\n"
+            "1. 信源角标 ✅ - 正文中角标完整\n"
+            "2. 表格格式 - 需要检查是否有对齐问题\n"
+            "3. Markdown语法检查\n\n"
+            "让我逐一检查：\n"
+            "- 表格1：有表头行、分隔行，列数一致 ✅\n"
+            "- 标题层级：## → 没问题\n\n"
+            "所有检查项均通过，文本本身已符合规范，无需修改。\n\n"
+            f"{original}"
+        )
+        checker = ocp.OCPStream(session_id="test")
+        checker.client = _fake_client([_content_chunk(escaped_report)])
+
+        async def collect_events():
+            return [event async for event in checker.check_stream(original)]
+
+        events = asyncio.run(collect_events())
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertEqual(replacements[0]["content"], original)
+        self.assertNotIn("检查结果", replacements[0]["content"])
+        self.assertNotIn("所有检查项均通过", replacements[0]["content"])
 
     def test_ocp_stream_falls_back_when_review_rounds_are_exhausted(self):
         checker = ocp.OCPStream(session_id="test")
