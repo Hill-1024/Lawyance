@@ -3,12 +3,14 @@
 """
 
 import importlib
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
@@ -79,6 +81,48 @@ class SecurityBootstrapTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Insecure default admin account", result.stderr + result.stdout)
+
+
+class AuthStateConcurrencyTests(unittest.TestCase):
+    def test_parallel_failed_logins_preserve_lockout_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old_env = {key: os.environ.get(key) for key in ("SECRET_KEY", "INITIAL_ADMIN_PASSWORD", "LAWVER_DATA_DIR")}
+            os.environ["SECRET_KEY"] = TEST_SECRET
+            os.environ["INITIAL_ADMIN_PASSWORD"] = "bootstrap-password"
+            os.environ["LAWVER_DATA_DIR"] = tmp
+            sys.modules.pop("auth", None)
+            try:
+                auth = importlib.import_module("auth")
+                captured_errors = []
+
+                def capture_print(*args, **_kwargs):
+                    captured_errors.append(" ".join(str(arg) for arg in args))
+
+                auth.print = capture_print
+
+                def fail_login(index: int):
+                    return auth.authenticate_user(f"user{index % 8}", "bad-password")
+
+                with ThreadPoolExecutor(max_workers=32) as executor:
+                    results = list(executor.map(fail_login, range(400)))
+
+                self.assertEqual(len(results), 400)
+                self.assertTrue(all(not success for success, _ in results))
+                self.assertEqual(captured_errors, [])
+
+                with open(os.path.join(tmp, "lockout.json"), "r", encoding="utf-8") as f:
+                    lockouts = json.load(f)
+
+                self.assertEqual(set(lockouts), {f"user{i}" for i in range(8)})
+                self.assertTrue(all(item["fails"] == 3 for item in lockouts.values()))
+                self.assertTrue(all(item["locked_until"] > 0 for item in lockouts.values()))
+            finally:
+                sys.modules.pop("auth", None)
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
 
 
 class ApiBoundaryTests(unittest.TestCase):
