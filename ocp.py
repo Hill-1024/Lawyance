@@ -488,10 +488,30 @@ class OCPStatic:
         return OCP_TOOL_LABELS.get(function_name, function_name)
 
     @staticmethod
+    def _looks_like_process_report(text: str) -> bool:
+        """Detect OCP audit reports that escaped as candidate answer text."""
+        if not text:
+            return False
+
+        leading_text = text.strip()[:1600]
+        process_report_patterns = [
+            r"^\s*(检查结果|审查结果|格式检查结果|Markdown\s*检查结果)\s*[:：]",
+            r"(让我|我来).{0,20}(逐一|逐项|逐条).{0,20}(检查|审查|确认)",
+            r"(信源角标|表格格式|Markdown\s*语法检查).{0,120}(✅|通过|正确|需要检查|无误)",
+            r"(表格\d+|表格[一二三四五六七八九十]+).{0,80}(表头|分隔行|列数|对齐)",
+            r"(所有检查项均通过|文本本身已符合规范|文本基本符合规范|并无格式错误|无需修改)",
+            r"(标题层级|代码块|有序列表|引用块).{0,80}(没问题|无|格式正确|规范)",
+        ]
+        return any(re.search(pattern, leading_text, flags=re.IGNORECASE | re.DOTALL) for pattern in process_report_patterns)
+
+    @staticmethod
     def _is_substantive_replacement(original: str, candidate: str) -> bool:
         """OCP is allowed to repair format, not collapse a full answer into a status line."""
         candidate_text = (candidate or "").strip()
         if not candidate_text:
+            return False
+
+        if OCPStatic._looks_like_process_report(candidate_text):
             return False
 
         original_compact = re.sub(r"\s+", "", original or "")
@@ -586,7 +606,6 @@ class OCPStream:
 
                 content_str = ""
                 full_raw_content = ""
-                reasoning_str = ""
                 tool_calls = []
 
                 round_timeout = min(OCP_CALL_TIMEOUT, _remaining_seconds(deadline))
@@ -603,12 +622,6 @@ class OCPStream:
                     async for chunk in stream_res:
                         if not chunk.choices: continue
                         delta = chunk.choices[0].delta
-
-                        # 推理内容
-                        reasoning = getattr(delta, 'reasoning_content', None)
-                        if reasoning:
-                            reasoning_str += reasoning
-                            yield {'type': 'thought', 'content': reasoning, 'thought_type': 'ocp', 'mode': 'append'}
 
                         # 正文内容
                         if delta.content:
@@ -668,7 +681,7 @@ class OCPStream:
                     return
 
                 # 执行工具并继续
-                context.append({"role": "assistant", "content": content_str, "tool_calls": tool_calls, "reasoning_content": reasoning_str})
+                context.append({"role": "assistant", "content": content_str, "tool_calls": tool_calls})
                 for tc in tool_calls:
                     f_name = tc["function"]["name"]
                     f_args = tc["function"]["arguments"]
