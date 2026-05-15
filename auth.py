@@ -8,9 +8,16 @@ import time
 import hmac
 import hashlib
 import base64
+import threading
+from contextlib import contextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback for local development.
+    fcntl = None
 
 
 load_dotenv(".env")
@@ -41,6 +48,9 @@ DATA_DIR = os.environ.get("LAWVER_DATA_DIR") or os.path.join(os.getcwd(), "data"
 os.makedirs(DATA_DIR, exist_ok=True)
 ACCOUNT_FILE = os.path.join(DATA_DIR, "account.json")
 LOCKOUT_FILE = os.path.join(DATA_DIR, "lockout.json")
+AUTH_STATE_LOCK_FILE = os.path.join(DATA_DIR, ".auth_state.lock")
+_AUTH_STATE_LOCK = threading.RLock()
+_AUTH_STATE_LOCK_DEPTH = threading.local()
 
 
 def hash_password(password: str) -> str:
@@ -54,71 +64,108 @@ def hash_password(password: str) -> str:
     return f"{salt}${actual_hash}"
 
 
+@contextmanager
+def _auth_state_lock():
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with _AUTH_STATE_LOCK:
+        depth = getattr(_AUTH_STATE_LOCK_DEPTH, "value", 0)
+        if depth:
+            _AUTH_STATE_LOCK_DEPTH.value = depth + 1
+            try:
+                yield
+            finally:
+                _AUTH_STATE_LOCK_DEPTH.value = depth
+            return
+
+        with open(AUTH_STATE_LOCK_FILE, "a", encoding="utf-8") as lock_file:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            _AUTH_STATE_LOCK_DEPTH.value = 1
+            try:
+                yield
+            finally:
+                _AUTH_STATE_LOCK_DEPTH.value = 0
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def _write_json(path: str, payload: dict):
-    tmp_path = f"{path}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=4, ensure_ascii=False)
-    os.replace(tmp_path, path)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp_path = f"{path}.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}.tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=4, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 def _ensure_account_file():
-    if os.path.exists(ACCOUNT_FILE):
-        try:
-            with open(ACCOUNT_FILE, "r", encoding="utf-8") as f:
-                accounts = json.load(f)
-            admin_hash = accounts.get("admin", {}).get("hash") if isinstance(accounts.get("admin"), dict) else accounts.get("admin")
-            if admin_hash == INSECURE_DEFAULT_ADMIN_HASH:
-                raise RuntimeError(
-                    "Insecure default admin account detected. Replace data/account.json or bootstrap a new admin password."
-                )
-        except RuntimeError:
-            raise
-        except Exception:
-            pass
-        return
+    with _auth_state_lock():
+        if os.path.exists(ACCOUNT_FILE):
+            try:
+                with open(ACCOUNT_FILE, "r", encoding="utf-8") as f:
+                    accounts = json.load(f)
+                admin_hash = accounts.get("admin", {}).get("hash") if isinstance(accounts.get("admin"), dict) else accounts.get("admin")
+                if admin_hash == INSECURE_DEFAULT_ADMIN_HASH:
+                    raise RuntimeError(
+                        "Insecure default admin account detected. Replace data/account.json or bootstrap a new admin password."
+                    )
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
+            return
 
-    initial_password = os.environ.get("INITIAL_ADMIN_PASSWORD", "")
-    if not initial_password:
-        raise RuntimeError(
-            "No account file exists. Set INITIAL_ADMIN_PASSWORD once to bootstrap the admin account."
+        initial_password = os.environ.get("INITIAL_ADMIN_PASSWORD", "")
+        if not initial_password:
+            raise RuntimeError(
+                "No account file exists. Set INITIAL_ADMIN_PASSWORD once to bootstrap the admin account."
+            )
+        if len(initial_password) < PASSWORD_MIN_LENGTH:
+            raise RuntimeError(f"INITIAL_ADMIN_PASSWORD must be at least {PASSWORD_MIN_LENGTH} characters long.")
+        if initial_password == "password":
+            raise RuntimeError("INITIAL_ADMIN_PASSWORD cannot use the old insecure default password.")
+
+        _write_json(
+            ACCOUNT_FILE,
+            {
+                "admin": {
+                    "hash": hash_password(initial_password),
+                    "role": "admin",
+                }
+            },
         )
-    if len(initial_password) < PASSWORD_MIN_LENGTH:
-        raise RuntimeError(f"INITIAL_ADMIN_PASSWORD must be at least {PASSWORD_MIN_LENGTH} characters long.")
-    if initial_password == "password":
-        raise RuntimeError("INITIAL_ADMIN_PASSWORD cannot use the old insecure default password.")
-
-    _write_json(
-        ACCOUNT_FILE,
-        {
-            "admin": {
-                "hash": hash_password(initial_password),
-                "role": "admin",
-            }
-        },
-    )
 
 
 _ensure_account_file()
 
 
 def get_accounts_data():
-    try:
-        with open(ACCOUNT_FILE, "r", encoding="utf-8") as f:
-            accounts = json.load(f)
-    except Exception:
-        return {}
+    with _auth_state_lock():
+        try:
+            with open(ACCOUNT_FILE, "r", encoding="utf-8") as f:
+                accounts = json.load(f)
+        except Exception:
+            return {}
 
-    dirty = False
-    for k, v in accounts.items():
-        if isinstance(v, str):
-            role = "admin" if k == "admin" else "user"
-            accounts[k] = {"hash": v, "role": role}
-            dirty = True
+        dirty = False
+        for k, v in accounts.items():
+            if isinstance(v, str):
+                role = "admin" if k == "admin" else "user"
+                accounts[k] = {"hash": v, "role": role}
+                dirty = True
 
-    if dirty:
-        _write_json(ACCOUNT_FILE, accounts)
+        if dirty:
+            _write_json(ACCOUNT_FILE, accounts)
 
-    return accounts
+        return accounts
 
 
 def get_user_role(username: str) -> str:
@@ -140,34 +187,36 @@ def add_or_update_account(username: str, password: str, role: str = "user") -> t
     if len(password) < PASSWORD_MIN_LENGTH:
         return False, "密码长度不能小于6位"
 
-    accounts = get_accounts_data()
+    with _auth_state_lock():
+        accounts = get_accounts_data()
 
-    if username in accounts and accounts[username].get("role") == "admin" and normalized_role != "admin":
-        return False, "不能将管理员账号降级为普通用户"
+        if username in accounts and accounts[username].get("role") == "admin" and normalized_role != "admin":
+            return False, "不能将管理员账号降级为普通用户"
 
-    accounts[username] = {"hash": hash_password(password), "role": normalized_role}
+        accounts[username] = {"hash": hash_password(password), "role": normalized_role}
 
-    try:
-        _write_json(ACCOUNT_FILE, accounts)
-        return True, "操作成功"
-    except Exception as e:
-        return False, f"保存失败: {str(e)}"
+        try:
+            _write_json(ACCOUNT_FILE, accounts)
+            return True, "操作成功"
+        except Exception as e:
+            return False, f"保存失败: {str(e)}"
 
 
 def delete_account(username: str) -> tuple[bool, str]:
     if username == "admin":
         return False, "不能删除系统管理员账号"
 
-    accounts = get_accounts_data()
-    if username not in accounts:
-        return False, "账号不存在"
+    with _auth_state_lock():
+        accounts = get_accounts_data()
+        if username not in accounts:
+            return False, "账号不存在"
 
-    try:
-        del accounts[username]
-        _write_json(ACCOUNT_FILE, accounts)
-        return True, "账号已删除"
-    except Exception as e:
-        return False, f"删除失败: {str(e)}"
+        try:
+            del accounts[username]
+            _write_json(ACCOUNT_FILE, accounts)
+            return True, "账号已删除"
+        except Exception as e:
+            return False, f"删除失败: {str(e)}"
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
@@ -214,21 +263,24 @@ def verify_token(token: str) -> Optional[str]:
 
 
 def _read_lockouts() -> dict:
-    if not os.path.exists(LOCKOUT_FILE):
-        return {}
-    try:
-        with open(LOCKOUT_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    with _auth_state_lock():
+        if not os.path.exists(LOCKOUT_FILE):
+            return {}
+        try:
+            with open(LOCKOUT_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
 
 def _write_lockouts(lockouts: dict):
-    _write_json(LOCKOUT_FILE, lockouts)
+    with _auth_state_lock():
+        _write_json(LOCKOUT_FILE, lockouts)
 
 
 def check_lockout(username: str) -> Optional[str]:
-    record = _read_lockouts().get(username)
+    with _auth_state_lock():
+        record = _read_lockouts().get(username)
     if not record:
         return None
 
@@ -241,23 +293,24 @@ def check_lockout(username: str) -> Optional[str]:
 
 def record_login_attempt(username: str, success: bool):
     try:
-        now = time.time()
-        lockouts = _read_lockouts()
+        with _auth_state_lock():
+            now = time.time()
+            lockouts = _read_lockouts()
 
-        if success:
-            lockouts.pop(username, None)
-        else:
-            record = lockouts.get(username, {"fails": 0, "locked_until": 0, "first_failed_at": now})
-            if record.get("locked_until", 0) <= now:
-                first_failed_at = record.get("first_failed_at", now)
-                if record.get("locked_until", 0) > 0 or now - first_failed_at > LOCKOUT_WINDOW_SECONDS:
-                    record = {"fails": 0, "locked_until": 0, "first_failed_at": now}
-                record["fails"] = int(record.get("fails", 0)) + 1
-                if record["fails"] >= LOCKOUT_FAIL_LIMIT:
-                    record["locked_until"] = int(now + LOCKOUT_SECONDS)
-                lockouts[username] = record
+            if success:
+                lockouts.pop(username, None)
+            else:
+                record = lockouts.get(username, {"fails": 0, "locked_until": 0, "first_failed_at": now})
+                if record.get("locked_until", 0) <= now:
+                    first_failed_at = record.get("first_failed_at", now)
+                    if record.get("locked_until", 0) > 0 or now - first_failed_at > LOCKOUT_WINDOW_SECONDS:
+                        record = {"fails": 0, "locked_until": 0, "first_failed_at": now}
+                    record["fails"] = int(record.get("fails", 0)) + 1
+                    if record["fails"] >= LOCKOUT_FAIL_LIMIT:
+                        record["locked_until"] = int(now + LOCKOUT_SECONDS)
+                    lockouts[username] = record
 
-        _write_lockouts(lockouts)
+            _write_lockouts(lockouts)
     except Exception as e:
         print(f"Error recording login attempt: {e}")
 
