@@ -44,7 +44,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
   };
 
   const FileItem: React.FC<{ file: WorkspaceFile }> = ({ file }) => (
-    <div className="lawver-fade-up group flex items-center justify-between rounded-[12px] border border-[var(--border-subtle)] bg-[rgba(59,98,184,0.04)] px-3 py-2.5 dark:bg-white/[0.03]">
+    <div className="lawyance-fade-up group flex items-center justify-between rounded-[12px] border border-[var(--border-subtle)] bg-[rgba(59,98,184,0.04)] px-3 py-2.5 dark:bg-white/[0.03]">
       <div className="flex min-w-0 items-center gap-3 overflow-hidden">
         <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${file.type === 'upload' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
           {file.type === 'upload' ? (
@@ -65,14 +65,14 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
             link.click();
             document.body.removeChild(link);
           }}
-          className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
+          className="lawyance-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
           title="Download"
         >
           <Download size={14} strokeWidth={2} />
         </button>
         <button
           onClick={() => onDeleteFile(file.path)}
-          className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+          className="lawyance-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
           title="Delete"
         >
           <Trash2 size={14} strokeWidth={2} />
@@ -116,7 +116,7 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
               <Folder size={18} strokeWidth={2} className="text-[var(--accent)]" />
               Workspace
             </h3>
-            <button onClick={() => setIsWorkspaceOpen(false)} className="lawver-pressable rounded-full p-1.5 text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close workspace">
+            <button onClick={() => setIsWorkspaceOpen(false)} className="lawyance-pressable rounded-full p-1.5 text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close workspace">
               <X size={18} strokeWidth={2} />
             </button>
           </div>

@@ -27,8 +27,8 @@ MAX_EMBEDDING_CACHE_ITEMS = 512
 MAX_EMBEDDING_CACHE_ITEMS_PER_SCOPE = 128
 MIN_EMBEDDING_CACHE_ITEMS_PER_SCOPE = 16
 MAX_MEMORY_OPS_PER_CALL = 16
-MAX_CONVERSATION_CACHE_SCOPES = int(os.getenv("LAWVER_MEMORY_MAX_SCOPES", "512") or 512)
-MEMORY_CACHE_TTL_SECONDS = int(os.getenv("LAWVER_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600)) or 7 * 24 * 3600)
+MAX_CONVERSATION_CACHE_SCOPES = int(os.getenv("LAWYANCE_MEMORY_MAX_SCOPES", "512") or 512)
+MEMORY_CACHE_TTL_SECONDS = int(os.getenv("LAWYANCE_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600)) or 7 * 24 * 3600)
 EMBEDDING_MAX_RESPONSE_BYTES = int(os.getenv("MEMORY_EMBEDDING_MAX_RESPONSE_BYTES", str(8 * 1024 * 1024)) or 8 * 1024 * 1024)
 EMBEDDING_MODEL_DEFAULT = "Qwen/Qwen3-Embedding-8B"
 EMBEDDING_BASE_URL_DEFAULT = "https://api.siliconflow.cn/v1"
@@ -41,7 +41,7 @@ MEMORY_EDIT_REASONS = {"new_information", "correction", "user_preference", "focu
 MEMORY_FACT_KINDS = {"fact", "constraint", "preference", "goal", "legal_assessment"}
 
 _LOGGER = logging.getLogger("memory_system")
-_LOGGER.setLevel(getattr(logging, os.getenv("LAWVER_MEMORY_LOG_LEVEL", "INFO").upper(), logging.INFO))
+_LOGGER.setLevel(getattr(logging, os.getenv("LAWYANCE_MEMORY_LOG_LEVEL", "INFO").upper(), logging.INFO))
 
 _RAG_BASE_WEIGHTS: dict[str, float] = {
     "embedding": 3.4,
@@ -89,8 +89,8 @@ _RAG_PROFILE_MULTIPLIERS: dict[str, dict[str, float]] = {
     },
 }
 
-_MEMORY_DATA_DIR = os.getenv("LAWVER_DATA_DIR") or os.path.join(os.getcwd(), "data")
-_MEMORY_DB_PATH = os.getenv("LAWVER_MEMORY_DB") or os.path.join(_MEMORY_DATA_DIR, "memory_cache.sqlite3")
+_MEMORY_DATA_DIR = os.getenv("LAWYANCE_DATA_DIR") or os.path.join(os.getcwd(), "data")
+_MEMORY_DB_PATH = os.getenv("LAWYANCE_MEMORY_DB") or os.path.join(_MEMORY_DATA_DIR, "memory_cache.sqlite3")
 
 _CONVERSATION_CACHE: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _CONVERSATION_CACHE_LOCK = threading.RLock()

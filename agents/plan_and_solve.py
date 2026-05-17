@@ -171,7 +171,7 @@ class Executor:
 
 # --- 智能体 (Agent) 整合 ---
 class PlanAndSolveAgent:
-    MAX_PLAN_STEPS = _optional_positive_int_env("LAWVER_PLAN_MAX_STEPS", 8)
+    MAX_PLAN_STEPS = _optional_positive_int_env("LAWYANCE_PLAN_MAX_STEPS", 8)
 
     def __init__(self, tools_description: str = "", execute_tool: Callable[[str, str], str] = None, memory: list = None, session_id: str = "default", workspace_scope: str = None, use_ocp: bool = False):
         self.planner = Planner()

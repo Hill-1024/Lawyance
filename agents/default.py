@@ -42,8 +42,8 @@ class DefaultAgent:
         self.use_ocp = use_ocp
         self.execute_tool = execute_tool or self._missing_tool_executor
 
-    MAX_TOOL_ROUNDS = _optional_positive_int_env("LAWVER_MAX_TOOL_ROUNDS")
-    MAX_NON_STREAM_ROUNDS = _optional_positive_int_env("LAWVER_MAX_NON_STREAM_TOOL_ROUNDS", MAX_TOOL_ROUNDS)
+    MAX_TOOL_ROUNDS = _optional_positive_int_env("LAWYANCE_MAX_TOOL_ROUNDS")
+    MAX_NON_STREAM_ROUNDS = _optional_positive_int_env("LAWYANCE_MAX_NON_STREAM_TOOL_ROUNDS", MAX_TOOL_ROUNDS)
 
     @staticmethod
     def _missing_tool_executor(function_name: str, arguments: Any) -> str:
