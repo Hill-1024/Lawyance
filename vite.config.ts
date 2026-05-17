@@ -16,7 +16,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 80,
+    port: 8080,
     strictPort: true,
     host: '0.0.0.0',
     watch: {
@@ -24,7 +24,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:80',
+        target: 'http://localhost:8080',
         changeOrigin: true,
       },
     },

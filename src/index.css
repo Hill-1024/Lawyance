@@ -1,4 +1,4 @@
-/* 模块描述：全局样式入口，定义 Lawver 设计 token、布局结构、动效和组件级样式。 */
+/* 模块描述：全局样式入口，定义 Lawyance 设计 token、布局结构、动效和组件级样式。 */
 
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
@@ -179,9 +179,9 @@
   --dur-fast: 160ms;
   --dur-base: 240ms;
   --dur-slow: 360ms;
-  --motion-fade-up: lawverFadeUp var(--dur-base) var(--ease-emphasized) both;
-  --motion-sheet-in: lawverSheetIn var(--dur-slow) var(--ease-emphasized) both;
-  --motion-popover-in: lawverPopoverIn var(--dur-base) var(--ease-emphasized) both;
+  --motion-fade-up: lawyanceFadeUp var(--dur-base) var(--ease-emphasized) both;
+  --motion-sheet-in: lawyanceSheetIn var(--dur-slow) var(--ease-emphasized) both;
+  --motion-popover-in: lawyancePopoverIn var(--dur-base) var(--ease-emphasized) both;
 }
 
 .dark,
@@ -248,23 +248,23 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-.lawver-chat-shell {
+.lawyance-chat-shell {
   height: 100vh;
   height: 100svh;
   height: 100dvh;
   min-height: 100svh;
 }
 
-.lawver-topbar {
+.lawyance-topbar {
   min-height: calc(56px + env(safe-area-inset-top));
 }
 
-.lawver-header-title {
+.lawyance-header-title {
   font-size: 17px;
   line-height: 24px;
 }
 
-.lawver-composer-footer {
+.lawyance-composer-footer {
   position: sticky;
   bottom: 0;
   z-index: 20;
@@ -272,17 +272,17 @@ body {
     linear-gradient(180deg, rgba(246, 248, 251, 0), var(--bg-app) 34%);
 }
 
-.dark .lawver-composer-footer {
+.dark .lawyance-composer-footer {
   background:
     linear-gradient(180deg, rgba(11, 13, 20, 0), var(--bg-app) 34%);
 }
 
 @media (min-width: 640px) {
-  .lawver-topbar {
+  .lawyance-topbar {
     min-height: calc(64px + env(safe-area-inset-top));
   }
 
-  .lawver-header-title {
+  .lawyance-header-title {
     font-size: var(--type-title-l-size);
     line-height: var(--type-title-l-line);
   }
@@ -311,7 +311,7 @@ textarea.composer-textarea:focus-visible {
   box-shadow: none !important;
 }
 
-.lawver-composer-shell {
+.lawyance-composer-shell {
   display: flex;
   height: 52px;
   min-height: 52px;
@@ -330,14 +330,14 @@ textarea.composer-textarea:focus-visible {
     background-color var(--dur-base) var(--ease-standard);
 }
 
-.lawver-composer-shell:focus-within {
+.lawyance-composer-shell:focus-within {
   border-color: var(--accent);
   box-shadow:
     0 0 0 1px var(--accent),
     var(--shadow-1);
 }
 
-.lawver-composer-action {
+.lawyance-composer-action {
   display: inline-flex;
   width: 40px;
   height: 40px;
@@ -347,7 +347,7 @@ textarea.composer-textarea:focus-visible {
   border-radius: var(--radius-pill);
 }
 
-.lawver-composer-textarea {
+.lawyance-composer-textarea {
   height: 40px;
   min-height: 40px;
   min-width: 0;
@@ -358,20 +358,20 @@ textarea.composer-textarea:focus-visible {
 }
 
 @media (max-width: 420px) {
-  .lawver-composer-shell {
+  .lawyance-composer-shell {
     height: 50px;
     min-height: 50px;
     gap: 4px;
     padding: 5px;
   }
 
-  .lawver-composer-action {
+  .lawyance-composer-action {
     width: 38px;
     height: 38px;
     flex-basis: 38px;
   }
 
-  .lawver-composer-textarea {
+  .lawyance-composer-textarea {
     height: 38px;
     min-height: 38px;
     padding: 7px 4px;
@@ -804,7 +804,7 @@ textarea.composer-textarea:focus-visible {
     transform var(--dur-fast) var(--ease-standard),
     background-color var(--dur-base) var(--ease-standard),
     box-shadow var(--dur-base) var(--ease-standard);
-  animation: lawverFabIn var(--dur-slow) var(--ease-emphasized) both;
+  animation: lawyanceFabIn var(--dur-slow) var(--ease-emphasized) both;
 }
 
 .md3-fab:hover {
@@ -1052,7 +1052,7 @@ textarea.composer-textarea:focus-visible {
   animation: logSlideIn var(--dur-fast) var(--ease-emphasized) both;
 }
 
-@keyframes lawverFadeUp {
+@keyframes lawyanceFadeUp {
   from {
     opacity: 0;
     transform: translateY(4px);
@@ -1064,7 +1064,7 @@ textarea.composer-textarea:focus-visible {
   }
 }
 
-@keyframes lawverSheetIn {
+@keyframes lawyanceSheetIn {
   from {
     opacity: 0;
     transform: translateX(-12px);
@@ -1076,7 +1076,7 @@ textarea.composer-textarea:focus-visible {
   }
 }
 
-@keyframes lawverPopoverIn {
+@keyframes lawyancePopoverIn {
   from {
     opacity: 0;
     transform: translateY(4px) scale(0.98);
@@ -1088,7 +1088,7 @@ textarea.composer-textarea:focus-visible {
   }
 }
 
-@keyframes lawverFabIn {
+@keyframes lawyanceFabIn {
   from {
     opacity: 0;
     transform: translateY(8px) scale(0.94);
@@ -1100,7 +1100,7 @@ textarea.composer-textarea:focus-visible {
   }
 }
 
-@keyframes lawverBloom {
+@keyframes lawyanceBloom {
   0%,
   100% {
     opacity: 0.22;
@@ -1113,16 +1113,16 @@ textarea.composer-textarea:focus-visible {
   }
 }
 
-.lawver-fade-up {
+.lawyance-fade-up {
   animation: var(--motion-fade-up);
 }
 
-.lawver-popover {
+.lawyance-popover {
   position: fixed;
   transform-origin: bottom center;
 }
 
-.lawver-pressable {
+.lawyance-pressable {
   transition:
     transform var(--dur-fast) var(--ease-standard),
     background-color var(--dur-base) var(--ease-standard),
@@ -1131,63 +1131,63 @@ textarea.composer-textarea:focus-visible {
     box-shadow var(--dur-base) var(--ease-standard);
 }
 
-.lawver-pressable:active:not(:disabled) {
+.lawyance-pressable:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-.lawver-bloom-dot {
-  animation: lawverBloom 1.5s var(--ease-standard) infinite;
+.lawyance-bloom-dot {
+  animation: lawyanceBloom 1.5s var(--ease-standard) infinite;
 }
 
-.lawver-bloom-dot:nth-child(2) {
+.lawyance-bloom-dot:nth-child(2) {
   animation-delay: 0.2s;
 }
 
-.lawver-bloom-dot:nth-child(3) {
+.lawyance-bloom-dot:nth-child(3) {
   animation-delay: 0.4s;
 }
 
-.lawver-status-glyph {
+.lawyance-status-glyph {
   display: inline-block;
   width: 14px;
   height: 14px;
   flex-shrink: 0;
 }
 
-.lawver-status-glyph circle,
-.lawver-status-glyph path {
+.lawyance-status-glyph circle,
+.lawyance-status-glyph path {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.lawver-status-glyph.is-running .status-track {
+.lawyance-status-glyph.is-running .status-track {
   stroke: rgba(59, 98, 184, 0.18);
   stroke-width: 1.5;
 }
 
-.lawver-status-glyph.is-running .status-sweep {
+.lawyance-status-glyph.is-running .status-sweep {
   stroke: var(--accent);
   stroke-width: 1.5;
   stroke-dasharray: 14 36;
   transform-origin: 50% 50%;
-  animation: lawverAppleSweep 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  animation: lawyanceAppleSweep 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 
-.lawver-status-glyph.is-done .status-ring {
+.lawyance-status-glyph.is-done .status-ring {
   stroke: var(--brand-tertiary-700);
   stroke-width: 1.5;
   stroke-dasharray: 50;
   stroke-dashoffset: 50;
-  animation: lawverAppleRing 0.5s var(--ease-spring) 0.05s forwards;
+  animation: lawyanceAppleRing 0.5s var(--ease-spring) 0.05s forwards;
 }
 
-.lawver-status-glyph.is-done .status-check {
+.lawyance-status-glyph.is-done .status-check {
   stroke: var(--brand-tertiary-700);
   stroke-width: 1.75;
   stroke-dasharray: 12;
   stroke-dashoffset: 12;
-  animation: lawverAppleCheck 0.4s var(--ease-spring) 0.35s forwards;
+  animation: lawyanceAppleCheck 0.4s var(--ease-spring) 0.35s forwards;
 }
 
 .thought-step-label .thought-step-label-text {
@@ -1203,15 +1203,15 @@ textarea.composer-textarea:focus-visible {
   color: var(--brand-tertiary-700);
 }
 
-.dark .lawver-status-glyph.is-running .status-track,
-[data-theme="dark"] .lawver-status-glyph.is-running .status-track {
+.dark .lawyance-status-glyph.is-running .status-track,
+[data-theme="dark"] .lawyance-status-glyph.is-running .status-track {
   stroke: rgba(138, 164, 221, 0.24);
 }
 
-.dark .lawver-status-glyph.is-done .status-ring,
-.dark .lawver-status-glyph.is-done .status-check,
-[data-theme="dark"] .lawver-status-glyph.is-done .status-ring,
-[data-theme="dark"] .lawver-status-glyph.is-done .status-check {
+.dark .lawyance-status-glyph.is-done .status-ring,
+.dark .lawyance-status-glyph.is-done .status-check,
+[data-theme="dark"] .lawyance-status-glyph.is-done .status-ring,
+[data-theme="dark"] .lawyance-status-glyph.is-done .status-check {
   stroke: #8ecdc7;
 }
 
@@ -1220,7 +1220,7 @@ textarea.composer-textarea:focus-visible {
   color: #8ecdc7;
 }
 
-@keyframes lawverAppleSweep {
+@keyframes lawyanceAppleSweep {
   0% {
     transform: rotate(0deg);
     stroke-dasharray: 4 46;
@@ -1237,13 +1237,13 @@ textarea.composer-textarea:focus-visible {
   }
 }
 
-@keyframes lawverAppleRing {
+@keyframes lawyanceAppleRing {
   to {
     stroke-dashoffset: 0;
   }
 }
 
-@keyframes lawverAppleCheck {
+@keyframes lawyanceAppleCheck {
   to {
     stroke-dashoffset: 0;
   }

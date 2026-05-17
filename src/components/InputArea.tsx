@@ -158,7 +158,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
               maxHeight: `calc(100dvh - ${settingsPosition.bottom}px - env(safe-area-inset-top) - 12px)`,
               overflowY: 'auto'
             }}
-            className="glass lawver-popover z-[80] flex flex-col gap-0 rounded-[var(--radius-xl)] p-0 shadow-[var(--shadow-5)]"
+            className="glass lawyance-popover z-[80] flex flex-col gap-0 rounded-[var(--radius-xl)] p-0 shadow-[var(--shadow-5)]"
           >
             <div className="pointer-events-none absolute -bottom-1.5 left-6 h-3 w-3 rotate-45 border-b border-r border-[var(--glass-border)] bg-[var(--glass-bg)] backdrop-blur-xl" />
             <div className="relative z-[1] flex min-h-12 items-center justify-between gap-4 px-4 py-2.5">
@@ -196,7 +196,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
               <select
                 value={agentMode}
                 onChange={(e) => setAgentMode(e.target.value)}
-                className="lawver-pressable h-9 w-32 shrink-0 cursor-pointer rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[rgba(255,255,255,0.5)] px-3 text-sm font-medium text-[var(--fg-1)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] dark:bg-white/[0.05]"
+                className="lawyance-pressable h-9 w-32 shrink-0 cursor-pointer rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[rgba(255,255,255,0.5)] px-3 text-sm font-medium text-[var(--fg-1)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] dark:bg-white/[0.05]"
               >
                 <option value="default">Default</option>
                 <option value="plan_and_solve">Plan & Solve</option>
@@ -213,7 +213,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   return (
     <>
       {settingsLayer}
-      <footer className="lawver-composer-footer pointer-events-none shrink-0 px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-1 sm:px-4 sm:pb-4 sm:pt-2">
+      <footer className="lawyance-composer-footer pointer-events-none shrink-0 px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-1 sm:px-4 sm:pb-4 sm:pt-2">
         <div ref={composerRef} className="pointer-events-auto relative mx-auto flex w-full max-w-3xl min-w-0 flex-col">
           {pendingUploads.length > 0 && (
             <div className="flex flex-wrap gap-2 px-2 pb-1">
@@ -238,10 +238,10 @@ export const InputArea: React.FC<InputAreaProps> = ({
             </div>
           )}
 
-          <div className="lawver-composer-shell">
+          <div className="lawyance-composer-shell">
             <button
               onClick={() => setIsInputExpanded(!isInputExpanded)}
-              className={`lawver-composer-action lawver-pressable transition-colors ${isInputExpanded ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+              className={`lawyance-composer-action lawyance-pressable transition-colors ${isInputExpanded ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
               aria-label="Open composer settings"
               aria-expanded={isInputExpanded}
             >
@@ -251,7 +251,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isLoading}
-              className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+              className="lawyance-composer-action lawyance-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
               title="Upload file (Max 50MB)"
             >
               <Paperclip size={20} strokeWidth={2} />
@@ -273,14 +273,14 @@ export const InputArea: React.FC<InputAreaProps> = ({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Message Lawver..."
-              className="composer-textarea lawver-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+              placeholder="Message Lawyance..."
+              className="composer-textarea lawyance-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
               rows={1}
             />
             <button
               onClick={onSendWrapper}
               disabled={isLoading || (!input.trim() && pendingUploads.length === 0)}
-              className={`lawver-composer-action lawver-pressable shadow-[var(--shadow-1)] transition-colors ${
+              className={`lawyance-composer-action lawyance-pressable shadow-[var(--shadow-1)] transition-colors ${
                 input.trim() || pendingUploads.length > 0
                   ? 'bg-[var(--accent)] text-[var(--accent-on)] hover:bg-[var(--accent-hover)]'
                   : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] shadow-none dark:bg-white/[0.08]'

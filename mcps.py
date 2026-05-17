@@ -61,8 +61,8 @@ def get_result_path(input_path, workspace_scope):
     source_path = resolve_workspace_file(input_path, workspace_scope, allowed_roots=("TEMP", "Result"))
     filename = os.path.basename(source_path)
     base, ext = os.path.splitext(filename)
-    if not base.endswith("_lawver"):
-        base = f"{base}_lawver"
+    if not base.endswith("_lawyance"):
+        base = f"{base}_lawyance"
 
     result_dir = os.path.join("Result", _validate_workspace_scope(workspace_scope))
     os.makedirs(result_dir, exist_ok=True)

@@ -57,7 +57,7 @@ LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\
 
 def _configured_origins() -> set[str]:
     origins = {SECURE_ORIGIN}
-    for raw_name in ("LAWVER_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
+    for raw_name in ("LAWYANCE_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
         raw_value = os.getenv(raw_name, "")
         for item in raw_value.split(","):
             origin = item.strip().rstrip("/")
@@ -112,8 +112,8 @@ usage_logger = logging.getLogger("usage_logger")
 usage_logger.setLevel(logging.INFO)
 file_handler = RotatingFileHandler(
     "data/usage.log",
-    maxBytes=int(os.environ.get("LAWVER_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
-    backupCount=int(os.environ.get("LAWVER_USAGE_LOG_BACKUPS", 5)),
+    maxBytes=int(os.environ.get("LAWYANCE_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
+    backupCount=int(os.environ.get("LAWYANCE_USAGE_LOG_BACKUPS", 5)),
     encoding="utf-8",
 )
 file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
@@ -124,7 +124,7 @@ ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
 RATE_LIMIT = 100 # requests per minute per IP
 last_rate_limit_prune = 0.0
 ALLOWED_WORKSPACE_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
-MAX_UPLOAD_BYTES = int(os.getenv("LAWVER_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+MAX_UPLOAD_BYTES = int(os.getenv("LAWYANCE_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 
 def safe_upload_filename(filename: str | None) -> str:
@@ -315,17 +315,24 @@ async def delete_admin_account(username: str, admin_user: str = Depends(require_
 active_conversations: dict[str, float] = {}
 
 
+def _safe_listdir(path: str) -> list[str]:
+    try:
+        return os.listdir(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+
+
 def _cleanup_expired_workspace_dirs(one_hour_ago: float, active_scopes: set[str]):
     for folder in ["TEMP", "Result"]:
-        if not os.path.exists(folder):
+        if not os.path.isdir(folder):
             continue
 
-        for user_dir_name in os.listdir(folder):
+        for user_dir_name in _safe_listdir(folder):
             user_dir = os.path.join(folder, user_dir_name)
             if not os.path.isdir(user_dir):
                 continue
 
-            for conv_id in os.listdir(user_dir):
+            for conv_id in _safe_listdir(user_dir):
                 conv_dir = os.path.join(user_dir, conv_id)
                 if not os.path.isdir(conv_dir):
                     continue
@@ -343,7 +350,7 @@ def _cleanup_expired_workspace_dirs(one_hour_ago: float, active_scopes: set[str]
                     print(f"[清理] 删除会话缓存失败 {conv_dir}: {e}")
 
             try:
-                if not os.listdir(user_dir):
+                if not _safe_listdir(user_dir):
                     os.rmdir(user_dir)
             except OSError:
                 pass
@@ -366,7 +373,7 @@ async def cleanup_task():
 
             await asyncio.to_thread(
                 prune_conversation_memory,
-                int(os.getenv("LAWVER_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600))),
+                int(os.getenv("LAWYANCE_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600))),
             )
 
             await asyncio.to_thread(
@@ -1150,6 +1157,6 @@ async def serve_spa(request: Request, full_path: str):
 
 
 if __name__ == '__main__':
-    port = int(os.getenv("PORT", 80))
+    port = int(os.getenv("PORT", 8080))
     workers = max(int(os.getenv("UVICORN_WORKERS", "1")), 1)
     uvicorn.run("agent:app", host="0.0.0.0", port=port, workers=workers)
