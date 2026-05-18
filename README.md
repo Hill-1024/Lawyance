@@ -131,6 +131,30 @@ Lawyance 的系统 prompt 已拆分到 `prompts/lawyance/`，后端每次构造�
 - `LAWYANCE_PROMPT_PROFILE`：指定 `prompts/<profile>`，默认 `lawyance`
 - `LAWYANCE_PROMPT_INCLUDE_EXAMPLES=1`：将 `examples/` 中的 few-shot 示例追加到系统 prompt
 
+## 后端拓扑与工具注册
+
+后端入口 `agent.py` 只保留 `agent:app` 和 `python agent.py` 启动契约；应用组装在 `app_factory.py`，路由在 `routes/`，聊天流水线、历史压缩、记忆协调和清理任务在 `services/`。
+
+路由注册顺序必须保持为：认证、管理员、聊天、工作区/上传/下载、SPA catch-all。`routes/spa.py` 的 catch-all 必须最后挂载，避免吞掉 `/api/*`。
+
+业务工具仍统一通过 `mcps.py` 暴露给 agent。新增工具的推荐流程：
+
+1. 在 `mcp/` 中实现真实客户端或处理函数。
+2. 在 `tools/__init__.py` 显式注册 schema、handler、参数 coercer 和 `exposure`。
+3. 通过 `mcps.use_tools()` 调用，不让 agent、route 或 service 直接绕过 `mcps`。
+
+`exposure` 是工具可见性的唯一声明来源：
+
+- `agent`：LLM 可见工具。
+- `ocp_reviewer`：OCP 审查器可用的只读法律信源工具。
+- `internal`：后端内部可 dispatch，但不进入 LLM tool schema 的工具。
+
+工作区路径校验集中在 `workspace.py`，`mcps.py` 和 `tools/*` 都依赖它，避免工具注册拆分后产生循环 import。
+
+OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误路径处理；OCP 自身的超时、网络异常、工具异常或审查模型异常不得向用户路径抛出，必须降级为 deterministic sanitizer-only fallback，保留主模型正文。
+
+本次架构边界不包含 Lawyance 命名统一、工具命名规范重写或 agent 推理策略重写。
+
 ## 对话记忆与 RAG 权重
 
 记忆系统仍以对话级结构化记忆为主，召回时会融合关键词、语义标签、实体、时效、优先级和焦点等多路信号。可选开启 embedding 召回后，向量相似度会作为其中一路 `embedding` 信号进入同一套 RAG 权重排序，而不是替换现有多路召回。

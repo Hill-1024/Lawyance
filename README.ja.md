@@ -125,6 +125,30 @@ python -m pytest
 - `tests/test_memory_system.py`: 会話記憶の記録、検索、制約処理、コンテキスト生成。
 - `tests/test_ocp.py`: 出力レビューのフォールバック、完了状態、例外処理。
 
+## バックエンド構成とツール登録
+
+`agent.py` は `agent:app` の import 契約と `python agent.py` の起動入口だけを保持します。アプリの組み立ては `app_factory.py`、HTTP ルートは `routes/`、チャットパイプライン、履歴圧縮、記憶調整、清理タスクは `services/` にあります。
+
+ルート登録順序は、認証、管理者、チャット、ワークスペース/アップロード/ダウンロード、SPA catch-all の順に固定します。`routes/spa.py` は最後に登録し、`/api/*` がフロントエンド fallback に吸われないようにします。
+
+業務ツールは引き続き `mcps.py` を通じて agent に公開します。新しいツールを追加する流れ：
+
+1. `mcp/` に実際のクライアントまたは handler を実装する。
+2. `tools/__init__.py` に schema、handler、coercer、`exposure` を明示登録する。
+3. 呼び出しは `mcps.use_tools()` 経由にし、agent、route、service が `mcps` を迂回しない。
+
+`exposure` はツール可視性の唯一の宣言元です：
+
+- `agent`: メイン LLM の tool schema に表示するツール。
+- `ocp_reviewer`: OCP が利用できる読み取り専用の法律信源ツール。
+- `internal`: バックエンド内部では dispatch できるが、LLM tool schema には出さないツール。
+
+ワークスペースのパス検証は `workspace.py` に集約し、`mcps.py` と `tools/*` が共有します。これにより registry 側が `mcps` を逆 import する必要がなくなります。
+
+OCP は主回答後のフォーマット審査 pass です。主モデルの失敗は従来どおり主モデルのエラー経路で扱います。一方、OCP のタイムアウト、ネットワーク障害、ツール障害、審査モデル障害はユーザー経路へ投げず、主モデル本文を保った deterministic sanitizer-only fallback に降級します。
+
+この構成変更には、Lawyance の命名統一、ツール命名規約の書き換え、agent 推論戦略の書き換えは含みません。
+
 ## 会話記憶と RAG 重み
 
 記憶システムは引き続き会話単位の構造化記憶です。検索ではキーワード、意味タグ、エンティティ、鮮度、優先度、現在の焦点など複数の信号を統合します。任意で embedding 検索を有効にした場合、ベクトル類似度は既存の多路検索を置き換えるのではなく、同じ RAG 重み付きランカー内の `embedding` 信号として扱われます。
