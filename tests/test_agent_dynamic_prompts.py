@@ -8,6 +8,7 @@ import types
 import unittest
 
 from prompt_loader import build_system_prompt
+from services.prompt_focus import current_focus
 
 
 async def _content_stream(text: str):
@@ -45,6 +46,16 @@ class AgentDynamicPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("执行阶段规则", plan_prompt)
         self.assertIn("<active_conversation_context>", plan_prompt)
         self.assertIn("统一记忆", plan_prompt)
+
+    def test_prompt_focus_is_constant_and_prompt_sections_self_gate(self):
+        focus = current_focus("我要起诉一个上传的合同", [{"role": "user", "content": "合同.pdf"}])
+        prompt = build_system_prompt(focus=focus)
+
+        self.assertEqual(focus, ["general_gate", "file_processing", "legal_retrieval"])
+        self.assertIn('name="general_gate"', prompt)
+        self.assertIn('name="file_processing"', prompt)
+        self.assertIn('name="legal_retrieval"', prompt)
+        self.assertIn("inactive guidance", prompt)
 
     async def test_react_agent_uses_injected_memory_and_minimal_task_payload(self):
         import agents.react as react_module

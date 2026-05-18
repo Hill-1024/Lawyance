@@ -26,6 +26,23 @@ class _FakeOCPCompletions:
         return _FakeOCPStream(self._chunks)
 
 
+class _FailingOCPCompletions:
+    def __init__(self, exc):
+        self._exc = exc
+
+    async def create(self, **_kwargs):
+        raise self._exc
+
+
+class _FakeStaticCompletions:
+    def __init__(self, messages):
+        self._messages = list(messages)
+
+    async def create(self, **_kwargs):
+        message = self._messages.pop(0)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
 def _content_chunk(content: str):
     return SimpleNamespace(
         choices=[
@@ -62,15 +79,35 @@ def _fake_client(chunks):
     )
 
 
+def _failing_client(exc):
+    return SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=_FailingOCPCompletions(exc)
+        )
+    )
+
+
+def _fake_static_client(messages):
+    return SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=_FakeStaticCompletions(messages)
+        )
+    )
+
+
 class OCPTests(unittest.TestCase):
     def test_ocp_tool_surface_is_law_source_only(self):
         tool_names = {tool["function"]["name"] for tool in ocp.OCP_TOOLS}
 
-        self.assertEqual(tool_names, ocp.OCP_ALLOWED_TOOL_NAMES)
+        self.assertEqual(tool_names, {"get_article", "search_article", "get_linked_content"})
         self.assertNotIn("retrieve_conversation_memory", tool_names)
         self.assertNotIn("remember_conversation_turn", tool_names)
         self.assertNotIn("pdf_commit_by_sentence", tool_names)
         self.assertNotIn("word_writer", tool_names)
+        self.assertEqual(
+            [tool["function"]["name"] for tool in ocp.OCP_TOOLS],
+            ["get_article", "search_article", "get_linked_content"],
+        )
 
     def test_clean_output_removes_wrappers_without_touching_body(self):
         cleaned = ocp.OCPStatic._clean_output(
@@ -310,6 +347,65 @@ class OCPTests(unittest.TestCase):
         self.assertEqual(len(replacements), 1)
         self.assertIn("第六百二十一条", replacements[0]["content"])
         self.assertTrue(any("最大检查轮次" in event.get("content", "") for event in events))
+
+    def test_ocp_static_timeout_falls_back_to_sanitized_original(self):
+        checker = ocp.OCPStatic(session_id="test")
+        original_timeout = ocp.OCP_TOTAL_TIMEOUT
+        original = "| 项目 | 结论 |\n| A | B |"
+
+        async def run_check():
+            return await checker.check(original)
+
+        try:
+            ocp.OCP_TOTAL_TIMEOUT = 0
+            result = asyncio.run(run_check())
+        finally:
+            ocp.OCP_TOTAL_TIMEOUT = original_timeout
+
+        self.assertIn("| 项目 | 结论 |", result)
+        self.assertIn("| --- | --- |", result)
+
+    def test_ocp_stream_network_error_falls_back_to_sanitized_original(self):
+        checker = ocp.OCPStream(session_id="test")
+        checker.MAX_RETRIES = 0
+        checker.client = _failing_client(RuntimeError("Connection error"))
+        original = "《民法典》第五百七十七条规定违约责任。"
+
+        async def collect_events():
+            return [event async for event in checker.check_stream(original)]
+
+        events = asyncio.run(collect_events())
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertEqual(replacements[0]["content"], original)
+        self.assertTrue(any("遇到异常" in event.get("content", "") for event in events))
+
+    def test_ocp_static_tool_failure_falls_back_to_sanitized_original(self):
+        checker = ocp.OCPStatic(session_id="test")
+        checker.MAX_RETRIES = 0
+        tool_call = SimpleNamespace(
+            id="call_ocp",
+            function=SimpleNamespace(name="get_article", arguments='{"title":"民法典","number":"第五百七十七条"}'),
+        )
+        checker.client = _fake_static_client([
+            SimpleNamespace(content="", tool_calls=[tool_call])
+        ])
+        original_run_tool = ocp._run_ocp_tool
+
+        async def fail_tool(*_args, **_kwargs):
+            raise RuntimeError("tool backend down")
+
+        async def run_check():
+            return await checker.check("《民法典》第五百七十七条规定违约责任。")
+
+        try:
+            ocp._run_ocp_tool = fail_tool
+            result = asyncio.run(run_check())
+        finally:
+            ocp._run_ocp_tool = original_run_tool
+
+        self.assertEqual(result, "《民法典》第五百七十七条规定违约责任。")
 
 
 if __name__ == "__main__":
