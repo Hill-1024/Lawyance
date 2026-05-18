@@ -10,7 +10,9 @@ import copy
 import asyncio
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
-from mcps import tools as all_tools, use_tools
+from llm.retry import with_retry
+from mcps import use_tools
+from tools import registry
 from output_sanitizer import (
     extract_final_answer as _shared_extract_final_answer,
     strip_think_blocks,
@@ -94,10 +96,9 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 </output_rules>"""
 
 
-# ── OCP 可用的工具子集（从 mcps 统一导入，但只允许审查必需的只读法律信源工具） ──
+# ── OCP 可用的工具子集（从 registry exposure 统一过滤，只允许审查必需的只读法律信源工具） ──
 
-OCP_ALLOWED_TOOL_NAMES = {"get_linked_content", "search_article", "get_article"}
-OCP_TOOLS = [t for t in all_tools if t["function"]["name"] in OCP_ALLOWED_TOOL_NAMES]
+OCP_TOOLS = registry.schemas("ocp_reviewer")
 OCP_PROGRESS_MESSAGE = '\n\n**[OCP] 正在进行格式审查与信源核验...**\n'
 OCP_TOOL_LABELS = {
     "get_linked_content": "补充法规信源",
@@ -107,7 +108,7 @@ OCP_TOOL_LABELS = {
 
 
 class OCPTimeout(RuntimeError):
-    pass
+    """Internal timeout signal. Public OCP methods must catch and degrade."""
 
 
 def _remaining_seconds(deadline: float) -> float:
@@ -136,7 +137,12 @@ async def _run_ocp_tool(function_name: str, arguments: dict, session_id: str):
 # ── OCPStatic 类 ─────────────────────────────────────────────────────────
 
 class OCPStatic:
-    """OCP-Static: 非流式输出格式审查与自动修复"""
+    """OCP-Static: 非流式输出格式审查与自动修复。
+
+    Public contract: never raise into the user response path. Any timeout,
+    network error, tool failure, or reviewer failure falls back to deterministic
+    sanitizer-only output based on the original answer.
+    """
 
     MAX_TOOL_ROUNDS = None
     MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
@@ -152,21 +158,19 @@ class OCPStatic:
 
     async def _call_with_retry(self, **kwargs):
         """带指数退避重试的 LLM 调用封装"""
-        for attempt in range(self.MAX_RETRIES + 1):
-            try:
-                if 'timeout' not in kwargs:
-                    kwargs['timeout'] = OCP_CALL_TIMEOUT
-                response = await self.client.chat.completions.create(**kwargs)
-                return response
-            except Exception as e:
-                error_str = str(e)
-                is_retryable = any(code in error_str for code in self.RETRYABLE_STATUS_CODES)
-                if is_retryable and attempt < self.MAX_RETRIES:
-                    wait_time = 2 ** (attempt + 1)
-                    print(f"[OCP] LLM 调用失败 (第 {attempt + 1}/{self.MAX_RETRIES} 次): {e}")
-                    await asyncio.sleep(wait_time)
-                    continue
-                raise
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = OCP_CALL_TIMEOUT
+
+        def _on_retry(attempt: int, max_retries: int, _wait_time: float, exc: Exception):
+            print(f"[OCP] LLM 调用失败 (第 {attempt}/{max_retries} 次): {exc}")
+
+        return await with_retry(
+            lambda: self.client.chat.completions.create(**kwargs),
+            max_retries=self.MAX_RETRIES,
+            retryable_codes=self.RETRYABLE_STATUS_CODES,
+            backoff_base=2,
+            on_retry=_on_retry,
+        )
 
     async def check(self, content: str) -> str:
         """
@@ -549,7 +553,12 @@ class OCPStatic:
 # ── OCPStream 类 ─────────────────────────────────────────────────────────
 
 class OCPStream:
-    """OCP-Stream: 完全流式的格式审查与自动修复"""
+    """OCP-Stream: 完全流式的格式审查与自动修复。
+
+    Public contract: never raise into the user response path. Any timeout,
+    network error, tool failure, or reviewer failure yields deterministic
+    sanitizer-only replacement based on the original answer.
+    """
 
     MAX_TOOL_ROUNDS = None
     MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
@@ -610,13 +619,18 @@ class OCPStream:
 
                 round_timeout = min(OCP_CALL_TIMEOUT, _remaining_seconds(deadline))
                 async with asyncio.timeout(round_timeout):
-                    stream_res = await self.client.chat.completions.create(
-                        model=OCP_LLM_MODEL,
-                        messages=context,
-                        tools=OCP_TOOLS,
-                        tool_choice="auto",
-                        stream=True,
-                        timeout=round_timeout
+                    stream_res = await with_retry(
+                        lambda: self.client.chat.completions.create(
+                            model=OCP_LLM_MODEL,
+                            messages=context,
+                            tools=OCP_TOOLS,
+                            tool_choice="auto",
+                            stream=True,
+                            timeout=round_timeout,
+                        ),
+                        max_retries=self.MAX_RETRIES,
+                        retryable_codes=self.RETRYABLE_STATUS_CODES,
+                        backoff_base=2,
                     )
 
                     async for chunk in stream_res:
@@ -703,3 +717,6 @@ class OCPStream:
             print(f"[OCP-Stream] 异常: {e}")
             yield {'type': 'thought', 'content': '**[OCP] 审查过程遇到异常，保留原文。**\n', 'thought_type': 'ocp', 'mode': 'new'}
             yield {'type': 'content_replace', 'content': OCPStatic._deterministic_format_repair(content_to_check)}
+
+
+__all__ = ["OCPStatic", "OCPStream", "OCP_TOOLS"]

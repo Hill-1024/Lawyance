@@ -9,6 +9,7 @@ import json
 import time
 import copy
 from mcps import tools
+from llm.retry import with_retry
 
 # 工具定义保持常态加载：从 mcps 导入后原样传给 API，不进入动态 prompt 加载链路。
 
@@ -152,44 +153,41 @@ async def call(context, stream=False, include_tools=True):
     MAX_RETRIES = 3
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504"}
 
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            response = await client.chat.completions.create(**kwargs)
-            print(f"[LLM 调用成功]")
-            if stream:
-                return response
-            return response.choices[0].message
-        except Exception as e:
-            error_str = str(e)
+    def _on_retry(attempt: int, max_retries: int, wait_time: float, exc: Exception):
+        print(f"[LLM 调用失败 (第 {attempt}/{max_retries} 次)]: {exc}")
+        print(f"[LLM 重试] 等待 {int(wait_time)}s 后重试...")
 
-            # 403 安全过滤 —— 不可重试，直接抛出友好异常
-            if "403" in error_str and "Terms Of Service" in error_str:
-                print(f"[LLM 触发安全过滤]: {error_str}")
-                raise Exception(
-                    "请求被服务商的安全策略拦截。这通常是因为输入内容或生成的回复触发了内容安全过滤（如涉及敏感话题或过于直接的法律建议）。请尝试调整提问方式，或添加更多背景信息。")
+    try:
+        response = await with_retry(
+            lambda: client.chat.completions.create(**kwargs),
+            max_retries=MAX_RETRIES,
+            retryable_codes=RETRYABLE_STATUS_CODES,
+            backoff_base=2,
+            on_retry=_on_retry,
+        )
+        print(f"[LLM 调用成功]")
+        if stream:
+            return response
+        return response.choices[0].message
+    except Exception as e:
+        error_str = str(e)
 
-            # 判断是否为可重试的瞬时错误
-            is_retryable = any(code in error_str for code in RETRYABLE_STATUS_CODES)
+        # 403 安全过滤 —— 不可重试，直接抛出友好异常
+        if "403" in error_str and "Terms Of Service" in error_str:
+            print(f"[LLM 触发安全过滤]: {error_str}")
+            raise Exception(
+                "请求被服务商的安全策略拦截。这通常是因为输入内容或生成的回复触发了内容安全过滤（如涉及敏感话题或过于直接的法律建议）。请尝试调整提问方式，或添加更多背景信息。")
 
-            if is_retryable and attempt < MAX_RETRIES:
-                wait_time = 2 ** (attempt + 1)  # 2s, 4s, 8s
-                print(f"[LLM 调用失败 (第 {attempt + 1}/{MAX_RETRIES} 次)]: {e}")
-                print(f"[LLM 重试] 等待 {wait_time}s 后重试...")
-                import asyncio
-                await asyncio.sleep(wait_time)
-                continue
-
-            # 不可重试或已耗尽重试次数
-            print(f"[LLM 调用失败]: {e}")
-            messages = kwargs.get("messages") or []
-            print(
-                "[LLM 调用失败的请求摘要]: "
-                f"model={kwargs.get('model')} "
-                f"stream={kwargs.get('stream')} "
-                f"messages={len(messages)} "
-                f"tools={len(kwargs.get('tools') or [])}"
-            )
-            raise e
+        print(f"[LLM 调用失败]: {e}")
+        messages = kwargs.get("messages") or []
+        print(
+            "[LLM 调用失败的请求摘要]: "
+            f"model={kwargs.get('model')} "
+            f"stream={kwargs.get('stream')} "
+            f"messages={len(messages)} "
+            f"tools={len(kwargs.get('tools') or [])}"
+        )
+        raise e
 
 
 def create_assistant_message(content="", reasoning_content=None, tool_calls=None, thought_signature=None):

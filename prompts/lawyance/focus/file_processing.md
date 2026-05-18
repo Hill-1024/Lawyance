@@ -1,5 +1,6 @@
 <!-- 模块描述：文件处理焦点片段，在本轮任务涉及文件时强化读取原文和定位事实。 -->
 
 <current_focus name="file_processing">
+IF this turn is not about用户上传文件、附件、PDF/Word 读取、批注或文件事实核验, treat this section as inactive guidance.
 本轮重点是文件事实。先读取文件并定位原文，再结合法律检索分析；不要根据用户转述替代文件读取。
 </current_focus>
