@@ -19,6 +19,12 @@ REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 TEST_SECRET = "x" * 32
 
 
+def purge_runtime_modules():
+    for name in list(sys.modules):
+        if name in {"agent", "app_factory", "auth", "routes", "services"} or name.startswith("routes.") or name.startswith("services."):
+            sys.modules.pop(name, None)
+
+
 class SecurityBootstrapTests(unittest.TestCase):
     def test_missing_secret_key_fails_import(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -139,16 +145,14 @@ class ApiBoundaryTests(unittest.TestCase):
         os.environ.setdefault("PKU_ACCESS_TOKEN", "test-pku")
         os.environ.setdefault("QCC_ACCESS_TOKEN", "test-qcc")
 
-        sys.modules.pop("agent", None)
-        sys.modules.pop("auth", None)
+        purge_runtime_modules()
         self.agent = importlib.import_module("agent")
         self.client = TestClient(self.agent.app, base_url="http://localhost")
 
     def tearDown(self):
         self.client.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
-        sys.modules.pop("agent", None)
-        sys.modules.pop("auth", None)
+        purge_runtime_modules()
 
     def test_login_cookie_is_http_only_strict_and_dev_non_secure(self):
         response = self.client.post(
