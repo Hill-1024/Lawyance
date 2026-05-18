@@ -36,7 +36,7 @@ INSECURE_DEFAULT_ADMIN_HASH = (
 def _get_required_secret_key() -> str:
     secret_key = os.environ.get("SECRET_KEY", "")
     if not secret_key:
-        raise RuntimeError("SECRET_KEY must be set before starting GDUT-Lawyer.")
+        raise RuntimeError("SECRET_KEY must be set before starting Lawyance.")
     if len(secret_key) < MIN_SECRET_LENGTH:
         raise RuntimeError(f"SECRET_KEY must be at least {MIN_SECRET_LENGTH} characters long.")
     return secret_key

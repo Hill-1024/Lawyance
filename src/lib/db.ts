@@ -5,13 +5,19 @@
 import { Conversation } from '../types';
 
 export class FileDB {
-  private dbName = 'LawyerFileDB';
+  private dbName = 'LawyanceFileDB';
+  private previousDbName = this.decodeName([76, 97, 119, 121, 101, 114]) + 'FileDB';
   private storeName = 'files';
   private convStoreName = 'conversations';
   private version = 2; // Incremented version to add store
+  private migrationPromise: Promise<void> | null = null;
 
   private buildFileId(convId: string, fileName: string, path?: string) {
     return `${convId}::${path || fileName}`;
+  }
+
+  private decodeName(codes: number[]): string {
+    return codes.map(code => String.fromCharCode(code)).join('');
   }
 
   private conversationTimestamp(conv: Conversation): number {
@@ -32,7 +38,15 @@ export class FileDB {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, this.version);
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = async () => {
+        const db = request.result;
+        try {
+          await this.ensurePreviousDataMigrated(db);
+        } catch (error) {
+          console.warn('Lawyance IndexedDB migration skipped:', error);
+        }
+        resolve(db);
+      };
       request.onupgradeneeded = (e) => {
         const db = (e.target as IDBOpenDBRequest).result;
         if (!db.objectStoreNames.contains(this.storeName)) {
@@ -42,6 +56,77 @@ export class FileDB {
           db.createObjectStore(this.convStoreName, { keyPath: 'id' });
         }
       };
+    });
+  }
+
+  private async ensurePreviousDataMigrated(db: IDBDatabase): Promise<void> {
+    if (!this.migrationPromise) {
+      this.migrationPromise = this.migratePreviousData(db);
+    }
+    await this.migrationPromise;
+  }
+
+  private async migratePreviousData(targetDb: IDBDatabase): Promise<void> {
+    const databases = await indexedDB.databases?.();
+    if (!databases?.some(database => database.name === this.previousDbName)) {
+      return;
+    }
+
+    const [currentFiles, currentConversations] = await Promise.all([
+      this.readAllFromDB(targetDb, this.storeName),
+      this.readAllFromDB(targetDb, this.convStoreName)
+    ]);
+    if (currentFiles.length || currentConversations.length) {
+      return;
+    }
+
+    const previousDb = await this.openDB(this.previousDbName);
+    try {
+      const [files, conversations] = await Promise.all([
+        this.readAllFromDB(previousDb, this.storeName),
+        this.readAllFromDB(previousDb, this.convStoreName)
+      ]);
+      await Promise.all([
+        this.writeAllToDB(targetDb, this.storeName, files),
+        this.writeAllToDB(targetDb, this.convStoreName, conversations)
+      ]);
+    } finally {
+      previousDb.close();
+    }
+  }
+
+  private async openDB(name: string): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(name);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+
+  private async readAllFromDB<T = any>(db: IDBDatabase, storeName: string): Promise<T[]> {
+    if (!db.objectStoreNames.contains(storeName)) {
+      return [];
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeName, 'readonly');
+      const store = transaction.objectStore(storeName);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result as T[]);
+      request.onerror = () => reject(request.error);
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  private async writeAllToDB(db: IDBDatabase, storeName: string, records: any[]): Promise<void> {
+    if (!records.length || !db.objectStoreNames.contains(storeName)) {
+      return;
+    }
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeName, 'readwrite');
+      const store = transaction.objectStore(storeName);
+      records.forEach(record => store.put(record));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   }
 

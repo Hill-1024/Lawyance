@@ -25,7 +25,7 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 
 if __name__ == "__main__":
-    print("=== GDUT-Lawyer 密码哈希生成工具 ===")
+    print("=== Lawyance 密码哈希生成工具 ===")
     password = getpass.getpass("请输入账号明文密码: ")
     confirm_password = getpass.getpass("请再次输入确认: ")
     

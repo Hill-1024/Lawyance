@@ -5,6 +5,19 @@
 import JSZip from 'jszip/dist/jszip.min.js';
 import { fileDB } from '../lib/db';
 
+const EXPORT_SECURITY_KEY = "Lawyance-Security-Migration-Key-2024";
+const PREVIOUS_EXPORT_SECURITY_KEY = [71, 68, 85, 84, 45, 76, 97, 119, 121, 101, 114, 45, 83, 101, 99, 117, 114, 105, 116, 121, 45, 77, 105, 103, 114, 97, 116, 105, 111, 110, 45, 75, 101, 121, 45, 50, 48, 50, 52]
+  .map(code => String.fromCharCode(code))
+  .join('');
+
+const decodeExportBytes = (source: Uint8Array, key: string): string => {
+  const bytes = new Uint8Array(source);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = bytes[i] ^ key.charCodeAt(i % key.length);
+  }
+  return new TextDecoder().decode(bytes);
+};
+
 export const storageService = {
   getConversationTimestamp(c: any): number {
     const timestamps = [
@@ -67,7 +80,7 @@ export const storageService = {
   async encryptDataToBlob(data: string): Promise<Blob> {
     // 使用简单的异或加密（混淆）来防止明文泄露，并避免因为 IP 访问（非 HTTPS 环境）导致 crypto.subtle 无法使用的问题。
     // 同时使用 Blob 直接生成文件，避免超大文本使用 String.fromCharCode 导致栈溢出。
-    const key = "GDUT-Lawyer-Security-Migration-Key-2024";
+    const key = EXPORT_SECURITY_KEY;
     const encoded = new TextEncoder().encode(data);
     for (let i = 0; i < encoded.length; i++) {
       encoded[i] = encoded[i] ^ key.charCodeAt(i % key.length);
@@ -78,11 +91,20 @@ export const storageService = {
   async decryptDataFromFile(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
-    const key = "GDUT-Lawyer-Security-Migration-Key-2024";
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = bytes[i] ^ key.charCodeAt(i % key.length);
+    const keys = [EXPORT_SECURITY_KEY, PREVIOUS_EXPORT_SECURITY_KEY];
+    let lastDecoded = '';
+
+    for (const key of keys) {
+      const decoded = decodeExportBytes(bytes, key);
+      try {
+        JSON.parse(decoded);
+        return decoded;
+      } catch {
+        lastDecoded = decoded;
+      }
     }
-    return new TextDecoder().decode(bytes);
+
+    return lastDecoded;
   },
 
   async exportConversationsText() {
@@ -94,7 +116,7 @@ export const storageService = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `lawyer_dialogues_${new Date().toISOString().split('T')[0]}.lawyer`;
+    a.download = `lawyance_dialogues_${new Date().toISOString().split('T')[0]}.lawyance`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
