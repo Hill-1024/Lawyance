@@ -125,6 +125,30 @@ Current tests focus on:
 - `tests/test_memory_system.py`: conversation memory recording, retrieval, constraint handling, and context generation.
 - `tests/test_ocp.py`: output review fallbacks, completion state, and exceptional paths.
 
+## Backend Topology and Tool Registry
+
+`agent.py` only preserves the `agent:app` import contract and `python agent.py` entrypoint. Application assembly lives in `app_factory.py`; HTTP routes live in `routes/`; chat pipeline, history compression, memory coordination, and cleanup jobs live in `services/`.
+
+Route registration order must remain: auth, admin, chat, workspace/upload/download, then SPA catch-all. `routes/spa.py` must be registered last so `/api/*` is never swallowed by the frontend fallback.
+
+Business tools still reach agents through `mcps.py`. To add a tool:
+
+1. Implement the real client or handler under `mcp/`.
+2. Register its schema, handler, coercer, and `exposure` explicitly in `tools/__init__.py`.
+3. Call it through `mcps.use_tools()`; agents, routes, and services should not bypass `mcps`.
+
+`exposure` is the single source of truth for tool visibility:
+
+- `agent`: visible in the main LLM tool schema.
+- `ocp_reviewer`: read-only legal source tools available to OCP.
+- `internal`: backend-dispatchable tools that are hidden from the LLM tool schema.
+
+Workspace path validation lives in `workspace.py`, shared by `mcps.py` and `tools/*`, so registry modules never need to import back from `mcps`.
+
+OCP is a post-answer formatting review pass. Main-model failures still follow the main-model error path; OCP timeout, network failure, tool failure, or reviewer failure must not raise into the user path. It falls back to deterministic sanitizer-only output while preserving the main-model answer.
+
+This architecture work does not include Lawyance naming cleanup, tool naming rewrites, or agent reasoning strategy rewrites.
+
 ## Conversation Memory and RAG Weights
 
 The memory system remains conversation-level structured memory. Retrieval fuses multiple signals: lexical matches, semantic tags, entities, recency, priority, and active focus. When optional embedding retrieval is enabled, vector similarity is added as one `embedding` signal in the same RAG-weighted ranker instead of replacing the existing multi-route retrieval.
