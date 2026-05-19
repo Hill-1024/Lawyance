@@ -71,7 +71,7 @@ async def cleanup_task():
 
             await asyncio.to_thread(
                 prune_conversation_memory,
-                int(os.getenv("LAWYANCE_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600))),
+                int(os.getenv("LAWVER_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600))),
             )
 
             await asyncio.to_thread(

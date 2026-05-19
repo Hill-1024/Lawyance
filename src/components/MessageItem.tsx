@@ -341,7 +341,7 @@ const sanitizeThoughtContent = (content: string, type: ThoughtBlock['type']) => 
 
 const WorkflowStatusIcon: React.FC<{ status: 'running' | 'done' }> = ({ status }) => (
   <svg
-    className={`lawyance-status-glyph ${status === 'running' ? 'is-running' : 'is-done'}`}
+    className={`lawver-status-glyph ${status === 'running' ? 'is-running' : 'is-done'}`}
     viewBox="0 0 16 16"
     aria-hidden="true"
   >
@@ -447,15 +447,15 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               <div className="flex w-full max-w-3xl flex-col gap-3">
                 {thoughtBlocks.length > 0 ? (
                   <details data-testid="thought-process" className="group w-full" open={showThinking}>
-                    <summary className="lawyance-pressable flex w-fit cursor-pointer select-none items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-3.5 py-2 text-[13px] font-medium leading-none text-[var(--fg-2)] transition-colors list-none hover:text-[var(--fg-1)] [&::-webkit-details-marker]:hidden">
+                    <summary className="lawver-pressable flex w-fit cursor-pointer select-none items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-3.5 py-2 text-[13px] font-medium leading-none text-[var(--fg-2)] transition-colors list-none hover:text-[var(--fg-1)] [&::-webkit-details-marker]:hidden">
                       <ChevronDown size={14} strokeWidth={2} className="transform transition-transform duration-200 group-open:-rotate-180" />
                       {showThinking ? (
                         <span className="flex items-center gap-2">
                           Thinking
                           <span className="flex gap-1">
-                            <span className="lawyance-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
-                            <span className="lawyance-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
-                            <span className="lawyance-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
+                            <span className="lawver-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
+                            <span className="lawver-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
+                            <span className="lawver-bloom-dot h-1 w-1 rounded-full bg-[var(--fg-3)]" />
                           </span>
                         </span>
                       ) : "Thought Process"}

@@ -9,7 +9,7 @@ from typing import Iterable
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_PROMPT_PROFILE = "lawyance"
+DEFAULT_PROMPT_PROFILE = "lawver"
 PROMPT_MODULE_DESCRIPTION_RE = re.compile(r"\A\s*<!--\s*模块描述：.*?-->\s*", re.DOTALL)
 
 # 这里只加载系统提示词文本。工具 schema 必须由 function_calling.call 直接 tools=tools 传入。
@@ -47,10 +47,10 @@ OPTIONAL_SECTIONS = {
 
 
 def _prompt_root() -> Path:
-    configured_root = os.getenv("LAWYANCE_PROMPT_ROOT")
+    configured_root = os.getenv("LAWVER_PROMPT_ROOT")
     if configured_root:
         return Path(configured_root).expanduser().resolve()
-    profile = os.getenv("LAWYANCE_PROMPT_PROFILE", DEFAULT_PROMPT_PROFILE)
+    profile = os.getenv("LAWVER_PROMPT_PROFILE", DEFAULT_PROMPT_PROFILE)
     return (BASE_DIR / "prompts" / profile).resolve()
 
 
@@ -100,7 +100,7 @@ def _build_core_system_text(agent_mode: str = "default", *, focus: Iterable[str]
     focus_sections = [FOCUS_SECTIONS[key] for key in _normalise_focus(focus)]
     sections.extend(_read_sections(root, focus_sections, required=False))
 
-    if os.getenv("LAWYANCE_PROMPT_INCLUDE_EXAMPLES") == "1":
+    if os.getenv("LAWVER_PROMPT_INCLUDE_EXAMPLES") == "1":
         sections.extend(_read_sections(root, OPTIONAL_SECTIONS["examples"], required=False))
 
     return "\n\n".join(section for section in sections if section)
