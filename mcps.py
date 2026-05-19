@@ -13,7 +13,9 @@ from workspace import (
 )
 
 
-tools = registry.schemas("agent")
+default_tools = registry.schemas("agent")
+plan_and_solve_tools = registry.schemas("plan_and_solve")
+tools = default_tools
 
 
 def format_tool_descriptions(tool_defs=None):

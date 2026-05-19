@@ -35,7 +35,10 @@ from .registry import registry
 
 
 AGENT = {"agent"}
+PLAN_AND_SOLVE = {"plan_and_solve"}
+AGENT_PLAN_AND_SOLVE = AGENT | PLAN_AND_SOLVE
 AGENT_OCP = {"agent", "ocp_reviewer"}
+AGENT_OCP_PLAN_AND_SOLVE = AGENT_OCP | PLAN_AND_SOLVE
 INTERNAL = {"internal"}
 
 
@@ -94,6 +97,18 @@ def _list_workspace_files(workspace_scope: str | None):
         return "当前工作区没有任何文件。"
 
     return json.dumps(files, ensure_ascii=False)
+
+
+def _submit_plan(arguments: dict[str, Any], _workspace_scope: str | None):
+    steps = arguments.get("steps")
+    if not isinstance(steps, list):
+        steps = []
+    normalized_steps = [str(step).strip() for step in steps if str(step).strip()]
+    return {"acknowledged": True, "steps": normalized_steps}
+
+
+def _submit_final_answer(arguments: dict[str, Any], _workspace_scope: str | None):
+    return {"acknowledged": True}
 
 
 def _read_pdf(arguments: dict[str, Any], workspace_scope: str | None):
@@ -178,7 +193,7 @@ def _register_agent_tools() -> None:
             arguments.get("start_year"),
             arguments.get("end_year"),
         ),
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
         text_coercer=_keywords_text,
     )
     registry.register(
@@ -193,7 +208,7 @@ def _register_agent_tools() -> None:
             ["title", "number"],
         ),
         handler=lambda arguments, _scope: get_article(arguments.get("title"), arguments.get("number")),
-        exposure=AGENT_OCP,
+        exposure=AGENT_OCP_PLAN_AND_SOLVE,
         text_coercer=_article_text,
     )
     registry.register(
@@ -205,7 +220,7 @@ def _register_agent_tools() -> None:
             ["query"],
         ),
         handler=lambda arguments, _scope: search_article(arguments.get("query")),
-        exposure=AGENT_OCP,
+        exposure=AGENT_OCP_PLAN_AND_SOLVE,
         text_coercer=_text_field("query"),
     )
     registry.register(
@@ -217,7 +232,7 @@ def _register_agent_tools() -> None:
             ["message"],
         ),
         handler=lambda arguments, _scope: get_linked_content(arguments.get("message")),
-        exposure=AGENT_OCP,
+        exposure=AGENT_OCP_PLAN_AND_SOLVE,
         text_coercer=_text_field("message"),
     )
     registry.register(
@@ -229,7 +244,7 @@ def _register_agent_tools() -> None:
             ["pdf_path"],
         ),
         handler=_read_pdf,
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
         text_coercer=_text_field("pdf_path"),
     )
     registry.register(
@@ -246,7 +261,7 @@ def _register_agent_tools() -> None:
             ["pdf_path", "note_text", "page_index", "sentence_index"],
         ),
         handler=_write_pdf,
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
         text_coercer=_text_field("pdf_path"),
     )
     registry.register(
@@ -258,7 +273,7 @@ def _register_agent_tools() -> None:
             ["file_path"],
         ),
         handler=_read_word,
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
         text_coercer=_text_field("file_path"),
     )
     registry.register(
@@ -274,7 +289,7 @@ def _register_agent_tools() -> None:
             ["file_path", "index", "text"],
         ),
         handler=_write_word,
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
         text_coercer=_text_field("file_path"),
     )
     registry.register(
@@ -286,7 +301,7 @@ def _register_agent_tools() -> None:
             [],
         ),
         handler=lambda _arguments, workspace_scope: _list_workspace_files(workspace_scope),
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
     )
     registry.register(
         name="retrieve_conversation_memory",
@@ -304,7 +319,7 @@ def _register_agent_tools() -> None:
             arguments.get("query", ""),
             arguments.get("limit", 8),
         ),
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
         text_coercer=_text_field("query"),
     )
     registry.register(
@@ -325,7 +340,7 @@ def _register_agent_tools() -> None:
             bool(arguments.get("include_deprecated", False)),
             arguments.get("limit", 20),
         ),
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
         text_coercer=_text_field("query"),
     )
     registry.register(
@@ -395,7 +410,7 @@ def _register_agent_tools() -> None:
             workspace_scope,
             arguments.get("operations", []),
         ),
-        exposure=AGENT,
+        exposure=AGENT_PLAN_AND_SOLVE,
     )
 
     company_tools = [
@@ -417,9 +432,43 @@ def _register_agent_tools() -> None:
                 ["company"],
             ),
             handler=lambda arguments, _scope, tool_handler=handler: tool_handler(arguments.get("company")),
-            exposure=AGENT,
+            exposure=AGENT_PLAN_AND_SOLVE,
             text_coercer=_text_field("company"),
         )
+
+    registry.register(
+        name="submit_plan",
+        schema=_tool_schema(
+            "submit_plan",
+            "Plan-and-Solve 控制工具：提交本轮任务的结构化执行计划。仅 plan_and_solve 模式可见。",
+            {
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "按执行顺序排列的计划步骤，每一步应独立、可执行。",
+                },
+            },
+            ["steps"],
+        ),
+        handler=_submit_plan,
+        exposure=PLAN_AND_SOLVE,
+    )
+    registry.register(
+        name="submit_final_answer",
+        schema=_tool_schema(
+            "submit_final_answer",
+            "Plan-and-Solve 控制工具：提交最终给用户的完整答案正文。answer 为纯正文，不需要 final_answer 标签。",
+            {
+                "answer": {
+                    "type": "string",
+                    "description": "完整最终答案正文，不需要包裹 <final_answer> 标签。",
+                },
+            },
+            ["answer"],
+        ),
+        handler=_submit_final_answer,
+        exposure=PLAN_AND_SOLVE,
+    )
 
 
 def _register_internal_tools() -> None:

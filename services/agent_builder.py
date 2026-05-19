@@ -4,8 +4,9 @@
 
 import json
 
-from agents import DefaultAgent, PlanAndSolveAgent, ReActAgent
-from mcps import format_tool_descriptions, use_tools
+from agents import ToolLoopAgent
+from agents.tool_loop import plan_and_solve_tool_choice_policy
+from mcps import default_tools, plan_and_solve_tools, use_tools
 
 
 def build_tool_executor(workspace_scope: str):
@@ -23,40 +24,30 @@ def build_tool_executor(workspace_scope: str):
 
 def build_agent(mode: str, memory: list, session_id: str, workspace_scope: str, use_ocp: bool = True):
     execute_tool = build_tool_executor(workspace_scope)
-    if mode == "default":
-        return DefaultAgent(
+    if mode == "react":
+        print("[agent_builder] 收到已废弃模式 react，自动降级为 default")
+        mode = "default"
+
+    if mode == "plan_and_solve":
+        return ToolLoopAgent(
             memory=memory,
             session_id=session_id,
             workspace_scope=workspace_scope,
             use_ocp=use_ocp,
             execute_tool=execute_tool,
+            mode="plan_and_solve",
+            tools=plan_and_solve_tools,
+            final_answer_source="tool_arg",
+            tool_choice_policy=plan_and_solve_tool_choice_policy,
         )
-    if mode in ["react", "plan_and_solve"]:
-        tools_description = format_tool_descriptions()
-        agent_memory = memory[:-1] if memory and memory[-1].get("role") == "user" else memory
 
-        if mode == "react":
-            return ReActAgent(
-                tools_description=tools_description,
-                execute_tool=execute_tool,
-                memory=agent_memory,
-                session_id=session_id,
-                workspace_scope=workspace_scope,
-                use_ocp=use_ocp,
-            )
-        if mode == "plan_and_solve":
-            return PlanAndSolveAgent(
-                tools_description=tools_description,
-                execute_tool=execute_tool,
-                memory=agent_memory,
-                session_id=session_id,
-                workspace_scope=workspace_scope,
-                use_ocp=use_ocp,
-            )
-    return DefaultAgent(
+    return ToolLoopAgent(
         memory=memory,
         session_id=session_id,
         workspace_scope=workspace_scope,
         use_ocp=use_ocp,
         execute_tool=execute_tool,
+        mode="default",
+        tools=default_tools,
+        final_answer_source="tagged_text",
     )

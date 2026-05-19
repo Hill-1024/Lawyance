@@ -10,6 +10,7 @@ import json
 import time
 import copy
 from mcps import tools
+from tools import registry
 from llm.retry import with_retry
 
 # 工具定义保持常态加载：从 mcps 导入后原样传给 API，不进入动态 prompt 加载链路。
@@ -33,6 +34,10 @@ client = AsyncOpenAI(
     api_key=API_KEY,
     base_url=BASE_URL,
 )
+
+
+class EmptyModelResponseError(RuntimeError):
+    """Raised when a non-streaming model response contains neither content nor tool calls."""
 
 
 def _now():
@@ -62,6 +67,15 @@ def _extract_cache_stats(usage) -> tuple[int, int, int]:
 
     miss = max(prompt - cached, 0)
     return prompt, cached, miss
+
+
+def _is_unsupported_tool_choice_error(error: str) -> bool:
+    lowered = error.lower()
+    return "tool_choice" in lowered and (
+        "does not support" in lowered
+        or "not support" in lowered
+        or "unsupported" in lowered
+    )
 
 
 def sanitize_messages(messages):
@@ -140,7 +154,15 @@ def sanitize_messages(messages):
     return sanitized
 
 
-async def call(context, stream=False, include_tools=True):
+async def call(
+    context,
+    stream=False,
+    include_tools=True,
+    *,
+    tools_override: list | None = None,
+    tool_exposure: str | None = None,
+    tool_choice="auto",
+):
     # 执行清洗
     modified_context = sanitize_messages(context)
 
@@ -156,7 +178,18 @@ async def call(context, stream=False, include_tools=True):
 
     final_context = system_msgs + other_msgs
 
-    print(f"[LLM 调用] 模型: {LLM_MODEL}, 流式: {stream}, 上下文长度: {len(final_context)}, 包含工具: {include_tools}")
+    selected_tools = None
+    if tools_override is not None:
+        selected_tools = tools_override
+    elif tool_exposure is not None:
+        selected_tools = registry.schemas(tool_exposure)
+    elif include_tools:
+        selected_tools = tools
+
+    print(
+        f"[LLM 调用] 模型: {LLM_MODEL}, 流式: {stream}, 上下文长度: {len(final_context)}, "
+        f"包含工具: {bool(selected_tools)}"
+    )
 
     # 打印最后两条消息的摘要，方便调试
     if len(final_context) > 0:
@@ -173,9 +206,9 @@ async def call(context, stream=False, include_tools=True):
     if stream:
         kwargs["stream_options"] = {"include_usage": True}
 
-    if include_tools and tools:
-        kwargs["tools"] = tools
-        kwargs["tool_choice"] = "auto"
+    if selected_tools:
+        kwargs["tools"] = selected_tools
+        kwargs["tool_choice"] = tool_choice
 
     # 瞬时错误重试配置
     MAX_RETRIES = 3
@@ -202,9 +235,37 @@ async def call(context, stream=False, include_tools=True):
                 f"[LLM 缓存] model={LLM_MODEL} prompt={prompt} "
                 f"cached={cached} miss={miss} hit_rate={cached / prompt:.1%}"
             )
-        return response.choices[0].message
+        message = response.choices[0].message
+        if not (getattr(message, "content", None) or getattr(message, "tool_calls", None)):
+            raise EmptyModelResponseError("模型响应为空：未返回 content 或 tool_calls")
+        return message
     except Exception as e:
         error_str = str(e)
+
+        if selected_tools and tool_choice != "auto" and _is_unsupported_tool_choice_error(error_str):
+            print("[LLM 工具选择] 当前端点不支持强制 tool_choice，降级为 auto 重试一次")
+            fallback_kwargs = dict(kwargs)
+            fallback_kwargs["tool_choice"] = "auto"
+            response = await with_retry(
+                lambda: client.chat.completions.create(**fallback_kwargs),
+                max_retries=MAX_RETRIES,
+                retryable_codes=RETRYABLE_STATUS_CODES,
+                backoff_base=2,
+                on_retry=_on_retry,
+            )
+            print(f"[LLM 调用成功]")
+            if stream:
+                return response
+            prompt, cached, miss = _extract_cache_stats(getattr(response, "usage", None))
+            if prompt:
+                print(
+                    f"[LLM 缓存] model={LLM_MODEL} prompt={prompt} "
+                    f"cached={cached} miss={miss} hit_rate={cached / prompt:.1%}"
+                )
+            message = response.choices[0].message
+            if not (getattr(message, "content", None) or getattr(message, "tool_calls", None)):
+                raise EmptyModelResponseError("模型响应为空：未返回 content 或 tool_calls")
+            return message
 
         # 403 安全过滤 —— 不可重试，直接抛出友好异常
         if "403" in error_str and "Terms Of Service" in error_str:

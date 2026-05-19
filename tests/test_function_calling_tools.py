@@ -82,6 +82,132 @@ class FunctionCallingToolLoadingTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tools", captured)
         self.assertNotIn("tool_choice", captured)
 
+    async def test_tools_override_takes_priority_over_tool_exposure(self):
+        import function_calling
+
+        original_create = function_calling.client.chat.completions.create
+        captured = {}
+        sentinel_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "override_tool",
+                    "description": "test",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+        async def fake_create(**kwargs):
+            captured.update(kwargs)
+            message = types.SimpleNamespace(content="ok")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+        try:
+            function_calling.client.chat.completions.create = fake_create
+            await function_calling.call(
+                [{"role": "system", "content": "system"}, {"role": "user", "content": "hello"}],
+                tools_override=sentinel_tools,
+                tool_exposure="plan_and_solve",
+            )
+        finally:
+            function_calling.client.chat.completions.create = original_create
+
+        self.assertIs(captured["tools"], sentinel_tools)
+
+    async def test_tool_exposure_selects_registry_schemas(self):
+        import function_calling
+        from tools import registry
+
+        original_create = function_calling.client.chat.completions.create
+        captured = {}
+
+        async def fake_create(**kwargs):
+            captured.update(kwargs)
+            message = types.SimpleNamespace(content="ok")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+        try:
+            function_calling.client.chat.completions.create = fake_create
+            await function_calling.call(
+                [{"role": "system", "content": "system"}, {"role": "user", "content": "hello"}],
+                tool_exposure="plan_and_solve",
+            )
+        finally:
+            function_calling.client.chat.completions.create = original_create
+
+        self.assertEqual(captured["tools"], registry.schemas("plan_and_solve"))
+
+    async def test_tool_choice_is_forwarded_when_tools_are_available(self):
+        import function_calling
+
+        original_create = function_calling.client.chat.completions.create
+        captured = {}
+        forced_choice = {"type": "function", "function": {"name": "submit_plan"}}
+
+        async def fake_create(**kwargs):
+            captured.update(kwargs)
+            message = types.SimpleNamespace(content="ok")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+        try:
+            function_calling.client.chat.completions.create = fake_create
+            await function_calling.call(
+                [{"role": "system", "content": "system"}, {"role": "user", "content": "hello"}],
+                tool_exposure="plan_and_solve",
+                tool_choice=forced_choice,
+            )
+        finally:
+            function_calling.client.chat.completions.create = original_create
+
+        self.assertEqual(captured["tool_choice"], forced_choice)
+
+    async def test_forced_tool_choice_falls_back_to_auto_when_provider_rejects_it(self):
+        import function_calling
+
+        original_create = function_calling.client.chat.completions.create
+        captured_choices = []
+        forced_choice = {"type": "function", "function": {"name": "submit_plan"}}
+
+        async def fake_create(**kwargs):
+            captured_choices.append(kwargs.get("tool_choice"))
+            if len(captured_choices) == 1:
+                raise RuntimeError("provider does not support this tool_choice")
+            message = types.SimpleNamespace(content="ok")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+        try:
+            function_calling.client.chat.completions.create = fake_create
+            message = await function_calling.call(
+                [{"role": "system", "content": "system"}, {"role": "user", "content": "hello"}],
+                tool_exposure="plan_and_solve",
+                tool_choice=forced_choice,
+            )
+        finally:
+            function_calling.client.chat.completions.create = original_create
+
+        self.assertEqual(message.content, "ok")
+        self.assertEqual(captured_choices, [forced_choice, "auto"])
+
+    async def test_empty_non_streaming_model_response_raises(self):
+        import function_calling
+
+        original_create = function_calling.client.chat.completions.create
+
+        async def fake_create(**kwargs):
+            message = types.SimpleNamespace(content="", tool_calls=None)
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+        try:
+            function_calling.client.chat.completions.create = fake_create
+            with self.assertRaises(function_calling.EmptyModelResponseError):
+                await function_calling.call(
+                    [{"role": "system", "content": "system"}, {"role": "user", "content": "hello"}],
+                    include_tools=False,
+                )
+        finally:
+            function_calling.client.chat.completions.create = original_create
+
     async def test_call_preserves_multiple_system_messages_in_order(self):
         import function_calling
 
