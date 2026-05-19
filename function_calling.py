@@ -4,6 +4,7 @@
 
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+from datetime import datetime
 import os
 import json
 import time
@@ -32,6 +33,36 @@ client = AsyncOpenAI(
     api_key=API_KEY,
     base_url=BASE_URL,
 )
+
+
+def _now():
+    return datetime.now()
+
+
+def _usage_field(value, field_name, default=0):
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        return value.get(field_name, default)
+    return getattr(value, field_name, default)
+
+
+def _extract_cache_stats(usage) -> tuple[int, int, int]:
+    """返回 (prompt_tokens, cached_tokens, cache_miss_tokens)，缺失字段按 0 处理。"""
+    if usage is None:
+        return 0, 0, 0
+
+    prompt = _usage_field(usage, "prompt_tokens", 0) or 0
+    details = _usage_field(usage, "prompt_tokens_details", None)
+    cached = _usage_field(details, "cached_tokens", 0) or 0
+    if not cached:
+        cached = _usage_field(usage, "prompt_cache_hit_tokens", 0) or 0
+    if not cached:
+        cached = _usage_field(usage, "cache_read_input_tokens", 0) or 0
+
+    miss = max(prompt - cached, 0)
+    return prompt, cached, miss
+
 
 def sanitize_messages(messages):
     """
@@ -118,9 +149,10 @@ async def call(context, stream=False, include_tools=True):
     other_msgs = [msg for msg in modified_context if msg["role"] != "system"]
 
     if system_msgs:
-        from datetime import datetime
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
-        system_msgs[0]["content"] += f"\n\n【当前系统时间】：{current_time}"
+        current = _now()
+        weekday_cn = "一二三四五六日"[current.weekday()]
+        current_date = current.strftime("%Y-%m-%d") + f" 星期{weekday_cn}"
+        system_msgs[0]["content"] += f"\n\n【当前系统日期】：{current_date}"
 
     final_context = system_msgs + other_msgs
 
@@ -138,6 +170,8 @@ async def call(context, stream=False, include_tools=True):
         "messages": final_context,
         "stream": stream,
     }
+    if stream:
+        kwargs["stream_options"] = {"include_usage": True}
 
     if include_tools and tools:
         kwargs["tools"] = tools
@@ -162,6 +196,12 @@ async def call(context, stream=False, include_tools=True):
         print(f"[LLM 调用成功]")
         if stream:
             return response
+        prompt, cached, miss = _extract_cache_stats(getattr(response, "usage", None))
+        if prompt:
+            print(
+                f"[LLM 缓存] model={LLM_MODEL} prompt={prompt} "
+                f"cached={cached} miss={miss} hit_rate={cached / prompt:.1%}"
+            )
         return response.choices[0].message
     except Exception as e:
         error_str = str(e)
