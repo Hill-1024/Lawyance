@@ -200,7 +200,6 @@ export const InputArea: React.FC<InputAreaProps> = ({
               >
                 <option value="default">Default</option>
                 <option value="plan_and_solve">Plan & Solve</option>
-                <option value="react">ReAct</option>
               </select>
             </div>
           </motion.div>

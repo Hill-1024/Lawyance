@@ -9,7 +9,7 @@ The repository contains a FastAPI backend, a React/Vite frontend, a tool forward
 ## Product Positioning
 
 - A Chinese legal AI assistant prototype.
-- Supports direct answer, ReAct, and Plan-and-Solve modes for different levels of task complexity.
+- Supports direct answer and Plan-and-Solve modes for different levels of task complexity.
 - Connects agents to statutes, cases, company data, and document processors through tools.
 - Keeps stable facts, user constraints, and working boundaries through conversation-level memory.
 - Uses a frontend workspace to manage uploaded files, generated files, and conversation context.
@@ -19,7 +19,7 @@ The repository contains a FastAPI backend, a React/Vite frontend, a tool forward
 - **Legal retrieval**: exact statute lookup, natural-language statute search, source link confirmation, and similar-case matching.
 - **Company information**: company profile, listing information, contacts, shareholders, registration data, key personnel, and external investments.
 - **Document processing**: PDF text extraction, sentence-level PDF annotation, Word reading, and Word annotation writing.
-- **Agent modes**: default answer, ReAct tool use, and Plan-and-Solve workflows.
+- **Agent modes**: default answer and Plan-and-Solve workflows.
 - **Conversation workspace**: isolates `TEMP` and `Result` file spaces by user and conversation.
 - **Conversation memory**: records and retrieves stable facts, goals, constraints, and semantic tags without stuffing all history into the prompt.
 - **Auth and audit**: login, roles, admin account management, API access logs, and basic rate limiting.
@@ -36,7 +36,7 @@ FastAPI application
     |
     | agent orchestration
     v
-Default / ReAct / Plan-and-Solve agents
+Default / Plan-and-Solve agents
     |
     | tool descriptions + calls
     v
@@ -53,7 +53,7 @@ Important paths:
 | --- | --- |
 | `agent.py` | FastAPI app, auth dependencies, rate limiting, logs, file workspace, and main APIs |
 | `function_calling.py` | Model calls, tool orchestration, and multi-system prompt forwarding |
-| `agents/` | Default, ReAct, and Plan-and-Solve agent implementations |
+| `agents/` | Unified native tool loop and Plan-and-Solve orchestration |
 | `mcps.py` | Unified business tool forwarding layer |
 | `mcp/` | Legal, company, PDF, Word, and memory tool clients |
 | `memory_system/` | Conversation-level structured memory service |
@@ -140,6 +140,7 @@ Business tools still reach agents through `mcps.py`. To add a tool:
 `exposure` is the single source of truth for tool visibility:
 
 - `agent`: visible in the main LLM tool schema.
+- `plan_and_solve`: visible in Plan-and-Solve mode, including business tools and control-plane tools.
 - `ocp_reviewer`: read-only legal source tools available to OCP.
 - `internal`: backend-dispatchable tools that are hidden from the LLM tool schema.
 
