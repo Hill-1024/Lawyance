@@ -9,7 +9,7 @@ Lawyance は、工大法智チームによる中国語法律 AI アシスタン�
 ## 位置づけ
 
 - 中国語法律シナリオ向けの AI アシスタントプロトタイプ。
-- タスクの複雑さに応じて、直接回答、ReAct、Plan-and-Solve を使い分けます。
+- タスクの複雑さに応じて、直接回答と Plan-and-Solve を使い分けます。
 - 法令、判例、企業データ、文書処理能力をツール経由で agent に接続します。
 - 会話単位の記憶により、安定した事実、ユーザー制約、作業境界を保持します。
 - フロントエンドのワークスペースで、アップロードファイル、生成ファイル、会話コンテキストを管理します。
@@ -19,7 +19,7 @@ Lawyance は、工大法智チームによる中国語法律 AI アシスタン�
 - **法律検索**: 法条の精密検索、自然言語による法条検索、出典リンク確認、類似判例検索。
 - **企業情報**: 企業概要、上場情報、連絡先、株主、登記情報、主要人物、対外投資情報。
 - **文書処理**: PDF テキスト抽出、PDF の文単位注釈、Word 読み取り、Word 注釈書き込み。
-- **Agent モード**: 標準回答、ReAct ツール利用、Plan-and-Solve ワークフロー。
+- **Agent モード**: 標準回答と Plan-and-Solve ワークフロー。
 - **会話ワークスペース**: ユーザーと会話ごとに `TEMP` と `Result` のファイル空間を分離。
 - **会話記憶**: 安定した事実、目標、制約、セマンティックタグを記録・検索し、全履歴を無理にプロンプトへ詰め込みません。
 - **認証と監査**: ログイン、ロール、管理者アカウント管理、API アクセスログ、基本的なレート制限。
@@ -36,7 +36,7 @@ FastAPI application
     |
     | agent orchestration
     v
-Default / ReAct / Plan-and-Solve agents
+Default / Plan-and-Solve agents
     |
     | tool descriptions + calls
     v
@@ -53,7 +53,7 @@ MCP clients and local services
 | --- | --- |
 | `agent.py` | FastAPI アプリ、認証依存、レート制限、ログ、ファイルワークスペース、主要 API |
 | `function_calling.py` | モデル呼び出し、ツール呼び出し制御、複数 system prompt の転送 |
-| `agents/` | Default、ReAct、Plan-and-Solve agent 実装 |
+| `agents/` | 統一されたネイティブツールループと Plan-and-Solve 制御 |
 | `mcps.py` | 業務ツールの統一転送層 |
 | `mcp/` | 法律、企業、PDF、Word、記憶関連のツールクライアント |
 | `memory_system/` | 会話単位の構造化記憶サービス |
@@ -140,6 +140,7 @@ python -m pytest
 `exposure` はツール可視性の唯一の宣言元です：
 
 - `agent`: メイン LLM の tool schema に表示するツール。
+- `plan_and_solve`: Plan-and-Solve モードに表示するツール。業務ツールと制御面ツールを含みます。
 - `ocp_reviewer`: OCP が利用できる読み取り専用の法律信源ツール。
 - `internal`: バックエンド内部では dispatch できるが、LLM tool schema には出さないツール。
 

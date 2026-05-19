@@ -9,7 +9,7 @@ Lawyance 是工大法智团队的中文法律 AI 助手项目。它把法律咨�
 ## 项目定位
 
 - 面向中文法律场景的 AI 助手原型。
-- 支持直接回答、ReAct、Plan-and-Solve 等不同复杂度的 agent 工作方式。
+- 支持直接回答和 Plan-and-Solve 等不同复杂度的 agent 工作方式。
 - 通过工具调用接入法条、案例、企业信息和文档处理能力。
 - 通过对话级记忆保留稳定事实、用户约束和当前工作边界。
 - 通过前端工作区管理上传文件、生成文件和对话上下文。
@@ -19,7 +19,7 @@ Lawyance 是工大法智团队的中文法律 AI 助手项目。它把法律咨�
 - **法律检索**: 支持法条精确查询、自然语言法条搜索、来源链接确认和案例匹配。
 - **企业信息**: 接入企业概况、上市信息、联系方式、股东、登记信息、主要人员和对外投资等查询能力。
 - **文档处理**: 支持 PDF 文本读取、PDF 句级批注、Word 读取和 Word 批注写入。
-- **Agent 模式**: 支持默认回答、ReAct 工具行动和 Plan-and-Solve 分步处理。
+- **Agent 模式**: 支持默认回答和 Plan-and-Solve 分步处理。
 - **会话工作区**: 为每个用户和对话隔离 `TEMP` 与 `Result` 文件空间，避免文件串线。
 - **对话级记忆**: 记录和检索稳定事实、目标、约束与语义标签，不把全部历史暴力塞回上下文。
 - **认证与审计**: 包含登录、角色、管理员账号管理、API 访问日志和基础限流。
@@ -36,7 +36,7 @@ FastAPI application
     |
     | agent orchestration
     v
-Default / ReAct / Plan-and-Solve agents
+Default / Plan-and-Solve agents
     |
     | tool descriptions + calls
     v
@@ -53,7 +53,7 @@ MCP clients and local services
 | --- | --- |
 | `agent.py` | FastAPI 应用、认证依赖、限流、日志、文件工作区和主要 API |
 | `function_calling.py` | 模型调用、工具调用编排和多 system prompt 转发 |
-| `agents/` | 默认、ReAct、Plan-and-Solve agent 实现 |
+| `agents/` | 统一原生工具循环与 Plan-and-Solve agent 编排 |
 | `mcps.py` | 业务工具统一转发层 |
 | `mcp/` | 法律、企业、PDF、Word、记忆等工具客户端 |
 | `memory_system/` | 对话级结构化记忆服务 |
@@ -119,11 +119,11 @@ pnpm run dev:frontend
 Lawyance 的系统 prompt 已拆分到 `prompts/lawyance/`，后端每次构造对话上下文时都会重新读取这些片段，并在运行时最多拆成三条 system message（稳定前缀 / 动态 memory / recap）：
 
 - `core/`：身份、硬约束、工具信源规则、输出契约、文件处理规则
-- `modes/`：`default`、`react`、`plan_and_solve` 三种 agent 模式的注意力焦点
+- `modes/`：`default`、`plan_and_solve` 两种 agent 模式的注意力焦点
 - `focus/`：按当前请求动态追加的法律检索、文件处理、任务边界焦点
 - `tasks/`：历史摘要等内部任务专用 prompt
 
-工具 schema 不放进动态 prompt，也不从 prompt 目录读取；模型工具能力仍由 `function_calling.call()` 中的 `tools=tools` 常态传入。
+工具 schema 不放进动态 prompt，也不从 prompt 目录读取；模型工具能力仍由 `function_calling.call()` 通过 `mcps.py` 中的静态工具常量传入。
 
 可选环境变量：
 
@@ -146,6 +146,7 @@ Lawyance 的系统 prompt 已拆分到 `prompts/lawyance/`，后端每次构造�
 `exposure` 是工具可见性的唯一声明来源：
 
 - `agent`：LLM 可见工具。
+- `plan_and_solve`：Plan-and-Solve 模式可见工具，包含业务工具和控制面工具。
 - `ocp_reviewer`：OCP 审查器可用的只读法律信源工具。
 - `internal`：后端内部可 dispatch，但不进入 LLM tool schema 的工具。
 
