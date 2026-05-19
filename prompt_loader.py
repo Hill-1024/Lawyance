@@ -28,7 +28,6 @@ CONSTRAINT_RECAP_SECTION = "core/50-constraint-recap.md"
 
 MODE_SECTIONS = {
     "default": ("modes/default.md",),
-    "react": ("modes/react.md",),
     "plan_and_solve": ("modes/plan_and_solve.md",),
 }
 
