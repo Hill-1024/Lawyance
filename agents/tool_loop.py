@@ -49,9 +49,9 @@ def plan_and_solve_tool_choice_policy(state: dict[str, Any]):
 
 
 class ToolLoopAgent:
-    DEFAULT_MAX_ROUNDS = _optional_positive_int_env("LAWYANCE_MAX_TOOL_ROUNDS")
+    DEFAULT_MAX_ROUNDS = _optional_positive_int_env("LAWVER_MAX_TOOL_ROUNDS")
     DEFAULT_NON_STREAM_MAX_ROUNDS = _optional_positive_int_env(
-        "LAWYANCE_MAX_NON_STREAM_TOOL_ROUNDS",
+        "LAWVER_MAX_NON_STREAM_TOOL_ROUNDS",
         DEFAULT_MAX_ROUNDS,
     )
 

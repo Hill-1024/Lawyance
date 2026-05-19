@@ -207,7 +207,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                       <div className="flex gap-3">
                         <AlertTriangle className="shrink-0 text-[var(--accent)]" size={18} strokeWidth={2} />
                         <p className="t-body-s leading-relaxed text-[var(--brand-primary-800)] dark:text-[var(--accent)]">
-                          导出为经过安全混淆的单文件（.lawyance）。
+                          导出为经过安全混淆的单文件（.lawver）。
                           <br />
                           <strong className="text-[var(--accent)]">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话内容，不包含臃肿的附件，附件需在新设备重新上传。
                         </p>
@@ -241,7 +241,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                           type="file"
                           id="import-dialogues-input"
                           className="hidden"
-                          accept=".lawyance,.json.enc"
+                          accept=".lawver,.json.enc"
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
