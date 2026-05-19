@@ -113,22 +113,16 @@ async def call(context, stream=False, include_tools=True):
     # 执行清洗
     modified_context = sanitize_messages(context)
 
-    # 提取系统提示词并确保其位于列表首位，且只有一份
-    final_context = []
-    system_msg = None
+    # 提取所有系统提示词并确保它们位于列表首位，保持 system 间原有顺序。
+    system_msgs = [msg for msg in modified_context if msg["role"] == "system"]
+    other_msgs = [msg for msg in modified_context if msg["role"] != "system"]
 
-    for msg in modified_context:
-        if msg["role"] == "system":
-            if not system_msg:
-                system_msg = msg
-        else:
-            final_context.append(msg)
-
-    if system_msg:
+    if system_msgs:
         from datetime import datetime
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
-        system_msg["content"] += f"\n\n【当前系统时间】：{current_time}"
-        final_context.insert(0, system_msg)
+        system_msgs[0]["content"] += f"\n\n【当前系统时间】：{current_time}"
+
+    final_context = system_msgs + other_msgs
 
     print(f"[LLM 调用] 模型: {LLM_MODEL}, 流式: {stream}, 上下文长度: {len(final_context)}, 包含工具: {include_tools}")
 

@@ -92,6 +92,33 @@ def _normalise_focus(focus: Iterable[str] | None) -> list[str]:
     return ordered_focus
 
 
+def _build_core_system_text(agent_mode: str = "default", *, focus: Iterable[str] | None = None) -> str:
+    root = _prompt_root()
+    mode = agent_mode if agent_mode in MODE_SECTIONS else "default"
+    sections = _read_sections(root, CORE_SECTIONS)
+    sections.extend(_read_sections(root, MODE_SECTIONS[mode]))
+
+    focus_sections = [FOCUS_SECTIONS[key] for key in _normalise_focus(focus)]
+    sections.extend(_read_sections(root, focus_sections, required=False))
+
+    if os.getenv("LAWYANCE_PROMPT_INCLUDE_EXAMPLES") == "1":
+        sections.extend(_read_sections(root, OPTIONAL_SECTIONS["examples"], required=False))
+
+    return "\n\n".join(section for section in sections if section)
+
+
+def _build_memory_system_text(memory_context: str = "") -> str:
+    memory = str(memory_context or "").strip()
+    if not memory:
+        return ""
+    return f"<active_conversation_context>\n{memory}\n</active_conversation_context>"
+
+
+def _build_recap_system_text() -> str:
+    root = _prompt_root()
+    return _read_section(root, CONSTRAINT_RECAP_SECTION, required=False)
+
+
 def build_system_prompt(
     agent_mode: str = "default",
     *,
@@ -105,24 +132,15 @@ def build_system_prompt(
         sections = _read_sections(root, TASK_ONLY_SECTIONS[task])
         return "\n\n".join(sections)
 
-    mode = agent_mode if agent_mode in MODE_SECTIONS else "default"
-    sections = _read_sections(root, CORE_SECTIONS)
-    sections.extend(_read_sections(root, MODE_SECTIONS[mode]))
+    sections = [_build_core_system_text(agent_mode=agent_mode, focus=focus)]
 
-    focus_sections = [FOCUS_SECTIONS[key] for key in _normalise_focus(focus)]
-    sections.extend(_read_sections(root, focus_sections, required=False))
+    memory_text = _build_memory_system_text(memory_context)
+    if memory_text:
+        sections.append(memory_text)
 
-    if os.getenv("LAWYANCE_PROMPT_INCLUDE_EXAMPLES") == "1":
-        sections.extend(_read_sections(root, OPTIONAL_SECTIONS["examples"], required=False))
-
-    memory = str(memory_context or "").strip()
-    if memory:
-        sections.append(f"<active_conversation_context>\n{memory}\n</active_conversation_context>")
-
-    # 约束重申段放在 system prompt 最末尾，利用 recency 效应强化核心约束
-    recap = _read_section(root, CONSTRAINT_RECAP_SECTION, required=False)
-    if recap:
-        sections.append(recap)
+    recap_text = _build_recap_system_text()
+    if recap_text:
+        sections.append(recap_text)
 
     return "\n\n".join(section for section in sections if section)
 
@@ -134,14 +152,19 @@ def build_system_memory(
     focus: Iterable[str] | None = None,
     memory_context: str = "",
 ) -> list[dict[str, str]]:
-    return [
-        {
-            "role": "system",
-            "content": build_system_prompt(
-                agent_mode=agent_mode,
-                task=task,
-                focus=focus,
-                memory_context=memory_context,
-            ),
-        }
-    ]
+    if task in TASK_ONLY_SECTIONS:
+        root = _prompt_root()
+        sections = _read_sections(root, TASK_ONLY_SECTIONS[task])
+        return [{"role": "system", "content": "\n\n".join(sections)}]
+
+    messages = [{"role": "system", "content": _build_core_system_text(agent_mode=agent_mode, focus=focus)}]
+
+    memory_text = _build_memory_system_text(memory_context)
+    if memory_text:
+        messages.append({"role": "system", "content": memory_text})
+
+    recap_text = _build_recap_system_text()
+    if recap_text:
+        messages.append({"role": "system", "content": recap_text})
+
+    return messages
