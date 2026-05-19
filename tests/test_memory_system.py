@@ -434,6 +434,42 @@ class ConversationMemorySystemTests(unittest.TestCase):
 
         self.assertEqual(vectors, [None, None])
 
+    def test_embedding_request_uses_ssl_context(self):
+        import memory_system.service as memory_service
+
+        original_urlopen = memory_service.urllib.request.urlopen
+        original_context = memory_service._embedding_ssl_context
+        captured = {}
+        sentinel_context = object()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, size=-1):
+                return json.dumps({"data": [{"index": 0, "embedding": [1.0, 0.0]}]}).encode()
+
+        def fake_urlopen(*args, **kwargs):
+            captured.update(kwargs)
+            return FakeResponse()
+
+        try:
+            memory_service._embedding_ssl_context = lambda: sentinel_context
+            memory_service.urllib.request.urlopen = fake_urlopen
+            vectors = memory_service._request_embedding_batch(
+                {"model": "test", "api_key": "key", "base_url": "https://embedding.example/v1", "timeout": 1},
+                ["a"],
+            )
+        finally:
+            memory_service.urllib.request.urlopen = original_urlopen
+            memory_service._embedding_ssl_context = original_context
+
+        self.assertEqual(vectors, [[1.0, 0.0]])
+        self.assertIs(captured["context"], sentinel_context)
+
     def test_rag_entity_weight_prefers_specific_case_fact(self):
         json.loads(
             sync_conversation_memory(
