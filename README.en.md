@@ -52,7 +52,7 @@ Important paths:
 | Path | Purpose |
 | --- | --- |
 | `agent.py` | FastAPI app, auth dependencies, rate limiting, logs, file workspace, and main APIs |
-| `function_calling.py` | Model calls, tool orchestration, and system memory entry points |
+| `function_calling.py` | Model calls, tool orchestration, and multi-system prompt forwarding |
 | `agents/` | Default, ReAct, and Plan-and-Solve agent implementations |
 | `mcps.py` | Unified business tool forwarding layer |
 | `mcp/` | Legal, company, PDF, Word, and memory tool clients |

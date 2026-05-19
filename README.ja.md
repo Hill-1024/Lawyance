@@ -52,7 +52,7 @@ MCP clients and local services
 | Path | 説明 |
 | --- | --- |
 | `agent.py` | FastAPI アプリ、認証依存、レート制限、ログ、ファイルワークスペース、主要 API |
-| `function_calling.py` | モデル呼び出し、ツール呼び出し制御、システム記憶の入口 |
+| `function_calling.py` | モデル呼び出し、ツール呼び出し制御、複数 system prompt の転送 |
 | `agents/` | Default、ReAct、Plan-and-Solve agent 実装 |
 | `mcps.py` | 業務ツールの統一転送層 |
 | `mcp/` | 法律、企業、PDF、Word、記憶関連のツールクライアント |

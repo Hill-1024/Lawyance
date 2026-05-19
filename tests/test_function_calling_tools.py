@@ -80,6 +80,74 @@ class FunctionCallingToolLoadingTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tools", captured)
         self.assertNotIn("tool_choice", captured)
 
+    async def test_call_preserves_multiple_system_messages_in_order(self):
+        import function_calling
+
+        original_create = function_calling.client.chat.completions.create
+        captured = {}
+
+        async def fake_create(**kwargs):
+            captured.update(kwargs)
+            message = types.SimpleNamespace(content="ok")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+        try:
+            function_calling.client.chat.completions.create = fake_create
+            await function_calling.call(
+                [
+                    {"role": "system", "content": "system A"},
+                    {"role": "user", "content": "hello"},
+                    {"role": "system", "content": "system B"},
+                    {"role": "system", "content": "system C"},
+                    {"role": "user", "content": "again"},
+                ],
+                stream=False,
+                include_tools=False,
+            )
+        finally:
+            function_calling.client.chat.completions.create = original_create
+
+        messages = captured["messages"]
+        self.assertEqual([message["role"] for message in messages], ["system", "system", "system", "user", "user"])
+        self.assertTrue(messages[0]["content"].startswith("system A\n\n【当前系统"))
+        self.assertEqual(messages[1]["content"], "system B")
+        self.assertEqual(messages[2]["content"], "system C")
+        self.assertEqual(messages[3]["content"], "hello")
+        self.assertEqual(messages[4]["content"], "again")
+
+    async def test_call_keeps_front_loaded_system_messages_in_order(self):
+        import function_calling
+
+        original_create = function_calling.client.chat.completions.create
+        captured = {}
+
+        async def fake_create(**kwargs):
+            captured.update(kwargs)
+            message = types.SimpleNamespace(content="ok")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+        try:
+            function_calling.client.chat.completions.create = fake_create
+            await function_calling.call(
+                [
+                    {"role": "system", "content": "prefix"},
+                    {"role": "system", "content": "memory"},
+                    {"role": "system", "content": "recap"},
+                    {"role": "user", "content": "hello"},
+                ],
+                stream=False,
+                include_tools=False,
+            )
+        finally:
+            function_calling.client.chat.completions.create = original_create
+
+        messages = captured["messages"]
+        self.assertEqual([message["role"] for message in messages], ["system", "system", "system", "user"])
+        self.assertTrue(messages[0]["content"].startswith("prefix\n\n【当前系统"))
+        self.assertEqual(messages[1]["content"], "memory")
+        self.assertEqual(messages[2]["content"], "recap")
+        self.assertEqual(messages[3]["content"], "hello")
+
 
 if __name__ == "__main__":
     unittest.main()

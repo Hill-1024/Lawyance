@@ -52,7 +52,7 @@ MCP clients and local services
 | 路径 | 说明 |
 | --- | --- |
 | `agent.py` | FastAPI 应用、认证依赖、限流、日志、文件工作区和主要 API |
-| `function_calling.py` | 模型调用、工具调用编排和系统记忆入口 |
+| `function_calling.py` | 模型调用、工具调用编排和多 system prompt 转发 |
 | `agents/` | 默认、ReAct、Plan-and-Solve agent 实现 |
 | `mcps.py` | 业务工具统一转发层 |
 | `mcp/` | 法律、企业、PDF、Word、记忆等工具客户端 |
@@ -116,7 +116,7 @@ pnpm run dev:frontend
 
 ## 动态 Prompt
 
-Lawyance 的系统 prompt 已拆分到 `prompts/lawyance/`，后端每次构造对话上下文时都会重新读取这些片段：
+Lawyance 的系统 prompt 已拆分到 `prompts/lawyance/`，后端每次构造对话上下文时都会重新读取这些片段，并在运行时最多拆成三条 system message（稳定前缀 / 动态 memory / recap）：
 
 - `core/`：身份、硬约束、工具信源规则、输出契约、文件处理规则
 - `modes/`：`default`、`react`、`plan_and_solve` 三种 agent 模式的注意力焦点
