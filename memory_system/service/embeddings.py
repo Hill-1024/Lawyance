@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import ssl
 import struct
 import time
 import urllib.error
@@ -9,6 +11,11 @@ import urllib.request
 from collections import OrderedDict
 from contextlib import closing
 from typing import Any
+
+try:
+    import certifi
+except ImportError:  # pragma: no cover - certifi is provided by the normal dependency graph.
+    certifi = None
 
 from .state import *
 from .utils import *
@@ -149,6 +156,16 @@ def _coerce_embedding(raw_embedding: Any) -> list[float] | None:
         return None
     return vector
 
+def _embedding_ssl_context() -> ssl.SSLContext | None:
+    cafile = (
+        os.getenv("MEMORY_EMBEDDING_CA_BUNDLE")
+        or os.getenv("SSL_CERT_FILE")
+        or (certifi.where() if certifi is not None else None)
+    )
+    if not cafile:
+        return None
+    return ssl.create_default_context(cafile=cafile)
+
 def _request_embedding_batch(config: dict[str, Any], texts: list[str]) -> list[list[float] | None]:
     payload = json.dumps(
         {
@@ -166,7 +183,11 @@ def _request_embedding_batch(config: dict[str, Any], texts: list[str]) -> list[l
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=float(config.get("timeout", 8))) as response:
+    with urllib.request.urlopen(
+        request,
+        timeout=float(config.get("timeout", 8)),
+        context=_embedding_ssl_context(),
+    ) as response:
         raw_response = response.read(EMBEDDING_MAX_RESPONSE_BYTES + 1)
     if len(raw_response) > EMBEDDING_MAX_RESPONSE_BYTES:
         raise ValueError("embedding response too large")
