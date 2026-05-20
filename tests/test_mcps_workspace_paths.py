@@ -62,6 +62,16 @@ class McpsWorkspacePathTests(unittest.TestCase):
 
         self.assertEqual(args, {"company": "示例公司"})
 
+    def test_text_arguments_are_coerced_for_web_search(self):
+        args = mcps._coerce_arguments("web_search", "最高人民法院 最新 公告")
+
+        self.assertEqual(args, {"query": "最高人民法院 最新 公告"})
+
+    def test_text_arguments_are_coerced_for_web_fetch(self):
+        args = mcps._coerce_arguments("web_fetch", "https://example.com/news")
+
+        self.assertEqual(args, {"url": "https://example.com/news"})
+
 
 if __name__ == "__main__":
     unittest.main()
