@@ -36,7 +36,7 @@ def cleanup_expired_workspace_dirs(one_hour_ago: float, active_scopes: set[str])
                 if not os.path.isdir(conv_dir):
                     continue
 
-                scope = os.path.join(user_dir_name, conv_id)
+                scope = f"{user_dir_name}/{conv_id}"
                 if scope in active_scopes:
                     continue
 
