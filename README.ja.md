@@ -16,7 +16,7 @@ Lawver は、工大法智チームによる中国語法律 AI アシスタント
 
 ## 主な機能
 
-- **法律検索**: 法条の精密検索、自然言語による法条検索、出典リンク確認、類似判例検索。
+- **法律検索とウェブ検索**: 法条の精密検索、自然言語による法条検索、出典リンク確認、類似判例検索、自前運用の SearXNG による公開ウェブ検索。
 - **企業情報**: 企業概要、上場情報、連絡先、株主、登記情報、主要人物、対外投資情報。
 - **文書処理**: PDF テキスト抽出、PDF の文単位注釈、Word 読み取り、Word 注釈書き込み。
 - **Agent モード**: 標準回答と Plan-and-Solve ワークフロー。
@@ -55,7 +55,7 @@ MCP clients and local services
 | `function_calling.py` | モデル呼び出し、ツール呼び出し制御、複数 system prompt の転送 |
 | `agents/` | 統一されたネイティブツールループと Plan-and-Solve 制御 |
 | `mcps.py` | 業務ツールの統一転送層 |
-| `mcp/` | 法律、企業、PDF、Word、記憶関連のツールクライアント |
+| `mcp/` | 法律、企業、PDF、Word、記憶、SearXNG ウェブ検索関連のツールクライアント |
 | `memory_system/` | 会話単位の構造化記憶サービス |
 | `RAG/` | ローカル法律データ検索ロジック |
 | `src/` | React フロントエンドアプリ |
@@ -149,6 +149,15 @@ python -m pytest
 OCP は主回答後のフォーマット審査 pass です。主モデルの失敗は従来どおり主モデルのエラー経路で扱います。一方、OCP のタイムアウト、ネットワーク障害、ツール障害、審査モデル障害はユーザー経路へ投げず、主モデル本文を保った deterministic sanitizer-only fallback に降級します。
 
 この構成変更には、Lawver の命名統一、ツール命名規約の書き換え、agent 推論戦略の書き換えは含みません。
+
+ウェブ検索ツールは自前運用の SearXNG を使い、Tavily や SerpAPI などの第三者検索 API には依存しません。`web_search` は構造化された検索結果と snippets のみを返し、本文が必要な場合はモデルが `web_fetch` を追加で呼び出します。`web_fetch` の本文は非信頼のウェブデータとして扱い、指示として従ってはいけません。
+
+任意の環境変数：
+
+- `SEARXNG_BASE_URL`: SearXNG インスタンス URL。既定値は `https://serp.mutsumi.moe/`
+- `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`: Cloudflare Access Service Auth ヘッダー。旧名の `SEARXNG_CF_ACCESS_CLIENT_ID` / `SEARXNG_CF_ACCESS_CLIENT_SECRET` も互換対応
+- `SEARXNG_ENGINES`、`SEARXNG_CATEGORIES`、`SEARXNG_LANGUAGE`、`SEARXNG_SAFE_SEARCH`: 既定検索パラメータの上書き。通常はサーバー側の `settings.yml` と `categories` に engine ルーティングを任せ、正確に engine を固定したい場合だけ `SEARXNG_ENGINES` を設定します
+- `SEARXNG_TIMEOUT`、`SEARXNG_MAX_RESULTS`、`SEARXNG_MAX_RESPONSE_BYTES`: リクエストと結果サイズの制限。既定値は 20 秒、10 件
 
 ## 会話記憶と RAG 重み
 

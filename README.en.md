@@ -16,7 +16,7 @@ The repository contains a FastAPI backend, a React/Vite frontend, a tool forward
 
 ## Capabilities
 
-- **Legal retrieval**: exact statute lookup, natural-language statute search, source link confirmation, and similar-case matching.
+- **Legal and web retrieval**: exact statute lookup, natural-language statute search, source link confirmation, similar-case matching, and public web search through self-hosted SearXNG.
 - **Company information**: company profile, listing information, contacts, shareholders, registration data, key personnel, and external investments.
 - **Document processing**: PDF text extraction, sentence-level PDF annotation, Word reading, and Word annotation writing.
 - **Agent modes**: default answer and Plan-and-Solve workflows.
@@ -55,7 +55,7 @@ Important paths:
 | `function_calling.py` | Model calls, tool orchestration, and multi-system prompt forwarding |
 | `agents/` | Unified native tool loop and Plan-and-Solve orchestration |
 | `mcps.py` | Unified business tool forwarding layer |
-| `mcp/` | Legal, company, PDF, Word, and memory tool clients |
+| `mcp/` | Legal, company, PDF, Word, memory, and SearXNG web-search tool clients |
 | `memory_system/` | Conversation-level structured memory service |
 | `RAG/` | Local legal data retrieval logic |
 | `src/` | React frontend application |
@@ -149,6 +149,15 @@ Workspace path validation lives in `workspace.py`, shared by `mcps.py` and `tool
 OCP is a post-answer formatting review pass. Main-model failures still follow the main-model error path; OCP timeout, network failure, tool failure, or reviewer failure must not raise into the user path. It falls back to deterministic sanitizer-only output while preserving the main-model answer.
 
 This architecture work does not include Lawver naming cleanup, tool naming rewrites, or agent reasoning strategy rewrites.
+
+The web-search tool uses self-hosted SearXNG and does not depend on third-party search APIs such as Tavily or SerpAPI. `web_search` only returns structured results and snippets; when full page text is needed, the model should call `web_fetch`. `web_fetch` marks returned page text as untrusted web data and it must not be followed as instructions.
+
+Optional environment variables:
+
+- `SEARXNG_BASE_URL`: SearXNG instance URL, default `https://serp.mutsumi.moe/`
+- `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`: Cloudflare Access Service Auth headers; the older `SEARXNG_CF_ACCESS_CLIENT_ID` / `SEARXNG_CF_ACCESS_CLIENT_SECRET` names remain supported
+- `SEARXNG_ENGINES`, `SEARXNG_CATEGORIES`, `SEARXNG_LANGUAGE`, `SEARXNG_SAFE_SEARCH`: default search parameter overrides; normally let server-side `settings.yml` and `categories` route engines, and set `SEARXNG_ENGINES` only when exact engines must be pinned
+- `SEARXNG_TIMEOUT`, `SEARXNG_MAX_RESULTS`, `SEARXNG_MAX_RESPONSE_BYTES`: request and result size limits; defaults are 20 seconds and 10 results
 
 ## Conversation Memory and RAG Weights
 
