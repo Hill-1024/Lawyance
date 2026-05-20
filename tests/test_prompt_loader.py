@@ -28,6 +28,18 @@ class PromptLoaderTest(unittest.TestCase):
         self.assertIn("强解耦", prompt)
         self.assertNotIn("模块描述", prompt)
 
+    def test_web_search_sources_must_be_url_cited(self):
+        prompt = build_system_prompt(agent_mode="default")
+
+        self.assertIn("web_search", prompt)
+        self.assertIn("web_fetch", prompt)
+        self.assertIn("url", prompt)
+        self.assertIn("final_url", prompt)
+        self.assertIn("## 法律/案例信源", prompt)
+        self.assertIn("## 联网搜索来源", prompt)
+        self.assertIn("网1. [页面标题 - source_domain](URL)", prompt)
+        self.assertIn("两套编号不得混用", prompt)
+
     def test_unknown_mode_falls_back_to_default(self):
         prompt = build_system_prompt(agent_mode="unknown")
 
