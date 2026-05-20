@@ -2,13 +2,60 @@
  * 模块描述：工作区面板组件，展示上传文件和生成结果并提供下载/删除操作。
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Folder, X, Paperclip, Download, Trash2, FileText } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
 const WORKSPACE_PANEL_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
 type WorkspaceFile = { name: string, path: string, type: 'upload' | 'generated' };
+
+const getWorkspaceFileKey = (file: WorkspaceFile) => {
+  return `${file.type}:${file.path || file.name}`;
+};
+
+const WorkspaceFileItem: React.FC<{
+  file: WorkspaceFile;
+  onDeleteFile: (filePath: string) => void;
+}> = React.memo(({ file, onDeleteFile }) => (
+  <div className="lawver-fade-up group flex items-center justify-between rounded-[12px] border border-[var(--border-subtle)] bg-[rgba(59,98,184,0.04)] px-3 py-2.5 dark:bg-white/[0.03]">
+    <div className="flex min-w-0 items-center gap-3 overflow-hidden">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${file.type === 'upload' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
+        {file.type === 'upload' ? (
+          <Paperclip size={15} strokeWidth={2} />
+        ) : (
+          <FileText size={15} strokeWidth={2} />
+        )}
+      </div>
+      <span className="t-body-s truncate text-[13px] text-[var(--fg-1)]" title={file.name}>{file.name}</span>
+    </div>
+    <div className="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+      <button
+        onClick={() => {
+          const link = document.createElement('a');
+          link.href = `/api/download?file_path=${encodeURIComponent(file.path)}`;
+          link.download = file.name;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }}
+        className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
+        title="Download"
+      >
+        <Download size={14} strokeWidth={2} />
+      </button>
+      <button
+        onClick={() => onDeleteFile(file.path)}
+        className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+        title="Delete"
+      >
+        <Trash2 size={14} strokeWidth={2} />
+      </button>
+    </div>
+  </div>
+));
+
+WorkspaceFileItem.displayName = 'WorkspaceFileItem';
 
 interface WorkspacePanelProps {
   isWorkspaceOpen: boolean;
@@ -18,16 +65,16 @@ interface WorkspacePanelProps {
   isDesktopLayout: boolean;
 }
 
-export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
+const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
   isWorkspaceOpen,
   setIsWorkspaceOpen,
   workspaceFiles,
   onDeleteFile,
   isDesktopLayout
 }) => {
-  const uploadedFiles = workspaceFiles.filter(f => f.type === 'upload');
-  const generatedFiles = workspaceFiles.filter(f => f.type === 'generated');
-  const panelAnimation = isDesktopLayout
+  const uploadedFiles = useMemo(() => workspaceFiles.filter(f => f.type === 'upload'), [workspaceFiles]);
+  const generatedFiles = useMemo(() => workspaceFiles.filter(f => f.type === 'generated'), [workspaceFiles]);
+  const panelAnimation = useMemo(() => isDesktopLayout
     ? {
       width: isWorkspaceOpen ? WORKSPACE_PANEL_WIDTH : 0,
       opacity: isWorkspaceOpen ? 1 : 0,
@@ -36,50 +83,12 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
     : {
       x: isWorkspaceOpen ? 0 : '100%',
       opacity: isWorkspaceOpen ? 1 : 0
-    };
+    }, [isDesktopLayout, isWorkspaceOpen]);
   const workspaceContentWidth = isDesktopLayout ? `${WORKSPACE_PANEL_WIDTH}px` : 'min(85vw, 320px)';
-  const workspaceStyle: React.CSSProperties = {
+  const workspaceStyle: React.CSSProperties = useMemo(() => ({
     pointerEvents: isWorkspaceOpen ? 'auto' : 'none',
     ...(!isDesktopLayout ? { width: workspaceContentWidth } : {})
-  };
-
-  const FileItem: React.FC<{ file: WorkspaceFile }> = ({ file }) => (
-    <div className="lawver-fade-up group flex items-center justify-between rounded-[12px] border border-[var(--border-subtle)] bg-[rgba(59,98,184,0.04)] px-3 py-2.5 dark:bg-white/[0.03]">
-      <div className="flex min-w-0 items-center gap-3 overflow-hidden">
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${file.type === 'upload' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
-          {file.type === 'upload' ? (
-            <Paperclip size={15} strokeWidth={2} />
-          ) : (
-            <FileText size={15} strokeWidth={2} />
-          )}
-        </div>
-        <span className="t-body-s truncate text-[13px] text-[var(--fg-1)]" title={file.name}>{file.name}</span>
-      </div>
-      <div className="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-        <button
-          onClick={() => {
-            const link = document.createElement('a');
-            link.href = `/api/download?file_path=${encodeURIComponent(file.path)}`;
-            link.download = file.name;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }}
-          className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
-          title="Download"
-        >
-          <Download size={14} strokeWidth={2} />
-        </button>
-        <button
-          onClick={() => onDeleteFile(file.path)}
-          className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-          title="Delete"
-        >
-          <Trash2 size={14} strokeWidth={2} />
-        </button>
-      </div>
-    </div>
-  );
+  }), [isDesktopLayout, isWorkspaceOpen, workspaceContentWidth]);
 
   return (
     <>
@@ -131,7 +140,13 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
                 {uploadedFiles.length === 0 ? (
                   <p className="t-body-s t-weak px-1 italic">No uploaded files</p>
                 ) : (
-                  uploadedFiles.map((file, index) => <FileItem key={`up-${index}`} file={file} />)
+                  uploadedFiles.map(file => (
+                    <WorkspaceFileItem
+                      key={getWorkspaceFileKey(file)}
+                      file={file}
+                      onDeleteFile={onDeleteFile}
+                    />
+                  ))
                 )}
               </div>
             </section>
@@ -145,7 +160,13 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
                 {generatedFiles.length === 0 ? (
                   <p className="t-body-s t-weak px-1 italic">No generated files</p>
                 ) : (
-                  generatedFiles.map((file, index) => <FileItem key={`gen-${index}`} file={file} />)
+                  generatedFiles.map(file => (
+                    <WorkspaceFileItem
+                      key={getWorkspaceFileKey(file)}
+                      file={file}
+                      onDeleteFile={onDeleteFile}
+                    />
+                  ))
                 )}
               </div>
             </section>
@@ -155,3 +176,6 @@ export const WorkspacePanel: React.FC<WorkspacePanelProps> = ({
     </>
   );
 };
+
+export const WorkspacePanel = React.memo(WorkspacePanelComponent);
+WorkspacePanel.displayName = 'WorkspacePanel';
