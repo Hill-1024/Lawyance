@@ -18,6 +18,8 @@ EXPECTED_AGENT_TOOL_NAMES = [
     "get_article",
     "search_article",
     "get_linked_content",
+    "web_search",
+    "web_fetch",
     "pdf_text_reader",
     "pdf_commit_by_sentence",
     "word_reader",

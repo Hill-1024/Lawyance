@@ -5,6 +5,9 @@ openai
 python-dotenv
 websockets
 requests
+trafilatura
+dateparser
+tldextract
 PyMuPDF
 python-docx
 python-multipart
