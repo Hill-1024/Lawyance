@@ -2,7 +2,6 @@
  * 模块描述：浏览器本地存储服务，负责垃圾回收、导出备份和容量维护。
  */
 
-import JSZip from 'jszip/dist/jszip.min.js';
 import { fileDB } from '../lib/db';
 
 const EXPORT_SECURITY_KEY = "Lawver-Security-Migration-Key-2024";
