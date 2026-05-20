@@ -16,7 +16,7 @@ Lawver 是工大法智团队的中文法律 AI 助手项目。它把法律咨询
 
 ## 核心能力
 
-- **法律检索**: 支持法条精确查询、自然语言法条搜索、来源链接确认和案例匹配。
+- **法律检索与联网搜索**: 支持法条精确查询、自然语言法条搜索、来源链接确认、案例匹配，以及通过自托管 SearXNG 获取公开网页资料。
 - **企业信息**: 接入企业概况、上市信息、联系方式、股东、登记信息、主要人员和对外投资等查询能力。
 - **文档处理**: 支持 PDF 文本读取、PDF 句级批注、Word 读取和 Word 批注写入。
 - **Agent 模式**: 支持默认回答和 Plan-and-Solve 分步处理。
@@ -55,7 +55,7 @@ MCP clients and local services
 | `function_calling.py` | 模型调用、工具调用编排和多 system prompt 转发 |
 | `agents/` | 统一原生工具循环与 Plan-and-Solve agent 编排 |
 | `mcps.py` | 业务工具统一转发层 |
-| `mcp/` | 法律、企业、PDF、Word、记忆等工具客户端 |
+| `mcp/` | 法律、企业、PDF、Word、记忆、SearXNG 联网搜索等工具客户端 |
 | `memory_system/` | 对话级结构化记忆服务 |
 | `RAG/` | 本地法律数据检索相关逻辑 |
 | `src/` | React 前端应用 |
@@ -155,6 +155,15 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误路径处理；OCP 自身的超时、网络异常、工具异常或审查模型异常不得向用户路径抛出，必须降级为 deterministic sanitizer-only fallback，保留主模型正文。
 
 本次架构边界不包含 Lawver 命名统一、工具命名规范重写或 agent 推理策略重写。
+
+联网搜索工具通过自托管 SearXNG 提供，不依赖 Tavily、SerpAPI 等第三方搜索 API。`web_search` 只返回结构化搜索结果和 snippets；需要阅读网页正文时由模型再调用 `web_fetch`。`web_fetch` 返回内容会被标记为非可信网页数据，不能作为指令执行。
+
+可选环境变量：
+
+- `SEARXNG_BASE_URL`：SearXNG 实例地址，默认 `https://serp.mutsumi.moe/`
+- `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`：Cloudflare Access Service Auth 头；兼容旧的 `SEARXNG_CF_ACCESS_CLIENT_ID` / `SEARXNG_CF_ACCESS_CLIENT_SECRET`
+- `SEARXNG_ENGINES`、`SEARXNG_CATEGORIES`、`SEARXNG_LANGUAGE`、`SEARXNG_SAFE_SEARCH`：默认搜索参数覆盖；通常让服务端 `settings.yml` 和 `categories` 路由决定 engines，仅在需要固定精确引擎时设置 `SEARXNG_ENGINES`
+- `SEARXNG_TIMEOUT`、`SEARXNG_MAX_RESULTS`、`SEARXNG_MAX_RESPONSE_BYTES`：请求和结果规模限制，默认搜索超时 20 秒、结果数 10 条
 
 ## 对话记忆与 RAG 权重
 
