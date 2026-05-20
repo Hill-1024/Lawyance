@@ -83,7 +83,7 @@ export function useWorkspace(currentId: string, enabled = true) {
     syncFiles();
   }, [syncFiles]);
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = useCallback(async (file: File) => {
     try {
       const data = await uploadFile(file, currentId);
       const filePath = data.file_path || data.path;
@@ -92,9 +92,9 @@ export function useWorkspace(currentId: string, enabled = true) {
     } catch (error: any) {
       alert(error.message || 'Upload failed');
     }
-  };
+  }, [currentId, syncFiles]);
 
-  const handleGeneratedFile = async (name: string, path: string) => {
+  const handleGeneratedFile = useCallback(async (name: string, path: string) => {
     if (path) {
       try {
         const res = await fetch(`/api/download?file_path=${encodeURIComponent(path)}`);
@@ -110,18 +110,18 @@ export function useWorkspace(currentId: string, enabled = true) {
       }
     }
     await syncFiles(); // Refresh from server to get the actual state
-  };
+  }, [currentId, syncFiles]);
 
-  const removeUploadedFile = (index: number) => {
+  const removeUploadedFile = useCallback((index: number) => {
     const fileToRemove = pendingUploads[index];
     if (fileToRemove) {
       setPendingUploads(prev => prev.filter((_, i) => i !== index));
       // Also remove from workspace view but keep in DB if it was already saved?
       // Actually pendingUploads are just for the current message.
     }
-  };
+  }, [pendingUploads]);
 
-  const deleteFile = async (filePath: string) => {
+  const deleteFile = useCallback(async (filePath: string) => {
     try {
       const fileToDelete = workspaceFiles.find(f => f.path === filePath);
       if (!fileToDelete) {
@@ -142,7 +142,7 @@ export function useWorkspace(currentId: string, enabled = true) {
     } catch (error) {
       console.error('Failed to delete file:', error);
     }
-  };
+  }, [currentId, workspaceFiles]);
 
   return {
     isWorkspaceOpen,
