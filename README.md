@@ -1,8 +1,8 @@
-# Lawver
+# Lawyance
 
 中文 | [English](./README.en.md) | [日本語](./README.ja.md)
 
-Lawver 是工大法智团队的中文法律 AI 助手项目。它把法律咨询、法条检索、案例匹配、企业信息查询、合同/PDF/Word 文档处理、对话级记忆和前端工作区组织在同一套应用中，目标不是给出无法追溯的“直接结论”，而是把法律问题拆成事实、依据、检索结果和可继续核验的分析路径。
+Lawyance 是工大法智团队的中文法律 AI 助手项目。它把法律咨询、法条检索、案例匹配、企业信息查询、合同/PDF/Word 文档处理、对话级记忆和前端工作区组织在同一套应用中，目标不是给出无法追溯的“直接结论”，而是把法律问题拆成事实、依据、检索结果和可继续核验的分析路径。
 
 仓库同时包含 FastAPI 后端、React/Vite 前端、工具转发层、法律数据检索客户端、文档处理工具、对话记忆系统和输出审查流程。各模块之间保持清晰边界，业务工具统一通过 `mcps` 暴露给 agent，不在业务层绕过工具中间件。
 
@@ -23,7 +23,7 @@ Lawver 是工大法智团队的中文法律 AI 助手项目。它把法律咨询
 - **会话工作区**: 为每个用户和对话隔离 `TEMP` 与 `Result` 文件空间，避免文件串线。
 - **对话级记忆**: 记录和检索稳定事实、目标、约束与语义标签，不把全部历史暴力塞回上下文。
 - **认证与审计**: 包含登录、角色、管理员账号管理、API 访问日志和基础限流。
-- **前端体验**: React 19 + Vite，提供对话、文件、工作区、主题、管理员面板和 Lawver 品牌界面。
+- **前端体验**: React 19 + Vite，提供对话、文件、工作区、主题、管理员面板和 Lawyance 品牌界面。
 
 ## 架构
 
@@ -116,7 +116,7 @@ pnpm run dev:frontend
 
 ## 动态 Prompt
 
-Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对话上下文时都会重新读取这些片段，并在运行时最多拆成三条 system message（稳定前缀 / 动态 memory / recap）：
+Lawyance 的系统 prompt 已拆分到 `prompts/lawyance/`，后端每次构造对话上下文时都会重新读取这些片段，并在运行时最多拆成三条 system message（稳定前缀 / 动态 memory / recap）：
 
 - `core/`：身份、硬约束、工具信源规则、输出契约、文件处理规则
 - `modes/`：`default`、`plan_and_solve` 两种 agent 模式的注意力焦点
@@ -127,9 +127,9 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 
 可选环境变量：
 
-- `LAWVER_PROMPT_ROOT`：指定完整 prompt 根目录
-- `LAWVER_PROMPT_PROFILE`：指定 `prompts/<profile>`，默认 `lawver`
-- `LAWVER_PROMPT_INCLUDE_EXAMPLES=1`：将 `examples/` 中的 few-shot 示例追加到系统 prompt
+- `LAWYANCE_PROMPT_ROOT`：指定完整 prompt 根目录
+- `LAWYANCE_PROMPT_PROFILE`：指定 `prompts/<profile>`，默认 `lawyance`
+- `LAWYANCE_PROMPT_INCLUDE_EXAMPLES=1`：将 `examples/` 中的 few-shot 示例追加到系统 prompt
 
 ## 后端拓扑与工具注册
 
@@ -154,7 +154,7 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 
 OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误路径处理；OCP 自身的超时、网络异常、工具异常或审查模型异常不得向用户路径抛出，必须降级为 deterministic sanitizer-only fallback，保留主模型正文。
 
-本次架构边界不包含 Lawver 命名统一、工具命名规范重写或 agent 推理策略重写。
+本次架构边界不包含 Lawyance 命名统一、工具命名规范重写或 agent 推理策略重写。
 
 联网搜索工具通过自托管 SearXNG 提供，不依赖 Tavily、SerpAPI 等第三方搜索 API。`web_search` 只返回结构化搜索结果和 snippets；需要阅读网页正文时由模型再调用 `web_fetch`。`web_fetch` 返回内容会被标记为非可信网页数据，不能作为指令执行。
 
@@ -194,7 +194,7 @@ python -m pytest
 - 记忆系统当前定位是对话级结构化记忆，不是用户级长期画像；可选 embedding 只作为召回权重信号参与排序。
 - 上传文件和生成文件必须落在用户/对话隔离的工作区内，避免跨会话读取或写入。
 - 法律回答应尽量保留依据链路：事实、法条、案例或来源链接要能被继续核验。
-- 前端迁移和 UI 调整应尊重 Lawver 设计系统，不通过 padding 或临时兼容层掩盖布局问题。
+- 前端迁移和 UI 调整应尊重 Lawyance 设计系统，不通过 padding 或临时兼容层掩盖布局问题。
 
 ## 安全注意
 

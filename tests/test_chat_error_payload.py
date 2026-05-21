@@ -27,7 +27,7 @@ class ChatErrorPayloadTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         os.environ["SECRET_KEY"] = TEST_SECRET
         os.environ["INITIAL_ADMIN_PASSWORD"] = "bootstrap-password"
-        os.environ["LAWVER_DATA_DIR"] = self.tmp.name
+        os.environ["LAWYANCE_DATA_DIR"] = self.tmp.name
         os.environ.setdefault("API_KEY", "test-key")
         os.environ.setdefault("BASE_URL", "http://127.0.0.1/v1")
         os.environ.setdefault("LLM_MODEL", "test-model")
