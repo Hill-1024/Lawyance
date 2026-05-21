@@ -38,11 +38,11 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(120%_80%_at_50%_0%,rgba(59,98,184,0.08)_0%,transparent_50%),var(--bg-app)] px-4 py-12 transition-colors duration-300 sm:px-6 lg:px-8">
-      <div className="lawver-fade-up flex w-full max-w-md flex-col gap-7 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-3)] sm:p-10">
+      <div className="lawyance-fade-up flex w-full max-w-md flex-col gap-7 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-3)] sm:p-10">
         <div className="text-center">
           <BrandMark className="mx-auto h-14 w-14 text-[var(--accent)]" />
           <h2 className="t-headline-m mt-4">
-            登录 Lawver
+            登录 Lawyance
           </h2>
           <p className="t-body-s t-muted mt-2">
             仅限内部人员使用
@@ -89,7 +89,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             <button
               type="submit"
               disabled={isLoading}
-              className="md3-btn-filled lawver-pressable w-full rounded-[var(--radius-md)] py-3"
+              className="md3-btn-filled lawyance-pressable w-full rounded-[var(--radius-md)] py-3"
             >
               {isLoading ? '登录中…' : '登录'}
             </button>

@@ -5,8 +5,11 @@
 import { Conversation } from '../types';
 
 export class FileDB {
-  private dbName = 'LawverFileDB';
-  private previousDbName = this.decodeName([76, 97, 119, 121, 101, 114]) + 'FileDB';
+  private dbName = 'LawyanceFileDB';
+  private previousDbNames = [
+    this.decodeName([76, 97, 119, 118, 101, 114]) + 'FileDB',
+    this.decodeName([76, 97, 119, 121, 101, 114]) + 'FileDB'
+  ];
   private storeName = 'files';
   private convStoreName = 'conversations';
   private version = 2; // Incremented version to add store
@@ -43,7 +46,7 @@ export class FileDB {
         try {
           await this.ensurePreviousDataMigrated(db);
         } catch (error) {
-          console.warn('Lawver IndexedDB migration skipped:', error);
+          console.warn('Lawyance IndexedDB migration skipped:', error);
         }
         resolve(db);
       };
@@ -68,7 +71,10 @@ export class FileDB {
 
   private async migratePreviousData(targetDb: IDBDatabase): Promise<void> {
     const databases = await indexedDB.databases?.();
-    if (!databases?.some(database => database.name === this.previousDbName)) {
+    const previousDbName = databases
+      ?.map(database => database.name)
+      .find((name): name is string => Boolean(name && this.previousDbNames.includes(name)));
+    if (!previousDbName) {
       return;
     }
 
@@ -80,7 +86,7 @@ export class FileDB {
       return;
     }
 
-    const previousDb = await this.openDB(this.previousDbName);
+    const previousDb = await this.openDB(previousDbName);
     try {
       const [files, conversations] = await Promise.all([
         this.readAllFromDB(previousDb, this.storeName),

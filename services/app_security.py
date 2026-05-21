@@ -23,7 +23,7 @@ RATE_LIMIT = 100
 
 def _configured_origins() -> set[str]:
     origins = {SECURE_ORIGIN}
-    for raw_name in ("LAWVER_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
+    for raw_name in ("LAWYANCE_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
         raw_value = os.getenv(raw_name, "")
         for item in raw_value.split(","):
             origin = item.strip().rstrip("/")
@@ -39,8 +39,8 @@ usage_logger = logging.getLogger("usage_logger")
 usage_logger.setLevel(logging.INFO)
 file_handler = RotatingFileHandler(
     "data/usage.log",
-    maxBytes=int(os.environ.get("LAWVER_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
-    backupCount=int(os.environ.get("LAWVER_USAGE_LOG_BACKUPS", 5)),
+    maxBytes=int(os.environ.get("LAWYANCE_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
+    backupCount=int(os.environ.get("LAWYANCE_USAGE_LOG_BACKUPS", 5)),
     encoding="utf-8",
 )
 file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))

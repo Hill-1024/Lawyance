@@ -326,7 +326,7 @@ wheels = [
 ]
 
 [[package]]
-name = "lawver"
+name = "lawyance"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
