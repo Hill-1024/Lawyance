@@ -5,6 +5,7 @@
 import React, { useMemo } from 'react';
 import { Folder, X, Paperclip, Download, Trash2, FileText } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { HoverInfo } from './HoverInfo';
 
 const WORKSPACE_PANEL_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
@@ -27,30 +28,36 @@ const WorkspaceFileItem: React.FC<{
           <FileText size={15} strokeWidth={2} />
         )}
       </div>
-      <span className="t-body-s truncate text-[13px] text-[var(--fg-1)]" title={file.name}>{file.name}</span>
+      <HoverInfo label={file.name} placement="top">
+        <span className="t-body-s truncate text-[13px] text-[var(--fg-1)]">{file.name}</span>
+      </HoverInfo>
     </div>
     <div className="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-      <button
-        onClick={() => {
-          const link = document.createElement('a');
-          link.href = `/api/download?file_path=${encodeURIComponent(file.path)}`;
-          link.download = file.name;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-        }}
-        className="lawyance-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
-        title="Download"
-      >
-        <Download size={14} strokeWidth={2} />
-      </button>
-      <button
-        onClick={() => onDeleteFile(file.path)}
-        className="lawyance-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-        title="Delete"
-      >
-        <Trash2 size={14} strokeWidth={2} />
-      </button>
+      <HoverInfo label="Download" placement="top">
+        <button
+          onClick={() => {
+            const link = document.createElement('a');
+            link.href = `/api/download?file_path=${encodeURIComponent(file.path)}`;
+            link.download = file.name;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }}
+          className="lawyance-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
+          aria-label="Download"
+        >
+          <Download size={14} strokeWidth={2} />
+        </button>
+      </HoverInfo>
+      <HoverInfo label="Delete" placement="top">
+        <button
+          onClick={() => onDeleteFile(file.path)}
+          className="lawyance-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+          aria-label="Delete"
+        >
+          <Trash2 size={14} strokeWidth={2} />
+        </button>
+      </HoverInfo>
     </div>
   </div>
 ));

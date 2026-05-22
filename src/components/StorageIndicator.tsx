@@ -7,6 +7,7 @@ import { Database, AlertTriangle, Download, Trash2, ShieldCheck, ShieldAlert } f
 import { useStorage } from '../hooks/useStorage';
 import { storageService } from '../services/storageService';
 import { motion, AnimatePresence } from 'motion/react';
+import { HoverInfo } from './HoverInfo';
 
 interface StorageIndicatorProps {
   compact?: boolean;
@@ -48,19 +49,21 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
 
   if (compact) {
     return (
-      <div 
-        className={`flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-3 py-1.5 transition-colors ${
-          isLowStorage ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.06)] dark:hover:bg-white/[0.06]'
-        }`}
-        onClick={() => setIsModalOpen(true)}
-        title="查看存储状态"
-      >
-        <Database size={16} strokeWidth={2} />
-        <span className="t-label-m">
-          {Math.round(usageRatio * 100)}%
-        </span>
-        {isLowStorage && <AlertTriangle size={14} strokeWidth={2} className="animate-pulse" />}
-      </div>
+      <HoverInfo label="查看存储状态" placement="top">
+        <div
+          className={`flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-3 py-1.5 transition-colors ${
+            isLowStorage ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.06)] dark:hover:bg-white/[0.06]'
+          }`}
+          onClick={() => setIsModalOpen(true)}
+          aria-label="查看存储状态"
+        >
+          <Database size={16} strokeWidth={2} />
+          <span className="t-label-m">
+            {Math.round(usageRatio * 100)}%
+          </span>
+          {isLowStorage && <AlertTriangle size={14} strokeWidth={2} className="animate-pulse" />}
+        </div>
+      </HoverInfo>
     );
   }
 

@@ -12,6 +12,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { Message, ThoughtBlock } from '../types';
 import { Mermaid } from './Mermaid';
 import { BrandMark } from './Brand';
+import { HoverInfo } from './HoverInfo';
 
 interface MessageItemProps {
   msg: Message;
@@ -512,27 +513,33 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         )}
         {msg.role === 'user' && !isThinking && onUndo && onEdit && onRegenerate && (
           <div className="mt-1 flex gap-2 self-end">
-            <button
-              onClick={() => onUndo(msg.id)}
-              className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-              title="Undo"
-            >
-              <Undo2 size={14} strokeWidth={2} />
-            </button>
-            <button
-              onClick={() => onEdit(msg.id)}
-              className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-              title="Edit"
-            >
-              <Pencil size={14} strokeWidth={2} />
-            </button>
-            <button
-              onClick={() => onRegenerate(msg.id)}
-              className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-              title="Regenerate"
-            >
-              <RefreshCw size={14} strokeWidth={2} />
-            </button>
+            <HoverInfo label="Undo" placement="top">
+              <button
+                onClick={() => onUndo(msg.id)}
+                className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
+                aria-label="Undo"
+              >
+                <Undo2 size={14} strokeWidth={2} />
+              </button>
+            </HoverInfo>
+            <HoverInfo label="Edit" placement="top">
+              <button
+                onClick={() => onEdit(msg.id)}
+                className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
+                aria-label="Edit"
+              >
+                <Pencil size={14} strokeWidth={2} />
+              </button>
+            </HoverInfo>
+            <HoverInfo label="Regenerate" placement="top">
+              <button
+                onClick={() => onRegenerate(msg.id)}
+                className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
+                aria-label="Regenerate"
+              >
+                <RefreshCw size={14} strokeWidth={2} />
+              </button>
+            </HoverInfo>
           </div>
         )}
       </div>

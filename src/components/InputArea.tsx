@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import { Settings2, Paperclip, X, Send, LoaderCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
+import { HoverInfo } from './HoverInfo';
 import type { ContextUsage } from '../types';
 
 const DEFAULT_CONTEXT_THRESHOLD_TOKENS = 500000;
@@ -17,6 +18,36 @@ const formatTokenCount = (tokens: number) => {
   return `${tokens}`;
 };
 
+const ContextUsageInfo: React.FC<{ usage?: ContextUsage | null }> = ({ usage }) => {
+  if (!usage) {
+    return <span className="text-[var(--fg-2)]">上下文用量未知</span>;
+  }
+  const rows: Array<{ label: string; value: string }> = [
+    { label: '当前用量', value: formatTokenCount(usage.prompt_tokens) },
+    { label: '压缩阈值', value: formatTokenCount(usage.threshold_tokens) },
+    { label: '最大上下文', value: formatTokenCount(usage.max_context_tokens) }
+  ];
+  if (usage.cached_tokens) {
+    rows.push({ label: '缓存命中', value: formatTokenCount(usage.cached_tokens) });
+  }
+  return (
+    <div className="flex min-w-[160px] flex-col gap-1.5">
+      <div className="font-semibold text-[var(--fg-1)]">上下文用量</div>
+      <div className="flex flex-col gap-1">
+        {rows.map(row => (
+          <div key={row.label} className="flex items-center justify-between gap-4">
+            <span className="text-[var(--fg-3)]">{row.label}</span>
+            <span className="tabular-nums text-[var(--fg-1)]">{row.value}</span>
+          </div>
+        ))}
+      </div>
+      {usage.over_threshold && (
+        <div className="text-[var(--color-warning-500)]">已超过压缩阈值，下一轮将触发压缩</div>
+      )}
+    </div>
+  );
+};
+
 const ContextUsageMeter: React.FC<{ usage?: ContextUsage | null }> = ({ usage }) => {
   const threshold = usage?.threshold_tokens || DEFAULT_CONTEXT_THRESHOLD_TOKENS;
   const promptTokens = usage?.prompt_tokens || 0;
@@ -25,29 +56,30 @@ const ContextUsageMeter: React.FC<{ usage?: ContextUsage | null }> = ({ usage })
   const degrees = Math.round(progress * 360);
   const meterColor = overThreshold ? 'var(--color-warning-500)' : 'var(--accent)';
   const trackColor = 'rgba(20,23,31,0.12)';
-  const title = usage
+  const ariaLabel = usage
     ? `上下文 ${formatTokenCount(promptTokens)} / ${formatTokenCount(threshold)}`
     : '上下文用量未知';
 
   return (
-    <div
-      className={`lawyance-composer-action lawyance-pressable relative text-[var(--fg-3)] ${overThreshold ? 'bg-[rgba(214,137,16,0.12)]' : ''}`}
-      role="meter"
-      aria-label={title}
-      aria-valuemin={0}
-      aria-valuemax={threshold}
-      aria-valuenow={promptTokens}
-      title={title}
-    >
-      <span
-        className="block h-[18px] w-[18px] rounded-full"
-        style={{
-          background: `conic-gradient(${meterColor} ${degrees}deg, ${trackColor} ${degrees}deg 360deg)`
-        }}
+    <HoverInfo label={<ContextUsageInfo usage={usage} />} placement="top">
+      <div
+        className={`lawyance-composer-action lawyance-pressable relative text-[var(--fg-3)] ${overThreshold ? 'bg-[rgba(214,137,16,0.12)]' : ''}`}
+        role="meter"
+        aria-label={ariaLabel}
+        aria-valuemin={0}
+        aria-valuemax={threshold}
+        aria-valuenow={promptTokens}
       >
-        <span className="m-[4px] block h-[10px] w-[10px] rounded-full bg-[var(--bg-surface)] shadow-[inset_0_0_0_1px_var(--border-default)]" />
-      </span>
-    </div>
+        <span
+          className="block h-[18px] w-[18px] rounded-full"
+          style={{
+            background: `conic-gradient(${meterColor} ${degrees}deg, ${trackColor} ${degrees}deg 360deg)`
+          }}
+        >
+          <span className="m-[4px] block h-[10px] w-[10px] rounded-full bg-[var(--bg-surface)] shadow-[inset_0_0_0_1px_var(--border-default)]" />
+        </span>
+      </div>
+    </HoverInfo>
   );
 };
 
@@ -313,14 +345,16 @@ export const InputArea: React.FC<InputAreaProps> = ({
               <Settings2 size={20} strokeWidth={2} />
             </button>
 
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isLoading}
-              className="lawyance-composer-action lawyance-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
-              title="Upload file (Max 50MB)"
-            >
-              <Paperclip size={20} strokeWidth={2} />
-            </button>
+            <HoverInfo label="Upload file (Max 50MB)" placement="top">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                className="lawyance-composer-action lawyance-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+                aria-label="Upload file (Max 50MB)"
+              >
+                <Paperclip size={20} strokeWidth={2} />
+              </button>
+            </HoverInfo>
             <input
               type="file"
               ref={fileInputRef}
