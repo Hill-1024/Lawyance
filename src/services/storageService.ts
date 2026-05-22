@@ -20,6 +20,22 @@ const decodeExportBytes = (source: Uint8Array, key: string): string => {
   return new TextDecoder().decode(bytes);
 };
 
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    return (([1e7] as any)+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, (c: any) =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
 export const storageService = {
   acceptedConversationFileExtensions: [".lawyance", ".json.enc", LEGACY_EXPORT_EXTENSION].join(","),
 
@@ -133,7 +149,7 @@ export const storageService = {
     
     const newConversations = conversations.map(conv => {
       const oldId = conv.id;
-      const newId = crypto.randomUUID();
+      const newId = generateUUID();
       
       // Update Conversation ID
       const newConv = { ...conv, id: newId };
