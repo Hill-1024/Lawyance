@@ -7,6 +7,49 @@ import { createPortal } from 'react-dom';
 import { Settings2, Paperclip, X, Send, LoaderCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
+import type { ContextUsage } from '../types';
+
+const DEFAULT_CONTEXT_THRESHOLD_TOKENS = 500000;
+
+const formatTokenCount = (tokens: number) => {
+  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(tokens >= 10000000 ? 0 : 1)}M`;
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
+  return `${tokens}`;
+};
+
+const ContextUsageMeter: React.FC<{ usage?: ContextUsage | null }> = ({ usage }) => {
+  const threshold = usage?.threshold_tokens || DEFAULT_CONTEXT_THRESHOLD_TOKENS;
+  const promptTokens = usage?.prompt_tokens || 0;
+  const progress = usage ? Math.min(Math.max(promptTokens / threshold, 0), 1) : 0;
+  const overThreshold = Boolean(usage?.over_threshold || promptTokens > threshold);
+  const degrees = Math.round(progress * 360);
+  const meterColor = overThreshold ? 'var(--color-warning-500)' : 'var(--accent)';
+  const trackColor = 'rgba(20,23,31,0.12)';
+  const title = usage
+    ? `上下文 ${formatTokenCount(promptTokens)} / ${formatTokenCount(threshold)}`
+    : '上下文用量未知';
+
+  return (
+    <div
+      className={`lawyance-composer-action lawyance-pressable relative text-[var(--fg-3)] ${overThreshold ? 'bg-[rgba(214,137,16,0.12)]' : ''}`}
+      role="meter"
+      aria-label={title}
+      aria-valuemin={0}
+      aria-valuemax={threshold}
+      aria-valuenow={promptTokens}
+      title={title}
+    >
+      <span
+        className="block h-[18px] w-[18px] rounded-full"
+        style={{
+          background: `conic-gradient(${meterColor} ${degrees}deg, ${trackColor} ${degrees}deg 360deg)`
+        }}
+      >
+        <span className="m-[4px] block h-[10px] w-[10px] rounded-full bg-[var(--bg-surface)] shadow-[inset_0_0_0_1px_var(--border-default)]" />
+      </span>
+    </div>
+  );
+};
 
 interface InputAreaProps {
   input: string;
@@ -14,6 +57,7 @@ interface InputAreaProps {
   handleSend: () => void;
   isLoading: boolean;
   composerStatus?: string | null;
+  contextUsage?: ContextUsage | null;
   pendingUploads: { name: string, path: string }[];
   removeUploadedFile: (index: number) => void;
   handleFileUpload: (file: File) => void;
@@ -34,6 +78,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   handleSend,
   isLoading,
   composerStatus,
+  contextUsage,
   pendingUploads,
   removeUploadedFile,
   handleFileUpload,
@@ -287,6 +332,8 @@ export const InputArea: React.FC<InputAreaProps> = ({
               className="hidden"
               accept=".pdf,.doc,.docx,.txt,.md"
             />
+
+            <ContextUsageMeter usage={contextUsage} />
 
             <textarea
               ref={textareaRef}

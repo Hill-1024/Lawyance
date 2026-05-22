@@ -66,7 +66,8 @@ export const chat = async (
   useOcp: boolean,
   memorySnapshot?: ConversationMemory | null,
   memorySyncMode?: 'merge' | 'rebuild',
-  memoryConflictStrategy?: 'server_merge'
+  memoryConflictStrategy?: 'server_merge',
+  lastContextTokens?: number | null
 ) => {
   const response = await fetch('/api/chat', {
     method: 'POST',
@@ -81,7 +82,8 @@ export const chat = async (
       memory_snapshot: memorySnapshot || null,
       memory_sync_mode: memorySyncMode,
       expected_revision: memorySnapshot?.revision,
-      memory_conflict_strategy: memoryConflictStrategy
+      memory_conflict_strategy: memoryConflictStrategy,
+      last_context_tokens: lastContextTokens ?? null
     })
   });
 
