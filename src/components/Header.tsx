@@ -6,6 +6,7 @@ import React from 'react';
 import { Menu, Sun, Monitor, Moon, Folder } from 'lucide-react';
 import { motion } from 'motion/react';
 import { BrandMark } from './Brand';
+import { HoverInfo } from './HoverInfo';
 
 interface HeaderProps {
   title: string;
@@ -46,19 +47,20 @@ export const Header: React.FC<HeaderProps> = ({
         </h1>
       </div>
       <div className="relative flex shrink-0 items-center gap-0.5 sm:gap-1">
-        <button
-          onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
-          className={`lawyance-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
-          title="Workspace"
-          aria-label="Toggle workspace"
-        >
-          <div className="relative">
-            <Folder size={20} strokeWidth={2} />
-            {workspaceFilesCount > 0 && (
-              <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--bg-app)] bg-[var(--accent)]" />
-            )}
-          </div>
-        </button>
+        <HoverInfo label="Workspace" placement="bottom">
+          <button
+            onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
+            className={`lawyance-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+            aria-label="Toggle workspace"
+          >
+            <div className="relative">
+              <Folder size={20} strokeWidth={2} />
+              {workspaceFilesCount > 0 && (
+                <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--bg-app)] bg-[var(--accent)]" />
+              )}
+            </div>
+          </button>
+        </HoverInfo>
         <div className="relative flex items-center rounded-full bg-[rgba(20,23,31,0.06)] p-1 dark:bg-white/[0.06] sm:ml-1">
           <motion.div
             className="absolute bottom-1 top-1 w-[30px] rounded-full bg-[var(--bg-surface)] shadow-[var(--shadow-1)] sm:w-9"
@@ -68,27 +70,33 @@ export const Header: React.FC<HeaderProps> = ({
             }}
             transition={{ type: "spring", stiffness: 500, damping: 30 }}
           />
-          <button
-            onClick={() => setThemeMode('light')}
-            className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'light' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
-            title="Light Mode"
-          >
-            <Sun size={16} strokeWidth={2} />
-          </button>
-          <button
-            onClick={() => setThemeMode('system')}
-            className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'system' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
-            title="System Mode"
-          >
-            <Monitor size={16} strokeWidth={2} />
-          </button>
-          <button
-            onClick={() => setThemeMode('dark')}
-            className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'dark' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
-            title="Dark Mode"
-          >
-            <Moon size={16} strokeWidth={2} />
-          </button>
+          <HoverInfo label="Light Mode" placement="bottom">
+            <button
+              onClick={() => setThemeMode('light')}
+              className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'light' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+              aria-label="Light Mode"
+            >
+              <Sun size={16} strokeWidth={2} />
+            </button>
+          </HoverInfo>
+          <HoverInfo label="System Mode" placement="bottom">
+            <button
+              onClick={() => setThemeMode('system')}
+              className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'system' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+              aria-label="System Mode"
+            >
+              <Monitor size={16} strokeWidth={2} />
+            </button>
+          </HoverInfo>
+          <HoverInfo label="Dark Mode" placement="bottom">
+            <button
+              onClick={() => setThemeMode('dark')}
+              className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'dark' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+              aria-label="Dark Mode"
+            >
+              <Moon size={16} strokeWidth={2} />
+            </button>
+          </HoverInfo>
         </div>
       </div>
     </header>

@@ -8,6 +8,7 @@ import { fetchLogs, fetchAccounts, setAccount, logout as apiLogout, deleteAccoun
 import { Search, ShieldAlert, Users, Activity, EyeOff, RefreshCw, ArrowLeft, LogOut, Plus, KeyRound, Globe, Clock, User, Trash2 } from 'lucide-react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { BrandMark } from './Brand';
+import { HoverInfo } from './HoverInfo';
 
 /* ── helpers ── */
 interface ParsedLog {
@@ -130,9 +131,11 @@ export const AdminDashboard: React.FC = () => {
       {/* ── Top Bar (Liquid Glass) ── */}
       <header className="liquid-glass z-20 flex shrink-0 items-center justify-between px-5 py-3" style={{ borderRadius: 0, borderTop: 'none', borderLeft: 'none', borderRight: 'none' }}>
         <div className="relative z-[1] flex items-center gap-2">
-          <button onClick={() => navigate('/')} className="md3-btn-text !p-2 !rounded-full" title="返回聊天">
-            <ArrowLeft className="h-5 w-5" strokeWidth={2} />
-          </button>
+          <HoverInfo label="返回聊天" placement="bottom">
+            <button onClick={() => navigate('/')} className="md3-btn-text !p-2 !rounded-full" aria-label="返回聊天">
+              <ArrowLeft className="h-5 w-5" strokeWidth={2} />
+            </button>
+          </HoverInfo>
           <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)]">
             <BrandMark className="h-5 w-5" />
           </div>
@@ -273,19 +276,25 @@ export const AdminDashboard: React.FC = () => {
                       </span>
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                      <button onClick={() => openResetModal(acc.username, acc.role)}
-                        className="md3-btn-text !p-2 !rounded-full" title="重置密码">
-                          <KeyRound className="h-4 w-4" strokeWidth={2} />
-                      </button>
+                      <HoverInfo label="重置密码" placement="top">
+                        <button onClick={() => openResetModal(acc.username, acc.role)}
+                          className="md3-btn-text !p-2 !rounded-full" aria-label="重置密码">
+                            <KeyRound className="h-4 w-4" strokeWidth={2} />
+                        </button>
+                      </HoverInfo>
                       {acc.username === 'admin' ? (
-                        <button className="md3-btn-text !p-2 !rounded-full opacity-30 cursor-not-allowed" title="系统管理员不可删除">
-                          <Trash2 className="h-4 w-4" strokeWidth={2} />
-                        </button>
+                        <HoverInfo label="系统管理员不可删除" placement="top">
+                          <button className="md3-btn-text !p-2 !rounded-full opacity-30 cursor-not-allowed" aria-label="系统管理员不可删除">
+                            <Trash2 className="h-4 w-4" strokeWidth={2} />
+                          </button>
+                        </HoverInfo>
                       ) : (
-                        <button onClick={() => handleDeleteAccount(acc.username)}
-                          className="md3-btn-text !p-2 !rounded-full !text-[var(--color-danger-500)]" title="删除账号">
-                          <Trash2 className="h-4 w-4" strokeWidth={2} />
-                        </button>
+                        <HoverInfo label="删除账号" placement="top">
+                          <button onClick={() => handleDeleteAccount(acc.username)}
+                            className="md3-btn-text !p-2 !rounded-full !text-[var(--color-danger-500)]" aria-label="删除账号">
+                            <Trash2 className="h-4 w-4" strokeWidth={2} />
+                          </button>
+                        </HoverInfo>
                       )}
                     </div>
                   </div>
@@ -294,9 +303,11 @@ export const AdminDashboard: React.FC = () => {
             )}
 
             {/* FAB */}
-            <button onClick={openAddModal} className="md3-fab" title="新增账号">
-              <Plus className="h-6 w-6" strokeWidth={2} />
-            </button>
+            <HoverInfo label="新增账号" placement="top">
+              <button onClick={openAddModal} className="md3-fab" aria-label="新增账号">
+                <Plus className="h-6 w-6" strokeWidth={2} />
+              </button>
+            </HoverInfo>
           </div>
         )}
       </main>

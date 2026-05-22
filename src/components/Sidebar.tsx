@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Conversation } from '../types';
 import { StorageIndicator } from './StorageIndicator';
 import { BrandLockup } from './Brand';
+import { HoverInfo } from './HoverInfo';
 
 const SIDEBAR_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
@@ -115,14 +116,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <span className="truncate pr-2 text-[14px]">{conv.title}</span>
-                <button
-                  onClick={(e) => deleteConversation(conv.id, e)}
-                  className="lawyance-pressable inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:opacity-0 lg:group-hover:opacity-100"
-                  title="Delete chat"
-                  aria-label="Delete chat"
-                >
-                  <Trash2 size={16} strokeWidth={2} />
-                </button>
+                <HoverInfo label="Delete chat" placement="top">
+                  <button
+                    onClick={(e) => deleteConversation(conv.id, e)}
+                    className="lawyance-pressable inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:opacity-0 lg:group-hover:opacity-100"
+                    aria-label="Delete chat"
+                  >
+                    <Trash2 size={16} strokeWidth={2} />
+                  </button>
+                </HoverInfo>
               </div>
             ))}
           </div>
