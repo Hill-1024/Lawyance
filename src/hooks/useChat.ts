@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import type { BackendHistoryMessage, Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
+import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
 import { fileDB } from '../lib/db';
 import { chat, deleteWorkspace, MemoryRevisionConflictError, syncConversationMemory } from '../services/api';
 
@@ -33,8 +33,9 @@ const GREETING_MESSAGE = `您好，我是 **Lawyance**，由 **工大法智团�
 - 信源可溯 — 所有法条与案例均提供权威出处
 请问有什么法律问题需要我协助分析？`;
 
-const HISTORY_COMPRESSION_THRESHOLD = 20;
+const CONTEXT_COMPRESSION_THRESHOLD_TOKENS = 500000;
 const HISTORY_COMPRESSION_STATUS = '正在整理较早上下文';
+const CJK_CHAR_PATTERN = /[\u3400-\u9fff\uf900-\ufaff]/g;
 
 const normalizeBackendMessage = (msg: Partial<Message> | BackendHistoryMessage): BackendHistoryMessage | null => {
   const rawRole = (msg.role as string) || '';
@@ -74,6 +75,27 @@ const formatHistoryForBackend = (messages: Message[]) => {
     return formatted;
   });
 };
+
+const estimateTextTokens = (value: unknown): number => {
+  const text = typeof value === 'string' ? value : String(value ?? '');
+  if (!text) return 0;
+  const cjkMatches = text.match(CJK_CHAR_PATTERN);
+  const cjkCount = cjkMatches?.length ?? 0;
+  const nonCjk = text.replace(CJK_CHAR_PATTERN, '').replace(/\s+/g, ' ');
+  return cjkCount + Math.ceil(nonCjk.length / 4);
+};
+
+const estimateBackendMessageTokens = (message: BackendHistoryMessage): number => {
+  let total = 4 + estimateTextTokens(message.role) + estimateTextTokens(message.content);
+  if (message.name) total += estimateTextTokens(message.name);
+  if (message.tool_call_id) total += estimateTextTokens(message.tool_call_id);
+  if (message.tool_calls) total += estimateTextTokens(JSON.stringify(message.tool_calls));
+  return total;
+};
+
+const estimateRequestContextTokens = (history: BackendHistoryMessage[], messageContent: string): number => (
+  3 + history.reduce((total, message) => total + estimateBackendMessageTokens(message), 0) + estimateTextTokens(messageContent)
+);
 
 const appendThoughtBlock = (
   blocks: ThoughtBlock[],
@@ -133,10 +155,19 @@ export function useChat() {
 
   const currentConversation = conversations.find(c => c.id === currentId) || { id: '', title: '', messages: [] };
   const messages = currentConversation.messages;
+  const contextUsage = currentConversation.context_usage || null;
   const nowIso = () => new Date().toISOString();
-  const shouldShowHistoryCompressionStatus = (history: BackendHistoryMessage[]) => (
-    history.length > HISTORY_COMPRESSION_THRESHOLD
-  );
+  const shouldShowHistoryCompressionStatus = (
+    usage: ContextUsage | null | undefined,
+    history: BackendHistoryMessage[],
+    messageContent: string
+  ) => {
+    const threshold = usage?.threshold_tokens || CONTEXT_COMPRESSION_THRESHOLD_TOKENS;
+    return Boolean(
+      (usage?.prompt_tokens && usage.prompt_tokens > threshold) ||
+      estimateRequestContextTokens(history, messageContent) > threshold
+    );
+  };
 
   useEffect(() => {
     const initData = async () => {
@@ -245,6 +276,15 @@ export function useChat() {
     }));
   };
 
+  const updateConversationContextUsage = (convId: string, usage?: ContextUsage | null) => {
+    if (!usage || typeof usage.prompt_tokens !== 'number') return;
+    setConversations(prev => prev.map(conv => (
+      conv.id === convId
+        ? { ...conv, context_usage: usage, updated_at: nowIso() }
+        : conv
+    )));
+  };
+
   const syncMemoryFromMessages = async (convId: string, messages: Message[]) => {
     const emptyMemory = createEmptyConversationMemory(convId);
     updateConversationMemory(convId, emptyMemory);
@@ -269,14 +309,15 @@ export function useChat() {
     convId: string,
     stream: boolean,
     memorySnapshot: ConversationMemory,
-    memorySyncMode: 'merge' | 'rebuild' = 'merge'
+    memorySyncMode: 'merge' | 'rebuild' = 'merge',
+    lastContextTokens?: number | null
   ) => {
     try {
-      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode);
+      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, undefined, lastContextTokens);
     } catch (error) {
       if (!(error instanceof MemoryRevisionConflictError)) throw error;
       updateConversationMemory(convId, error.detail?.memory_snapshot as ConversationMemory | undefined);
-      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, 'server_merge');
+      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, 'server_merge', lastContextTokens);
     }
   };
 
@@ -377,6 +418,8 @@ export function useChat() {
         }
       } else if (data.type === 'memory_sync') {
         updateConversationMemory(convId, data.content as ConversationMemory);
+      } else if (data.type === 'context_usage') {
+        updateConversationContextUsage(convId, data.content as ContextUsage);
       } else if (data.type === 'history_trace') {
         const traceMessages = Array.isArray(data.content) ? data.content : [data.content];
         contextMessages = [
@@ -486,7 +529,8 @@ export function useChat() {
     const isFirstUserMessage = conv.messages.filter(m => m.role === 'user').length === 0;
     const history = formatHistoryForBackend(conv.messages);
     const memorySnapshot = conv.memory || createEmptyConversationMemory(convId);
-    const shouldShowCompressionStatus = shouldShowHistoryCompressionStatus(history);
+    const lastContextTokens = conv.context_usage?.prompt_tokens ?? null;
+    const shouldShowCompressionStatus = shouldShowHistoryCompressionStatus(conv.context_usage, history, messageContent);
 
     updateMessages(convId, prev => [...prev, userMessage]);
     setInput('');
@@ -500,7 +544,7 @@ export function useChat() {
         await syncFiles();
       }
 
-      const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot);
+      const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot, 'merge', lastContextTokens);
 
       if (isStreaming) {
         setComposerStatus(null);
@@ -524,6 +568,7 @@ export function useChat() {
           updated_at: nowIso()
         }]);
         updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
+        updateConversationContextUsage(convId, data.context_usage as ContextUsage | undefined);
         setIsLoading(false);
         setComposerStatus(null);
         onFileGenerated?.('sync', '');
@@ -572,7 +617,8 @@ export function useChat() {
     const retainedMessages = conv.messages.slice(0, msgIndex);
     const history = formatHistoryForBackend(retainedMessages);
     const memorySnapshot = createEmptyConversationMemory(convId);
-    const shouldShowCompressionStatus = shouldShowHistoryCompressionStatus(history);
+    const lastContextTokens = conv.context_usage?.prompt_tokens ?? null;
+    const shouldShowCompressionStatus = shouldShowHistoryCompressionStatus(conv.context_usage, history, content);
 
     updateMessages(convId, () => retainedMessages);
     updateConversationMemory(convId, memorySnapshot);
@@ -589,7 +635,7 @@ export function useChat() {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content, created_at: now, updated_at: now };
       updateMessages(convId, prev => [...prev, userMessage]);
 
-      const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild');
+      const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild', lastContextTokens);
 
       if (isStreaming) {
         setComposerStatus(null);
@@ -613,6 +659,7 @@ export function useChat() {
           updated_at: nowIso()
         }]);
         updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
+        updateConversationContextUsage(convId, data.context_usage as ContextUsage | undefined);
         setIsLoading(false);
         setComposerStatus(null);
         onFileGenerated?.('sync', '');
@@ -704,6 +751,7 @@ export function useChat() {
     setIsOCPEnabled,
     isInitialized,
     currentConversation,
+    contextUsage,
     messages,
     handleNewChat,
     deleteConversation,

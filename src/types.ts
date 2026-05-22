@@ -16,6 +16,15 @@ export type BackendHistoryMessage = {
   name?: string;
 };
 
+export type ContextUsage = {
+  prompt_tokens: number;
+  cached_tokens?: number;
+  cache_miss_tokens?: number;
+  threshold_tokens: number;
+  max_context_tokens: number;
+  over_threshold: boolean;
+};
+
 export type Message = {
   id: string;
   role: 'user' | 'assistant' | 'tool';
@@ -102,6 +111,7 @@ export type Conversation = {
   title: string;
   messages: Message[];
   memory?: ConversationMemory;
+  context_usage?: ContextUsage;
   created_at?: string;
   updated_at?: string;
 };
