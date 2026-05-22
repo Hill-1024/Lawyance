@@ -4,7 +4,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings2, Paperclip, X, Send } from 'lucide-react';
+import { Settings2, Paperclip, X, Send, LoaderCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 
@@ -13,6 +13,7 @@ interface InputAreaProps {
   setInput: (val: string) => void;
   handleSend: () => void;
   isLoading: boolean;
+  composerStatus?: string | null;
   pendingUploads: { name: string, path: string }[];
   removeUploadedFile: (index: number) => void;
   handleFileUpload: (file: File) => void;
@@ -32,6 +33,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   setInput,
   handleSend,
   isLoading,
+  composerStatus,
   pendingUploads,
   removeUploadedFile,
   handleFileUpload,
@@ -236,6 +238,25 @@ export const InputArea: React.FC<InputAreaProps> = ({
               ))}
             </div>
           )}
+
+          <AnimatePresence>
+            {composerStatus && (
+              <motion.div
+                key="composer-status"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
+                role="status"
+                aria-live="polite"
+                data-testid="composer-status"
+                className="mx-2 mb-1 flex h-8 max-w-full min-w-0 items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-inset)] px-3 text-xs font-medium leading-none text-[var(--fg-2)] shadow-[var(--shadow-1)]"
+              >
+                <LoaderCircle size={14} strokeWidth={2} className="shrink-0 animate-spin text-[var(--accent)]" />
+                <span className="min-w-0 truncate">{composerStatus}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="lawyance-composer-shell">
             <button
