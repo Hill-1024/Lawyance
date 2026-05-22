@@ -150,7 +150,21 @@ class OCPStatic:
     MAX_TOOL_ROUNDS = None
     MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
     MAX_RETRIES = 1      # 单次 LLM 调用最大重试次数
-    RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
+    RETRYABLE_STATUS_CODES = {
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "Timeout",
+        "timeout",
+        "timed out",
+        "Connection error",
+        "RemoteProtocolError",
+        "ReadError",
+        "peer closed connection",
+        "incomplete chunked read",
+    }
 
     def __init__(self, session_id: str = "default"):
         self.session_id = session_id

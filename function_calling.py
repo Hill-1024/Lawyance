@@ -10,6 +10,7 @@ import json
 import time
 import copy
 from mcps import tools
+from services.context_usage import extract_cache_stats, record_context_usage
 from tools import registry
 from llm.retry import with_retry
 
@@ -44,28 +45,14 @@ def _now():
     return datetime.now()
 
 
-def _usage_field(value, field_name, default=0):
-    if value is None:
-        return default
-    if isinstance(value, dict):
-        return value.get(field_name, default)
-    return getattr(value, field_name, default)
-
-
 def _extract_cache_stats(usage) -> tuple[int, int, int]:
     """返回 (prompt_tokens, cached_tokens, cache_miss_tokens)，缺失字段按 0 处理。"""
-    if usage is None:
-        return 0, 0, 0
+    return extract_cache_stats(usage)
 
-    prompt = _usage_field(usage, "prompt_tokens", 0) or 0
-    details = _usage_field(usage, "prompt_tokens_details", None)
-    cached = _usage_field(details, "cached_tokens", 0) or 0
-    if not cached:
-        cached = _usage_field(usage, "prompt_cache_hit_tokens", 0) or 0
-    if not cached:
-        cached = _usage_field(usage, "cache_read_input_tokens", 0) or 0
 
-    miss = max(prompt - cached, 0)
+def _record_response_usage(usage) -> tuple[int, int, int]:
+    prompt, cached, miss = _extract_cache_stats(usage)
+    record_context_usage(prompt, cached, miss)
     return prompt, cached, miss
 
 
@@ -212,7 +199,21 @@ async def call(
 
     # 瞬时错误重试配置
     MAX_RETRIES = 3
-    RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504"}
+    RETRYABLE_STATUS_CODES = {
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "Connection error",
+        "RemoteProtocolError",
+        "ReadError",
+        "Timeout",
+        "timeout",
+        "timed out",
+        "peer closed connection",
+        "incomplete chunked read",
+    }
 
     def _on_retry(attempt: int, max_retries: int, wait_time: float, exc: Exception):
         print(f"[LLM 调用失败 (第 {attempt}/{max_retries} 次)]: {exc}")
@@ -229,7 +230,7 @@ async def call(
         print(f"[LLM 调用成功]")
         if stream:
             return response
-        prompt, cached, miss = _extract_cache_stats(getattr(response, "usage", None))
+        prompt, cached, miss = _record_response_usage(getattr(response, "usage", None))
         if prompt:
             print(
                 f"[LLM 缓存] model={LLM_MODEL} prompt={prompt} "
@@ -256,7 +257,7 @@ async def call(
             print(f"[LLM 调用成功]")
             if stream:
                 return response
-            prompt, cached, miss = _extract_cache_stats(getattr(response, "usage", None))
+            prompt, cached, miss = _record_response_usage(getattr(response, "usage", None))
             if prompt:
                 print(
                     f"[LLM 缓存] model={LLM_MODEL} prompt={prompt} "

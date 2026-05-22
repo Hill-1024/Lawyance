@@ -20,6 +20,10 @@ from prompt_loader import build_system_memory
 from schemas import ChatRequest
 from services.agent_builder import build_agent
 from services.conversation_state import active_conversations
+from services.context_usage import (
+    reset_current_context_usage_accumulator,
+    set_current_context_usage_accumulator,
+)
 from services.history import compress_history
 from services.memory_coordinator import (
     is_empty_reset_memory_snapshot,
@@ -99,6 +103,7 @@ async def prepare_history(
     sanitized_history: list[dict],
     prompt_focus: list[str],
     memory_context: str,
+    last_context_tokens: Optional[int] = None,
 ) -> list[dict]:
     full_history = build_system_memory(
         agent_mode=agent_mode,
@@ -111,6 +116,8 @@ async def prepare_history(
         agent_mode=agent_mode,
         focus=prompt_focus,
         memory_context=memory_context,
+        current_user_content=content,
+        last_context_tokens=last_context_tokens,
     )
     processed_history.append({"role": "user", "content": content})
     return processed_history
@@ -133,6 +140,7 @@ async def prepare_chat_turn(request: ChatRequest, current_user: str) -> Prepared
         sanitized_history,
         prompt_focus,
         memory_context,
+        request.last_context_tokens,
     )
     agent = build_agent(request.agent_mode, processed_history, session_id, workspace_scope, use_ocp=request.use_ocp)
     return PreparedChatTurn(
@@ -161,42 +169,46 @@ async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
     full_result = ""
     memory_written = False
     turn_token = set_current_memory_turn_id(prepared.turn_id)
+    usage_token, usage_accumulator = set_current_context_usage_accumulator()
     try:
-        run_iter = await _run_agent(prepared, stream=True)
-        async for chunk in run_iter:
-            if isinstance(chunk, dict):
-                chunk_type = chunk.get("type")
-                if chunk_type == "content":
-                    full_result += str(chunk.get("content") or "")
-                elif chunk_type == "content_replace":
-                    full_result = str(chunk.get("content") or "")
-                elif chunk_type == "memory_candidate":
-                    if not memory_written:
-                        yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "正在整理记忆"}
-                        memory_payload = persist_turn(
-                            prepared.workspace_scope,
-                            prepared.content,
-                            str(chunk.get("content") or full_result),
-                            prepared.turn_id,
-                        )
-                        memory_written = True
-                        if memory_payload.get("memory"):
-                            yield {"type": "memory_sync", "content": memory_payload["memory"]}
-                        yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "记忆整理完成"}
-                    continue
-                yield chunk
-            elif chunk:
-                chunk_str = str(chunk)
-                if "[THOUGHT_SIGNATURE:" in chunk_str:
-                    ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", chunk_str)
-                    if ts_match:
-                        ts = ts_match.group(1)
-                        yield {"type": "thought_signature", "content": ts}
-                        chunk_str = chunk_str.replace(ts_match.group(0), "")
+        try:
+            run_iter = await _run_agent(prepared, stream=True)
+            async for chunk in run_iter:
+                if isinstance(chunk, dict):
+                    chunk_type = chunk.get("type")
+                    if chunk_type == "content":
+                        full_result += str(chunk.get("content") or "")
+                    elif chunk_type == "content_replace":
+                        full_result = str(chunk.get("content") or "")
+                    elif chunk_type == "memory_candidate":
+                        if not memory_written:
+                            yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "正在整理记忆"}
+                            memory_payload = persist_turn(
+                                prepared.workspace_scope,
+                                prepared.content,
+                                str(chunk.get("content") or full_result),
+                                prepared.turn_id,
+                            )
+                            memory_written = True
+                            if memory_payload.get("memory"):
+                                yield {"type": "memory_sync", "content": memory_payload["memory"]}
+                            yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "记忆整理完成"}
+                        continue
+                    yield chunk
+                elif chunk:
+                    chunk_str = str(chunk)
+                    if "[THOUGHT_SIGNATURE:" in chunk_str:
+                        ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", chunk_str)
+                        if ts_match:
+                            ts = ts_match.group(1)
+                            yield {"type": "thought_signature", "content": ts}
+                            chunk_str = chunk_str.replace(ts_match.group(0), "")
 
-                if chunk_str:
-                    full_result += chunk_str
-                    yield {"type": "content", "content": chunk_str}
+                    if chunk_str:
+                        full_result += chunk_str
+                        yield {"type": "content", "content": chunk_str}
+        finally:
+            reset_current_context_usage_accumulator(usage_token)
 
         if not memory_written:
             yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "正在整理记忆"}
@@ -204,6 +216,9 @@ async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
             if memory_payload.get("memory"):
                 yield {"type": "memory_sync", "content": memory_payload["memory"]}
             yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "记忆整理完成"}
+        usage_payload = usage_accumulator.payload()
+        if usage_payload:
+            yield {"type": "context_usage", "content": usage_payload}
     except Exception as e:
         print(f"[聊天流生成失败]: {type(e).__name__}: {e}")
         yield {"type": "error", "content": str(e)}
@@ -213,6 +228,7 @@ async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
 
 async def run_agent_once(prepared: PreparedChatTurn) -> dict:
     turn_token = set_current_memory_turn_id(prepared.turn_id)
+    usage_token, usage_accumulator = set_current_context_usage_accumulator()
     try:
         full_result = ""
         context_messages = []
@@ -220,47 +236,54 @@ async def run_agent_once(prepared: PreparedChatTurn) -> dict:
         memory_payload = {}
         memory_written = False
 
-        run_iter = await _run_agent(prepared, stream=False)
-        async for chunk in run_iter:
-            if isinstance(chunk, dict):
-                if chunk.get("type") == "content":
-                    full_result += chunk.get("content", "")
-                elif chunk.get("type") == "content_replace":
-                    full_result = chunk.get("content", "")
-                elif chunk.get("type") == "thought_signature":
-                    thought_signature = chunk.get("content")
-                elif chunk.get("type") == "history_trace":
-                    messages = chunk.get("content") or []
-                    if isinstance(messages, dict):
-                        messages = [messages]
-                    if isinstance(messages, list):
-                        context_messages.extend(messages)
-                elif chunk.get("type") == "memory_candidate" and not memory_written:
-                    memory_payload = persist_turn(
-                        prepared.workspace_scope,
-                        prepared.content,
-                        str(chunk.get("content") or full_result),
-                        prepared.turn_id,
-                    )
-                    memory_written = True
-            elif chunk:
-                chunk_str = str(chunk)
-                if "[THOUGHT_SIGNATURE:" in chunk_str:
-                    ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", chunk_str)
-                    if ts_match:
-                        thought_signature = ts_match.group(1)
-                        chunk_str = chunk_str.replace(ts_match.group(0), "")
-                full_result += chunk_str
+        try:
+            run_iter = await _run_agent(prepared, stream=False)
+            async for chunk in run_iter:
+                if isinstance(chunk, dict):
+                    if chunk.get("type") == "content":
+                        full_result += chunk.get("content", "")
+                    elif chunk.get("type") == "content_replace":
+                        full_result = chunk.get("content", "")
+                    elif chunk.get("type") == "thought_signature":
+                        thought_signature = chunk.get("content")
+                    elif chunk.get("type") == "history_trace":
+                        messages = chunk.get("content") or []
+                        if isinstance(messages, dict):
+                            messages = [messages]
+                        if isinstance(messages, list):
+                            context_messages.extend(messages)
+                    elif chunk.get("type") == "memory_candidate" and not memory_written:
+                        memory_payload = persist_turn(
+                            prepared.workspace_scope,
+                            prepared.content,
+                            str(chunk.get("content") or full_result),
+                            prepared.turn_id,
+                        )
+                        memory_written = True
+                elif chunk:
+                    chunk_str = str(chunk)
+                    if "[THOUGHT_SIGNATURE:" in chunk_str:
+                        ts_match = re.search(r"\[THOUGHT_SIGNATURE:(.*?)]", chunk_str)
+                        if ts_match:
+                            thought_signature = ts_match.group(1)
+                            chunk_str = chunk_str.replace(ts_match.group(0), "")
+                    full_result += chunk_str
+        finally:
+            reset_current_context_usage_accumulator(usage_token)
 
         if not memory_written:
             memory_payload = persist_turn(prepared.workspace_scope, prepared.content, full_result, prepared.turn_id)
-        return {
+        result = {
             "reply": full_result,
             "download_path": None,
             "thought_signature": thought_signature,
             "context_messages": context_messages,
             "memory_snapshot": memory_payload.get("memory"),
         }
+        usage_payload = usage_accumulator.payload()
+        if usage_payload:
+            result["context_usage"] = usage_payload
+        return result
     finally:
         reset_current_memory_turn_id(turn_token)
 

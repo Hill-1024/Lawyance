@@ -189,6 +189,35 @@ class FunctionCallingToolLoadingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(message.content, "ok")
         self.assertEqual(captured_choices, [forced_choice, "auto"])
 
+    async def test_call_retries_incomplete_chunked_initial_failure(self):
+        import function_calling
+
+        original_create = function_calling.client.chat.completions.create
+        calls = {"count": 0}
+
+        async def fake_create(**kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("peer closed connection without sending complete message body (incomplete chunked read)")
+            message = types.SimpleNamespace(content="ok")
+            return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+        async def no_sleep(_seconds):
+            return None
+
+        try:
+            function_calling.client.chat.completions.create = fake_create
+            with mock.patch("llm.retry.asyncio.sleep", no_sleep):
+                message = await function_calling.call(
+                    [{"role": "system", "content": "system"}, {"role": "user", "content": "hello"}],
+                    include_tools=False,
+                )
+        finally:
+            function_calling.client.chat.completions.create = original_create
+
+        self.assertEqual(calls["count"], 2)
+        self.assertEqual(message.content, "ok")
+
     async def test_empty_non_streaming_model_response_raises(self):
         import function_calling
 
