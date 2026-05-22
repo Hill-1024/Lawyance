@@ -33,6 +33,9 @@ const GREETING_MESSAGE = `您好，我是 **Lawyance**，由 **工大法智团�
 - 信源可溯 — 所有法条与案例均提供权威出处
 请问有什么法律问题需要我协助分析？`;
 
+const HISTORY_COMPRESSION_THRESHOLD = 20;
+const HISTORY_COMPRESSION_STATUS = '正在整理较早上下文';
+
 const normalizeBackendMessage = (msg: Partial<Message> | BackendHistoryMessage): BackendHistoryMessage | null => {
   const rawRole = (msg.role as string) || '';
   const role = rawRole === 'agent' ? 'assistant' : rawRole;
@@ -122,6 +125,7 @@ export function useChat() {
   const [currentId, setCurrentId] = useState<string>('');
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [composerStatus, setComposerStatus] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(true);
   const [agentMode, setAgentMode] = useState('default');
   const [isOCPEnabled, setIsOCPEnabled] = useState(true);
@@ -130,6 +134,9 @@ export function useChat() {
   const currentConversation = conversations.find(c => c.id === currentId) || { id: '', title: '', messages: [] };
   const messages = currentConversation.messages;
   const nowIso = () => new Date().toISOString();
+  const shouldShowHistoryCompressionStatus = (history: BackendHistoryMessage[]) => (
+    history.length > HISTORY_COMPRESSION_THRESHOLD
+  );
 
   useEffect(() => {
     const initData = async () => {
@@ -479,21 +486,24 @@ export function useChat() {
     const isFirstUserMessage = conv.messages.filter(m => m.role === 'user').length === 0;
     const history = formatHistoryForBackend(conv.messages);
     const memorySnapshot = conv.memory || createEmptyConversationMemory(convId);
+    const shouldShowCompressionStatus = shouldShowHistoryCompressionStatus(history);
 
     updateMessages(convId, prev => [...prev, userMessage]);
     setInput('');
     setPendingUploads([]);
     setIsLoading(true);
-
-    // Pre-flight sync: Ensure all files are synced to the server before sending the request
-    if (syncFiles) {
-      await syncFiles();
-    }
+    setComposerStatus(shouldShowCompressionStatus ? HISTORY_COMPRESSION_STATUS : null);
 
     try {
+      // Pre-flight sync: Ensure all files are synced to the server before sending the request
+      if (syncFiles) {
+        await syncFiles();
+      }
+
       const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot);
 
       if (isStreaming) {
+        setComposerStatus(null);
         await processStream(response, null, convId, onFileGenerated);
       } else {
         const data = await response.json();
@@ -515,6 +525,7 @@ export function useChat() {
         }]);
         updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
         setIsLoading(false);
+        setComposerStatus(null);
         onFileGenerated?.('sync', '');
       }
 
@@ -541,6 +552,8 @@ export function useChat() {
     } catch (error) {
       console.error('Failed to send message:', error);
       setIsLoading(false);
+    } finally {
+      setComposerStatus(null);
     }
   };
 
@@ -559,17 +572,19 @@ export function useChat() {
     const retainedMessages = conv.messages.slice(0, msgIndex);
     const history = formatHistoryForBackend(retainedMessages);
     const memorySnapshot = createEmptyConversationMemory(convId);
+    const shouldShowCompressionStatus = shouldShowHistoryCompressionStatus(history);
 
     updateMessages(convId, () => retainedMessages);
     updateConversationMemory(convId, memorySnapshot);
     setIsLoading(true);
-
-    // Pre-flight sync: Ensure all files are synced to the server before sending the request
-    if (syncFiles) {
-      await syncFiles();
-    }
+    setComposerStatus(shouldShowCompressionStatus ? HISTORY_COMPRESSION_STATUS : null);
 
     try {
+      // Pre-flight sync: Ensure all files are synced to the server before sending the request
+      if (syncFiles) {
+        await syncFiles();
+      }
+
       const now = nowIso();
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content, created_at: now, updated_at: now };
       updateMessages(convId, prev => [...prev, userMessage]);
@@ -577,6 +592,7 @@ export function useChat() {
       const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild');
 
       if (isStreaming) {
+        setComposerStatus(null);
         await processStream(response, null, convId, onFileGenerated);
       } else {
         const data = await response.json();
@@ -598,6 +614,7 @@ export function useChat() {
         }]);
         updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
         setIsLoading(false);
+        setComposerStatus(null);
         onFileGenerated?.('sync', '');
       }
 
@@ -624,6 +641,8 @@ export function useChat() {
     } catch (error) {
       console.error('Failed to regenerate message:', error);
       setIsLoading(false);
+    } finally {
+      setComposerStatus(null);
     }
   };
 
@@ -676,6 +695,7 @@ export function useChat() {
     input,
     setInput,
     isLoading,
+    composerStatus,
     isStreaming,
     setIsStreaming,
     agentMode,

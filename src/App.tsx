@@ -42,6 +42,7 @@ function App() {
     input,
     setInput,
     isLoading,
+    composerStatus,
     isStreaming,
     setIsStreaming,
     agentMode,
@@ -260,6 +261,7 @@ function App() {
               setInput={setInput}
               handleSend={() => handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles, isLowStorage)}
               isLoading={isLoading}
+              composerStatus={composerStatus}
               pendingUploads={pendingUploads}
               removeUploadedFile={removeUploadedFile}
               handleFileUpload={handleFileUpload}
