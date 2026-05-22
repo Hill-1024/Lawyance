@@ -8,12 +8,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes import admin, auth, chat, spa, workspace
-from services import workspace_cleanup
+from services import law_cache, workspace_cleanup
 from services.app_security import ALLOWED_ORIGINS, LOCAL_ORIGIN_RE, security_and_logging_middleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await law_cache.prepare_on_startup(app)
     workspace_cleanup.start(app)
     yield
     await workspace_cleanup.stop(app)

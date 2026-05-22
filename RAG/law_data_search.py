@@ -10,17 +10,22 @@ import re
 import sqlite3
 import threading
 import time
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-Unix fallback
+    fcntl = None
 
 BASE_DIR = Path(__file__).resolve().parent
 RAW_DATA_DIR = BASE_DIR / "data"
 CACHE_DIR = BASE_DIR / "cache"
 DB_PATH = CACHE_DIR / "law.db"
 MANIFEST_PATH = CACHE_DIR / "manifest.json"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MAX_TITLE_CHARS = 160
 MAX_ARTICLE_NUMBER_CHARS = 40
 MAX_QUERY_CHARS = 4000
@@ -306,20 +311,7 @@ class LawSearchEngine:
         return json.dumps(payload, ensure_ascii=False)
 
     def _ensure_built(self) -> None:
-        source_manifest = build_source_manifest()
-        with BUILD_LOCK:
-            if not needs_rebuild(source_manifest):
-                return
-            CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            temp_db = DB_PATH.with_suffix(".tmp")
-            if temp_db.exists():
-                temp_db.unlink()
-            build_database(temp_db)
-            temp_db.replace(DB_PATH)
-            MANIFEST_PATH.write_text(
-                json.dumps(source_manifest, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+        ensure_law_database_ready()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(DB_PATH)
@@ -646,17 +638,22 @@ def build_source_manifest() -> Dict[str, object]:
     digest = hashlib.sha256()
     latest_mtime_ns = 0
     total_size = 0
+    files: Dict[str, Dict[str, object]] = {}
 
     for path in file_paths:
         stat = path.stat()
         latest_mtime_ns = max(latest_mtime_ns, stat.st_mtime_ns)
         total_size += stat.st_size
         relative_path = path.relative_to(RAW_DATA_DIR).as_posix()
+        file_sha256 = hash_file(path)
+        files[relative_path] = {
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "sha256": file_sha256,
+        }
         digest.update(relative_path.encode("utf-8"))
         digest.update(b"\0")
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
+        digest.update(file_sha256.encode("ascii"))
         digest.update(b"\0")
 
     return {
@@ -665,17 +662,237 @@ def build_source_manifest() -> Dict[str, object]:
         "latest_mtime_ns": latest_mtime_ns,
         "total_size": total_size,
         "content_sha256": digest.hexdigest(),
+        "files": files,
     }
 
 
-def needs_rebuild(source_manifest: Dict[str, object]) -> bool:
-    if not DB_PATH.exists() or not MANIFEST_PATH.exists():
-        return True
+def hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_cached_manifest() -> Optional[Dict[str, object]]:
+    if not MANIFEST_PATH.exists():
+        return None
     try:
-        current = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def manifest_rebuild_key(manifest: Optional[Dict[str, object]]) -> Optional[Dict[str, object]]:
+    if manifest is None:
+        return None
+    return {
+        "schema_version": manifest.get("schema_version"),
+        "file_count": manifest.get("file_count"),
+        "total_size": manifest.get("total_size"),
+        "content_sha256": manifest.get("content_sha256"),
+        "files": normalize_manifest_files(manifest.get("files")),
+    }
+
+
+def normalize_manifest_files(raw_files: object) -> Dict[str, Dict[str, object]]:
+    if not isinstance(raw_files, dict):
+        return {}
+    normalized: Dict[str, Dict[str, object]] = {}
+    for relative_path, entry in raw_files.items():
+        if not isinstance(relative_path, str) or not isinstance(entry, dict):
+            continue
+        normalized[relative_path] = {
+            "size": entry.get("size"),
+            "sha256": entry.get("sha256"),
+        }
+    return normalized
+
+
+def needs_rebuild(source_manifest: Dict[str, object]) -> bool:
+    if not DB_PATH.exists():
         return True
-    return current != source_manifest
+    current = read_cached_manifest()
+    if current is None:
+        return True
+    return manifest_rebuild_key(current) != manifest_rebuild_key(source_manifest)
+
+
+@contextmanager
+def database_build_lock():
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    lock_path = CACHE_DIR / "build.lock"
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def write_manifest(source_manifest: Dict[str, object]) -> None:
+    MANIFEST_PATH.write_text(
+        json.dumps(source_manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def ensure_law_database_ready(*, force_rebuild: bool = False) -> Dict[str, object]:
+    with BUILD_LOCK:
+        with database_build_lock():
+            source_manifest = build_source_manifest()
+            cached_manifest = read_cached_manifest()
+            if not force_rebuild and not needs_rebuild(source_manifest):
+                return {
+                    "rebuilt": False,
+                    "mode": "unchanged",
+                    "file_count": source_manifest["file_count"],
+                    "content_sha256": source_manifest["content_sha256"],
+                }
+
+            if force_rebuild or not can_incremental_rebuild(cached_manifest):
+                full_rebuild(source_manifest)
+                return {
+                    "rebuilt": True,
+                    "mode": "full",
+                    "file_count": source_manifest["file_count"],
+                    "content_sha256": source_manifest["content_sha256"],
+                }
+
+            changes = sync_database_incremental(source_manifest, cached_manifest or {})
+            write_manifest(source_manifest)
+            return {
+                "rebuilt": True,
+                "mode": "incremental",
+                "file_count": source_manifest["file_count"],
+                "content_sha256": source_manifest["content_sha256"],
+                **changes,
+            }
+
+
+def can_incremental_rebuild(cached_manifest: Optional[Dict[str, object]]) -> bool:
+    return (
+        DB_PATH.exists()
+        and cached_manifest is not None
+        and cached_manifest.get("schema_version") == SCHEMA_VERSION
+        and bool(cached_manifest.get("files"))
+    )
+
+
+def full_rebuild(source_manifest: Dict[str, object]) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    temp_db = DB_PATH.with_suffix(".tmp")
+    for suffix in ("", "-wal", "-shm"):
+        candidate = Path(f"{temp_db}{suffix}")
+        if candidate.exists():
+            candidate.unlink()
+    build_database(temp_db)
+    for suffix in ("-wal", "-shm"):
+        candidate = Path(f"{DB_PATH}{suffix}")
+        if candidate.exists():
+            candidate.unlink()
+    temp_db.replace(DB_PATH)
+    for suffix in ("-wal", "-shm"):
+        candidate = Path(f"{temp_db}{suffix}")
+        if candidate.exists():
+            candidate.unlink()
+    write_manifest(source_manifest)
+
+
+def changed_source_paths(
+    source_manifest: Dict[str, object],
+    cached_manifest: Dict[str, object],
+) -> Tuple[List[str], List[str]]:
+    source_files = normalize_manifest_files(source_manifest.get("files"))
+    cached_files = normalize_manifest_files(cached_manifest.get("files"))
+    removed = sorted(path for path in cached_files if path not in source_files)
+    changed = sorted(
+        path
+        for path, entry in source_files.items()
+        if cached_files.get(path) != entry
+    )
+    return changed, removed
+
+
+def should_skip_source_law(parsed: SourceLaw) -> bool:
+    effectiveness = parsed.metadata.get("effectiveness", "")
+    return any(keyword in effectiveness for keyword in SKIP_EFFECTIVENESS_KEYWORDS)
+
+
+def insert_source_law(conn: sqlite3.Connection, source_file: Path, parsed: SourceLaw) -> int:
+    metadata = parsed.metadata
+    title = parsed.law_name
+
+    aliases = build_aliases(title)
+    if parsed.short_name and parsed.short_name not in aliases:
+        aliases.insert(1 if len(aliases) > 1 else len(aliases), parsed.short_name)
+    short_name = parsed.short_name or (aliases[1] if len(aliases) > 1 else aliases[0])
+    law_key = source_file.relative_to(RAW_DATA_DIR).as_posix()
+
+    cursor = conn.execute(
+        """
+        INSERT INTO laws (
+            law_key, law_name, short_name, category, url, cli,
+            effectiveness, publish_date, implement_date
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            law_key,
+            title,
+            short_name,
+            parsed.category,
+            metadata.get("url", ""),
+            metadata.get("cli", ""),
+            metadata.get("effectiveness", ""),
+            metadata.get("publish_date", ""),
+            metadata.get("implement_date", ""),
+        ),
+    )
+    law_id = cursor.lastrowid
+
+    conn.executemany(
+        "INSERT INTO law_aliases (law_id, alias, normalized_alias) VALUES (?, ?, ?)",
+        [(law_id, alias, normalize_title(alias)) for alias in aliases],
+    )
+
+    article_rows = []
+    for article_number, content in parsed.articles:
+        normalized_article = normalize_article_number(article_number)
+        if not normalized_article:
+            continue
+        search_blob = "\n".join(
+            [
+                title,
+                short_name,
+                parsed.category,
+                article_number,
+                content,
+            ]
+        )
+        article_rows.append(
+            (
+                law_id,
+                article_number,
+                normalized_article,
+                content,
+                search_blob,
+            )
+        )
+
+    conn.executemany(
+        """
+        INSERT INTO articles (
+            law_id, article_number, normalized_article, content, search_blob
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        article_rows,
+    )
+    return len(article_rows)
 
 
 def build_database(db_path: Path) -> None:
@@ -722,86 +939,65 @@ def build_database(db_path: Path) -> None:
 
         for source_file in iter_source_files():
             parsed = parse_source_file(source_file)
-            if parsed is None:
+            if parsed is None or should_skip_source_law(parsed):
                 continue
 
-            metadata = parsed.metadata
-            effectiveness = metadata.get("effectiveness", "")
-            if any(keyword in effectiveness for keyword in SKIP_EFFECTIVENESS_KEYWORDS):
-                continue
-
-            title = parsed.law_name
-
-            aliases = build_aliases(title)
-            if parsed.short_name and parsed.short_name not in aliases:
-                aliases.insert(1 if len(aliases) > 1 else len(aliases), parsed.short_name)
-            short_name = parsed.short_name or (aliases[1] if len(aliases) > 1 else aliases[0])
-            law_key = source_file.relative_to(RAW_DATA_DIR).as_posix()
-
-            cursor = conn.execute(
-                """
-                INSERT INTO laws (
-                    law_key, law_name, short_name, category, url, cli,
-                    effectiveness, publish_date, implement_date
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    law_key,
-                    title,
-                    short_name,
-                    parsed.category,
-                    metadata.get("url", ""),
-                    metadata.get("cli", ""),
-                    effectiveness,
-                    metadata.get("publish_date", ""),
-                    metadata.get("implement_date", ""),
-                ),
-            )
-            law_id = cursor.lastrowid
-
-            conn.executemany(
-                "INSERT INTO law_aliases (law_id, alias, normalized_alias) VALUES (?, ?, ?)",
-                [(law_id, alias, normalize_title(alias)) for alias in aliases],
-            )
-
-            article_rows = []
-            for article_number, content in parsed.articles:
-                normalized_article = normalize_article_number(article_number)
-                if not normalized_article:
-                    continue
-                search_blob = "\n".join(
-                    [
-                        title,
-                        short_name,
-                        parsed.category,
-                        article_number,
-                        content,
-                    ]
-                )
-                article_rows.append(
-                    (
-                        law_id,
-                        article_number,
-                        normalized_article,
-                        content,
-                        search_blob,
-                    )
-                )
-
-            conn.executemany(
-                """
-                INSERT INTO articles (
-                    law_id, article_number, normalized_article, content, search_blob
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                article_rows,
-            )
+            insert_source_law(conn, source_file, parsed)
 
         conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     finally:
         conn.close()
+
+
+def sync_database_incremental(
+    source_manifest: Dict[str, object],
+    cached_manifest: Dict[str, object],
+) -> Dict[str, int]:
+    changed, removed = changed_source_paths(source_manifest, cached_manifest)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        deleted_laws = delete_laws_by_keys(conn, [*removed, *changed])
+        indexed_laws = 0
+        skipped_laws = 0
+        indexed_articles = 0
+
+        for relative_path in changed:
+            source_file = RAW_DATA_DIR / relative_path
+            parsed = parse_source_file(source_file)
+            if parsed is None or should_skip_source_law(parsed):
+                skipped_laws += 1
+                continue
+            indexed_articles += insert_source_law(conn, source_file, parsed)
+            indexed_laws += 1
+
+        conn.commit()
+        return {
+            "changed_files": len(changed),
+            "removed_files": len(removed),
+            "deleted_laws": deleted_laws,
+            "indexed_laws": indexed_laws,
+            "skipped_laws": skipped_laws,
+            "indexed_articles": indexed_articles,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def delete_laws_by_keys(conn: sqlite3.Connection, law_keys: Sequence[str]) -> int:
+    deleted = 0
+    for law_key in law_keys:
+        rows = conn.execute("SELECT id FROM laws WHERE law_key = ?", (law_key,)).fetchall()
+        for row in rows:
+            law_id = row[0]
+            conn.execute("DELETE FROM law_aliases WHERE law_id = ?", (law_id,))
+            conn.execute("DELETE FROM articles WHERE law_id = ?", (law_id,))
+            conn.execute("DELETE FROM laws WHERE id = ?", (law_id,))
+            deleted += 1
+    return deleted
 
 
 def build_query_terms(query: str) -> List[str]:
