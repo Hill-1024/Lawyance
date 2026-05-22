@@ -1,8 +1,8 @@
-# Lawyance
+# Lawver
 
 [中文](./README.md) | English | [日本語](./README.ja.md)
 
-Lawyance is a Chinese legal AI assistant project built by the GDUT legal intelligence team. It combines legal consultation, statute retrieval, case matching, company information lookup, contract/PDF/Word document handling, conversation-level memory, and a frontend workspace into one application. The goal is not to return unverifiable one-line answers, but to structure legal questions into facts, authorities, retrieved evidence, and analysis paths that can be checked further.
+Lawver is a Chinese legal AI assistant project built by the GDUT legal intelligence team. It combines legal consultation, statute retrieval, case matching, company information lookup, contract/PDF/Word document handling, conversation-level memory, and a frontend workspace into one application. The goal is not to return unverifiable one-line answers, but to structure legal questions into facts, authorities, retrieved evidence, and analysis paths that can be checked further.
 
 The repository contains a FastAPI backend, a React/Vite frontend, a tool forwarding layer, legal data clients, document processors, a conversation memory system, and an output review flow. Module boundaries matter: business tools are exposed to agents through `mcps`, and product code should not bypass that middleware.
 
@@ -23,7 +23,7 @@ The repository contains a FastAPI backend, a React/Vite frontend, a tool forward
 - **Conversation workspace**: isolates `TEMP` and `Result` file spaces by user and conversation.
 - **Conversation memory**: records and retrieves stable facts, goals, constraints, and semantic tags without stuffing all history into the prompt.
 - **Auth and audit**: login, roles, admin account management, API access logs, and basic rate limiting.
-- **Frontend experience**: React 19 + Vite UI with chat, files, workspace, theme settings, admin dashboard, and Lawyance branding.
+- **Frontend experience**: React 19 + Vite UI with chat, files, workspace, theme settings, admin dashboard, and Lawver branding.
 
 ## Architecture
 
@@ -148,7 +148,7 @@ Workspace path validation lives in `workspace.py`, shared by `mcps.py` and `tool
 
 OCP is a post-answer formatting review pass. Main-model failures still follow the main-model error path; OCP timeout, network failure, tool failure, or reviewer failure must not raise into the user path. It falls back to deterministic sanitizer-only output while preserving the main-model answer.
 
-This architecture work does not include Lawyance naming cleanup, tool naming rewrites, or agent reasoning strategy rewrites.
+This architecture work does not include Lawver naming cleanup, tool naming rewrites, or agent reasoning strategy rewrites.
 
 The web-search tool uses self-hosted SearXNG and does not depend on third-party search APIs such as Tavily or SerpAPI. `web_search` only returns structured results and snippets; when full page text is needed, the model should call `web_fetch`. `web_fetch` marks returned page text as untrusted web data and it must not be followed as instructions.
 
@@ -177,7 +177,7 @@ Optional environment variables:
 - The memory system is conversation-level structured memory. It is not user-level profiling; optional embedding is only a retrieval weight signal.
 - Uploaded and generated files must stay inside the user/conversation workspace boundary.
 - Legal answers should preserve a verifiable chain: facts, statutes, cases, or source links should remain traceable.
-- Frontend migration and UI work should follow the Lawyance design system, not hide layout issues with padding hacks or compatibility layers.
+- Frontend migration and UI work should follow the Lawver design system, not hide layout issues with padding hacks or compatibility layers.
 
 ## Security Notes
 

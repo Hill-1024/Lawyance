@@ -12,7 +12,7 @@ from workspace import is_within_directory
 
 
 ALLOWED_WORKSPACE_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt", ".md"}
-MAX_UPLOAD_BYTES = int(os.getenv("LAWYANCE_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+MAX_UPLOAD_BYTES = int(os.getenv("LAWVER_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 
 def safe_upload_filename(filename: str | None) -> str:

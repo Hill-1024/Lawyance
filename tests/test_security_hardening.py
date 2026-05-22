@@ -31,7 +31,7 @@ class SecurityBootstrapTests(unittest.TestCase):
             env = os.environ.copy()
             env.pop("SECRET_KEY", None)
             env.pop("INITIAL_ADMIN_PASSWORD", None)
-            env["LAWYANCE_DATA_DIR"] = tmp
+            env["LAWVER_DATA_DIR"] = tmp
             env["PYTHONPATH"] = REPO_ROOT
             result = subprocess.run(
                 [sys.executable, "-c", "import auth"],
@@ -50,7 +50,7 @@ class SecurityBootstrapTests(unittest.TestCase):
             env = os.environ.copy()
             env["SECRET_KEY"] = TEST_SECRET
             env.pop("INITIAL_ADMIN_PASSWORD", None)
-            env["LAWYANCE_DATA_DIR"] = tmp
+            env["LAWVER_DATA_DIR"] = tmp
             env["PYTHONPATH"] = REPO_ROOT
             result = subprocess.run(
                 [sys.executable, "-c", "import auth"],
@@ -74,7 +74,7 @@ class SecurityBootstrapTests(unittest.TestCase):
                 )
             env = os.environ.copy()
             env["SECRET_KEY"] = TEST_SECRET
-            env["LAWYANCE_DATA_DIR"] = tmp
+            env["LAWVER_DATA_DIR"] = tmp
             env["PYTHONPATH"] = REPO_ROOT
             result = subprocess.run(
                 [sys.executable, "-c", "import auth"],
@@ -92,10 +92,10 @@ class SecurityBootstrapTests(unittest.TestCase):
 class AuthStateConcurrencyTests(unittest.TestCase):
     def test_parallel_failed_logins_preserve_lockout_state(self):
         with tempfile.TemporaryDirectory() as tmp:
-            old_env = {key: os.environ.get(key) for key in ("SECRET_KEY", "INITIAL_ADMIN_PASSWORD", "LAWYANCE_DATA_DIR")}
+            old_env = {key: os.environ.get(key) for key in ("SECRET_KEY", "INITIAL_ADMIN_PASSWORD", "LAWVER_DATA_DIR")}
             os.environ["SECRET_KEY"] = TEST_SECRET
             os.environ["INITIAL_ADMIN_PASSWORD"] = "bootstrap-password"
-            os.environ["LAWYANCE_DATA_DIR"] = tmp
+            os.environ["LAWVER_DATA_DIR"] = tmp
             sys.modules.pop("auth", None)
             try:
                 auth = importlib.import_module("auth")
@@ -136,7 +136,7 @@ class ApiBoundaryTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         os.environ["SECRET_KEY"] = TEST_SECRET
         os.environ["INITIAL_ADMIN_PASSWORD"] = "bootstrap-password"
-        os.environ["LAWYANCE_DATA_DIR"] = self.tmp
+        os.environ["LAWVER_DATA_DIR"] = self.tmp
         os.environ.setdefault("API_KEY", "test-key")
         os.environ.setdefault("BASE_URL", "http://127.0.0.1/v1")
         os.environ.setdefault("LLM_MODEL", "test-model")

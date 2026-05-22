@@ -5,7 +5,7 @@
 import { Conversation } from '../types';
 
 export class FileDB {
-  private dbName = 'LawyanceFileDB';
+  private dbName = 'LawverFileDB';
   private previousDbNames = [
     this.decodeName([76, 97, 119, 118, 101, 114]) + 'FileDB',
     this.decodeName([76, 97, 119, 121, 101, 114]) + 'FileDB'
@@ -46,7 +46,7 @@ export class FileDB {
         try {
           await this.ensurePreviousDataMigrated(db);
         } catch (error) {
-          console.warn('Lawyance IndexedDB migration skipped:', error);
+          console.warn('Lawver IndexedDB migration skipped:', error);
         }
         resolve(db);
       };
