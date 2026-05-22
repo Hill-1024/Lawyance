@@ -49,6 +49,37 @@ class ToolLoopAgentTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(events[-1], {"type": "content", "content": "完成"})
 
+    async def test_stream_peer_closed_falls_back_to_non_stream_round(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        call_modes = []
+
+        class BrokenStream:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise RuntimeError("peer closed connection without sending complete message body (incomplete chunked read)")
+
+        async def fake_call(context, stream=False, **kwargs):
+            call_modes.append(stream)
+            if stream:
+                return BrokenStream()
+            return types.SimpleNamespace(content="<final_answer>完成</final_answer>", tool_calls=None)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(memory=[{"role": "user", "content": "问题"}], use_ocp=False)
+            events = [event async for event in agent.run(stream=True)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(call_modes, [True, False])
+        self.assertTrue(any("非流式重试" in event.get("content", "") for event in events))
+        self.assertEqual(events[-1], {"type": "content_replace", "content": "完成"})
+
     async def test_plan_and_solve_state_machine_and_final_answer(self):
         import agents.tool_loop as tool_loop_module
         from agents.tool_loop import ToolLoopAgent, plan_and_solve_tool_choice_policy

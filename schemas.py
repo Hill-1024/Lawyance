@@ -27,6 +27,7 @@ class ChatRequest(BaseModel):
     memory_sync_mode: Optional[str] = None
     expected_revision: Optional[int] = None
     memory_conflict_strategy: Optional[str] = None
+    last_context_tokens: Optional[int] = None
 
 
 class SummarizeRequest(BaseModel):

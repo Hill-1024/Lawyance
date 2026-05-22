@@ -11,9 +11,20 @@ from typing import Any, Callable
 
 from function_calling import call, create_assistant_message
 from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
+from services.context_usage import record_openai_usage
 
 
 _DEFAULT_MAX_ROUNDS = object()
+_TRANSIENT_STREAM_ERROR_MARKERS = (
+    "peer closed connection",
+    "incomplete chunked read",
+    "remoteprotocolerror",
+    "connection error",
+    "readerror",
+    "read timeout",
+    "timeout",
+    "timed out",
+)
 
 
 def _optional_positive_int_env(name: str, default: int | None = None):
@@ -46,6 +57,11 @@ def plan_and_solve_tool_choice_policy(state: dict[str, Any]):
     if state.get("force_final"):
         return _forced_tool_choice("submit_final_answer")
     return "auto"
+
+
+def _is_transient_stream_error(exc: Exception) -> bool:
+    error_text = f"{type(exc).__name__}: {exc}".lower()
+    return any(marker in error_text for marker in _TRANSIENT_STREAM_ERROR_MARKERS)
 
 
 class ToolLoopAgent:
@@ -298,11 +314,12 @@ class ToolLoopAgent:
 
             round_num += 1
             print(f"[ToolLoopAgent 流式] 第 {round_num} 轮调用 mode={self.mode}")
+            tool_choice = self._tool_choice(state)
             response = await call(
                 current_mem,
                 True,
                 tools_override=self.tools,
-                tool_choice=self._tool_choice(state),
+                tool_choice=tool_choice,
             )
             tool_calls: list[dict[str, Any]] = []
             assistant_content = ""
@@ -311,53 +328,80 @@ class ToolLoopAgent:
             saw_delta = False
             is_drafting = False
 
-            async for chunk in response:
-                if not getattr(chunk, "choices", None):
-                    continue
-                saw_delta = True
-                delta = chunk.choices[0].delta
+            try:
+                async for chunk in response:
+                    usage = getattr(chunk, "usage", None)
+                    if usage is not None:
+                        record_openai_usage(usage)
 
-                reasoning = getattr(delta, "reasoning_content", None)
-                if reasoning:
-                    reasoning_str += reasoning
-                    yield {"type": "thought", "content": reasoning, "thought_type": "reasoning", "mode": "append"}
+                    if not getattr(chunk, "choices", None):
+                        continue
+                    saw_delta = True
+                    delta = chunk.choices[0].delta
 
-                ts = getattr(delta, "thought_signature", None)
-                if ts:
-                    thought_signature_str = ts
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if reasoning:
+                        reasoning_str += reasoning
+                        yield {"type": "thought", "content": reasoning, "thought_type": "reasoning", "mode": "append"}
 
-                delta_content = getattr(delta, "content", None)
-                if delta_content is not None:
-                    assistant_content += delta_content
-                    accumulated_content += delta_content
-                    if self.use_ocp or self.final_answer_source == "tool_arg":
-                        if not is_drafting:
-                            is_drafting = True
-                            yield {"type": "thought", "content": "正在拟定回答初稿\n", "thought_type": "draft", "mode": "new"}
-                        yield {"type": "thought", "content": delta_content, "thought_type": "draft", "mode": "append"}
-                    else:
-                        yield {"type": "thought", "content": delta_content, "thought_type": "draft", "mode": "append"}
+                    ts = getattr(delta, "thought_signature", None)
+                    if ts:
+                        thought_signature_str = ts
 
-                for tc in getattr(delta, "tool_calls", None) or []:
-                    tc_index = getattr(tc, "index", None)
-                    tc_dump = self._tool_call_dict(tc)
-                    if tc_index is None:
-                        is_new_call = ("id" in tc_dump) or ("function" in tc_dump and "name" in tc_dump["function"])
-                        tc_index = len(tool_calls) if len(tool_calls) == 0 or is_new_call else len(tool_calls) - 1
-                    while len(tool_calls) <= tc_index:
-                        tool_calls.append({
-                            "id": f"call_{int(time.time())}_{tc_index}",
-                            "type": "function",
-                            "function": {"name": "", "arguments": ""},
-                        })
-                    if tc_dump.get("id"):
-                        tool_calls[tc_index]["id"] = tc_dump["id"]
-                    if "type" in tc_dump and tc_dump["type"]:
-                        tool_calls[tc_index]["type"] = tc_dump["type"]
-                    if isinstance(tc_dump.get("function"), dict):
-                        for key, value in tc_dump["function"].items():
-                            if value:
-                                tool_calls[tc_index]["function"][key] += value
+                    delta_content = getattr(delta, "content", None)
+                    if delta_content is not None:
+                        assistant_content += delta_content
+                        accumulated_content += delta_content
+                        if self.use_ocp or self.final_answer_source == "tool_arg":
+                            if not is_drafting:
+                                is_drafting = True
+                                yield {"type": "thought", "content": "正在拟定回答初稿\n", "thought_type": "draft", "mode": "new"}
+                            yield {"type": "thought", "content": delta_content, "thought_type": "draft", "mode": "append"}
+                        else:
+                            yield {"type": "thought", "content": delta_content, "thought_type": "draft", "mode": "append"}
+
+                    for tc in getattr(delta, "tool_calls", None) or []:
+                        tc_index = getattr(tc, "index", None)
+                        tc_dump = self._tool_call_dict(tc)
+                        if tc_index is None:
+                            is_new_call = ("id" in tc_dump) or ("function" in tc_dump and "name" in tc_dump["function"])
+                            tc_index = len(tool_calls) if len(tool_calls) == 0 or is_new_call else len(tool_calls) - 1
+                        while len(tool_calls) <= tc_index:
+                            tool_calls.append({
+                                "id": f"call_{int(time.time())}_{tc_index}",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            })
+                        if tc_dump.get("id"):
+                            tool_calls[tc_index]["id"] = tc_dump["id"]
+                        if "type" in tc_dump and tc_dump["type"]:
+                            tool_calls[tc_index]["type"] = tc_dump["type"]
+                        if isinstance(tc_dump.get("function"), dict):
+                            for key, value in tc_dump["function"].items():
+                                if value:
+                                    tool_calls[tc_index]["function"][key] += value
+            except Exception as exc:
+                if not _is_transient_stream_error(exc):
+                    raise
+                print(f"[ToolLoopAgent 流式] 上游流式连接中断，改用非流式重试本轮: {exc}")
+                yield {
+                    "type": "thought",
+                    "content": "上游流式连接中断，正在切换为非流式重试本轮\n",
+                    "thought_type": "draft",
+                    "mode": "new",
+                }
+                res = await call(
+                    current_mem,
+                    stream=False,
+                    tools_override=self.tools,
+                    tool_choice=tool_choice,
+                )
+                assistant_content = getattr(res, "content", None) or ""
+                accumulated_content = assistant_content
+                reasoning_str = self._message_reasoning_content(res)
+                thought_signature_str = self._message_thought_signature(res)
+                tool_calls = [self._tool_call_dict(tool_call) for tool_call in (getattr(res, "tool_calls", None) or [])]
+                saw_delta = bool(assistant_content or tool_calls)
 
             if tool_calls:
                 yield {"type": "thought", "content": "**正在调用工具处理中...**\n", "thought_type": "tool", "mode": "new"}

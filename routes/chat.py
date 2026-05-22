@@ -45,10 +45,19 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
 
     if request.stream:
         async def generate_agent():
-            async for event in run_agent_stream(prepared):
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            try:
+                async for event in run_agent_stream(prepared):
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                traceback.print_exc()
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
 
-        return StreamingResponse(generate_agent(), media_type="text/event-stream")
+        return StreamingResponse(
+            generate_agent(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     try:
         return await run_agent_once(prepared)

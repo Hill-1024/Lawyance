@@ -25,8 +25,8 @@ async def with_retry(
         try:
             return await call()
         except Exception as exc:
-            error_str = str(exc)
-            is_retryable = any(code in error_str for code in retryable_codes)
+            error_text = f"{type(exc).__name__}: {exc}".lower()
+            is_retryable = any(code.lower() in error_text for code in retryable_codes)
             if is_retryable and attempt < max_retries:
                 wait_time = float(backoff_base ** (attempt + 1))
                 if on_retry:

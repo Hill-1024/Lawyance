@@ -83,6 +83,51 @@ class ChatErrorPayloadTests(unittest.TestCase):
             },
         )
 
+    def test_streaming_chat_terminates_with_done_marker(self):
+        class FakeAgent:
+            async def run(self, content=None, stream=True):
+                yield {"type": "content", "content": "ok"}
+
+        def fake_build_agent(*_args, **_kwargs):
+            return FakeAgent()
+
+        original_build_agent = self.chat_pipeline.build_agent
+        original_sync = self.chat_pipeline.sync_memory_cache
+        original_retrieve = self.chat_pipeline.retrieve_memory_context
+        original_remember = self.chat_pipeline.remember_memory_turn
+        try:
+            self.chat_pipeline.build_agent = fake_build_agent
+            self.chat_pipeline.sync_memory_cache = lambda *args, **kwargs: {}
+            self.chat_pipeline.retrieve_memory_context = lambda *args, **kwargs: ("", {})
+            self.chat_pipeline.remember_memory_turn = lambda *args, **kwargs: {}
+
+            with TestClient(self.agent.app, base_url="http://localhost") as client:
+                login = client.post(
+                    "/api/login",
+                    json={"username": "admin", "password": "bootstrap-password"},
+                    headers={"origin": "http://localhost:5173"},
+                )
+                self.assertEqual(login.status_code, 200)
+                response = client.post(
+                    "/api/chat",
+                    json={
+                        "message": "测试",
+                        "history": [],
+                        "conversation_id": "conv",
+                        "stream": True,
+                    },
+                    headers={"origin": "http://localhost:5173"},
+                )
+        finally:
+            self.chat_pipeline.build_agent = original_build_agent
+            self.chat_pipeline.sync_memory_cache = original_sync
+            self.chat_pipeline.retrieve_memory_context = original_retrieve
+            self.chat_pipeline.remember_memory_turn = original_remember
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data: {"type": "content", "content": "ok"}', response.text)
+        self.assertTrue(response.text.rstrip().endswith("data: [DONE]"))
+
 
 if __name__ == "__main__":
     unittest.main()
