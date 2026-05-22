@@ -39,8 +39,8 @@ MAX_RESULTS_CAP = 20
 MAX_QUERY_LENGTH = 500
 SNIPPET_MAX_CHARS = 500
 DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
-SEARCH_USER_AGENT = "Lawyance/0.1 SearXNG-web-search"
-FETCH_USER_AGENT = "Mozilla/5.0 (compatible; Lawyance/0.1; +https://law.mutsumi.moe)"
+SEARCH_USER_AGENT = "Lawver/0.1 SearXNG-web-search"
+FETCH_USER_AGENT = "Mozilla/5.0 (compatible; Lawver/0.1; +https://law.mutsumi.moe)"
 
 FETCH_CONNECT_TIMEOUT = 5.0
 FETCH_READ_TIMEOUT = 15.0
@@ -86,8 +86,8 @@ if not _WEB_TOOL_LOGGER.handlers:
     os.makedirs("data", exist_ok=True)
     _handler = RotatingFileHandler(
         "data/web_tools.log",
-        maxBytes=int(os.environ.get("LAWYANCE_WEB_TOOL_LOG_MAX_BYTES", 5 * 1024 * 1024)),
-        backupCount=int(os.environ.get("LAWYANCE_WEB_TOOL_LOG_BACKUPS", 5)),
+        maxBytes=int(os.environ.get("LAWVER_WEB_TOOL_LOG_MAX_BYTES", 5 * 1024 * 1024)),
+        backupCount=int(os.environ.get("LAWVER_WEB_TOOL_LOG_BACKUPS", 5)),
         encoding="utf-8",
     )
     _handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))

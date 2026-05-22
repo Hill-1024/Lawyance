@@ -4,7 +4,7 @@
 
 import { fileDB } from '../lib/db';
 
-const EXPORT_SECURITY_KEY = "Lawyance-Security-Migration-Key-2024";
+const EXPORT_SECURITY_KEY = "Lawver-Security-Migration-Key-2024";
 const decodeCodes = (codes: number[]) => codes.map(code => String.fromCharCode(code)).join('');
 const PREVIOUS_EXPORT_SECURITY_KEYS = [
   decodeCodes([76, 97, 119, 118, 101, 114, 45, 83, 101, 99, 117, 114, 105, 116, 121, 45, 77, 105, 103, 114, 97, 116, 105, 111, 110, 45, 75, 101, 121, 45, 50, 48, 50, 52]),
@@ -37,7 +37,7 @@ const generateUUID = (): string => {
 };
 
 export const storageService = {
-  acceptedConversationFileExtensions: [".lawyance", ".json.enc", LEGACY_EXPORT_EXTENSION].join(","),
+  acceptedConversationFileExtensions: [".lawver", ".json.enc", LEGACY_EXPORT_EXTENSION].join(","),
 
   getConversationTimestamp(c: any): number {
     const timestamps = [
@@ -136,7 +136,7 @@ export const storageService = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `lawyance_dialogues_${new Date().toISOString().split('T')[0]}.lawyance`;
+    a.download = `lawver_dialogues_${new Date().toISOString().split('T')[0]}.lawver`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

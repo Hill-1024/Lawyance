@@ -196,7 +196,7 @@ class SearxngToolTests(unittest.TestCase):
         }
         with mock.patch.dict(os.environ, env, clear=True):
             with mock.patch("mcp.searxng_client.requests.get", side_effect=fake_get):
-                result = json.loads(mcps.use_tools("web_search", {"query": "lawyance"}, conv_id="tester/conv"))
+                result = json.loads(mcps.use_tools("web_search", {"query": "lawver"}, conv_id="tester/conv"))
 
         self.assertTrue(result["success"])
         self.assertEqual(result["results"][0]["title"], "Result")

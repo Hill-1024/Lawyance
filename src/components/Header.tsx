@@ -32,25 +32,25 @@ export const Header: React.FC<HeaderProps> = ({
   windowWidth
 }) => {
   return (
-    <header className="lawyance-topbar sticky top-0 z-30 flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-2.5 pb-2 pt-[calc(0.625rem+env(safe-area-inset-top))] text-[var(--fg-1)] sm:px-4 sm:pb-3 sm:pt-[calc(0.75rem+env(safe-area-inset-top))]">
+    <header className="lawver-topbar sticky top-0 z-30 flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-2.5 pb-2 pt-[calc(0.625rem+env(safe-area-inset-top))] text-[var(--fg-1)] sm:px-4 sm:pb-3 sm:pt-[calc(0.75rem+env(safe-area-inset-top))]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="lawyance-pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+          className="lawver-pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
           aria-label="Toggle conversations"
         >
           <Menu size={22} strokeWidth={2} />
         </button>
         <BrandMark className="hidden h-8 w-8 shrink-0 text-[var(--accent)] sm:block" />
-        <h1 className="lawyance-header-title t-title-l min-w-0 flex-1 truncate">
-          {title || 'Lawyance'}
+        <h1 className="lawver-header-title t-title-l min-w-0 flex-1 truncate">
+          {title || 'Lawver'}
         </h1>
       </div>
       <div className="relative flex shrink-0 items-center gap-0.5 sm:gap-1">
         <HoverInfo label="Workspace" placement="bottom">
           <button
             onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
-            className={`lawyance-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+            className={`lawver-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
             aria-label="Toggle workspace"
           >
             <div className="relative">
@@ -73,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
           <HoverInfo label="Light Mode" placement="bottom">
             <button
               onClick={() => setThemeMode('light')}
-              className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'light' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+              className={`lawver-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'light' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
               aria-label="Light Mode"
             >
               <Sun size={16} strokeWidth={2} />
@@ -82,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
           <HoverInfo label="System Mode" placement="bottom">
             <button
               onClick={() => setThemeMode('system')}
-              className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'system' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+              className={`lawver-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'system' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
               aria-label="System Mode"
             >
               <Monitor size={16} strokeWidth={2} />
@@ -91,7 +91,7 @@ export const Header: React.FC<HeaderProps> = ({
           <HoverInfo label="Dark Mode" placement="bottom">
             <button
               onClick={() => setThemeMode('dark')}
-              className={`lawyance-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'dark' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
+              className={`lawver-pressable relative z-10 flex h-8 w-[30px] items-center justify-center rounded-full transition-colors sm:h-9 sm:w-9 ${themeMode === 'dark' ? 'text-[var(--fg-1)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'}`}
               aria-label="Dark Mode"
             >
               <Moon size={16} strokeWidth={2} />
