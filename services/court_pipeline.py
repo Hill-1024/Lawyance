@@ -264,7 +264,14 @@ async def run_court_turn_stream(prepared: PreparedCourtTurn) -> AsyncIterator[di
             prepared.turn_id,
         )
         if memory_payload.get("memory"):
-            yield _with_court_meta(prepared, {"type": "memory_sync", "content": memory_payload["memory"]})
+            yield _with_court_meta(
+                prepared,
+                {
+                    "type": "memory_sync",
+                    "content": memory_payload["memory"],
+                    "turn_id": prepared.turn_id,
+                },
+            )
 
     usage_payload = usage_accumulator.payload()
     if usage_payload:
