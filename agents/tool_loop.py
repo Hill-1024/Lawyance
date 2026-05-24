@@ -126,6 +126,12 @@ class ToolLoopAgent:
         return result
 
     @staticmethod
+    def _sanitize_plain_answer(raw_content: str) -> str:
+        fallback = strip_think_blocks(raw_content)
+        fallback = strip_wrapper_tags(fallback)
+        return fallback.strip()
+
+    @staticmethod
     def _history_context_message(message: dict) -> dict:
         allowed_keys = {"role", "content", "tool_calls", "tool_call_id", "name"}
         return {key: value for key, value in message.items() if key in allowed_keys and value is not None}
@@ -267,12 +273,16 @@ class ToolLoopAgent:
         return events, final_answer
 
     async def _final_answer_events(self, raw_answer: str, *, stream: bool):
-        if self.final_answer_source == "tool_arg":
+        if self.final_answer_source == "plain_text":
+            answer = self._sanitize_plain_answer(raw_answer)
+        elif self.final_answer_source == "tool_arg":
             answer = self._sanitize_tool_answer(raw_answer)
         else:
             answer = self._sanitize_tagged_answer(raw_answer)
 
-        should_emit_memory_candidate = self.final_answer_source == "tool_arg" or self.use_ocp
+        should_emit_memory_candidate = self.final_answer_source == "tool_arg" or (
+            self.use_ocp and self.final_answer_source != "plain_text"
+        )
         if should_emit_memory_candidate and answer.strip() and not self._memory_candidate_emitted:
             self._memory_candidate_emitted = True
             yield {"type": "memory_candidate", "content": answer}
@@ -352,7 +362,9 @@ class ToolLoopAgent:
                     if delta_content is not None:
                         assistant_content += delta_content
                         accumulated_content += delta_content
-                        if self.use_ocp or self.final_answer_source == "tool_arg":
+                        if self.final_answer_source == "plain_text":
+                            yield {"type": "content", "content": delta_content}
+                        elif self.use_ocp or self.final_answer_source == "tool_arg":
                             if not is_drafting:
                                 is_drafting = True
                                 yield {"type": "thought", "content": "正在拟定回答初稿\n", "thought_type": "draft", "mode": "new"}

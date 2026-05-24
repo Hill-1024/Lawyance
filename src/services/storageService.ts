@@ -3,6 +3,7 @@
  */
 
 import { fileDB } from '../lib/db';
+import type { Conversation, CourtAgentStates, CourtPublicEvent, CourtSession } from '../types';
 
 const EXPORT_SECURITY_KEY = "Lawver-Security-Migration-Key-2024";
 const decodeCodes = (codes: number[]) => codes.map(code => String.fromCharCode(code)).join('');
@@ -34,6 +35,111 @@ const generateUUID = (): string => {
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
+};
+
+const nowIso = () => new Date().toISOString();
+
+const replaceIdInText = (value: unknown, oldId: string, newId: string) => {
+  return typeof value === 'string' ? value.replaceAll(oldId, newId) : value;
+};
+
+const remapConversation = (conv: any): Conversation => {
+  const oldId = String(conv.id || '');
+  const newId = generateUUID();
+  const updatedAt = nowIso();
+
+  const newConv = { ...conv, id: newId };
+  if (newConv.memory) {
+    newConv.memory = {
+      ...newConv.memory,
+      conversation_id: newId,
+      last_synced_at: '',
+      updated_at: updatedAt
+    };
+  }
+
+  newConv.messages = Array.isArray(conv.messages)
+    ? conv.messages.map((msg: any) => {
+      const thought_blocks = Array.isArray(msg.thought_blocks)
+        ? msg.thought_blocks.map((block: any) => ({
+          ...block,
+          content: replaceIdInText(block.content, oldId, newId)
+        }))
+        : msg.thought_blocks;
+
+      return {
+        ...msg,
+        content: replaceIdInText(msg.content || '', oldId, newId),
+        reasoning_content: replaceIdInText(msg.reasoning_content || '', oldId, newId),
+        thought_blocks
+      };
+    })
+    : [];
+
+  return newConv as Conversation;
+};
+
+const remapCourtEvent = (event: any, oldId: string, newId: string): CourtPublicEvent => {
+  const timestamp = nowIso();
+  return {
+    ...event,
+    id: generateUUID(),
+    content: replaceIdInText(event?.content || '', oldId, newId) as string,
+    created_at: event?.created_at || timestamp,
+    updated_at: event?.updated_at || timestamp
+  };
+};
+
+const remapCourtAgentStates = (agentStates: any, newId: string): CourtAgentStates => {
+  const roles: Array<keyof CourtAgentStates> = ['judge', 'opponent', 'reviewer'];
+  const timestamp = nowIso();
+  return roles.reduce((result, role) => {
+    const state = agentStates?.[role] || {};
+    result[role] = {
+      ...state,
+      status: 'idle',
+      memory_snapshot: state.memory_snapshot
+        ? {
+          ...state.memory_snapshot,
+          conversation_id: `${newId}:${role}`,
+          last_synced_at: '',
+          updated_at: timestamp
+        }
+        : null
+    };
+    return result;
+  }, {} as CourtAgentStates);
+};
+
+const remapCourtSession = (session: any): CourtSession => {
+  const oldId = String(session.id || '');
+  const newId = generateUUID();
+  const timestamp = nowIso();
+
+  return {
+    ...session,
+    id: newId,
+    title: (replaceIdInText(session.title || '模拟法庭', oldId, newId) as string) || '模拟法庭',
+    shared_dossier: {
+      summary: replaceIdInText(session.shared_dossier?.summary || '', oldId, newId) as string,
+      claims: replaceIdInText(session.shared_dossier?.claims || '', oldId, newId) as string,
+      evidence: replaceIdInText(session.shared_dossier?.evidence || '', oldId, newId) as string
+    },
+    private_brief: {
+      strategy: replaceIdInText(session.private_brief?.strategy || '', oldId, newId) as string,
+      logic_chain: replaceIdInText(session.private_brief?.logic_chain || '', oldId, newId) as string,
+      risk_notes: replaceIdInText(session.private_brief?.risk_notes || '', oldId, newId) as string
+    },
+    public_events: Array.isArray(session.public_events)
+      ? session.public_events.map((event: any) => remapCourtEvent(event, oldId, newId))
+      : [],
+    pending_interjections: Array.isArray(session.pending_interjections)
+      ? session.pending_interjections.map((event: any) => remapCourtEvent(event, oldId, newId))
+      : [],
+    agent_states: remapCourtAgentStates(session.agent_states, newId),
+    created_at: timestamp,
+    updated_at: timestamp
+  } as CourtSession;
 };
 
 export const storageService = {
@@ -128,9 +234,15 @@ export const storageService = {
   },
 
   async exportConversationsText() {
-    const conversations = await fileDB.getConversations();
-    // Strip everything but text data to be safe, though Conversation type is already clean
-    const data = JSON.stringify(conversations);
+    const [conversations, courtSessions] = await Promise.all([
+      fileDB.getConversations(),
+      fileDB.getCourtSessions()
+    ]);
+    const data = JSON.stringify({
+      version: 2,
+      conversations,
+      courtSessions
+    });
     const blob = await this.encryptDataToBlob(data);
     
     const url = URL.createObjectURL(blob);
@@ -145,48 +257,21 @@ export const storageService = {
 
   async importConversationsFromFile(file: File) {
     const decrypted = await this.decryptDataFromFile(file);
-    const conversations = JSON.parse(decrypted) as any[];
-    
-    const newConversations = conversations.map(conv => {
-      const oldId = conv.id;
-      const newId = generateUUID();
-      
-      // Update Conversation ID
-      const newConv = { ...conv, id: newId };
-      if (newConv.memory) {
-        newConv.memory = {
-          ...newConv.memory,
-          conversation_id: newId,
-          last_synced_at: '',
-          updated_at: new Date().toISOString()
-        };
-      }
-      
-      // Update Message contents and structured thought blocks (replace oldId with newId)
-      newConv.messages = conv.messages.map((msg: any) => {
-        let content = msg.content || '';
-        let reasoning_content = msg.reasoning_content || '';
-        const thought_blocks = Array.isArray(msg.thought_blocks)
-          ? msg.thought_blocks.map((block: any) => ({
-              ...block,
-              content: typeof block.content === 'string' ? block.content.replaceAll(oldId, newId) : block.content
-            }))
-          : msg.thought_blocks;
-        
-        if (content.includes(oldId)) {
-          content = content.replaceAll(oldId, newId);
-        }
-        if (reasoning_content.includes(oldId)) {
-          reasoning_content = reasoning_content.replaceAll(oldId, newId);
-        }
-        
-        return { ...msg, content, reasoning_content, thought_blocks };
-      });
-      
-      return newConv;
-    });
-    
-    await fileDB.addConversations(newConversations);
-    return newConversations.length;
+    const parsed = JSON.parse(decrypted);
+    const conversations = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.conversations) ? parsed.conversations : [];
+    const courtSessions = Array.isArray(parsed)
+      ? []
+      : Array.isArray(parsed?.courtSessions) ? parsed.courtSessions : [];
+
+    const newConversations = conversations.map(remapConversation);
+    const newCourtSessions = courtSessions.map(remapCourtSession);
+
+    await Promise.all([
+      newConversations.length ? fileDB.addConversations(newConversations) : Promise.resolve(),
+      newCourtSessions.length ? fileDB.addCourtSessions(newCourtSessions) : Promise.resolve()
+    ]);
+    return newConversations.length + newCourtSessions.length;
   }
 };

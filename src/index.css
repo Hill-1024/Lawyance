@@ -985,6 +985,25 @@ textarea.composer-textarea:focus-visible {
   border-bottom-style: solid;
 }
 
+.message-copy.prose.court-markdown-on-accent,
+.message-copy.prose.court-markdown-on-accent :where(h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table, thead, tbody, tr, th, td, strong, em, a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--accent-on);
+}
+
+.message-copy.prose.court-markdown-on-accent :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--accent-on);
+}
+
+.message-copy.prose.court-markdown-on-accent :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)) {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--accent-on);
+}
+
+.message-copy.prose.court-markdown-on-accent a {
+  color: var(--accent-on);
+  border-bottom-color: rgba(255, 255, 255, 0.55);
+}
+
 .prose sup {
   position: relative;
   top: -0.5em;

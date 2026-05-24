@@ -2,7 +2,7 @@
  * 模块描述：IndexedDB 数据访问层，持久化会话、上传文件和生成文件元数据。
  */
 
-import { Conversation } from '../types';
+import { Conversation, CourtSession } from '../types';
 
 export class FileDB {
   private dbName = 'LawverFileDB';
@@ -12,7 +12,8 @@ export class FileDB {
   ];
   private storeName = 'files';
   private convStoreName = 'conversations';
-  private version = 2; // Incremented version to add store
+  private courtStoreName = 'court_sessions';
+  private version = 3; // Incremented version to add court session store
   private migrationPromise: Promise<void> | null = null;
 
   private buildFileId(convId: string, fileName: string, path?: string) {
@@ -32,6 +33,18 @@ export class FileDB {
         if (!Number.isNaN(explicit)) return explicit;
         const numericId = Number(msg.id);
         return Number.isFinite(numericId) ? numericId : 0;
+      })
+    ];
+    return Math.max(...candidates.filter(value => Number.isFinite(value)), 0);
+  }
+
+  private courtSessionTimestamp(session: CourtSession): number {
+    const candidates = [
+      Date.parse(session.updated_at || ''),
+      Date.parse(session.created_at || ''),
+      ...(session.public_events || []).map(event => {
+        const explicit = Date.parse(event.updated_at || event.created_at || '');
+        return Number.isNaN(explicit) ? 0 : explicit;
       })
     ];
     return Math.max(...candidates.filter(value => Number.isFinite(value)), 0);
@@ -57,6 +70,9 @@ export class FileDB {
         }
         if (!db.objectStoreNames.contains(this.convStoreName)) {
           db.createObjectStore(this.convStoreName, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(this.courtStoreName)) {
+          db.createObjectStore(this.courtStoreName, { keyPath: 'id' });
         }
       };
     });
@@ -269,6 +285,70 @@ export class FileDB {
         resolve(conversations);
       };
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  // --- Court Session Methods ---
+
+  async saveCourtSessions(courtSessions: CourtSession[]) {
+    const db = await this.getDB();
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(this.courtStoreName, 'readwrite');
+      const store = transaction.objectStore(this.courtStoreName);
+
+      const keysReq = store.getAllKeys();
+      keysReq.onsuccess = () => {
+        const incomingIds = new Set(courtSessions.map(session => session.id));
+        (keysReq.result as IDBValidKey[]).forEach(key => {
+          if (!incomingIds.has(String(key))) {
+            store.delete(key);
+          }
+        });
+        courtSessions.forEach(session => store.put(session));
+      };
+      keysReq.onerror = () => reject(keysReq.error);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  async addCourtSessions(courtSessions: CourtSession[]) {
+    const db = await this.getDB();
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(this.courtStoreName, 'readwrite');
+      const store = transaction.objectStore(this.courtStoreName);
+
+      courtSessions.forEach(session => store.put(session));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  async getCourtSessions(): Promise<CourtSession[]> {
+    const db = await this.getDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(this.courtStoreName, 'readonly');
+      const store = transaction.objectStore(this.courtStoreName);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const courtSessions = (request.result as CourtSession[])
+          .slice()
+          .sort((a, b) => this.courtSessionTimestamp(b) - this.courtSessionTimestamp(a));
+        resolve(courtSessions);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteCourtSession(id: string) {
+    const db = await this.getDB();
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(this.courtStoreName, 'readwrite');
+      const store = transaction.objectStore(this.courtStoreName);
+      const request = store.delete(id);
+      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   }
 

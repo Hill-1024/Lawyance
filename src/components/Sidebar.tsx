@@ -3,12 +3,14 @@
  */
 
 import React from 'react';
-import { X, Plus, Trash2, LogOut, ShieldAlert } from 'lucide-react';
+import { X, Plus, Trash2, LogOut, ShieldAlert, Gavel } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Conversation } from '../types';
 import { StorageIndicator } from './StorageIndicator';
 import { BrandLockup } from './Brand';
 import { HoverInfo } from './HoverInfo';
+import { BranchRails } from './BranchRails';
+import { flattenBranchTree } from '../lib/branchTree';
 
 const SIDEBAR_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
@@ -23,6 +25,7 @@ interface SidebarProps {
   deleteConversation: (id: string, e: React.MouseEvent) => void;
   userRole?: string;
   onAdminClick?: () => void;
+  onCourtClick?: () => void;
   onLogout?: () => void;
   isDesktopLayout: boolean;
 }
@@ -37,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   deleteConversation,
   userRole,
   onAdminClick,
+  onCourtClick,
   onLogout,
   isDesktopLayout
 }) => {
@@ -102,29 +106,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Plus size={20} strokeWidth={2} />
               New Chat
             </button>
+            {onCourtClick && (
+              <button
+                onClick={onCourtClick}
+                className="md3-btn-tonal lawver-pressable mt-2 w-full whitespace-nowrap py-3"
+              >
+                <Gavel size={18} strokeWidth={2} />
+                模拟法庭
+              </button>
+            )}
           </div>
           <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-1 overflow-y-auto px-3 pb-2">
-            {conversations.map(conv => (
+            {flattenBranchTree(conversations).map(({ item: conv, ancestorTrails, isLastSibling }) => (
               <div
                 key={conv.id}
-                onClick={() => {
-                  setCurrentId(conv.id);
-                  if (!isDesktopLayout) setIsSidebarOpen(false);
-                }}
-                className={`lawver-pressable group flex w-full cursor-pointer items-center justify-between rounded-full px-4 py-3 text-left transition-colors ${
-                  conv.id === currentId ? 'bg-[var(--accent-quiet)] font-medium text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.05)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
-                }`}
+                className="flex w-full items-stretch"
+                title={conv.parent_id ? '由其他会话分叉而来' : undefined}
               >
-                <span className="truncate pr-2 text-[14px]">{conv.title}</span>
-                <HoverInfo label="Delete chat" placement="top">
-                  <button
-                    onClick={(e) => deleteConversation(conv.id, e)}
-                    className="lawver-pressable inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:opacity-0 lg:group-hover:opacity-100"
-                    aria-label="Delete chat"
-                  >
-                    <Trash2 size={16} strokeWidth={2} />
-                  </button>
-                </HoverInfo>
+                <BranchRails ancestorTrails={ancestorTrails} isLastSibling={isLastSibling} />
+                <div
+                  onClick={() => {
+                    setCurrentId(conv.id);
+                    if (!isDesktopLayout) setIsSidebarOpen(false);
+                  }}
+                  className={`lawver-pressable group flex min-w-0 flex-1 cursor-pointer items-center justify-between rounded-full px-4 py-3 text-left transition-colors ${
+                    conv.id === currentId ? 'bg-[var(--accent-quiet)] font-medium text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.05)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
+                  }`}
+                >
+                  <span className="truncate pr-2 text-[14px]">{conv.title}</span>
+                  <HoverInfo label="Delete chat" placement="top">
+                    <button
+                      onClick={(e) => deleteConversation(conv.id, e)}
+                      className="lawver-pressable inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:opacity-0 lg:group-hover:opacity-100"
+                      aria-label="Delete chat"
+                    >
+                      <Trash2 size={16} strokeWidth={2} />
+                    </button>
+                  </HoverInfo>
+                </div>
               </div>
             ))}
           </div>

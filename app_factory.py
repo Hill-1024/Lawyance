@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import admin, auth, chat, spa, workspace
+from routes import admin, auth, chat, court, spa, workspace
 from services import law_cache, workspace_cleanup
 from services.app_security import ALLOWED_ORIGINS, LOCAL_ORIGIN_RE, security_and_logging_middleware
 
@@ -35,10 +35,11 @@ def create_app() -> FastAPI:
     # 1. 安全/日志中间件必须在路由前注册。
     app.middleware("http")(security_and_logging_middleware)
 
-    # 2. API 路由顺序固定：auth -> admin -> chat -> workspace/upload/download。
+    # 2. API 路由顺序固定：auth -> admin -> chat -> court -> workspace/upload/download。
     app.include_router(auth.router)
     app.include_router(admin.router)
     app.include_router(chat.router)
+    app.include_router(court.router)
     app.include_router(workspace.router)
 
     # 3. SPA catch-all 必须最后注册，避免吞掉 /api/*。
