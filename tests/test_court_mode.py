@@ -171,6 +171,46 @@ class CourtModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("模拟法庭", prompt_text)
         self.assertNotIn("内线策略ABC", prompt_text)
 
+    async def test_court_prompt_enforces_fact_and_legal_source_boundaries(self):
+        court_prompts = importlib.import_module("services.court_prompts")
+
+        judge_messages = court_prompts.build_court_messages(
+            speaker="judge",
+            case_type="civil",
+            user_side="原告",
+            court_state={"case_type": "civil", "phase": "opening"},
+            shared_dossier={"facts": "公开事实"},
+            private_brief={},
+            public_summary="",
+            recent_events=[],
+            memory_context="",
+        )
+        judge_prompt = "\n".join(message["content"] for message in judge_messages)
+
+        self.assertIn("本轮事实与法源边界", judge_prompt)
+        self.assertIn("不得把模型推测写成已发生事实", judge_prompt)
+        self.assertIn("不得把新的未公开事实作为发言依据", judge_prompt)
+        self.assertIn("本轮未核验", judge_prompt)
+        self.assertNotIn("对方律师可以抛出用户方未知但合理的可能事实", judge_prompt)
+
+        opponent_messages = court_prompts.build_court_messages(
+            speaker="opponent",
+            case_type="civil",
+            user_side="原告",
+            court_state={"case_type": "civil", "phase": "claim_statement"},
+            shared_dossier={"facts": "公开事实"},
+            private_brief={},
+            public_summary="",
+            recent_events=[],
+            memory_context="",
+        )
+        opponent_prompt = "\n".join(message["content"] for message in opponent_messages)
+
+        self.assertIn("对方律师可以抛出用户方未知但合理的可能事实", opponent_prompt)
+        self.assertIn("可能事实/攻防假设/待核实事项", opponent_prompt)
+        self.assertIn("不得把这类线索说成已经发生", opponent_prompt)
+        self.assertIn("具体法条", opponent_prompt)
+
     async def test_court_executor_routes_memory_scope_separately(self):
         court_pipeline = importlib.import_module("services.court_pipeline")
         calls = []
