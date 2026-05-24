@@ -32,8 +32,13 @@ async def login(req: LoginRequest, response: Response, request: Request):
 
 
 @router.post("/api/logout")
-async def logout(response: Response):
-    response.delete_cookie(key="auth_token", httponly=True, samesite="strict")
+async def logout(response: Response, request: Request):
+    response.delete_cookie(
+        key="auth_token",
+        httponly=True,
+        secure=secure_cookie_for_request(request),
+        samesite="strict",
+    )
     return {"status": "success"}
 
 
