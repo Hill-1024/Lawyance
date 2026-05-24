@@ -38,6 +38,23 @@ def _json_block(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
 
 
+def _fact_boundary_for_speaker(speaker: str) -> str:
+    lines = [
+        "【本轮事实与法源边界】",
+        "1. 已确定事实只能来自共享案件卷宗、公开庭审记录、工具返回结果，以及本角色私有记忆中明确标记为已公开/已核验的内容；私有记忆不能单独作为公开事实依据。",
+        "2. 对案情日期、金额、身份、行为、证据名称、法院、案号、法条条号、案例要旨没有来源时，必须标注为“待核实”或“本轮未核验”，不得写成确定事实。",
+        "3. 需要引用具体法条、司法解释、案例或公开事实时，先使用可见工具核验；工具未返回时，只能表述为一般法律原则或待核实线索。",
+    ]
+    if speaker == "opponent":
+        lines.append(
+            "4. 对方律师可以抛出用户方未知但合理的可能事实作为攻防假设，例如“如果存在……”。"
+            "这类内容必须用“可能/不排除/需核实/请法庭查明”等限定语，不能直接当作已发生事实或已提交证据。"
+        )
+    else:
+        lines.append("4. 除对方律师外，不得把新的未公开事实作为发言依据；只能把缺口表述为待查明问题、举证要求或训练风险。")
+    return "\n".join(lines)
+
+
 def build_court_messages(
     *,
     speaker: str,
@@ -65,6 +82,7 @@ def build_court_messages(
         "【结构化庭审状态】\n" + _json_block(court_state),
         "【共享案件卷宗】\n" + _json_block(shared_dossier),
         render_public_context(public_summary, recent_events),
+        _fact_boundary_for_speaker(speaker),
     ]
     if memory_context.strip():
         context_parts.append("【本角色私有记忆】\n" + memory_context.strip())

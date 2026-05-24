@@ -134,7 +134,7 @@ const CourtSidebar: React.FC<{
                 新建后会保存在这里。
               </p>
             ) : (
-              flattenBranchTree(sessions).map(({ item: session, ancestorTrails, isLastSibling }) => {
+              flattenBranchTree<CourtSession>(sessions).map(({ item: session, ancestorTrails, isLastSibling }) => {
                 const active = session.id === currentId;
                 return (
                   <div

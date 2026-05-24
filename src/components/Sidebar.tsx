@@ -117,7 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
           <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-1 overflow-y-auto px-3 pb-2">
-            {flattenBranchTree(conversations).map(({ item: conv, ancestorTrails, isLastSibling }) => (
+            {flattenBranchTree<Conversation>(conversations).map(({ item: conv, ancestorTrails, isLastSibling }) => (
               <div
                 key={conv.id}
                 className="flex w-full items-stretch"
