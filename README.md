@@ -20,10 +20,11 @@ Lawver 是工大法智团队的中文法律 AI 助手项目。它把法律咨询
 - **企业信息**: 接入企业概况、上市信息、联系方式、股东、登记信息、主要人员和对外投资等查询能力。
 - **文档处理**: 支持 PDF 文本读取、PDF 句级批注、Word 读取和 Word 批注写入。
 - **Agent 模式**: 支持默认回答和 Plan-and-Solve 分步处理。
+- **模拟法庭**: 民事、行政、刑事三类庭审推演，内置法官、对方律师、复盘员、用户方 AI 代理四角色，按阶段状态机推进，公开记录与私有 brief 之间有事实边界，支持撤回与分支会话。
 - **会话工作区**: 为每个用户和对话隔离 `TEMP` 与 `Result` 文件空间，避免文件串线。
 - **对话级记忆**: 记录和检索稳定事实、目标、约束与语义标签，不把全部历史暴力塞回上下文。
 - **认证与审计**: 包含登录、角色、管理员账号管理、API 访问日志和基础限流。
-- **前端体验**: React 19 + Vite，提供对话、文件、工作区、主题、管理员面板和 Lawver 品牌界面。
+- **前端体验**: React 19 + Vite，提供主聊天、模拟法庭、文件工作区、主题、管理员面板和 Lawver 品牌界面。
 
 ## 架构
 
@@ -36,7 +37,7 @@ FastAPI application
     |
     | agent orchestration
     v
-Default / Plan-and-Solve agents
+Default / Plan-and-Solve / Court agents
     |
     | tool descriptions + calls
     v
@@ -51,15 +52,22 @@ MCP clients and local services
 
 | 路径 | 说明 |
 | --- | --- |
-| `agent.py` | FastAPI 应用、认证依赖、限流、日志、文件工作区和主要 API |
-| `function_calling.py` | 模型调用、工具调用编排和多 system prompt 转发 |
-| `agents/` | 统一原生工具循环与 Plan-and-Solve agent 编排 |
-| `mcps.py` | 业务工具统一转发层 |
+| `agent.py` | 仅保留 `agent:app` 与 `python agent.py` 启动契约，支持 `PORT` 与 `UVICORN_WORKERS` 环境变量 |
+| `app_factory.py` | FastAPI 应用工厂，集中注册中间件、路由和生命周期任务 |
+| `routes/` | 认证、管理员、聊天、模拟法庭、工作区、SPA fallback 等 HTTP 路由 |
+| `services/` | 聊天与庭审流水线、历史压缩、记忆协调、法库缓存、工作区清理、安全中间件 |
+| `agents/tool_loop.py` | 统一原生 tool_calls Agent 循环，承载默认模式与 Plan-and-Solve |
+| `function_calling.py` | OpenAI 兼容模型调用封装与工具消息配对 |
+| `tools/` | 业务工具显式注册表（schema / handler / coercer / exposure） |
+| `mcps.py` | 业务工具统一转发入口 |
 | `mcp/` | 法律、企业、PDF、Word、记忆、SearXNG 联网搜索等工具客户端 |
 | `memory_system/` | 对话级结构化记忆服务 |
-| `RAG/` | 本地法律数据检索相关逻辑 |
-| `src/` | React 前端应用 |
-| `tests/` | 记忆系统和输出审查流程测试 |
+| `RAG/` | 本地法律法规检索引擎 |
+| `prompts/lawver/` | 核心、模式、焦点、任务、模拟法庭等动态 prompt 资源 |
+| `workspace.py` | 工作区路径边界与上传/生成文件验证 |
+| `ocp.py` | 输出审查（OCP）流水线 |
+| `src/` | React 前端，含主聊天与模拟法庭两个工作流 |
+| `tests/` | 覆盖记忆、OCP、工具循环、模拟法庭、安全加固、提示词加载等 |
 
 ## 环境要求
 
@@ -122,6 +130,7 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 - `modes/`：`default`、`plan_and_solve` 两种 agent 模式的注意力焦点
 - `focus/`：按当前请求动态追加的法律检索、文件处理、任务边界焦点
 - `tasks/`：历史摘要等内部任务专用 prompt
+- `court/`：模拟法庭通用边界（`common.md`）、案由（`cases/{civil,administrative,criminal}.md`）和角色（`roles/{judge,opponent,reviewer,user_agent}.md`）
 
 工具 schema 不放进动态 prompt，也不从 prompt 目录读取；模型工具能力仍由 `function_calling.call()` 通过 `mcps.py` 中的静态工具常量传入。
 
@@ -135,7 +144,7 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 
 后端入口 `agent.py` 只保留 `agent:app` 和 `python agent.py` 启动契约；应用组装在 `app_factory.py`，路由在 `routes/`，聊天流水线、历史压缩、记忆协调和清理任务在 `services/`。
 
-路由注册顺序必须保持为：认证、管理员、聊天、工作区/上传/下载、SPA catch-all。`routes/spa.py` 的 catch-all 必须最后挂载，避免吞掉 `/api/*`。
+路由注册顺序必须保持为：认证 → 管理员 → 聊天 → 模拟法庭 → 工作区/上传/下载 → SPA catch-all。`routes/spa.py` 的 catch-all 必须最后挂载，避免吞掉 `/api/*`。
 
 业务工具仍统一通过 `mcps.py` 暴露给 agent。新增工具的推荐流程：
 
@@ -147,6 +156,7 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 
 - `agent`：LLM 可见工具。
 - `plan_and_solve`：Plan-and-Solve 模式可见工具，包含业务工具和控制面工具。
+- `court`：模拟法庭流水线（`registry.schemas("court")`）可见工具，包括法律信源、企业、文档、网络搜索、记忆与工作区。
 - `ocp_reviewer`：OCP 审查器可用的只读法律信源工具。
 - `internal`：后端内部可 dispatch，但不进入 LLM tool schema 的工具。
 
@@ -177,16 +187,31 @@ OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误�
 - `EMBEDDING_MODEL`：embedding 模型，默认 `Qwen/Qwen3-Embedding-8B`
 - `MEMORY_EMBEDDING_TIMEOUT`：embedding 请求超时时间，默认 8 秒
 
+## 模拟法庭
+
+模拟法庭是一个由多 AI 角色合作的庭审推演工作流，与主聊天共享工作区和工具集，但走独立的 prompt 与流水线。
+
+- **三类案由**：民事、行政、刑事，每类按阶段状态机推进（开庭 → 诉辩陈述/起诉 → 法庭调查 → 举证质证/合法性审查 → 法庭辩论 → 最后陈述 → 法庭意见 → 庭后复盘）。
+- **四角色记忆隔离**：法官、对方律师、复盘员、用户方 AI 代理（可选开启）各自拥有独立的私有记忆 scope，公开发言进入共享庭审记录。
+- **事实与法源边界**：角色发言只能基于共享卷宗、公开庭审记录与工具返回结果，未公开事实需标注「待核实」；对方律师可提出可能事实假设，但必须用「可能/不排除/请法庭查明」等限定语。
+- **撤回与分支**：可回退到任意公开事件后重算结构化状态并清空 AI 私有记忆；也可以从该点派生新庭审 session，共享卷宗但独立推进。
+
+后端入口为 `routes/court.py`，流水线在 `services/court_pipeline.py` 与 `services/court_fsm.py`；前端在 `src/components/CourtPage.tsx` 与 `src/hooks/useCourtSession.ts`。
+
 ## 测试
 
 ```bash
 python -m pytest
 ```
 
-当前测试重点覆盖：
+当前测试套件约 170 个用例，按模块大致覆盖：
 
-- `tests/test_memory_system.py`: 对话级记忆的记录、检索、约束处理和上下文生成。
-- `tests/test_ocp.py`: 输出审查流程的格式兜底、完成态和异常场景。
+- `tests/test_memory_system.py`、`tests/test_prompt_loader.py`：对话级记忆与动态 prompt 装配。
+- `tests/test_ocp.py`、`tests/test_tool_loop_agent.py`：输出审查与统一工具循环。
+- `tests/test_court_mode.py`：模拟法庭阶段状态机与角色边界。
+- `tests/test_security_hardening.py`、`tests/test_mcps_workspace_paths.py`、`tests/test_remaining_vulnerability_fixes.py`：CSRF、限流、工作区路径与历史漏洞回归。
+- `tests/test_function_calling_tools.py`、`tests/test_tool_schema_compatibility.py`、`tests/test_tool_exposure.py`：工具 schema、exposure 与 OpenAI 兼容性。
+- `tests/test_law_data_search.py`、`tests/test_law_cache_startup.py`、`tests/test_searxng_tool.py`：本地法库检索、缓存增量与 SearXNG 客户端。
 
 ## 开发边界
 
@@ -201,6 +226,8 @@ python -m pytest
 - `.env`、真实合同、客户材料、生成结果和日志都可能包含敏感信息，不应随意提交。
 - 首次部署必须配置 `SECRET_KEY`（至少 32 位随机值）和一次性的 `INITIAL_ADMIN_PASSWORD`；创建 `data/account.json` 后应移除初始密码环境变量。
 - 默认 CORS、限流和认证策略适合内部原型阶段，公开部署前需要按实际域名和安全策略收紧。
+- 所有非 GET 的 `/api` 请求都要求可信 Origin 或 Referer。可通过 `LAWVER_ALLOWED_ORIGINS`（兼容 `ALLOWED_ORIGINS`）追加生产前端域名；本地开发回环地址默认放行。
+- 限流计数为进程内状态，多 worker 部署（`UVICORN_WORKERS>1`）时各 worker 各自计数，公开部署应迁到 Redis 或共享存储。
 - 管理员接口具备账号管理和日志读取能力，应只暴露给可信管理员。
 - 文件批注、文档读取和下载接口需要持续关注路径隔离和权限边界。
 

@@ -20,10 +20,11 @@ Lawver は、工大法智チームによる中国語法律 AI アシスタント
 - **企業情報**: 企業概要、上場情報、連絡先、株主、登記情報、主要人物、対外投資情報。
 - **文書処理**: PDF テキスト抽出、PDF の文単位注釈、Word 読み取り、Word 注釈書き込み。
 - **Agent モード**: 標準回答と Plan-and-Solve ワークフロー。
+- **模擬法廷**: 民事・行政・刑事の三類型の法廷シミュレーション。裁判官、相手方弁護士、復盤員、ユーザー側 AI 代理の四役を内蔵し、段階別の状態機械に従って進行します。公開記録と私的ブリーフのあいだに事実の境界があり、巻き戻しと分岐セッションに対応します。
 - **会話ワークスペース**: ユーザーと会話ごとに `TEMP` と `Result` のファイル空間を分離。
 - **会話記憶**: 安定した事実、目標、制約、セマンティックタグを記録・検索し、全履歴を無理にプロンプトへ詰め込みません。
 - **認証と監査**: ログイン、ロール、管理者アカウント管理、API アクセスログ、基本的なレート制限。
-- **フロントエンド体験**: React 19 + Vite によるチャット、ファイル、ワークスペース、テーマ、管理画面、Lawver ブランド UI。
+- **フロントエンド体験**: React 19 + Vite によるメインチャット、模擬法廷、ファイルワークスペース、テーマ、管理画面、Lawver ブランド UI。
 
 ## アーキテクチャ
 
@@ -36,7 +37,7 @@ FastAPI application
     |
     | agent orchestration
     v
-Default / Plan-and-Solve agents
+Default / Plan-and-Solve / Court agents
     |
     | tool descriptions + calls
     v
@@ -51,15 +52,22 @@ MCP clients and local services
 
 | Path | 説明 |
 | --- | --- |
-| `agent.py` | FastAPI アプリ、認証依存、レート制限、ログ、ファイルワークスペース、主要 API |
-| `function_calling.py` | モデル呼び出し、ツール呼び出し制御、複数 system prompt の転送 |
-| `agents/` | 統一されたネイティブツールループと Plan-and-Solve 制御 |
-| `mcps.py` | 業務ツールの統一転送層 |
-| `mcp/` | 法律、企業、PDF、Word、記憶、SearXNG ウェブ検索関連のツールクライアント |
+| `agent.py` | `agent:app` の import 契約と `python agent.py` の起動入口のみを保持。`PORT` と `UVICORN_WORKERS` 環境変数に対応 |
+| `app_factory.py` | FastAPI アプリケーションファクトリ。ミドルウェア、ルート、ライフサイクル処理を集約 |
+| `routes/` | 認証、管理者、チャット、模擬法廷、ワークスペース、SPA フォールバックの HTTP ルート |
+| `services/` | チャットと法廷のパイプライン、履歴圧縮、記憶調整、法令キャッシュ、ワークスペース清理、セキュリティミドルウェア |
+| `agents/tool_loop.py` | 標準モードと Plan-and-Solve を駆動する統一 tool_calls エージェントループ |
+| `function_calling.py` | OpenAI 互換モデル呼び出しのラッパーと tool メッセージのペアリング |
+| `tools/` | 業務ツールの明示登録（schema / handler / coercer / exposure） |
+| `mcps.py` | 業務ツールの統一転送エントリーポイント |
+| `mcp/` | 法律、企業、PDF、Word、記憶、SearXNG ウェブ検索のクライアント |
 | `memory_system/` | 会話単位の構造化記憶サービス |
-| `RAG/` | ローカル法律データ検索ロジック |
-| `src/` | React フロントエンドアプリ |
-| `tests/` | 記憶システムと出力レビュー処理のテスト |
+| `RAG/` | ローカル法令検索エンジン |
+| `prompts/lawver/` | core / modes / focus / tasks / court の動的 prompt リソース |
+| `workspace.py` | ワークスペースのパス境界とアップロード/生成ファイル検証 |
+| `ocp.py` | 出力レビュー（OCP）パイプライン |
+| `src/` | React フロントエンド。メインチャットと模擬法廷の二つのワークフローを含む |
+| `tests/` | 記憶、OCP、ツールループ、模擬法廷、セキュリティ、prompt ローダーなどを網羅 |
 
 ## 必要環境
 
@@ -120,16 +128,20 @@ pnpm run dev:frontend
 python -m pytest
 ```
 
-現在の主なテスト対象：
+現在のテストスイートは約 170 ケースで、代表的なカバレッジは以下のとおりです：
 
-- `tests/test_memory_system.py`: 会話記憶の記録、検索、制約処理、コンテキスト生成。
-- `tests/test_ocp.py`: 出力レビューのフォールバック、完了状態、例外処理。
+- `tests/test_memory_system.py`、`tests/test_prompt_loader.py`: 会話単位の記憶と動的 prompt の組み立て。
+- `tests/test_ocp.py`、`tests/test_tool_loop_agent.py`: 出力レビューと統一ツールループ。
+- `tests/test_court_mode.py`: 模擬法廷の状態機械と役割境界。
+- `tests/test_security_hardening.py`、`tests/test_mcps_workspace_paths.py`、`tests/test_remaining_vulnerability_fixes.py`: CSRF、レート制限、ワークスペースのパスと過去の脆弱性回帰。
+- `tests/test_function_calling_tools.py`、`tests/test_tool_schema_compatibility.py`、`tests/test_tool_exposure.py`: ツール schema、exposure、OpenAI 互換性。
+- `tests/test_law_data_search.py`、`tests/test_law_cache_startup.py`、`tests/test_searxng_tool.py`: ローカル法令検索、キャッシュ増分構築、SearXNG クライアント。
 
 ## バックエンド構成とツール登録
 
 `agent.py` は `agent:app` の import 契約と `python agent.py` の起動入口だけを保持します。アプリの組み立ては `app_factory.py`、HTTP ルートは `routes/`、チャットパイプライン、履歴圧縮、記憶調整、清理タスクは `services/` にあります。
 
-ルート登録順序は、認証、管理者、チャット、ワークスペース/アップロード/ダウンロード、SPA catch-all の順に固定します。`routes/spa.py` は最後に登録し、`/api/*` がフロントエンド fallback に吸われないようにします。
+ルート登録順序は、認証 → 管理者 → チャット → 模擬法廷 → ワークスペース/アップロード/ダウンロード → SPA catch-all の順に固定します。`routes/spa.py` は最後に登録し、`/api/*` がフロントエンド fallback に吸われないようにします。
 
 業務ツールは引き続き `mcps.py` を通じて agent に公開します。新しいツールを追加する流れ：
 
@@ -141,6 +153,7 @@ python -m pytest
 
 - `agent`: メイン LLM の tool schema に表示するツール。
 - `plan_and_solve`: Plan-and-Solve モードに表示するツール。業務ツールと制御面ツールを含みます。
+- `court`: 模擬法廷パイプライン（`registry.schemas("court")`）に表示するツール。法律信源、企業、文書処理、ウェブ検索、記憶、ワークスペースを含みます。
 - `ocp_reviewer`: OCP が利用できる読み取り専用の法律信源ツール。
 - `internal`: バックエンド内部では dispatch できるが、LLM tool schema には出さないツール。
 
@@ -171,6 +184,17 @@ OCP は主回答後のフォーマット審査 pass です。主モデルの失�
 - `EMBEDDING_MODEL`: embedding モデル。既定値は `Qwen/Qwen3-Embedding-8B`
 - `MEMORY_EMBEDDING_TIMEOUT`: embedding リクエストのタイムアウト。既定値は 8 秒
 
+## 模擬法廷
+
+模擬法廷は複数の AI 役が共同で行う法廷シミュレーションのワークフローです。ワークスペースとツールはメインチャットと共有しますが、prompt とパイプラインは独立しています。
+
+- **三つの案件類型**: 民事、行政、刑事。それぞれが段階別の状態機械で進行します（開廷 → 訴え・起訴陳述 → 法廷調査 → 証拠調べ／合法性審査 → 法廷弁論 → 最終陳述 → 法廷意見 → 法廷後の復盤）。
+- **役ごとの記憶分離**: 裁判官、相手方弁護士、復盤員、ユーザー側 AI 代理（任意で有効化）はそれぞれ独立した私的記憶 scope を持ち、公開発言だけが共有の法廷記録に入ります。
+- **事実と法源の境界**: 発言は共有案件記録、公開法廷記録、ツールの返却結果のみを根拠にできます。未公開の事実は「要確認」と明示する必要があり、相手方弁護士は仮定事実を提示できますが「可能性」「排除しない」などの限定語が必須です。
+- **巻き戻しと分岐**: 任意の公開イベントまで巻き戻すと構造化状態が再計算され、AI 側の私的記憶も消去されます。同じ地点から共有案件を引き継いだ新しい法廷セッションへ分岐することもできます。
+
+バックエンドの入口は `routes/court.py`、パイプラインは `services/court_pipeline.py` と `services/court_fsm.py`。フロントエンドは `src/components/CourtPage.tsx` と `src/hooks/useCourtSession.ts`。
+
 ## 開発境界
 
 - `mcps.py` は agent 向け業務ツールの統一入口です。新しいツールは `mcp/` クライアントに実装し、`mcps` から公開してください。agent や API ルートが直接迂回して呼び出すべきではありません。
@@ -184,6 +208,8 @@ OCP は主回答後のフォーマット審査 pass です。主モデルの失�
 - `.env`、実際の契約書、クライアント資料、生成結果、ログには機密情報が含まれる可能性があります。安易にコミットしないでください。
 - 初回デプロイでは 32 文字以上のランダムな `SECRET_KEY` と一度限りの `INITIAL_ADMIN_PASSWORD` を設定してください。`data/account.json` 作成後は初期パスワード用の環境変数を削除します。
 - 現在の CORS、レート制限、認証の既定値は内部プロトタイプ向けです。公開デプロイ前には実際のドメインと安全方針に合わせて強化してください。
+- GET 以外の `/api` リクエストは信頼できる Origin か Referer を必須とします。本番のフロントエンドドメインは `LAWVER_ALLOWED_ORIGINS`（旧名 `ALLOWED_ORIGINS` も互換）で追加してください。ローカルのループバックアドレスは既定で許可されます。
+- レート制限のカウンタはプロセス内状態です。`UVICORN_WORKERS>1` で動かす場合、各 worker が個別にカウントするため、公開デプロイでは Redis などの共有ストアに移行することを推奨します。
 - 管理者 API はアカウント管理とログ閲覧ができるため、信頼できる管理者だけに公開してください。
 - ファイル注釈、文書読み取り、ダウンロード API では、パス分離と権限境界を継続的に確認してください。
 
