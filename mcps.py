@@ -3,14 +3,9 @@
 """
 
 from tools import registry
-from workspace import (
-    WorkspacePathError,
-    get_result_path,
-    is_within_directory as _is_within_directory,
-    resolve_workspace_file,
-    validate_workspace_scope as _validate_workspace_scope,
-    workspace_dir as _workspace_dir,
-)
+
+# 转发暴露给业务测试与外部调用方的工作区路径工具，保持向后兼容。
+from workspace import WorkspacePathError, get_result_path, resolve_workspace_file  # noqa: F401
 
 
 default_tools = registry.schemas("agent")

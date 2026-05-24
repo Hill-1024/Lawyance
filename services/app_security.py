@@ -47,6 +47,7 @@ file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(mes
 if not usage_logger.handlers:
     usage_logger.addHandler(file_handler)
 
+# 进程内限流：仅在单 worker 部署下精确；多 worker 部署需要把状态迁到 Redis 或共享存储。
 ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
 last_rate_limit_prune = 0.0
 
@@ -87,11 +88,14 @@ async def security_and_logging_middleware(request: Request, call_next):
     if path.startswith("/api") and method not in SAFE_HTTP_METHODS:
         origin = request.headers.get("origin")
         referer_origin = origin_from_url(request.headers.get("referer"))
-        if origin and not is_trusted_origin(origin):
+        origin_trusted = bool(origin and is_trusted_origin(origin))
+        referer_trusted = bool(referer_origin and is_trusted_origin(referer_origin))
+        # 任意非 GET API 都必须能从 Origin 或 Referer 中找到一个可信来源,避免无头脚本绕过同源策略。
+        if origin and not origin_trusted:
             return Response(content="Forbidden origin", status_code=403)
-        if not origin and referer_origin and not is_trusted_origin(referer_origin):
+        if not origin_trusted and referer_origin and not referer_trusted:
             return Response(content="Forbidden referer", status_code=403)
-        if not origin and not referer_origin and request.cookies.get("auth_token"):
+        if not origin_trusted and not referer_trusted:
             return Response(content="Missing origin", status_code=403)
 
     now = time.time()

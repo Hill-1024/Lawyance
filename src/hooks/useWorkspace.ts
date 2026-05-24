@@ -26,7 +26,7 @@ export function useWorkspace(currentId: string, enabled = true) {
       // 1. Client -> Server: Restore missing files on Server
       for (const local of localFiles) {
         if (!serverPaths.has(local.path) && local.path) {
-          const type = local.path.toUpperCase().includes('TEMP/') ? 'upload' : 'generated';
+          const type = local.path.startsWith('TEMP/') ? 'upload' : 'generated';
           
           mergedFiles.push({
             name: local.fileName,
@@ -74,7 +74,7 @@ export function useWorkspace(currentId: string, enabled = true) {
       setWorkspaceFiles(files.map(f => ({
         name: f.fileName,
         path: f.path || '',
-        type: (f.path && f.path.toUpperCase().includes('TEMP/')) ? 'upload' : 'generated'
+        type: (f.path && f.path.startsWith('TEMP/')) ? 'upload' : 'generated'
       })));
     }
   }, [currentId, enabled]);

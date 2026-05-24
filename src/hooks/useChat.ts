@@ -711,7 +711,7 @@ export function useChat() {
     if (match) {
       textContent = msg.content.replace(match[0], '').trim();
       filesToRestore = match[1].split('\n').filter(line => line.startsWith('- ')).map(line => {
-        const nameMatch = line.match(/^- (.*?) \\(路径: (.*?)\\)/);
+        const nameMatch = line.match(/^- (.*?) \(路径: (.*?)\)/);
         if (nameMatch) {
           return { name: nameMatch[1], path: nameMatch[2] };
         }

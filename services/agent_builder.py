@@ -2,22 +2,16 @@
 模块描述：Agent 构造服务，保持工具调用只能通过 mcps 转发。
 """
 
-import json
-
 from agents import ToolLoopAgent
 from agents.tool_loop import plan_and_solve_tool_choice_policy
 from mcps import default_tools, plan_and_solve_tools, use_tools
 
 
 def build_tool_executor(workspace_scope: str):
-    def execute_tool(tool_name: str, raw_args):
-        parsed_args = raw_args
-        if isinstance(raw_args, str) and raw_args.strip().startswith("{"):
-            try:
-                parsed_args = json.loads(raw_args)
-            except json.JSONDecodeError:
-                parsed_args = raw_args
-        return use_tools(tool_name, parsed_args, conv_id=workspace_scope)
+    # ToolLoopAgent._parse_arguments 已经把 raw arguments 解析成 dict；
+    # registry.dispatch 也会再做一次 coerce_arguments，这里只需直接转发。
+    def execute_tool(tool_name: str, arguments):
+        return use_tools(tool_name, arguments, conv_id=workspace_scope)
 
     return execute_tool
 

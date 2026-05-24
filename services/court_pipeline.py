@@ -67,15 +67,11 @@ def role_scopes(base_scope: str) -> dict[str, str]:
 
 
 def build_court_tool_executor(base_scope: str, role_scope: str):
-    def execute_tool(tool_name: str, raw_args):
-        parsed_args = raw_args
-        if isinstance(raw_args, str) and raw_args.strip().startswith("{"):
-            try:
-                parsed_args = json.loads(raw_args)
-            except json.JSONDecodeError:
-                parsed_args = raw_args
+    # arguments 由 ToolLoopAgent._parse_arguments / registry.coerce_arguments 处理，
+    # 这里只负责按工具名挑选记忆 scope 后转发。
+    def execute_tool(tool_name: str, arguments):
         scope = role_scope if tool_name in MEMORY_TOOL_NAMES else base_scope
-        return use_tools(tool_name, parsed_args, conv_id=scope)
+        return use_tools(tool_name, arguments, conv_id=scope)
 
     return execute_tool
 
