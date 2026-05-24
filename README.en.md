@@ -20,10 +20,11 @@ The repository contains a FastAPI backend, a React/Vite frontend, a tool forward
 - **Company information**: company profile, listing information, contacts, shareholders, registration data, key personnel, and external investments.
 - **Document processing**: PDF text extraction, sentence-level PDF annotation, Word reading, and Word annotation writing.
 - **Agent modes**: default answer and Plan-and-Solve workflows.
+- **Moot court**: civil, administrative, and criminal trial simulations driven by a phase state machine, with four built-in roles (judge, opposing counsel, post-trial reviewer, optional user-side AI agent), fact/source boundaries between the public record and the private brief, and rewind/branch support.
 - **Conversation workspace**: isolates `TEMP` and `Result` file spaces by user and conversation.
 - **Conversation memory**: records and retrieves stable facts, goals, constraints, and semantic tags without stuffing all history into the prompt.
 - **Auth and audit**: login, roles, admin account management, API access logs, and basic rate limiting.
-- **Frontend experience**: React 19 + Vite UI with chat, files, workspace, theme settings, admin dashboard, and Lawver branding.
+- **Frontend experience**: React 19 + Vite UI covering chat, moot court, file workspace, theme settings, admin dashboard, and Lawver branding.
 
 ## Architecture
 
@@ -36,7 +37,7 @@ FastAPI application
     |
     | agent orchestration
     v
-Default / Plan-and-Solve agents
+Default / Plan-and-Solve / Court agents
     |
     | tool descriptions + calls
     v
@@ -51,15 +52,22 @@ Important paths:
 
 | Path | Purpose |
 | --- | --- |
-| `agent.py` | FastAPI app, auth dependencies, rate limiting, logs, file workspace, and main APIs |
-| `function_calling.py` | Model calls, tool orchestration, and multi-system prompt forwarding |
-| `agents/` | Unified native tool loop and Plan-and-Solve orchestration |
-| `mcps.py` | Unified business tool forwarding layer |
+| `agent.py` | Keeps only the `agent:app` import contract and the `python agent.py` entrypoint; honors `PORT` and `UVICORN_WORKERS` |
+| `app_factory.py` | FastAPI application factory: middleware, routes, and lifespan tasks |
+| `routes/` | HTTP routes: auth, admin, chat, moot court, workspace, SPA fallback |
+| `services/` | Chat and court pipelines, history compression, memory coordination, law cache, workspace cleanup, security middleware |
+| `agents/tool_loop.py` | Unified native tool_calls agent loop driving both Default and Plan-and-Solve modes |
+| `function_calling.py` | OpenAI-compatible model call wrapper and tool message pairing |
+| `tools/` | Explicit business tool registry (schema / handler / coercer / exposure) |
+| `mcps.py` | Unified business tool forwarding entrypoint |
 | `mcp/` | Legal, company, PDF, Word, memory, and SearXNG web-search tool clients |
 | `memory_system/` | Conversation-level structured memory service |
-| `RAG/` | Local legal data retrieval logic |
-| `src/` | React frontend application |
-| `tests/` | Tests for memory and output review behavior |
+| `RAG/` | Local statute and regulation retrieval engine |
+| `prompts/lawver/` | Dynamic prompt resources: core / modes / focus / tasks / court |
+| `workspace.py` | Workspace path boundary and upload/output validation |
+| `ocp.py` | Output Check Process (OCP) pipeline |
+| `src/` | React frontend covering both the main chat and moot court workflows |
+| `tests/` | Coverage of memory, OCP, tool loop, moot court, security hardening, prompt loader, and more |
 
 ## Requirements
 
@@ -120,16 +128,20 @@ Common scripts:
 python -m pytest
 ```
 
-Current tests focus on:
+The current suite has roughly 170 cases. Representative coverage:
 
-- `tests/test_memory_system.py`: conversation memory recording, retrieval, constraint handling, and context generation.
-- `tests/test_ocp.py`: output review fallbacks, completion state, and exceptional paths.
+- `tests/test_memory_system.py`, `tests/test_prompt_loader.py`: conversation memory and dynamic prompt assembly.
+- `tests/test_ocp.py`, `tests/test_tool_loop_agent.py`: output review and the unified tool loop.
+- `tests/test_court_mode.py`: moot-court phase state machine and role boundaries.
+- `tests/test_security_hardening.py`, `tests/test_mcps_workspace_paths.py`, `tests/test_remaining_vulnerability_fixes.py`: CSRF, rate limiting, workspace paths, and regression coverage for past vulnerabilities.
+- `tests/test_function_calling_tools.py`, `tests/test_tool_schema_compatibility.py`, `tests/test_tool_exposure.py`: tool schemas, exposure tags, and OpenAI compatibility.
+- `tests/test_law_data_search.py`, `tests/test_law_cache_startup.py`, `tests/test_searxng_tool.py`: local law retrieval, incremental cache build, and the SearXNG client.
 
 ## Backend Topology and Tool Registry
 
 `agent.py` only preserves the `agent:app` import contract and `python agent.py` entrypoint. Application assembly lives in `app_factory.py`; HTTP routes live in `routes/`; chat pipeline, history compression, memory coordination, and cleanup jobs live in `services/`.
 
-Route registration order must remain: auth, admin, chat, workspace/upload/download, then SPA catch-all. `routes/spa.py` must be registered last so `/api/*` is never swallowed by the frontend fallback.
+Route registration order must remain: auth → admin → chat → moot court → workspace/upload/download → SPA catch-all. `routes/spa.py` must be registered last so `/api/*` is never swallowed by the frontend fallback.
 
 Business tools still reach agents through `mcps.py`. To add a tool:
 
@@ -141,6 +153,7 @@ Business tools still reach agents through `mcps.py`. To add a tool:
 
 - `agent`: visible in the main LLM tool schema.
 - `plan_and_solve`: visible in Plan-and-Solve mode, including business tools and control-plane tools.
+- `court`: visible to the moot-court pipeline (`registry.schemas("court")`), covering legal sources, company data, document handling, web search, memory, and workspace tools.
 - `ocp_reviewer`: read-only legal source tools available to OCP.
 - `internal`: backend-dispatchable tools that are hidden from the LLM tool schema.
 
@@ -171,6 +184,17 @@ Optional environment variables:
 - `EMBEDDING_MODEL`: embedding model, default `Qwen/Qwen3-Embedding-8B`
 - `MEMORY_EMBEDDING_TIMEOUT`: embedding request timeout, default 8 seconds
 
+## Moot Court
+
+The moot-court workflow simulates a trial driven by multiple AI roles. It shares the workspace and tool registry with the main chat but runs through its own prompts and pipeline.
+
+- **Three case types**: civil, administrative, and criminal. Each is driven by a phase state machine (opening → claim/prosecution statement → court inquiry → evidence cross-examination or legality review → court debate → final statement → judge summary → post-trial review).
+- **Per-role memory isolation**: judge, opposing counsel, post-trial reviewer, and the optional user-side AI agent each own a private memory scope; only the public speech goes into the shared transcript.
+- **Fact and source boundary**: speakers may only ground statements on the shared dossier, the public transcript, and tool results. Unverified facts must be marked as such; opposing counsel may raise plausible hypothetical facts, but only with hedging language.
+- **Rewind and branch**: revert the session to any prior public event (recomputing structured state and wiping AI-side private memory), or fork a new court session from that point that inherits the dossier but evolves independently.
+
+Backend entrypoint: `routes/court.py`; pipeline: `services/court_pipeline.py` and `services/court_fsm.py`; frontend: `src/components/CourtPage.tsx` and `src/hooks/useCourtSession.ts`.
+
 ## Development Boundaries
 
 - `mcps.py` is the unified business-facing tool entry point for agents. New tools should be implemented in `mcp/` clients and exposed through `mcps`, instead of being called directly by agents or API routes.
@@ -184,6 +208,8 @@ Optional environment variables:
 - `.env`, real contracts, client materials, generated results, and logs may contain sensitive information and should not be committed casually.
 - First deployment must set `SECRET_KEY` with at least 32 random characters and a one-time `INITIAL_ADMIN_PASSWORD`; remove the initial password variable after `data/account.json` is created.
 - Current CORS, rate limit, and auth defaults fit an internal prototype. Public deployment requires domain-specific hardening.
+- Every non-GET `/api` request now requires a trusted Origin or Referer. Add production frontend origins to `LAWVER_ALLOWED_ORIGINS` (or the legacy `ALLOWED_ORIGINS`); local loopback addresses are accepted by default.
+- The rate limiter stores counters in process memory. With `UVICORN_WORKERS>1` each worker counts independently, so public deployments should move the counters to Redis or another shared store.
 - Admin APIs can manage accounts and read logs, so they should only be available to trusted administrators.
 - File annotation, document reading, and download APIs require ongoing attention to path isolation and permissions.
 
