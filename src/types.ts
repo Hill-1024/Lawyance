@@ -112,6 +112,84 @@ export type Conversation = {
   messages: Message[];
   memory?: ConversationMemory;
   context_usage?: ContextUsage;
+  /** 分支自哪个会话。删除原会话后会孤儿化，arrival 时按根节点显示。 */
+  parent_id?: string;
+  /** 分叉点指向的 message.id，用于追溯分支来源。 */
+  branch_point_message_id?: string;
   created_at?: string;
   updated_at?: string;
+};
+
+export type CourtCaseType = 'civil' | 'administrative' | 'criminal';
+export type CourtSpeaker = 'user' | 'judge' | 'opponent' | 'reviewer' | 'system';
+
+export type CourtPublicEvent = {
+  id: string;
+  type: 'speech' | 'interjection' | 'system';
+  speaker: CourtSpeaker;
+  phase: string;
+  content: string;
+  /** 由用户方 AI 代理（user_agent）产生的发言；UI 上会标记。 */
+  by_user_agent?: boolean;
+  created_at: string;
+  updated_at?: string;
+};
+
+export type CourtState = {
+  case_type: CourtCaseType;
+  user_side: string;
+  phase: string;
+  phase_turn_counts: Record<string, number>;
+  total_turns: number;
+  pending_interjection: boolean;
+  awaiting_user: boolean;
+  forced_advance_requested: boolean;
+  speaker_last_positions: Record<string, number>;
+  trial_over: boolean;
+  /** 开启后，FSM 决定的 awaiting_user 由用户方 AI 代理接管发言。 */
+  user_agent_enabled?: boolean;
+};
+
+export type CourtAgentState = {
+  memory_snapshot?: ConversationMemory | null;
+  status: 'idle' | 'running' | 'done' | 'error';
+  last_context_usage?: ContextUsage | null;
+  last_turn_id?: string;
+};
+
+export type CourtAgentStates = {
+  judge: CourtAgentState;
+  opponent: CourtAgentState;
+  reviewer: CourtAgentState;
+  /** 用户方 AI 代理的私有记忆与状态。即使没开启代理模式，字段也存在，便于一致访问。 */
+  user: CourtAgentState;
+};
+
+export type CourtSession = {
+  id: string;
+  title: string;
+  case_type: CourtCaseType;
+  user_side: string;
+  shared_dossier: {
+    summary: string;
+    claims: string;
+    evidence: string;
+  };
+  private_brief: {
+    strategy: string;
+    logic_chain: string;
+    risk_notes: string;
+  };
+  public_events: CourtPublicEvent[];
+  public_summary: string;
+  court_state: CourtState;
+  agent_states: CourtAgentStates;
+  pending_interjections: CourtPublicEvent[];
+  auto_mode: boolean;
+  /** 分支自哪个庭审。删除原庭审后会孤儿化，按根节点显示。 */
+  parent_id?: string;
+  /** 分叉点指向的 public_event.id。 */
+  branch_point_event_id?: string;
+  created_at: string;
+  updated_at: string;
 };

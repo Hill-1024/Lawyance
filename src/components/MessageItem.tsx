@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { ChevronDown, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
+import { ChevronDown, GitBranch, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -21,6 +21,7 @@ interface MessageItemProps {
   onRegenerate?: (id: string) => void;
   onEdit?: (id: string) => void;
   onUndo?: (id: string) => void;
+  onBranch?: (id: string) => void;
 }
 
 const markdownSanitizeSchema: any = {
@@ -365,7 +366,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   isThinking,
   onRegenerate,
   onEdit,
-  onUndo
+  onUndo,
+  onBranch
 }) => {
   const markdownComponents: any = {
     a(props: any) {
@@ -403,7 +405,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.24, ease: [0.2, 0, 0, 1] }}
-      className={`flex max-w-full gap-3 sm:gap-4 ${msg.role === 'user' ? 'self-end flex-row-reverse md:max-w-[85%]' : 'self-start'}`}
+      className={`group flex max-w-full gap-3 sm:gap-4 ${msg.role === 'user' ? 'self-end flex-row-reverse md:max-w-[85%]' : 'self-start'}`}
     >
       <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-[var(--shadow-1)] sm:h-10 sm:w-10 ${msg.role === 'user' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
         {msg.role === 'user' ? <div className="text-sm font-medium sm:text-base">U</div> : <BrandMark className="h-5 w-5" />}
@@ -538,6 +540,30 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 aria-label="Regenerate"
               >
                 <RefreshCw size={14} strokeWidth={2} />
+              </button>
+            </HoverInfo>
+            {onBranch && (
+              <HoverInfo label="从此分叉为新会话" placement="top">
+                <button
+                  onClick={() => onBranch(msg.id)}
+                  className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--brand-tertiary-700)] dark:hover:bg-white/[0.06] dark:hover:text-[#8ecdc7]"
+                  aria-label="从此分叉为新会话"
+                >
+                  <GitBranch size={14} strokeWidth={2} />
+                </button>
+              </HoverInfo>
+            )}
+          </div>
+        )}
+        {msg.role === 'assistant' && !isThinking && onBranch && (
+          <div className="mt-0.5 flex gap-2 self-start transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
+            <HoverInfo label="从此分叉为新会话" placement="top">
+              <button
+                onClick={() => onBranch(msg.id)}
+                className="rounded-full p-1.5 text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--brand-tertiary-700)] dark:hover:bg-white/[0.06] dark:hover:text-[#8ecdc7]"
+                aria-label="从此分叉为新会话"
+              >
+                <GitBranch size={14} strokeWidth={2} />
               </button>
             </HoverInfo>
           </div>

@@ -2,7 +2,7 @@
  * 模块描述：前端 API 客户端，封装认证、聊天、工作区、记忆同步和管理后台请求。
  */
 
-import type { ConversationMemory } from '../types';
+import type { ConversationMemory, CourtSession } from '../types';
 
 export class MemoryRevisionConflictError extends Error {
   detail: any;
@@ -97,6 +97,45 @@ export const chat = async (
   }
 
   return response;
+};
+
+export const courtTurn = async (session: CourtSession) => {
+  const response = await fetch('/api/court/turn', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      court_session_id: session.id,
+      court_state: session.court_state,
+      shared_dossier: session.shared_dossier,
+      private_brief: session.private_brief,
+      public_events_recent: session.public_events.slice(-30),
+      public_summary: session.public_summary,
+      agent_states: session.agent_states
+    })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || errorData.error || 'Court turn failed');
+  }
+
+  return response;
+};
+
+export const clearCourtMemory = async (courtSessionId: string, roles?: string[]) => {
+  const res = await fetch('/api/court/memory/clear', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      court_session_id: courtSessionId,
+      roles: roles ?? null
+    })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Clear court memory failed');
+  }
+  return res.json();
 };
 
 export const syncConversationMemory = async (

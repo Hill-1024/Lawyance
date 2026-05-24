@@ -37,9 +37,12 @@ from .registry import registry
 
 AGENT = {"agent"}
 PLAN_AND_SOLVE = {"plan_and_solve"}
+COURT = {"court"}
 AGENT_PLAN_AND_SOLVE = AGENT | PLAN_AND_SOLVE
+AGENT_PLAN_AND_SOLVE_COURT = AGENT | PLAN_AND_SOLVE | COURT
 AGENT_OCP = {"agent", "ocp_reviewer"}
 AGENT_OCP_PLAN_AND_SOLVE = AGENT_OCP | PLAN_AND_SOLVE
+AGENT_OCP_PLAN_AND_SOLVE_COURT = AGENT_OCP | PLAN_AND_SOLVE | COURT
 INTERNAL = {"internal"}
 
 
@@ -194,7 +197,7 @@ def _register_agent_tools() -> None:
             arguments.get("start_year"),
             arguments.get("end_year"),
         ),
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
         text_coercer=_keywords_text,
     )
     registry.register(
@@ -209,7 +212,7 @@ def _register_agent_tools() -> None:
             ["title", "number"],
         ),
         handler=lambda arguments, _scope: get_article(arguments.get("title"), arguments.get("number")),
-        exposure=AGENT_OCP_PLAN_AND_SOLVE,
+        exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_article_text,
     )
     registry.register(
@@ -221,7 +224,7 @@ def _register_agent_tools() -> None:
             ["query"],
         ),
         handler=lambda arguments, _scope: search_article(arguments.get("query")),
-        exposure=AGENT_OCP_PLAN_AND_SOLVE,
+        exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("query"),
     )
     registry.register(
@@ -233,7 +236,7 @@ def _register_agent_tools() -> None:
             ["message"],
         ),
         handler=lambda arguments, _scope: get_linked_content(arguments.get("message")),
-        exposure=AGENT_OCP_PLAN_AND_SOLVE,
+        exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("message"),
     )
     registry.register(
@@ -271,7 +274,7 @@ def _register_agent_tools() -> None:
             page=arguments.get("page"),
             limit=arguments.get("limit"),
         ),
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("query"),
     )
     registry.register(
@@ -289,7 +292,7 @@ def _register_agent_tools() -> None:
             arguments.get("url"),
             max_chars=arguments.get("max_chars"),
         ),
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("url"),
     )
     registry.register(
@@ -301,7 +304,7 @@ def _register_agent_tools() -> None:
             ["pdf_path"],
         ),
         handler=_read_pdf,
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("pdf_path"),
     )
     registry.register(
@@ -330,7 +333,7 @@ def _register_agent_tools() -> None:
             ["file_path"],
         ),
         handler=_read_word,
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("file_path"),
     )
     registry.register(
@@ -358,7 +361,7 @@ def _register_agent_tools() -> None:
             [],
         ),
         handler=lambda _arguments, workspace_scope: _list_workspace_files(workspace_scope),
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
     )
     registry.register(
         name="retrieve_conversation_memory",
@@ -376,7 +379,7 @@ def _register_agent_tools() -> None:
             arguments.get("query", ""),
             arguments.get("limit", 8),
         ),
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("query"),
     )
     registry.register(
@@ -397,7 +400,7 @@ def _register_agent_tools() -> None:
             bool(arguments.get("include_deprecated", False)),
             arguments.get("limit", 20),
         ),
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("query"),
     )
     registry.register(
@@ -467,7 +470,7 @@ def _register_agent_tools() -> None:
             workspace_scope,
             arguments.get("operations", []),
         ),
-        exposure=AGENT_PLAN_AND_SOLVE,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
     )
 
     company_tools = [
@@ -489,7 +492,7 @@ def _register_agent_tools() -> None:
                 ["company"],
             ),
             handler=lambda arguments, _scope, tool_handler=handler: tool_handler(arguments.get("company")),
-            exposure=AGENT_PLAN_AND_SOLVE,
+            exposure=AGENT_PLAN_AND_SOLVE_COURT,
             text_coercer=_text_field("company"),
         )
 

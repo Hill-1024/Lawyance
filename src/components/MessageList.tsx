@@ -13,6 +13,7 @@ interface MessageListProps {
   onRegenerate: (id: string) => void;
   onEdit: (id: string) => void;
   onUndo: (id: string) => void;
+  onBranch?: (id: string) => void;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
@@ -21,7 +22,8 @@ export const MessageList: React.FC<MessageListProps> = ({
   bottomInset = 0,
   onRegenerate,
   onEdit,
-  onUndo
+  onUndo,
+  onBranch
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -105,6 +107,7 @@ export const MessageList: React.FC<MessageListProps> = ({
               onRegenerate={onRegenerate}
               onEdit={onEdit}
               onUndo={onUndo}
+              onBranch={onBranch}
             />
           );
         })}

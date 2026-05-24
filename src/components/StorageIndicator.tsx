@@ -212,7 +212,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                         <p className="t-body-s leading-relaxed text-[var(--brand-primary-800)] dark:text-[var(--accent)]">
                           导出为经过安全混淆的单文件（.lawver）。
                           <br />
-                          <strong className="text-[var(--accent)]">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话内容，不包含臃肿的附件，附件需在新设备重新上传。
+                          <strong className="text-[var(--accent)]">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话与庭审记录，不包含臃肿的附件，附件需在新设备重新上传。
                         </p>
                       </div>
                     </div>
@@ -236,7 +236,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                         <div className="rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] p-2 text-[var(--accent)] transition-transform group-hover:scale-105">
                           <Download size={20} strokeWidth={2} />
                         </div>
-                        <span className="t-title-s">导出文字记录</span>
+                        <span className="t-title-s">导出记录</span>
                       </button>
 
                       <div className="relative">
@@ -252,7 +252,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             setIsExporting(true);
                             try {
                               const count = await storageService.importConversationsFromFile(file);
-                              alert(`成功导入 ${count} 个对话。\n请刷新页面以查看更新。`);
+                              alert(`成功导入 ${count} 条记录。\n请刷新页面以查看更新。`);
                               updateEstimate();
                             } catch (err) {
                               console.error(err);
@@ -273,7 +273,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                           <div className="rounded-[var(--radius-sm)] bg-[rgba(44,118,112,0.12)] p-2 text-[var(--brand-tertiary-700)] transition-transform group-hover:scale-105 dark:text-[#8ecdc7]">
                             <Database size={20} strokeWidth={2} />
                           </div>
-                          <span className="t-title-s">导入文字记录</span>
+                          <span className="t-title-s">导入记录</span>
                         </button>
                       </div>
                     </div>

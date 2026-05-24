@@ -80,6 +80,35 @@ class ToolLoopAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("非流式重试" in event.get("content", "") for event in events))
         self.assertEqual(events[-1], {"type": "content_replace", "content": "完成"})
 
+    async def test_plain_text_streams_content_and_replaces_clean_answer(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+
+        async def fake_call(context, stream=False, **kwargs):
+            async def stream():
+                yield types.SimpleNamespace(
+                    choices=[types.SimpleNamespace(delta=types.SimpleNamespace(content="<think>草稿</think>法官发言"))]
+                )
+
+            return stream()
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[{"role": "user", "content": "问题"}],
+                use_ocp=False,
+                final_answer_source="plain_text",
+            )
+            events = [event async for event in agent.run(stream=True)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertIn({"type": "content", "content": "<think>草稿</think>法官发言"}, events)
+        self.assertEqual(events[-1], {"type": "content_replace", "content": "法官发言"})
+        self.assertFalse(any(event.get("type") == "memory_candidate" for event in events))
+
     async def test_plan_and_solve_state_machine_and_final_answer(self):
         import agents.tool_loop as tool_loop_module
         from agents.tool_loop import ToolLoopAgent, plan_and_solve_tool_choice_policy

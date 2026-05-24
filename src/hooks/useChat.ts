@@ -735,6 +735,40 @@ export function useChat() {
     handleUndo(convId, messageId, setPendingUploads);
   };
 
+  /**
+   * 从指定消息（含）截取本会话，复制为一个新会话。memory scope 派生自 conversation_id，
+   * 新 UUID 天然得到干净的服务端记忆，无需额外清理调用。
+   */
+  const branchConversation = (convId: string, messageId: string): string | null => {
+    const conv = conversations.find(c => c.id === convId);
+    if (!conv) return null;
+    const idx = conv.messages.findIndex(m => m.id === messageId);
+    if (idx < 0) return null;
+
+    const truncated = conv.messages.slice(0, idx + 1).map(msg => ({ ...msg }));
+    const newId = generateUUID();
+    const now = nowIso();
+    const baseTitle = (() => {
+      const original = conv.title || 'New Chat';
+      return /（分支）$|（分支 \d+）$/.test(original) ? original : `${original}（分支）`;
+    })();
+
+    const newConv: Conversation = {
+      id: newId,
+      title: baseTitle,
+      messages: truncated,
+      memory: createEmptyConversationMemory(newId),
+      parent_id: convId,
+      branch_point_message_id: messageId,
+      created_at: now,
+      updated_at: now
+    };
+
+    setConversations(prev => [newConv, ...prev]);
+    setCurrentId(newId);
+    return newId;
+  };
+
   return {
     conversations,
     currentId,
@@ -764,6 +798,7 @@ export function useChat() {
     },
     handleRegenerateMessage,
     handleUndo,
-    handleEdit
+    handleEdit,
+    branchConversation
   };
 }

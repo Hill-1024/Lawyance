@@ -18,6 +18,7 @@ import { MessageList } from './components/MessageList';
 import { Login } from './components/Login';
 import { AdminDashboard } from './components/AdminDashboard';
 import { BrandMark } from './components/Brand';
+import { CourtPage } from './components/CourtPage';
 
 const SECURE_DOMAIN = 'law.mutsumi.moe';
 
@@ -58,7 +59,8 @@ function App() {
     handleSend,
     handleRegenerateMessage,
     handleUndo,
-    handleEdit
+    handleEdit,
+    branchConversation
   } = useChat();
 
   const {
@@ -217,6 +219,7 @@ function App() {
         deleteConversation={deleteConversation}
         userRole={userRole}
         onAdminClick={() => navigate('/admin')}
+        onCourtClick={() => navigate('/court')}
         onLogout={handleLogout}
         isDesktopLayout={windowWidth >= 1024}
       />
@@ -254,6 +257,7 @@ function App() {
                 onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
                 onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}
                 onUndo={(id) => handleUndo(currentId, id, setPendingUploads)}
+                onBranch={(id) => branchConversation(currentId, id)}
               />
             )}
 
@@ -294,6 +298,7 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={chatLayout} />
+      <Route path="/court" element={<CourtPage onBack={() => navigate('/')} secureAccessBanner={secureAccessBanner} themeMode={themeMode} setThemeMode={setThemeMode} windowWidth={windowWidth} />} />
       <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>} />
     </Routes>
   );

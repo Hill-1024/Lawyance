@@ -37,7 +37,7 @@ export const BrandLockup: React.FC<BrandLockupProps> = ({ className }) => (
   <div className={`flex items-center gap-3 ${className || ''}`} aria-label="Lawver">
     <BrandMark className="h-10 w-10 shrink-0" />
     <span className="brand-wordmark">
-      <span className="brand-wordmark-swash">L</span>awyance
+      <span className="brand-wordmark-swash">L</span>awver
     </span>
   </div>
 );

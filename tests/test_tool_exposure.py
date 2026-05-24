@@ -24,8 +24,23 @@ class ToolExposureTests(unittest.TestCase):
         self.assertIn("submit_plan", plan_names)
         self.assertIn("submit_final_answer", plan_names)
 
+    def test_court_tools_are_read_only_and_no_control_plane(self):
+        names = set(registry.names("court"))
+
+        self.assertIn("search_article", names)
+        self.assertIn("match_legal_case", names)
+        self.assertIn("web_search", names)
+        self.assertIn("retrieve_conversation_memory", names)
+        self.assertIn("pdf_text_reader", names)
+        self.assertIn("word_reader", names)
+        self.assertIn("list_workspace_files", names)
+        self.assertNotIn("pdf_commit_by_sentence", names)
+        self.assertNotIn("word_writer", names)
+        self.assertNotIn("submit_plan", names)
+        self.assertNotIn("submit_final_answer", names)
+
     def test_tool_schema_bytes_are_stable_per_exposure(self):
-        for exposure in ("agent", "plan_and_solve"):
+        for exposure in ("agent", "plan_and_solve", "court"):
             first = json.dumps(registry.schemas(exposure), ensure_ascii=False, sort_keys=False)
             second = json.dumps(registry.schemas(exposure), ensure_ascii=False, sort_keys=False)
             self.assertEqual(
