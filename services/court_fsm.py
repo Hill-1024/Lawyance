@@ -153,6 +153,7 @@ def initial_court_state(case_type: str = "civil", user_side: str = "") -> dict[s
         "forced_advance_requested": False,
         "speaker_last_positions": {},
         "trial_over": False,
+        "user_agent_enabled": False,
     }
 
 

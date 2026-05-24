@@ -91,7 +91,7 @@ const remapCourtEvent = (event: any, oldId: string, newId: string): CourtPublicE
 };
 
 const remapCourtAgentStates = (agentStates: any, newId: string): CourtAgentStates => {
-  const roles: Array<keyof CourtAgentStates> = ['judge', 'opponent', 'reviewer'];
+  const roles: Array<keyof CourtAgentStates> = ['judge', 'opponent', 'reviewer', 'user'];
   const timestamp = nowIso();
   return roles.reduce((result, role) => {
     const state = agentStates?.[role] || {};

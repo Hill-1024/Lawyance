@@ -254,6 +254,7 @@ class CourtModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(prepared.decision.awaiting_user)
         self.assertEqual(prepared.decision.court_state["phase_turn_counts"]["claim_statement"], 1)
         self.assertEqual(prepared.decision.court_state["total_turns"], 1)
+        self.assertTrue(prepared.decision.court_state["user_agent_enabled"])
         # user agent prompt 注入了私有 brief，且不带主聊天 Lawver 主身份。
         prompt_text = "\n".join(message["content"] for message in captured["memory"])
         self.assertIn("user_agent", prompt_text)
@@ -279,6 +280,7 @@ class CourtModeTests(unittest.IsolatedAsyncioTestCase):
         prepared = await court_pipeline.prepare_court_turn(request, "admin")
         self.assertIsNone(prepared.decision.speaker)
         self.assertTrue(prepared.decision.awaiting_user)
+        self.assertFalse(prepared.decision.court_state["user_agent_enabled"])
         self.assertFalse(prepared.is_user_agent)
 
     async def test_clear_court_memory_clears_three_role_scopes(self):

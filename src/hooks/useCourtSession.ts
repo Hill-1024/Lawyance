@@ -208,11 +208,9 @@ export function useCourtSession(enabled = true) {
   const consecutiveErrorsRef = useRef(0);
 
   const commitSessions = useCallback((updater: (prev: CourtSession[]) => CourtSession[]) => {
-    setCourtSessions(prev => {
-      const next = updater(prev);
-      sessionsRef.current = next;
-      return next;
-    });
+    const next = updater(sessionsRef.current);
+    sessionsRef.current = next;
+    setCourtSessions(next);
   }, []);
 
   const patchSession = useCallback((sessionId: string, updater: (session: CourtSession) => CourtSession) => {
@@ -528,7 +526,7 @@ export function useCourtSession(enabled = true) {
   }, [patchSession]);
 
   // 处理 SSE 流。返回是否发生 error。
-  const processCourtStream = useCallback(async (response: Response, sessionId: string): Promise<{ hadError: boolean }> => {
+  const processCourtStream = useCallback(async (response: Response, sessionId: string): Promise<{ hadError: boolean; errorMessage?: string; failedSpeaker?: keyof CourtAgentStates }> => {
     const reader = response.body?.getReader();
     if (!reader) return { hadError: false };
 
@@ -536,6 +534,8 @@ export function useCourtSession(enabled = true) {
     let streamBuffer = '';
     let activeEventId = '';
     let hadError = false;
+    let errorMessage = '';
+    let failedSpeaker: keyof CourtAgentStates | undefined;
 
     const updateAgentStatus = (speaker: unknown, statusValue: CourtAgentStates[keyof CourtAgentStates]['status']) => {
       if (!isCourtSpeaker(speaker)) return;
@@ -640,13 +640,12 @@ export function useCourtSession(enabled = true) {
         }
       } else if (data.type === 'error') {
         hadError = true;
+        errorMessage = data.content || '庭审回合出错。';
+        if (isCourtSpeaker(speaker)) {
+          failedSpeaker = speaker;
+        }
         updateAgentStatus(speaker, 'error');
-        const event = createPublicEvent('system', phase, `庭审回合出错：${data.content || '未知错误'}`, 'system');
-        patchSession(sessionId, session => ({
-          ...session,
-          public_events: [...session.public_events, event]
-        }));
-        setStatus(data.content || '庭审回合出错。');
+        setStatus(errorMessage);
       }
     };
 
@@ -685,7 +684,7 @@ export function useCourtSession(enabled = true) {
       reader.releaseLock();
     }
 
-    return { hadError };
+    return { hadError, errorMessage, failedSpeaker };
   }, [getCurrentSession, patchSession]);
 
   const runNextTurn = useCallback(async () => {
@@ -701,8 +700,13 @@ export function useCourtSession(enabled = true) {
       return;
     }
 
-    // 拍一份 stream 前的状态快照，AI 失败时回滚--避免一次失败也把 phase 推进。
-    const stateSnapshot = session.court_state;
+    // 拍一份 stream 前的快照，AI 失败时回滚结构化状态和半截发言，避免污染后续 FSM。
+    const turnSnapshot = {
+      court_state: session.court_state,
+      public_events: session.public_events,
+      public_summary: session.public_summary,
+      agent_states: session.agent_states
+    };
 
     isRunningRef.current = true;
     setIsRunning(true);
@@ -717,13 +721,47 @@ export function useCourtSession(enabled = true) {
       }
     };
 
+    const rollbackFailedTurn = (message: string, failedSpeaker?: keyof CourtAgentStates) => {
+      patchSession(session.id, prev => {
+        const restoredAgentStates = { ...turnSnapshot.agent_states };
+        if (failedSpeaker) {
+          restoredAgentStates[failedSpeaker] = {
+            ...restoredAgentStates[failedSpeaker],
+            status: 'error'
+          };
+        } else {
+          (['judge', 'opponent', 'reviewer', 'user'] as Array<keyof CourtAgentStates>).forEach(role => {
+            if (prev.agent_states[role]?.status === 'running') {
+              restoredAgentStates[role] = {
+                ...restoredAgentStates[role],
+                status: 'error'
+              };
+            }
+          });
+        }
+
+        const errorEvent = createPublicEvent(
+          'system',
+          turnSnapshot.court_state.phase,
+          `庭审回合出错：${message || '未知错误'}`,
+          'system'
+        );
+        return {
+          ...prev,
+          court_state: turnSnapshot.court_state,
+          public_events: [...turnSnapshot.public_events, errorEvent],
+          public_summary: turnSnapshot.public_summary,
+          agent_states: restoredAgentStates
+        };
+      });
+    };
+
     try {
       const response = await courtTurn(session);
-      const { hadError } = await processCourtStream(response, session.id);
+      const { hadError, errorMessage, failedSpeaker } = await processCourtStream(response, session.id);
 
       if (hadError) {
-        // 后端在 turn 开头已经把 advanced 后的 court_state 推给了前端；AI 失败时回滚到 stream 前的状态。
-        patchSession(session.id, prev => ({ ...prev, court_state: stateSnapshot }));
+        rollbackFailedTurn(errorMessage || '庭审回合出错。', failedSpeaker);
         consecutiveErrorsRef.current += 1;
         handleAutoFallback();
       } else {
@@ -746,18 +784,10 @@ export function useCourtSession(enabled = true) {
       }
     } catch (error: any) {
       console.error('Court turn failed:', error);
-      // 网络/认证类异常也回滚 court_state。
-      patchSession(session.id, prev => ({ ...prev, court_state: stateSnapshot }));
+      // 网络/认证类异常也回滚本回合产生的状态和半截发言。
       consecutiveErrorsRef.current += 1;
       const message = error?.message || '庭审回合失败';
-      const failedSession = getCurrentSession();
-      if (failedSession) {
-        const event = createPublicEvent('system', failedSession.court_state.phase, message, 'system');
-        patchSession(failedSession.id, prev => ({
-          ...prev,
-          public_events: [...prev.public_events, event]
-        }));
-      }
+      rollbackFailedTurn(message);
       setStatus(message);
       handleAutoFallback();
     } finally {
