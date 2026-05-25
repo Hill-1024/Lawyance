@@ -17,3 +17,5 @@ RAG/cache/
 RAG/data_doc/
 RAG/__pycache__/
 .claude/
+pnpm-lock.yaml
+uv.lock
