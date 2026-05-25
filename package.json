@@ -15,7 +15,8 @@
     "mobile:assets": "capacitor-assets generate --android --iconBackgroundColor '#f6f8fb' --splashBackgroundColor '#f6f8fb'",
     "mobile:android:sync": "pnpm run build && cap sync android",
     "mobile:android:open": "pnpm run mobile:android:sync && cap open android",
-    "mobile:android:apk": "pnpm run mobile:android:sync && (cd android && ./gradlew assembleDebug) && echo 'APK: android/app/build/outputs/apk/debug/app-debug.apk'",
+    "mobile:android:test": "node scripts/run-android-gradle.mjs testDebugUnitTest",
+    "mobile:android:apk": "pnpm run mobile:android:sync && node scripts/run-android-gradle.mjs assembleDebug && echo 'APK: android/app/build/outputs/apk/debug/app-debug.apk'",
     "postinstall": "python -m pip install -r requirements.txt || pip3 install -r requirements.txt",
     "start": "python agent.py"
   },

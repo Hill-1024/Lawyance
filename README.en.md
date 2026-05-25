@@ -73,6 +73,7 @@ Important paths:
 
 - Python 3.13 or newer.
 - Node.js and pnpm.
+- Android client builds require JDK 21 and the Android SDK.
 - Access to the required model service and business data sources.
 - A local `.env` file in the repository root for model API keys and local configuration.
 
@@ -121,6 +122,10 @@ Common scripts:
 | `pnpm run preview` | Preview the frontend build |
 | `pnpm run lint` | Run TypeScript checks |
 | `pnpm run clean` | Remove frontend build output |
+| `pnpm run mobile:doctor` | Check the Capacitor Android environment |
+| `pnpm run mobile:android:sync` | Build the frontend and sync Android assets |
+| `pnpm run mobile:android:test` | Run Android debug unit tests |
+| `pnpm run mobile:android:apk` | Build the Android debug APK |
 
 ## Tests
 
