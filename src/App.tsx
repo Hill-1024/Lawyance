@@ -7,6 +7,7 @@ import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { App as CapacitorApp } from '@capacitor/app';
 import { SplashScreen } from '@capacitor/splash-screen';
 import { ShieldAlert, ExternalLink } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
 import { useStorage } from './hooks/useStorage';
@@ -23,14 +24,31 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { BrandMark } from './components/Brand';
 import { CourtPage } from './components/CourtPage';
 import { SettingsPage } from './components/SettingsPage';
+import { UpdateGate } from './components/UpdateGate';
 
 const SECURE_DOMAIN = 'law.mutsumi.moe';
+const ROUTE_TRANSITION = { duration: 0.24, ease: [0.2, 0, 0, 1] } as const;
 
 const isIpHostname = (hostname: string) => {
   if (!hostname) return false;
   const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
   const isIpv6 = hostname.includes(':');
   return isIpv4 || isIpv6;
+};
+
+const AnimatedRouteSurface: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      className="min-h-[100dvh] bg-[var(--bg-app)]"
+      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+      transition={reduceMotion ? { duration: 0.01 } : ROUTE_TRANSITION}
+    >
+      {children}
+    </motion.div>
+  );
 };
 
 function App() {
@@ -352,12 +370,16 @@ function App() {
   );
 
   return (
-    <Routes>
-      <Route path="/" element={chatLayout} />
-      <Route path="/court" element={<CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} />} />
-      <Route path="/settings" element={<SettingsPage />} />
-      <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>} />
-    </Routes>
+    <UpdateGate>
+      <AnimatePresence mode="wait" initial={false}>
+        <Routes location={location} key={location.pathname}>
+          <Route path="/" element={chatLayout} />
+          <Route path="/court" element={<CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} />} />
+          <Route path="/settings" element={<AnimatedRouteSurface><SettingsPage /></AnimatedRouteSurface>} />
+          <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>} />
+        </Routes>
+      </AnimatePresence>
+    </UpdateGate>
   );
 }
 

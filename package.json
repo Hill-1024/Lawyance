@@ -1,19 +1,28 @@
 {
   "name": "lawver",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.1",
+  "description": "工大法智团队的中文法律 AI 助手原型",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
+  "metadata": {
+    "name": "Lawver"
+  },
+  "appConfig": {
+    "environment": "Web/Vite",
+    "projectUrl": "https://github.com/Hill-1024/Lawyance"
+  },
   "scripts": {
     "dev": "python agent.py",
-    "dev:frontend": "vite --port=8080 --host=0.0.0.0",
-    "build": "vite build",
+    "dev:frontend": "LAWVER_BUILD_ENV=Development vite --port=8080 --host=0.0.0.0",
+    "sync-version": "node scripts/sync-android-version.mjs",
+    "build": "pnpm run sync-version && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "mobile:doctor": "cap doctor && cap ls",
     "mobile:assets": "capacitor-assets generate --android --iconBackgroundColor '#f6f8fb' --splashBackgroundColor '#f6f8fb'",
-    "mobile:android:sync": "pnpm run build && cap sync android",
+    "mobile:android:sync": "LAWVER_BUILD_ENV=Capacitor/Android pnpm run build && cap sync android",
     "mobile:android:open": "pnpm run mobile:android:sync && cap open android",
     "mobile:android:test": "node scripts/run-android-gradle.mjs testDebugUnitTest",
     "mobile:android:apk": "pnpm run mobile:android:sync && node scripts/run-android-gradle.mjs assembleDebug && echo 'APK: android/app/build/outputs/apk/debug/app-debug.apk'",

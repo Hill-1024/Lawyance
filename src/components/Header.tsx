@@ -42,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
         </h1>
       </div>
       <div className="relative flex shrink-0 items-center gap-0.5 sm:gap-1">
-        <HoverInfo label="Workspace" placement="bottom">
+        <HoverInfo label="Workspace" placement="bottom" disabled={isWorkspaceOpen}>
           <button
             onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
             className={`lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}

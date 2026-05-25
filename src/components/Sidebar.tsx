@@ -86,17 +86,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
         className={`flex h-full shrink-0 flex-col overflow-hidden border-r border-[var(--border-subtle)] bg-[var(--bg-app)] ${
           isDesktopLayout
             ? 'relative shadow-none'
-            : 'fixed left-0 top-0 z-50 rounded-r-[var(--radius-xl)] shadow-[var(--shadow-4)]'
+            : 'lawver-mobile-drawer fixed left-0 top-0 z-50 rounded-r-[var(--radius-xl)] shadow-[var(--shadow-4)]'
         }`}
         style={sidebarStyle}
         aria-hidden={!isSidebarOpen}
       >
         <div className="flex h-full shrink-0 flex-col" style={{ width: sidebarContentWidth }}>
-          <div className="flex items-center justify-between p-4 pb-3 sm:p-6 sm:pb-4">
+          <div className={isDesktopLayout
+            ? 'flex items-center justify-between p-4 pb-3 sm:p-6 sm:pb-4'
+            : 'lawver-mobile-drawer-header flex items-center justify-between'
+          }>
             <BrandLockup />
             {!isDesktopLayout && (
-              <button onClick={() => setIsSidebarOpen(false)} className="lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-10 sm:w-10" aria-label="Close conversations">
-                <X size={20} strokeWidth={2} className="sm:size-[22px]" />
+              <button onClick={() => setIsSidebarOpen(false)} className="lawver-drawer-close lawver-pressable inline-flex items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close conversations">
+                <X size={21} strokeWidth={2} />
               </button>
             )}
           </div>

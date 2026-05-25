@@ -264,6 +264,23 @@ body {
   min-height: calc(56px + var(--safe-top));
 }
 
+.lawver-mobile-drawer {
+  height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+}
+
+.lawver-mobile-drawer-header {
+  min-height: calc(64px + var(--safe-top));
+  padding: calc(10px + var(--safe-top)) 16px 10px;
+}
+
+.lawver-drawer-close {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+}
+
 .lawver-header-title {
   font-size: 17px;
   line-height: 24px;

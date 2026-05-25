@@ -55,10 +55,12 @@ class LawCacheStartupTests(unittest.TestCase):
             events.append("workspace_stop")
 
         original_prepare = self.app_factory.law_cache.prepare_on_startup
+        original_release_prepare = self.app_factory.release_sync.prepare_on_startup
         original_start = self.app_factory.workspace_cleanup.start
         original_stop = self.app_factory.workspace_cleanup.stop
         try:
             self.app_factory.law_cache.prepare_on_startup = fake_prepare
+            self.app_factory.release_sync.prepare_on_startup = lambda _app: asyncio.sleep(0)
             self.app_factory.workspace_cleanup.start = fake_start
             self.app_factory.workspace_cleanup.stop = fake_stop
 
@@ -71,6 +73,7 @@ class LawCacheStartupTests(unittest.TestCase):
             asyncio.run(exercise_lifespan())
         finally:
             self.app_factory.law_cache.prepare_on_startup = original_prepare
+            self.app_factory.release_sync.prepare_on_startup = original_release_prepare
             self.app_factory.workspace_cleanup.start = original_start
             self.app_factory.workspace_cleanup.stop = original_stop
 

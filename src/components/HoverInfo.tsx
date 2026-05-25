@@ -12,6 +12,7 @@ interface HoverInfoProps {
   label: React.ReactNode;
   children: React.ReactElement;
   placement?: Placement;
+  disabled?: boolean;
 }
 
 const SHOW_DELAY_MS = 100;
@@ -20,13 +21,14 @@ const TOUCH_MOVE_THRESHOLD = 10;
 const TRIGGER_GAP = 8;
 const VIEWPORT_MARGIN = 8;
 
-export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement = 'top' }) => {
+export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement = 'top', disabled = false }) => {
   const tooltipId = useId();
   const triggerRef = useRef<HTMLElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const showTimer = useRef<number | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const lastPointerType = useRef<string | null>(null);
   const suppressNextClick = useRef(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -139,6 +141,16 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
     clearLongPressTimer();
   }, [clearShowTimer, clearLongPressTimer]);
 
+  useEffect(() => {
+    if (!disabled) return;
+    clearShowTimer();
+    clearLongPressTimer();
+    lastPointerType.current = null;
+    touchStart.current = null;
+    suppressNextClick.current = false;
+    setOpen(false);
+  }, [clearShowTimer, clearLongPressTimer, disabled]);
+
   const scheduleShow = useCallback(() => {
     clearShowTimer();
     showTimer.current = window.setTimeout(() => setOpen(true), SHOW_DELAY_MS);
@@ -151,6 +163,10 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
 
   // 健壮性检查：若不是有效的 React 元素，直接回退渲染 children
   if (!React.isValidElement(children)) {
+    return <>{children}</>;
+  }
+
+  if (disabled) {
     return <>{children}</>;
   }
 
@@ -178,6 +194,7 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
     },
     onPointerDown: (e: React.PointerEvent) => {
       childProps.onPointerDown?.(e);
+      lastPointerType.current = e.pointerType;
       if (e.pointerType === 'touch') {
         touchStart.current = { x: e.clientX, y: e.clientY };
         clearLongPressTimer();
@@ -230,10 +247,12 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
     },
     onFocus: (e: React.FocusEvent) => {
       childProps.onFocus?.(e);
+      if (lastPointerType.current === 'touch') return;
       setOpen(true);
     },
     onBlur: (e: React.FocusEvent) => {
       childProps.onBlur?.(e);
+      lastPointerType.current = null;
       hide();
     },
     'aria-describedby': open
