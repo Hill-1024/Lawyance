@@ -162,10 +162,42 @@ class ApiBoundaryTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertNotIn("token", response.json())
         cookie = response.headers["set-cookie"].lower()
         self.assertIn("httponly", cookie)
         self.assertIn("samesite=strict", cookie)
         self.assertNotIn("; secure", cookie)
+
+    def test_native_login_returns_bearer_token_and_accepts_authorization(self):
+        response = self.client.post(
+            "/api/login",
+            json={"username": "admin", "password": "bootstrap-password"},
+            headers={
+                "origin": "https://localhost:443",
+                "x-lawver-client": "capacitor",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("token", data)
+        self.assertEqual(data["username"], "admin")
+        self.assertEqual(data["role"], "admin")
+
+        stateless_client = TestClient(self.agent.app, base_url="http://localhost")
+        try:
+            verify = stateless_client.get(
+                "/api/verify_auth",
+                headers={
+                    "authorization": f"Bearer {data['token']}",
+                    "x-lawver-client": "capacitor",
+                },
+            )
+        finally:
+            stateless_client.close()
+
+        self.assertEqual(verify.status_code, 200)
+        self.assertEqual(verify.json()["username"], "admin")
 
     def test_cross_site_unsafe_api_request_is_rejected(self):
         response = self.client.post("/api/logout", headers={"origin": "https://evil.example"})

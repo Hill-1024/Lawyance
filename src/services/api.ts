@@ -3,6 +3,50 @@
  */
 
 import type { ConversationMemory, CourtSession } from '../types';
+import { clearAuthToken, getAuthToken, setAuthToken } from '../lib/auth-storage';
+import { isNative } from '../lib/platform';
+
+const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
+const API_BASE = isNative()
+  ? (env.VITE_LAWVER_API_BASE || 'https://law.mutsumi.moe')
+  : '';
+
+let unauthorizedHandler: (() => void | Promise<void>) | null = null;
+
+export interface LoginResult {
+  status: string;
+  message: string;
+  username?: string;
+  role?: string;
+  token?: string;
+}
+
+export const setUnauthorizedHandler = (handler: (() => void | Promise<void>) | null) => {
+  unauthorizedHandler = handler;
+};
+
+export const apiUrl = (path: string) => `${API_BASE}${path}`;
+
+export const apiFetch = async (path: string, init: RequestInit = {}): Promise<Response> => {
+  const headers = new Headers(init.headers);
+  let finalInit: RequestInit;
+
+  if (isNative()) {
+    const token = await getAuthToken();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    headers.set('X-Lawver-Client', 'capacitor');
+    finalInit = { ...init, credentials: 'omit', headers };
+  } else {
+    finalInit = { ...init, credentials: 'include', headers };
+  }
+
+  const response = await fetch(apiUrl(path), finalInit);
+  if (response.status === 401) {
+    await clearAuthToken();
+    await unauthorizedHandler?.();
+  }
+  return response;
+};
 
 export class MemoryRevisionConflictError extends Error {
   detail: any;
@@ -15,13 +59,13 @@ export class MemoryRevisionConflictError extends Error {
 }
 
 export const verifyAuth = async () => {
-  const res = await fetch('/api/verify_auth');
+  const res = await apiFetch('/api/verify_auth');
   if (!res.ok) throw new Error('Not authenticated');
   return res.json();
 };
 
 export const login = async (username: string, password: string) => {
-  const res = await fetch('/api/login', {
+  const res = await apiFetch('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password })
@@ -30,11 +74,19 @@ export const login = async (username: string, password: string) => {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Login failed');
   }
-  return res.json();
+  const data = await res.json() as LoginResult;
+  if (isNative()) {
+    if (!data.token) {
+      throw new Error('原生登录未返回 Bearer token，请确认服务端已部署原生鉴权支持并允许 https://localhost。');
+    }
+    await setAuthToken(data.token);
+  }
+  return data;
 };
 
 export const logout = async () => {
-  const res = await fetch('/api/logout', { method: 'POST' });
+  const res = await apiFetch('/api/logout', { method: 'POST' });
+  await clearAuthToken();
   if (!res.ok) throw new Error('Logout failed');
   return res.json();
 };
@@ -44,7 +96,7 @@ export const uploadFile = async (file: File, conversationId: string) => {
   formData.append('file', file);
   formData.append('conversation_id', conversationId);
 
-  const res = await fetch('/api/upload', {
+  const res = await apiFetch('/api/upload', {
     method: 'POST',
     body: formData,
   });
@@ -67,11 +119,13 @@ export const chat = async (
   memorySnapshot?: ConversationMemory | null,
   memorySyncMode?: 'merge' | 'rebuild',
   memoryConflictStrategy?: 'server_merge',
-  lastContextTokens?: number | null
+  lastContextTokens?: number | null,
+  signal?: AbortSignal
 ) => {
-  const response = await fetch('/api/chat', {
+  const response = await apiFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal,
     body: JSON.stringify({
       message,
       history,
@@ -99,10 +153,11 @@ export const chat = async (
   return response;
 };
 
-export const courtTurn = async (session: CourtSession) => {
-  const response = await fetch('/api/court/turn', {
+export const courtTurn = async (session: CourtSession, signal?: AbortSignal) => {
+  const response = await apiFetch('/api/court/turn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    signal,
     body: JSON.stringify({
       court_session_id: session.id,
       court_state: session.court_state,
@@ -123,7 +178,7 @@ export const courtTurn = async (session: CourtSession) => {
 };
 
 export const clearCourtMemory = async (courtSessionId: string, roles?: string[]) => {
-  const res = await fetch('/api/court/memory/clear', {
+  const res = await apiFetch('/api/court/memory/clear', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -145,7 +200,7 @@ export const syncConversationMemory = async (
   mode: 'merge' | 'rebuild' = 'rebuild',
   memoryConflictStrategy?: 'server_merge'
 ) => {
-  const res = await fetch('/api/memory/sync', {
+  const res = await apiFetch('/api/memory/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -169,7 +224,7 @@ export const syncConversationMemory = async (
 };
 
 export const getWorkspaceFiles = async (conversationId: string) => {
-  const res = await fetch(`/api/workspace/files?conversation_id=${encodeURIComponent(conversationId)}`);
+  const res = await apiFetch(`/api/workspace/files?conversation_id=${encodeURIComponent(conversationId)}`);
   if (!res.ok) {
     throw new Error('Failed to fetch workspace files');
   }
@@ -182,7 +237,7 @@ export const restoreFile = async (file: Blob, filename: string, conversationId: 
   formData.append('conversation_id', conversationId);
   formData.append('file_type', type);
 
-  const res = await fetch('/api/workspace/restore', {
+  const res = await apiFetch('/api/workspace/restore', {
     method: 'POST',
     body: formData,
   });
@@ -194,7 +249,7 @@ export const restoreFile = async (file: Blob, filename: string, conversationId: 
 };
 
 export const deleteWorkspace = async (conversationId: string) => {
-  const res = await fetch(`/api/workspace/${encodeURIComponent(conversationId)}`, {
+  const res = await apiFetch(`/api/workspace/${encodeURIComponent(conversationId)}`, {
     method: 'DELETE'
   });
   if (!res.ok) {
@@ -204,7 +259,7 @@ export const deleteWorkspace = async (conversationId: string) => {
 };
 
 export const deleteWorkspaceFile = async (conversationId: string, path: string) => {
-  const res = await fetch(`/api/workspace/file?conversation_id=${encodeURIComponent(conversationId)}&file_path=${encodeURIComponent(path)}`, {
+  const res = await apiFetch(`/api/workspace/file?conversation_id=${encodeURIComponent(conversationId)}&file_path=${encodeURIComponent(path)}`, {
     method: 'DELETE'
   });
   if (!res.ok) {
@@ -214,7 +269,7 @@ export const deleteWorkspaceFile = async (conversationId: string, path: string) 
 };
 
 export const sendHeartbeat = async (conversationId: string) => {
-  const res = await fetch(`/api/heartbeat/${encodeURIComponent(conversationId)}`, {
+  const res = await apiFetch(`/api/heartbeat/${encodeURIComponent(conversationId)}`, {
     method: 'POST'
   });
   if (!res.ok) {
@@ -228,7 +283,7 @@ export const fetchLogs = async (ip?: string, ignoreHeartbeat?: boolean) => {
   if (ip) params.append('ip', ip);
   if (ignoreHeartbeat) params.append('ignore_heartbeat', 'true');
   
-  const res = await fetch(`/api/admin/logs?${params.toString()}`);
+  const res = await apiFetch(`/api/admin/logs?${params.toString()}`);
   if (!res.ok) {
     if (res.status === 403) throw new Error('Access denied. Admin role required.');
     throw new Error('Failed to fetch logs');
@@ -237,7 +292,7 @@ export const fetchLogs = async (ip?: string, ignoreHeartbeat?: boolean) => {
 };
 
 export const fetchAccounts = async () => {
-  const res = await fetch('/api/admin/accounts');
+  const res = await apiFetch('/api/admin/accounts');
   if (!res.ok) {
     if (res.status === 403) throw new Error('Access denied. Admin role required.');
     throw new Error('Failed to fetch accounts');
@@ -246,7 +301,7 @@ export const fetchAccounts = async () => {
 };
 
 export const setAccount = async (username: string, password: string, role: string = 'user') => {
-  const res = await fetch('/api/admin/accounts', {
+  const res = await apiFetch('/api/admin/accounts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password, role })
@@ -258,7 +313,7 @@ export const setAccount = async (username: string, password: string, role: strin
   return res.json();
 };
 export const deleteAccount = async (username: string) => {
-  const res = await fetch(`/api/admin/accounts/${encodeURIComponent(username)}`, {
+  const res = await apiFetch(`/api/admin/accounts/${encodeURIComponent(username)}`, {
     method: 'DELETE'
   });
   if (!res.ok) {
@@ -266,4 +321,16 @@ export const deleteAccount = async (username: string) => {
     throw new Error(errorData.detail || 'Failed to delete account');
   }
   return res.json();
+};
+
+export const summarizeTitle = async (titleSource: string) => {
+  const response = await apiFetch('/api/summarize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      history: [{ role: 'user', content: titleSource.substring(0, 200) }]
+    })
+  });
+  if (!response.ok) throw new Error('Summarize failed');
+  return response.json();
 };

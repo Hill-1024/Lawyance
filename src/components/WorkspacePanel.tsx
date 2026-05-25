@@ -6,6 +6,7 @@ import React, { useMemo } from 'react';
 import { Folder, X, Paperclip, Download, Trash2, FileText } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { HoverInfo } from './HoverInfo';
+import { downloadWorkspaceFile } from '../lib/download';
 
 const WORKSPACE_PANEL_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
@@ -35,13 +36,12 @@ const WorkspaceFileItem: React.FC<{
     <div className="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
       <HoverInfo label="Download" placement="top">
         <button
-          onClick={() => {
-            const link = document.createElement('a');
-            link.href = `/api/download?file_path=${encodeURIComponent(file.path)}`;
-            link.download = file.name;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+          onClick={async () => {
+            try {
+              await downloadWorkspaceFile(file.path, file.name);
+            } catch (error: any) {
+              alert(error?.message || 'Download failed');
+            }
           }}
           className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
           aria-label="Download"

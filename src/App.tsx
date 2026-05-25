@@ -2,14 +2,17 @@
  * 模块描述：React 应用根组件，串联认证状态、聊天布局、工作区、主题和管理路由。
  */
 
-import React, { useState, useEffect } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import React, { useCallback, useState, useEffect } from 'react';
+import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { App as CapacitorApp } from '@capacitor/app';
+import { SplashScreen } from '@capacitor/splash-screen';
 import { ShieldAlert, ExternalLink } from 'lucide-react';
-import { useTheme } from './hooks/useTheme';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
 import { useStorage } from './hooks/useStorage';
-import { sendHeartbeat, verifyAuth, logout as apiLogout } from './services/api';
+import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler } from './services/api';
+import { isNative } from './lib/platform';
+import { exitNativeApp, useBackButton } from './hooks/useBackButton';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { WorkspacePanel } from './components/WorkspacePanel';
@@ -19,6 +22,7 @@ import { Login } from './components/Login';
 import { AdminDashboard } from './components/AdminDashboard';
 import { BrandMark } from './components/Brand';
 import { CourtPage } from './components/CourtPage';
+import { SettingsPage } from './components/SettingsPage';
 
 const SECURE_DOMAIN = 'law.mutsumi.moe';
 
@@ -34,8 +38,8 @@ function App() {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [userRole, setUserRole] = useState('user');
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const { themeMode, setThemeMode } = useTheme();
   const {
     conversations,
     currentId,
@@ -81,10 +85,19 @@ function App() {
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
-  const isIpAccess = typeof window !== 'undefined' && isIpHostname(window.location.hostname);
+  const isIpAccess = typeof window !== 'undefined' && !isNative() && isIpHostname(window.location.hostname);
   const secureAccessUrl = typeof window !== 'undefined'
     ? `https://${SECURE_DOMAIN}${window.location.pathname}${window.location.search}${window.location.hash}`
     : `https://${SECURE_DOMAIN}`;
+
+  useEffect(() => {
+    setUnauthorizedHandler(async () => {
+      setIsAuthenticated(false);
+      setUserRole('user');
+      navigate('/');
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [navigate]);
 
   const handleLogout = async () => {
     try {
@@ -96,7 +109,8 @@ function App() {
       console.error("Logout failed:", e);
       // Fallback: clear auth state anyway
       setIsAuthenticated(false);
-      window.location.reload();
+      setUserRole('user');
+      navigate('/');
     }
   };
 
@@ -110,10 +124,37 @@ function App() {
         setIsAuthenticated(false);
       } finally {
         setIsAuthChecking(false);
+        if (isNative()) {
+          requestAnimationFrame(() => {
+            SplashScreen.hide().catch(console.error);
+          });
+        }
       }
     };
     checkAuth();
     requestPersistence().catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if (!isNative()) return;
+
+    let listener: { remove: () => Promise<void> } | undefined;
+    CapacitorApp.addListener('appStateChange', async ({ isActive }) => {
+      if (!isActive) return;
+      try {
+        const data = await verifyAuth();
+        setIsAuthenticated(true);
+        setUserRole(data.role || 'user');
+      } catch {
+        setIsAuthenticated(false);
+      }
+    }).then(handle => {
+      listener = handle;
+    });
+
+    return () => {
+      listener?.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -159,6 +200,27 @@ function App() {
     };
   }, [currentId, isAuthenticated, isInitialized, syncFiles]);
 
+  useBackButton(useCallback(() => {
+    if (isInputExpanded) {
+      setIsInputExpanded(false);
+      return true;
+    }
+    if (isSidebarOpen) {
+      setIsSidebarOpen(false);
+      return true;
+    }
+    if (isWorkspaceOpen) {
+      setIsWorkspaceOpen(false);
+      return true;
+    }
+    if (location.pathname !== '/') {
+      navigate(-1);
+      return true;
+    }
+    exitNativeApp().catch(console.error);
+    return true;
+  }, [isInputExpanded, isSidebarOpen, isWorkspaceOpen, location.pathname, navigate]), isAuthenticated && isInitialized);
+
   if (isAuthChecking) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--bg-app)] text-[var(--accent)] transition-colors duration-300">
@@ -192,14 +254,9 @@ function App() {
     return (
       <div className="min-h-screen bg-[var(--bg-app)] transition-colors duration-300">
         {secureAccessBanner}
-        <Login onLoginSuccess={async () => {
-          try {
-            const data = await verifyAuth();
-            setUserRole(data.role || 'user');
-            setIsAuthenticated(true);
-          } catch (e) {
-            window.location.reload();
-          }
+        <Login onLoginSuccess={(data) => {
+          setUserRole(data.role || 'user');
+          setIsAuthenticated(true);
         }} />
       </div>
     );
@@ -220,6 +277,7 @@ function App() {
         userRole={userRole}
         onAdminClick={() => navigate('/admin')}
         onCourtClick={() => navigate('/court')}
+        onSettingsClick={() => navigate('/settings')}
         onLogout={handleLogout}
         isDesktopLayout={windowWidth >= 1024}
       />
@@ -233,9 +291,7 @@ function App() {
           isWorkspaceOpen={isWorkspaceOpen}
           setIsWorkspaceOpen={setIsWorkspaceOpen}
           workspaceFilesCount={workspaceFiles.length}
-          themeMode={themeMode}
-          setThemeMode={setThemeMode}
-          windowWidth={windowWidth}
+          onSettingsClick={() => navigate('/settings')}
         />
 
         <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -298,7 +354,8 @@ function App() {
   return (
     <Routes>
       <Route path="/" element={chatLayout} />
-      <Route path="/court" element={<CourtPage onBack={() => navigate('/')} secureAccessBanner={secureAccessBanner} themeMode={themeMode} setThemeMode={setThemeMode} windowWidth={windowWidth} />} />
+      <Route path="/court" element={<CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} />} />
+      <Route path="/settings" element={<SettingsPage />} />
       <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>} />
     </Routes>
   );

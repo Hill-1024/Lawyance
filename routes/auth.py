@@ -6,11 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from auth import authenticate_user, create_token, get_user_role
 from schemas import LoginRequest
-from services.app_security import secure_cookie_for_request
+from services.app_security import NATIVE_CLIENT_ORIGINS, is_trusted_origin, secure_cookie_for_request
 from services.auth_dependencies import get_current_user
 
 
 router = APIRouter()
+
+
+def is_native_client_request(request: Request) -> bool:
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    client_type = (request.headers.get("x-lawver-client") or "").strip().lower()
+    return client_type == "capacitor" and (origin in NATIVE_CLIENT_ORIGINS or is_trusted_origin(origin))
 
 
 @router.post("/api/login")
@@ -28,7 +34,15 @@ async def login(req: LoginRequest, response: Response, request: Request):
         max_age=7 * 24 * 3600,
         samesite="strict",
     )
-    return {"status": "success", "message": "登录成功"}
+    payload = {
+        "status": "success",
+        "message": "登录成功",
+        "username": req.username,
+        "role": get_user_role(req.username),
+    }
+    if is_native_client_request(request):
+        payload["token"] = token
+    return payload
 
 
 @router.post("/api/logout")

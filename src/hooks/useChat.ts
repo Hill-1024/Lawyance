@@ -2,10 +2,12 @@
  * 模块描述：聊天状态 Hook，管理会话、消息、发送流程、编辑/撤回和对话级记忆同步。
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
 import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
 import { fileDB } from '../lib/db';
-import { chat, deleteWorkspace, MemoryRevisionConflictError, syncConversationMemory } from '../services/api';
+import { isNative } from '../lib/platform';
+import { chat, deleteWorkspace, MemoryRevisionConflictError, summarizeTitle, syncConversationMemory } from '../services/api';
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -36,6 +38,13 @@ const GREETING_MESSAGE = `您好，我是 **Lawver**，由 **工大法智团队*
 const CONTEXT_COMPRESSION_THRESHOLD_TOKENS = 500000;
 const HISTORY_COMPRESSION_STATUS = '正在整理较早上下文';
 const CJK_CHAR_PATTERN = /[\u3400-\u9fff\uf900-\ufaff]/g;
+
+const isAbortError = (error: unknown) => (
+  typeof error === 'object' &&
+  error !== null &&
+  'name' in error &&
+  (error as { name?: string }).name === 'AbortError'
+);
 
 const normalizeBackendMessage = (msg: Partial<Message> | BackendHistoryMessage): BackendHistoryMessage | null => {
   const rawRole = (msg.role as string) || '';
@@ -152,11 +161,35 @@ export function useChat() {
   const [agentMode, setAgentMode] = useState('default');
   const [isOCPEnabled, setIsOCPEnabled] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
+  const activeAbortRef = useRef<AbortController | null>(null);
 
   const currentConversation = conversations.find(c => c.id === currentId) || { id: '', title: '', messages: [] };
   const messages = currentConversation.messages;
   const contextUsage = currentConversation.context_usage || null;
   const nowIso = () => new Date().toISOString();
+
+  const abortActiveRequest = useCallback(() => {
+    activeAbortRef.current?.abort();
+    activeAbortRef.current = null;
+  }, []);
+
+  useEffect(() => () => abortActiveRequest(), [abortActiveRequest]);
+
+  useEffect(() => {
+    if (!isNative()) return;
+
+    let listener: { remove: () => Promise<void> } | undefined;
+    CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) abortActiveRequest();
+    }).then(handle => {
+      listener = handle;
+    });
+
+    return () => {
+      listener?.remove();
+    };
+  }, [abortActiveRequest]);
+
   const shouldShowHistoryCompressionStatus = (
     usage: ContextUsage | null | undefined,
     history: BackendHistoryMessage[],
@@ -310,14 +343,15 @@ export function useChat() {
     stream: boolean,
     memorySnapshot: ConversationMemory,
     memorySyncMode: 'merge' | 'rebuild' = 'merge',
-    lastContextTokens?: number | null
+    lastContextTokens?: number | null,
+    signal?: AbortSignal
   ) => {
     try {
-      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, undefined, lastContextTokens);
+      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, undefined, lastContextTokens, signal);
     } catch (error) {
       if (!(error instanceof MemoryRevisionConflictError)) throw error;
       updateConversationMemory(convId, error.detail?.memory_snapshot as ConversationMemory | undefined);
-      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, 'server_merge', lastContextTokens);
+      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, 'server_merge', lastContextTokens, signal);
     }
   };
 
@@ -354,20 +388,10 @@ export function useChat() {
     };
 
     try {
-      const response = await fetch('/api/summarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          history: [{ role: 'user', content: titleSource.substring(0, 200) }]
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        let title = String(data.title || '').replace(/["']/g, '').trim();
-        if (title.length > 20) title = title.substring(0, 20) + '...';
-        applyTitleIfCurrent(title);
-      }
+      const data = await summarizeTitle(titleSource);
+      let title = String(data.title || '').replace(/["']/g, '').trim();
+      if (title.length > 20) title = title.substring(0, 20) + '...';
+      applyTitleIfCurrent(title);
     } catch (error) {
       console.error('Failed to summarize:', error);
       const fallbackTitle = titleSource.substring(0, 15) + (titleSource.length > 15 ? '...' : '');
@@ -495,6 +519,7 @@ export function useChat() {
       }
       commitAssistantState();
     } catch (err) {
+      if (isAbortError(err)) throw err;
       console.error('Stream read error:', err);
     } finally {
       reader.releaseLock();
@@ -538,13 +563,17 @@ export function useChat() {
     setIsLoading(true);
     setComposerStatus(shouldShowCompressionStatus ? HISTORY_COMPRESSION_STATUS : null);
 
+    const abortController = new AbortController();
+    activeAbortRef.current?.abort();
+    activeAbortRef.current = abortController;
+
     try {
       // Pre-flight sync: Ensure all files are synced to the server before sending the request
       if (syncFiles) {
         await syncFiles();
       }
 
-      const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot, 'merge', lastContextTokens);
+      const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot, 'merge', lastContextTokens, abortController.signal);
 
       if (isStreaming) {
         setComposerStatus(null);
@@ -595,9 +624,14 @@ export function useChat() {
         }, 5000);
       }
     } catch (error) {
-      console.error('Failed to send message:', error);
+      if (!isAbortError(error)) {
+        console.error('Failed to send message:', error);
+      }
       setIsLoading(false);
     } finally {
+      if (activeAbortRef.current === abortController) {
+        activeAbortRef.current = null;
+      }
       setComposerStatus(null);
     }
   };
@@ -625,6 +659,10 @@ export function useChat() {
     setIsLoading(true);
     setComposerStatus(shouldShowCompressionStatus ? HISTORY_COMPRESSION_STATUS : null);
 
+    const abortController = new AbortController();
+    activeAbortRef.current?.abort();
+    activeAbortRef.current = abortController;
+
     try {
       // Pre-flight sync: Ensure all files are synced to the server before sending the request
       if (syncFiles) {
@@ -635,7 +673,7 @@ export function useChat() {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content, created_at: now, updated_at: now };
       updateMessages(convId, prev => [...prev, userMessage]);
 
-      const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild', lastContextTokens);
+      const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild', lastContextTokens, abortController.signal);
 
       if (isStreaming) {
         setComposerStatus(null);
@@ -686,9 +724,14 @@ export function useChat() {
         }, 5000);
       }
     } catch (error) {
-      console.error('Failed to regenerate message:', error);
+      if (!isAbortError(error)) {
+        console.error('Failed to regenerate message:', error);
+      }
       setIsLoading(false);
     } finally {
+      if (activeAbortRef.current === abortController) {
+        activeAbortRef.current = null;
+      }
       setComposerStatus(null);
     }
   };

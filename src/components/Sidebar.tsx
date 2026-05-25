@@ -1,9 +1,9 @@
 /*
- * 模块描述：会话侧栏组件，提供新建会话、历史切换、删除、存储状态和管理入口。
+ * 模块描述：会话侧栏组件，提供新建会话、历史切换、删除、设置、存储状态和管理入口。
  */
 
 import React from 'react';
-import { X, Plus, Trash2, LogOut, ShieldAlert, Gavel } from 'lucide-react';
+import { X, Plus, Trash2, LogOut, ShieldAlert, Gavel, Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Conversation } from '../types';
 import { StorageIndicator } from './StorageIndicator';
@@ -26,6 +26,7 @@ interface SidebarProps {
   userRole?: string;
   onAdminClick?: () => void;
   onCourtClick?: () => void;
+  onSettingsClick?: () => void;
   onLogout?: () => void;
   isDesktopLayout: boolean;
 }
@@ -41,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userRole,
   onAdminClick,
   onCourtClick,
+  onSettingsClick,
   onLogout,
   isDesktopLayout
 }) => {
@@ -147,7 +149,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             ))}
           </div>
-          <div className="flex flex-col gap-3 border-t border-[var(--border-subtle)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <div className="flex flex-col gap-3 border-t border-[var(--border-subtle)] p-4 pb-[calc(1rem+var(--safe-bottom))]">
+            {onSettingsClick && (
+              <button
+                onClick={() => {
+                  onSettingsClick();
+                  if (!isDesktopLayout) setIsSidebarOpen(false);
+                }}
+                className="md3-btn-tonal lawver-pressable w-full rounded-[var(--radius-md)] py-2.5 text-sm"
+              >
+                <Settings size={16} strokeWidth={2} />
+                设置
+              </button>
+            )}
             {userRole === 'admin' && onAdminClick && (
               <button
                 onClick={onAdminClick}

@@ -8,6 +8,7 @@ import { useStorage } from '../hooks/useStorage';
 import { storageService } from '../services/storageService';
 import { motion, AnimatePresence } from 'motion/react';
 import { HoverInfo } from './HoverInfo';
+import { isNative } from '../lib/platform';
 
 interface StorageIndicatorProps {
   compact?: boolean;
@@ -42,6 +43,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
     const granted = await requestPersistence();
     if (granted) {
       alert('【开启成功】\n已启用永久保护模式。浏览器将绝对不会在磁盘紧张时自动清理本应用的数据。');
+    } else if (isNative()) {
+      alert('【原生客户端】\n本地数据由应用沙箱管理，无需安装为 PWA。');
     } else {
       alert('【当前无法开启】\n原因：浏览器尚未授予此站点的持久化权限。\n\n解决办法：\n1. 继续使用一段时间（增加站点互动得分）\n2. 点击地址栏右侧图标，将本站【安装为应用(PWA)】\n3. 将本站加入书签');
     }

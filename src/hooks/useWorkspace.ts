@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { fileDB } from '../lib/db';
-import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile } from '../services/api';
+import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile, apiFetch } from '../services/api';
 
 export function useWorkspace(currentId: string, enabled = true) {
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
@@ -54,7 +54,7 @@ export function useWorkspace(currentId: string, enabled = true) {
         if (needsDownload) {
           console.log(`[Sync] Downloading missing server file to local cache: ${serverFile.name}`);
           try {
-            const res = await fetch(`/api/download?file_path=${encodeURIComponent(serverFile.path)}`);
+            const res = await apiFetch(`/api/download?file_path=${encodeURIComponent(serverFile.path)}`);
             if (res.ok) {
               const blob = await res.blob();
               await fileDB.saveFile(currentId, serverFile.name, blob, serverFile.path);
@@ -97,7 +97,7 @@ export function useWorkspace(currentId: string, enabled = true) {
   const handleGeneratedFile = useCallback(async (name: string, path: string) => {
     if (path) {
       try {
-        const res = await fetch(`/api/download?file_path=${encodeURIComponent(path)}`);
+        const res = await apiFetch(`/api/download?file_path=${encodeURIComponent(path)}`);
         if (res.ok) {
           const blob = await res.blob();
           await fileDB.saveFile(currentId, name, blob, path);
