@@ -127,6 +127,24 @@ pnpm run dev:frontend
 | `pnpm run mobile:android:test` | Android debug ユニットテストを実行 |
 | `pnpm run mobile:android:apk` | Android debug APK をビルド |
 
+## Android APK リリースと更新
+
+Android の正式リリースは GitHub Actions の `vX.Y.Z` タグ workflow でビルドします。workflow は tag と `package.json.version` の一致を確認し、GitHub Secrets の長期 release keystore で APK に署名し、`Lawver-${version}.apk` と `android-version.json` を GitHub Release にアップロードします。
+
+本番バックエンドは起動時に GitHub 最新 Release から Android APK をローカルキャッシュへ同期します。既定ディレクトリは `data/releases/android/` です。公開・未ログインの読み取り専用配布 API は以下です：
+
+- `GET /api/releases/android/latest`: キャッシュ済みバージョン情報を返し、`apkUrl` を本番バックエンドのダウンロード URL に書き換えます。
+- `GET /api/releases/android/apk`: キャッシュ済み APK を返し、単一 IP あたり既定 6 RPM の制限を適用します。
+
+任意の環境変数：
+
+- `LAWVER_RELEASE_SYNC_ON_STARTUP`: 起動時に GitHub Release を同期するか。既定値は `1`
+- `LAWVER_RELEASE_REPO`: GitHub Release の取得元。既定値は `Hill-1024/Lawyance`
+- `LAWVER_RELEASE_DIR`: APK キャッシュディレクトリ。既定値は `data/releases/android/`
+- `LAWVER_PUBLIC_BASE_URL`: 外部公開 URL。本番では `https://law.mutsumi.moe` を推奨
+- `LAWVER_APK_DOWNLOAD_RPM`: APK ダウンロードの単一 IP RPM 制限。既定値は `6`
+- `LAWVER_GITHUB_TOKEN`: private repository または GitHub API rate limit 用の読み取り専用 token
+
 ## テスト
 
 ```bash
@@ -146,7 +164,7 @@ python -m pytest
 
 `agent.py` は `agent:app` の import 契約と `python agent.py` の起動入口だけを保持します。アプリの組み立ては `app_factory.py`、HTTP ルートは `routes/`、チャットパイプライン、履歴圧縮、記憶調整、清理タスクは `services/` にあります。
 
-ルート登録順序は、認証 → 管理者 → チャット → 模擬法廷 → ワークスペース/アップロード/ダウンロード → SPA catch-all の順に固定します。`routes/spa.py` は最後に登録し、`/api/*` がフロントエンド fallback に吸われないようにします。
+ルート登録順序は、認証 → 管理者 → チャット → 模擬法廷 → APK リリース配布 → ワークスペース/アップロード/ダウンロード → SPA catch-all の順に固定します。`routes/spa.py` は最後に登録し、`/api/*` がフロントエンド fallback に吸われないようにします。
 
 業務ツールは引き続き `mcps.py` を通じて agent に公開します。新しいツールを追加する流れ：
 

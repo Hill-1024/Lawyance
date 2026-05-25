@@ -127,6 +127,24 @@ pnpm run dev:frontend
 | `pnpm run mobile:android:test` | 运行 Android debug 单元测试 |
 | `pnpm run mobile:android:apk` | 构建 Android debug APK |
 
+## Android APK 发布与更新
+
+Android 正式发布通过 GitHub Actions 的 `vX.Y.Z` 标签工作流构建 release APK。工作流会校验 tag 与 `package.json.version` 一致，使用 GitHub Secrets 中的长期 release keystore 签名，并把 `Lawver-${version}.apk` 与 `android-version.json` 上传到 GitHub Release。
+
+生产后端启动时会从 GitHub 最新 Release 同步 Android APK 到本地缓存目录，默认 `data/releases/android/`，并公开免登录分发接口：
+
+- `GET /api/releases/android/latest`：返回当前缓存版本信息，`apkUrl` 会改写为生产后端下载地址。
+- `GET /api/releases/android/apk`：下载当前缓存 APK，按单 IP 默认 6 RPM 限流。
+
+可选环境变量：
+
+- `LAWVER_RELEASE_SYNC_ON_STARTUP`：是否启动时同步 GitHub Release，默认 `1`。
+- `LAWVER_RELEASE_REPO`：GitHub Release 来源仓库，默认 `Hill-1024/Lawyance`。
+- `LAWVER_RELEASE_DIR`：APK 缓存目录，默认 `data/releases/android/`。
+- `LAWVER_PUBLIC_BASE_URL`：对外生产域名，默认按请求推断，生产建议设为 `https://law.mutsumi.moe`。
+- `LAWVER_APK_DOWNLOAD_RPM`：APK 下载接口单 IP 每分钟限制，默认 `6`。
+- `LAWVER_GITHUB_TOKEN`：私有仓库或 GitHub API 限流时使用的只读 token。
+
 ## 动态 Prompt
 
 Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对话上下文时都会重新读取这些片段，并在运行时最多拆成三条 system message（稳定前缀 / 动态 memory / recap）：
@@ -149,7 +167,7 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 
 后端入口 `agent.py` 只保留 `agent:app` 和 `python agent.py` 启动契约；应用组装在 `app_factory.py`，路由在 `routes/`，聊天流水线、历史压缩、记忆协调和清理任务在 `services/`。
 
-路由注册顺序必须保持为：认证 → 管理员 → 聊天 → 模拟法庭 → 工作区/上传/下载 → SPA catch-all。`routes/spa.py` 的 catch-all 必须最后挂载，避免吞掉 `/api/*`。
+路由注册顺序必须保持为：认证 → 管理员 → 聊天 → 模拟法庭 → APK 发布分发 → 工作区/上传/下载 → SPA catch-all。`routes/spa.py` 的 catch-all 必须最后挂载，避免吞掉 `/api/*`。
 
 业务工具仍统一通过 `mcps.py` 暴露给 agent。新增工具的推荐流程：
 

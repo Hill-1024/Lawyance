@@ -6,10 +6,27 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+import { readFileSync } from 'fs'
+
+const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+const buildEnvironment = process.env.LAWVER_BUILD_ENV
+  || packageJson.appConfig?.environment
+  || (process.env.NODE_ENV === 'production' ? 'Web/Vite' : 'Development')
+const buildInfo = {
+  appName: packageJson.metadata?.name || packageJson.name || 'Lawver',
+  version: packageJson.version || '0.0.0',
+  description: packageJson.description || '工大法智团队的中文法律 AI 助手原型',
+  environment: buildEnvironment,
+  buildTime: new Date().toLocaleString('zh-CN', { hour12: false }),
+  projectUrl: packageJson.appConfig?.projectUrl || 'https://github.com/Hill-1024/Lawyance',
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    __LAWVER_BUILD_INFO__: JSON.stringify(buildInfo),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

@@ -127,6 +127,24 @@ Common scripts:
 | `pnpm run mobile:android:test` | Run Android debug unit tests |
 | `pnpm run mobile:android:apk` | Build the Android debug APK |
 
+## Android APK Releases and Updates
+
+Production Android releases are built by the GitHub Actions `vX.Y.Z` tag workflow. The workflow checks that the tag matches `package.json.version`, signs the release APK with the long-lived release keystore from GitHub Secrets, and uploads `Lawver-${version}.apk` plus `android-version.json` to the GitHub Release.
+
+On startup, the production backend syncs the latest Android release from GitHub into the local cache directory, defaulting to `data/releases/android/`, and exposes unauthenticated read-only distribution endpoints:
+
+- `GET /api/releases/android/latest`: returns the cached version metadata and rewrites `apkUrl` to the production backend download URL.
+- `GET /api/releases/android/apk`: downloads the cached APK and applies a per-IP default limit of 6 RPM.
+
+Optional environment variables:
+
+- `LAWVER_RELEASE_SYNC_ON_STARTUP`: sync GitHub Release on startup, default `1`.
+- `LAWVER_RELEASE_REPO`: GitHub Release source repository, default `Hill-1024/Lawyance`.
+- `LAWVER_RELEASE_DIR`: APK cache directory, default `data/releases/android/`.
+- `LAWVER_PUBLIC_BASE_URL`: public production base URL. Production should set `https://law.mutsumi.moe`.
+- `LAWVER_APK_DOWNLOAD_RPM`: per-IP RPM limit for APK downloads, default `6`.
+- `LAWVER_GITHUB_TOKEN`: read-only token for private repositories or GitHub API rate limits.
+
 ## Tests
 
 ```bash
@@ -146,7 +164,7 @@ The current suite has roughly 170 cases. Representative coverage:
 
 `agent.py` only preserves the `agent:app` import contract and `python agent.py` entrypoint. Application assembly lives in `app_factory.py`; HTTP routes live in `routes/`; chat pipeline, history compression, memory coordination, and cleanup jobs live in `services/`.
 
-Route registration order must remain: auth → admin → chat → moot court → workspace/upload/download → SPA catch-all. `routes/spa.py` must be registered last so `/api/*` is never swallowed by the frontend fallback.
+Route registration order must remain: auth → admin → chat → moot court → APK release distribution → workspace/upload/download → SPA catch-all. `routes/spa.py` must be registered last so `/api/*` is never swallowed by the frontend fallback.
 
 Business tools still reach agents through `mcps.py`. To add a tool:
 

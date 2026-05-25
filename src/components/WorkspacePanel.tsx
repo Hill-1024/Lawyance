@@ -19,7 +19,8 @@ const getWorkspaceFileKey = (file: WorkspaceFile) => {
 const WorkspaceFileItem: React.FC<{
   file: WorkspaceFile;
   onDeleteFile: (filePath: string) => void;
-}> = React.memo(({ file, onDeleteFile }) => (
+  disableHoverInfo: boolean;
+}> = React.memo(({ file, onDeleteFile, disableHoverInfo }) => (
   <div className="lawver-fade-up group flex items-center justify-between rounded-[12px] border border-[var(--border-subtle)] bg-[rgba(59,98,184,0.04)] px-3 py-2.5 dark:bg-white/[0.03]">
     <div className="flex min-w-0 items-center gap-3 overflow-hidden">
       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${file.type === 'upload' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
@@ -29,12 +30,12 @@ const WorkspaceFileItem: React.FC<{
           <FileText size={15} strokeWidth={2} />
         )}
       </div>
-      <HoverInfo label={file.name} placement="top">
+      <HoverInfo label={file.name} placement="top" disabled={disableHoverInfo}>
         <span className="t-body-s truncate text-[13px] text-[var(--fg-1)]">{file.name}</span>
       </HoverInfo>
     </div>
     <div className="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
-      <HoverInfo label="Download" placement="top">
+      <HoverInfo label="Download" placement="top" disabled={disableHoverInfo}>
         <button
           onClick={async () => {
             try {
@@ -49,7 +50,7 @@ const WorkspaceFileItem: React.FC<{
           <Download size={14} strokeWidth={2} />
         </button>
       </HoverInfo>
-      <HoverInfo label="Delete" placement="top">
+      <HoverInfo label="Delete" placement="top" disabled={disableHoverInfo}>
         <button
           onClick={() => onDeleteFile(file.path)}
           className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
@@ -121,19 +122,21 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
         className={`flex h-full shrink-0 flex-col overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] ${
           isDesktopLayout
             ? 'relative'
-            : 'fixed right-0 top-0 z-50 rounded-l-[var(--radius-xl)] shadow-[var(--shadow-4)]'
+            : 'lawver-mobile-drawer fixed right-0 top-0 z-50 rounded-l-[var(--radius-xl)] shadow-[var(--shadow-4)]'
         }`}
         style={workspaceStyle}
         aria-hidden={!isWorkspaceOpen}
       >
         <div className="flex h-full shrink-0 flex-col" style={{ width: workspaceContentWidth }}>
-          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 sm:px-5 sm:py-4">
+          <div className={`flex items-center justify-between border-b border-[var(--border-subtle)] ${
+            isDesktopLayout ? 'px-4 py-3 sm:px-5 sm:py-4' : 'lawver-mobile-drawer-header'
+          }`}>
             <h3 className="t-title-m flex items-center gap-2.5 text-[15px]">
               <Folder size={18} strokeWidth={2} className="text-[var(--accent)]" />
               Workspace
             </h3>
-            <button onClick={() => setIsWorkspaceOpen(false)} className="lawver-pressable rounded-full p-1.5 text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close workspace">
-              <X size={18} strokeWidth={2} />
+            <button onClick={() => setIsWorkspaceOpen(false)} className="lawver-drawer-close lawver-pressable inline-flex items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close workspace">
+              <X size={21} strokeWidth={2} />
             </button>
           </div>
 
@@ -152,6 +155,7 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
                       key={getWorkspaceFileKey(file)}
                       file={file}
                       onDeleteFile={onDeleteFile}
+                      disableHoverInfo={!isDesktopLayout && isWorkspaceOpen}
                     />
                   ))
                 )}
@@ -172,6 +176,7 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
                       key={getWorkspaceFileKey(file)}
                       file={file}
                       onDeleteFile={onDeleteFile}
+                      disableHoverInfo={!isDesktopLayout && isWorkspaceOpen}
                     />
                   ))
                 )}
