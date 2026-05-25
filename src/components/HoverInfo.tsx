@@ -1,5 +1,6 @@
 /*
  * 模块描述：自定义悬浮提示组件，替代浏览器原生 title，提供更快、更可控的指针与键盘悬浮提示。
+ * 触摸设备：长按 ~450ms 显示气泡；轻触正常执行子节点 onClick；外部点击或滑动取消。
  */
 
 import React, { cloneElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
@@ -14,6 +15,8 @@ interface HoverInfoProps {
 }
 
 const SHOW_DELAY_MS = 100;
+const LONG_PRESS_MS = 450;
+const TOUCH_MOVE_THRESHOLD = 10;
 const TRIGGER_GAP = 8;
 const VIEWPORT_MARGIN = 8;
 
@@ -22,6 +25,9 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
   const triggerRef = useRef<HTMLElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const showTimer = useRef<number | null>(null);
+  const longPressTimer = useRef<number | null>(null);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const suppressNextClick = useRef(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
@@ -29,6 +35,13 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
     if (showTimer.current !== null) {
       window.clearTimeout(showTimer.current);
       showTimer.current = null;
+    }
+  }, []);
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
     }
   }, []);
 
@@ -105,11 +118,26 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
+    // 触摸场景：点击 tooltip / trigger 之外的位置关闭气泡
+    const onDocPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (triggerRef.current?.contains(target) || tooltipRef.current?.contains(target)) return;
+      setOpen(false);
+    };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    document.addEventListener('pointerdown', onDocPointerDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('pointerdown', onDocPointerDown, true);
+    };
   }, [open]);
 
-  useEffect(() => () => clearShowTimer(), [clearShowTimer]);
+  useEffect(() => () => {
+    clearShowTimer();
+    clearLongPressTimer();
+  }, [clearShowTimer, clearLongPressTimer]);
 
   const scheduleShow = useCallback(() => {
     clearShowTimer();
@@ -146,11 +174,59 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
     },
     onPointerLeave: (e: React.PointerEvent) => {
       childProps.onPointerLeave?.(e);
-      hide();
+      if (e.pointerType !== 'touch') hide();
     },
     onPointerDown: (e: React.PointerEvent) => {
       childProps.onPointerDown?.(e);
-      hide();
+      if (e.pointerType === 'touch') {
+        touchStart.current = { x: e.clientX, y: e.clientY };
+        clearLongPressTimer();
+        longPressTimer.current = window.setTimeout(() => {
+          longPressTimer.current = null;
+          suppressNextClick.current = true;
+          setOpen(true);
+        }, LONG_PRESS_MS);
+      } else {
+        // mouse / pen 点击时收起，避免覆盖按钮反馈
+        hide();
+      }
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      childProps.onPointerMove?.(e);
+      if (e.pointerType !== 'touch' || !touchStart.current) return;
+      const dx = e.clientX - touchStart.current.x;
+      const dy = e.clientY - touchStart.current.y;
+      if (Math.hypot(dx, dy) > TOUCH_MOVE_THRESHOLD) {
+        clearLongPressTimer();
+      }
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      childProps.onPointerUp?.(e);
+      if (e.pointerType === 'touch') {
+        clearLongPressTimer();
+        touchStart.current = null;
+      }
+    },
+    onPointerCancel: (e: React.PointerEvent) => {
+      childProps.onPointerCancel?.(e);
+      if (e.pointerType === 'touch') {
+        clearLongPressTimer();
+        touchStart.current = null;
+      }
+    },
+    onClickCapture: (e: React.MouseEvent) => {
+      if (suppressNextClick.current) {
+        suppressNextClick.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      childProps.onClickCapture?.(e);
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      childProps.onContextMenu?.(e);
+      // 长按触发气泡后，浏览器仍可能弹出原生右键菜单/复制弹窗；这里压制一次
+      if (open) e.preventDefault();
     },
     onFocus: (e: React.FocusEvent) => {
       childProps.onFocus?.(e);

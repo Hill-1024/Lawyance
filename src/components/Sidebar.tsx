@@ -90,18 +90,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
         aria-hidden={!isSidebarOpen}
       >
         <div className="flex h-full shrink-0 flex-col" style={{ width: sidebarContentWidth }}>
-          <div className="flex items-center justify-between p-6 pb-4">
+          <div className="flex items-center justify-between p-4 pb-3 sm:p-6 sm:pb-4">
             <BrandLockup />
             {!isDesktopLayout && (
-              <button onClick={() => setIsSidebarOpen(false)} className="lawver-pressable inline-flex h-10 w-10 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close conversations">
-                <X size={22} strokeWidth={2} />
+              <button onClick={() => setIsSidebarOpen(false)} className="lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-10 sm:w-10" aria-label="Close conversations">
+                <X size={20} strokeWidth={2} className="sm:size-[22px]" />
               </button>
             )}
           </div>
-          <div className="px-4 pb-4">
+          <div className="px-3 pb-3 sm:px-4 sm:pb-4">
             <button
               onClick={() => handleNewChat()}
-              className="md3-btn-filled lawver-pressable w-full whitespace-nowrap py-3.5"
+              className="md3-btn-filled lawver-pressable w-full whitespace-nowrap py-3 sm:py-3.5"
             >
               <Plus size={20} strokeWidth={2} />
               New Chat
@@ -109,7 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {onCourtClick && (
               <button
                 onClick={onCourtClick}
-                className="md3-btn-tonal lawver-pressable mt-2 w-full whitespace-nowrap py-3"
+                className="md3-btn-tonal lawver-pressable mt-2 w-full whitespace-nowrap py-2.5 sm:py-3"
               >
                 <Gavel size={18} strokeWidth={2} />
                 模拟法庭
@@ -129,11 +129,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setCurrentId(conv.id);
                     if (!isDesktopLayout) setIsSidebarOpen(false);
                   }}
-                  className={`lawver-pressable group flex min-w-0 flex-1 cursor-pointer items-center justify-between rounded-full px-4 py-3 text-left transition-colors ${
+                  className={`lawver-pressable group flex min-w-0 flex-1 cursor-pointer items-center justify-between rounded-full px-3 py-2.5 text-left transition-colors sm:px-4 sm:py-3 ${
                     conv.id === currentId ? 'bg-[var(--accent-quiet)] font-medium text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.05)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
                   }`}
                 >
-                  <span className="truncate pr-2 text-[14px]">{conv.title}</span>
+                  <span className="truncate pr-2 text-[13px] sm:text-[14px]">{conv.title}</span>
                   <HoverInfo label="Delete chat" placement="top">
                     <button
                       onClick={(e) => deleteConversation(conv.id, e)}

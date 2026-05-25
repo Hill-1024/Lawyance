@@ -405,15 +405,15 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.24, ease: [0.2, 0, 0, 1] }}
-      className={`group flex max-w-full gap-3 sm:gap-4 ${msg.role === 'user' ? 'self-end flex-row-reverse md:max-w-[85%]' : 'self-start'}`}
+      className={`group flex max-w-full gap-2 sm:gap-4 ${msg.role === 'user' ? 'self-end flex-row-reverse md:max-w-[85%]' : 'self-start'}`}
     >
-      <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full shadow-[var(--shadow-1)] sm:h-10 sm:w-10 ${msg.role === 'user' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
-        {msg.role === 'user' ? <div className="text-sm font-medium sm:text-base">U</div> : <BrandMark className="h-5 w-5" />}
+      <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-[var(--shadow-1)] sm:h-10 sm:w-10 ${msg.role === 'user' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
+        {msg.role === 'user' ? <div className="text-sm font-medium sm:text-base">U</div> : <BrandMark className="h-4 w-4 sm:h-5 sm:w-5" />}
       </div>
 
       <div className={`flex flex-col gap-3 min-w-0 w-full ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
         {msg.role === 'user' ? (
-          <div className="message-copy w-fit rounded-[24px_8px_24px_24px] bg-[var(--accent)] px-4 py-3 text-[15px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5 sm:text-[16px]">
+          <div className="message-copy w-fit rounded-[20px_6px_20px_20px] bg-[var(--accent)] px-3.5 py-2.5 text-[14px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:rounded-[24px_8px_24px_24px] sm:px-5 sm:py-3.5 sm:text-[16px]">
             <div className="flex flex-col gap-2">
               {(() => {
                 const fileInfoRegex = new RegExp("\\[用户已上传以下文件，请根据需要进行读取和处理\\]\\n([\\s\\S]*)$");
@@ -496,7 +496,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             )}
 
             {mainContent && (
-              <div data-testid="assistant-content" className="w-full rounded-[8px_24px_24px_24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:px-5 sm:py-3.5">
+              <div data-testid="assistant-content" className="w-full rounded-[6px_20px_20px_20px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:rounded-[8px_24px_24px_24px] sm:px-5 sm:py-3.5">
                 <div className="message-copy prose dark:prose-invert w-full max-w-none">
                   <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]} components={markdownComponents}>{mainContent}</Markdown>
                 </div>
