@@ -102,25 +102,25 @@ const CourtSidebar: React.FC<{
         aria-hidden={!isOpen}
       >
         <div className="flex h-full shrink-0 flex-col" style={{ width: contentWidth }}>
-          <div className="flex items-center justify-between p-6 pb-4">
+          <div className="flex items-center justify-between p-4 pb-3 sm:p-6 sm:pb-4">
             <BrandLockup />
             {!isDesktopLayout && (
               <button
                 onClick={() => setIsOpen(false)}
-                className="lawver-pressable inline-flex h-10 w-10 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
+                className="lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-10 sm:w-10"
                 aria-label="关闭庭审列表"
               >
-                <X size={22} strokeWidth={2} />
+                <X size={20} strokeWidth={2} className="sm:size-[22px]" />
               </button>
             )}
           </div>
 
-          <div className="flex flex-col gap-2 px-4 pb-3">
-            <button onClick={onCreate} className="md3-btn-filled lawver-pressable w-full whitespace-nowrap py-3.5">
+          <div className="flex flex-col gap-2 px-3 pb-3 sm:px-4">
+            <button onClick={onCreate} className="md3-btn-filled lawver-pressable w-full whitespace-nowrap py-3 sm:py-3.5">
               <Gavel size={19} strokeWidth={2} />
               新建庭审
             </button>
-            <button onClick={onBack} className="md3-btn-tonal lawver-pressable w-full whitespace-nowrap py-3">
+            <button onClick={onBack} className="md3-btn-tonal lawver-pressable w-full whitespace-nowrap py-2.5 sm:py-3">
               <ArrowLeft size={17} strokeWidth={2} />
               返回法律咨询
             </button>
@@ -252,7 +252,7 @@ const CourtCasePanel: React.FC<{
         aria-hidden={!isOpen}
       >
         <div className="flex h-full shrink-0 flex-col" style={{ width: contentWidth }}>
-          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
+          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 sm:px-5 sm:py-4">
             <h3 className="t-title-m flex items-center gap-2.5 text-[15px]">
               <Briefcase size={18} strokeWidth={2} className="text-[var(--accent)]" />
               案件面板
@@ -266,7 +266,7 @@ const CourtCasePanel: React.FC<{
             </button>
           </div>
 
-          <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
+          <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:gap-6 sm:p-5">
             {/* 参与者 */}
             <section>
               <h4 className="t-label-s t-weak mb-3 px-1">出庭参与者 · 记忆隔离</h4>
@@ -713,10 +713,10 @@ export const CourtPage: React.FC<CourtPageProps> = ({
           <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="lawver-pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+              className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
               aria-label="庭审列表"
             >
-              <Menu size={22} strokeWidth={2} />
+              <Menu size={20} strokeWidth={2} className="sm:size-[22px]" />
             </button>
             <BrandMark className="hidden h-8 w-8 shrink-0 text-[var(--accent)] sm:block" />
             <div className="min-w-0 flex-1">
@@ -732,7 +732,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
               <HoverInfo label="案件面板" placement="bottom">
                 <button
                   onClick={() => setIsCasePanelOpen(!isCasePanelOpen)}
-                  className={`lawver-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${
+                  className={`lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${
                     isCasePanelOpen
                       ? 'bg-[var(--accent-quiet)] text-[var(--accent)]'
                       : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
@@ -740,7 +740,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
                   aria-label="案件面板"
                 >
                   <div className="relative">
-                    <Briefcase size={20} strokeWidth={2} />
+                    <Briefcase size={18} strokeWidth={2} className="sm:size-5" />
                     {workspace.workspaceFiles.length > 0 && (
                       <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--bg-app)] bg-[var(--accent)]" />
                     )}

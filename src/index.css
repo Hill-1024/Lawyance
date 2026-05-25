@@ -357,24 +357,24 @@ textarea.composer-textarea:focus-visible {
   line-height: 1.5;
 }
 
-@media (max-width: 420px) {
+@media (max-width: 480px) {
   .lawver-composer-shell {
-    height: 50px;
-    min-height: 50px;
-    gap: 4px;
-    padding: 5px;
+    height: 48px;
+    min-height: 48px;
+    gap: 3px;
+    padding: 4px;
   }
 
   .lawver-composer-action {
-    width: 38px;
-    height: 38px;
-    flex-basis: 38px;
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
   }
 
   .lawver-composer-textarea {
-    height: 38px;
-    min-height: 38px;
-    padding: 7px 4px;
+    height: 36px;
+    min-height: 36px;
+    padding: 6px 4px;
     font-size: 14px;
   }
 }

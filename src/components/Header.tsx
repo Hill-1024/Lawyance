@@ -36,10 +36,10 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="lawver-pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+          className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
           aria-label="Toggle conversations"
         >
-          <Menu size={22} strokeWidth={2} />
+          <Menu size={20} strokeWidth={2} className="sm:size-[22px]" />
         </button>
         <BrandMark className="hidden h-8 w-8 shrink-0 text-[var(--accent)] sm:block" />
         <h1 className="lawver-header-title t-title-l min-w-0 flex-1 truncate">
@@ -50,11 +50,11 @@ export const Header: React.FC<HeaderProps> = ({
         <HoverInfo label="Workspace" placement="bottom">
           <button
             onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
-            className={`lawver-pressable inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+            className={`lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
             aria-label="Toggle workspace"
           >
             <div className="relative">
-              <Folder size={20} strokeWidth={2} />
+              <Folder size={18} strokeWidth={2} className="sm:size-5" />
               {workspaceFilesCount > 0 && (
                 <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[var(--bg-app)] bg-[var(--accent)]" />
               )}

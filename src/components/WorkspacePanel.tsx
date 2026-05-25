@@ -127,7 +127,7 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
         aria-hidden={!isWorkspaceOpen}
       >
         <div className="flex h-full shrink-0 flex-col" style={{ width: workspaceContentWidth }}>
-          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
+          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 sm:px-5 sm:py-4">
             <h3 className="t-title-m flex items-center gap-2.5 text-[15px]">
               <Folder size={18} strokeWidth={2} className="text-[var(--accent)]" />
               Workspace
@@ -137,7 +137,7 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
             </button>
           </div>
 
-          <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
+          <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-4 sm:p-5">
             {/* Uploaded Section */}
             <section>
               <h4 className="t-label-s t-weak mb-3 px-1">

@@ -459,7 +459,7 @@ const HistoryDrawer: React.FC<{
           aria-modal="true"
           aria-label="庭审历史记录"
         >
-          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4">
+          <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 sm:px-5 sm:py-4">
             <div>
               <h3 className="t-title-m text-[15px]">历史记录</h3>
               <p className="text-[12px] text-[var(--fg-3)]">完整庭审发言与系统记录</p>
@@ -472,7 +472,7 @@ const HistoryDrawer: React.FC<{
               <X size={19} strokeWidth={2} />
             </button>
           </div>
-          <div className="custom-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-5">
+          <div className="custom-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
             {children}
           </div>
         </motion.aside>
@@ -599,7 +599,7 @@ export const CourtTranscript: React.FC<CourtTranscriptProps> = ({ session, isRun
       {!hasStarted ? (
         <StartHero session={session} onStart={onStart} canStart={!isRunning && !session.court_state.trial_over} />
       ) : (
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-7">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="md3-chip md3-chip-primary w-fit">{phaseLabel(session.court_state.phase)}</div>

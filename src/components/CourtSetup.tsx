@@ -133,11 +133,11 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
 
   return (
     <div className="custom-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--bg-app)]">
-      <div className="mx-auto w-full max-w-2xl px-5 py-8 sm:px-8 sm:py-12">
+      <div className="mx-auto w-full max-w-2xl px-4 py-6 sm:px-8 sm:py-12">
         {/* 引导语 */}
-        <div className="flex items-start gap-4">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-            <Gavel size={24} strokeWidth={2} />
+        <div className="flex items-start gap-3 sm:gap-4">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--accent-quiet)] text-[var(--accent)] sm:h-12 sm:w-12">
+            <Gavel size={22} strokeWidth={2} className="sm:size-6" />
           </span>
           <div className="min-w-0">
             <h1 className="t-headline-s">开启一场模拟法庭</h1>
@@ -211,7 +211,7 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
         </section>
 
         {/* 公开案卷 */}
-        <section className="mt-6 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-5 shadow-[var(--shadow-1)]">
+        <section className="mt-6 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
           <div className="flex items-start gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent-quiet)] text-[var(--accent)]">
               <Landmark size={18} strokeWidth={2} />
@@ -245,7 +245,7 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
         </section>
 
         {/* 私有作战笔记 */}
-        <section className="mt-4 rounded-[var(--radius-lg)] border border-[rgba(44,118,112,0.22)] bg-[rgba(44,118,112,0.05)] p-5">
+        <section className="mt-4 rounded-[var(--radius-lg)] border border-[rgba(44,118,112,0.22)] bg-[rgba(44,118,112,0.05)] p-4 sm:p-5">
           <div className="flex items-start gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(44,118,112,0.14)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
               <Lock size={17} strokeWidth={2} />
