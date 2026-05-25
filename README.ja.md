@@ -73,6 +73,7 @@ MCP clients and local services
 
 - Python 3.13 以上。
 - Node.js と pnpm。
+- Android クライアントのビルドには JDK 21 と Android SDK が必要です。
 - 必要なモデルサービスと業務データソースへアクセスできること。
 - リポジトリルートの `.env` にモデル API キーなどのローカル設定を用意すること。
 
@@ -121,6 +122,10 @@ pnpm run dev:frontend
 | `pnpm run preview` | フロントエンドのビルド結果をプレビュー |
 | `pnpm run lint` | TypeScript チェックを実行 |
 | `pnpm run clean` | フロントエンドのビルド成果物を削除 |
+| `pnpm run mobile:doctor` | Capacitor Android 環境を確認 |
+| `pnpm run mobile:android:sync` | フロントエンドをビルドして Android アセットを同期 |
+| `pnpm run mobile:android:test` | Android debug ユニットテストを実行 |
+| `pnpm run mobile:android:apk` | Android debug APK をビルド |
 
 ## テスト
 

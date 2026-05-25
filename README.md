@@ -73,6 +73,7 @@ MCP clients and local services
 
 - Python 3.13 或更高版本。
 - Node.js 与 pnpm。
+- Android 客户端打包需要 JDK 21 与 Android SDK。
 - 可访问所需模型服务和业务数据源。
 - 根目录 `.env` 文件中提供模型 API 密钥等本地配置。
 
@@ -121,6 +122,10 @@ pnpm run dev:frontend
 | `pnpm run preview` | 预览前端构建产物 |
 | `pnpm run lint` | TypeScript 静态检查 |
 | `pnpm run clean` | 清理前端构建产物 |
+| `pnpm run mobile:doctor` | 检查 Capacitor Android 环境 |
+| `pnpm run mobile:android:sync` | 构建前端并同步 Android 资源 |
+| `pnpm run mobile:android:test` | 运行 Android debug 单元测试 |
+| `pnpm run mobile:android:apk` | 构建 Android debug APK |
 
 ## 动态 Prompt
 
