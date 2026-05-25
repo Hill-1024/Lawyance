@@ -372,7 +372,7 @@ function App() {
   return (
     <UpdateGate>
       <AnimatePresence mode="wait" initial={false}>
-        <Routes location={location} key={location.pathname}>
+        <Routes>
           <Route path="/" element={chatLayout} />
           <Route path="/court" element={<CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} />} />
           <Route path="/settings" element={<AnimatedRouteSurface><SettingsPage /></AnimatedRouteSurface>} />
