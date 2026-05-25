@@ -55,6 +55,9 @@ jobs:
       - name: TypeScript check
         run: pnpm run lint
 
+      - name: Sync Capacitor Android project
+        run: pnpm run mobile:android:sync
+
       - name: Android unit tests
         run: pnpm run mobile:android:test
 
@@ -67,9 +70,6 @@ jobs:
             exit 1
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-keystore.jks
-
-      - name: Sync Capacitor Android project
-        run: pnpm run mobile:android:sync
 
       - name: Build release APK
         env:
