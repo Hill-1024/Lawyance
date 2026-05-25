@@ -234,7 +234,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
               left: settingsPosition.left,
               width: settingsPosition.width,
               bottom: settingsPosition.bottom,
-              maxHeight: `calc(100dvh - ${settingsPosition.bottom}px - env(safe-area-inset-top) - 12px)`,
+              maxHeight: `calc(100dvh - ${settingsPosition.bottom}px - var(--safe-top) - 12px)`,
               overflowY: 'auto'
             }}
             className="glass lawver-popover z-[80] flex flex-col gap-0 rounded-[var(--radius-xl)] p-0 shadow-[var(--shadow-5)]"
@@ -291,7 +291,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   return (
     <>
       {settingsLayer}
-      <footer className="lawver-composer-footer pointer-events-none shrink-0 px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-1 sm:px-4 sm:pb-4 sm:pt-2">
+      <footer className="lawver-composer-footer pointer-events-none shrink-0 px-2 pb-[calc(0.75rem+var(--safe-bottom))] pt-1 sm:px-4 sm:pb-[calc(1rem+var(--safe-bottom))] sm:pt-2">
         <div ref={composerRef} className="pointer-events-auto relative mx-auto flex w-full max-w-3xl min-w-0 flex-col">
           {pendingUploads.length > 0 && (
             <div className="flex flex-wrap gap-2 px-2 pb-1">

@@ -3,11 +3,11 @@
  */
 
 import React, { useState } from 'react';
-import { login } from '../services/api';
+import { login, type LoginResult } from '../services/api';
 import { BrandMark } from './Brand';
 
 interface LoginProps {
-  onLoginSuccess: (username: string) => void;
+  onLoginSuccess: (result: LoginResult) => void;
 }
 
 export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
@@ -27,8 +27,8 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     setError('');
 
     try {
-      await login(username, password);
-      onLoginSuccess(username);
+      const result = await login(username, password);
+      onLoginSuccess(result);
     } catch (err: any) {
       setError(err.message || '登录失败，请检查账号密码');
     } finally {

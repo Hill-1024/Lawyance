@@ -19,3 +19,9 @@ RAG/__pycache__/
 .claude/
 pnpm-lock.yaml
 uv.lock
+android/app/src/main/assets/public/
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/capacitor-cordova-android-plugins/

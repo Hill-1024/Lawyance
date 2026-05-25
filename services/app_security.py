@@ -5,6 +5,7 @@
 from collections import defaultdict
 from logging.handlers import RotatingFileHandler
 from urllib.parse import urlparse
+import ipaddress
 import logging
 import os
 import re
@@ -16,13 +17,14 @@ from auth import verify_token
 
 
 SECURE_ORIGIN = "https://law.mutsumi.moe"
+NATIVE_CLIENT_ORIGINS = {"https://localhost", "capacitor://localhost"}
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$")
 RATE_LIMIT = 100
 
 
 def _configured_origins() -> set[str]:
-    origins = {SECURE_ORIGIN}
+    origins = {SECURE_ORIGIN, *NATIVE_CLIENT_ORIGINS}
     for raw_name in ("LAWVER_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
         raw_value = os.getenv(raw_name, "")
         for item in raw_value.split(","):
@@ -72,6 +74,29 @@ def is_local_host(hostname: str | None) -> bool:
     return hostname in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 
+def is_trusted_proxy_host(hostname: str | None) -> bool:
+    if not hostname:
+        return False
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private
+
+
+def client_ip_for_request(request: Request) -> str:
+    direct_host = request.client.host if request.client else None
+    if is_trusted_proxy_host(direct_host):
+        cf_ip = (request.headers.get("cf-connecting-ip") or "").strip()
+        if cf_ip:
+            return cf_ip
+        x_forwarded_for = request.headers.get("x-forwarded-for") or ""
+        forwarded_ip = x_forwarded_for.split(",", 1)[0].strip()
+        if forwarded_ip:
+            return forwarded_ip
+    return direct_host or "unknown"
+
+
 def secure_cookie_for_request(request: Request) -> bool:
     raw = os.getenv("COOKIE_SECURE")
     if raw is not None:
@@ -81,7 +106,7 @@ def secure_cookie_for_request(request: Request) -> bool:
 
 async def security_and_logging_middleware(request: Request, call_next):
     global last_rate_limit_prune
-    client_ip = request.client.host or "unknown"
+    client_ip = client_ip_for_request(request)
     method = request.method
     path = request.url.path
 
@@ -119,12 +144,18 @@ async def security_and_logging_middleware(request: Request, call_next):
 
     if path.startswith("/api"):
         username = "anonymous"
-        token = request.cookies.get("auth_token")
+        token = None
+        authorization = request.headers.get("authorization")
+        if authorization and authorization.lower().startswith("bearer "):
+            token = authorization[7:].strip()
+        if not token:
+            token = request.cookies.get("auth_token")
         if token:
             user = verify_token(token)
             if user:
                 username = user
 
-        usage_logger.info(f"{client_ip} | {username} | {method} | {path} | {response.status_code}")
+        client_type = (request.headers.get("x-lawver-client") or "web").strip() or "web"
+        usage_logger.info(f"{client_ip} | {username} | {client_type} | {method} | {path} | {response.status_code}")
 
     return response

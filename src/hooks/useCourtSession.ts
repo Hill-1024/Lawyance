@@ -3,8 +3,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
 import type { ContextUsage, ConversationMemory, CourtAgentState, CourtAgentStates, CourtCaseType, CourtPublicEvent, CourtSession, CourtSpeaker, CourtState } from '../types';
 import { fileDB } from '../lib/db';
+import { isNative } from '../lib/platform';
 import { clearCourtMemory, courtTurn, deleteWorkspace, sendHeartbeat } from '../services/api';
 
 const generateUUID = () => {
@@ -136,6 +138,13 @@ const formatThoughtToolStatus = (speaker: CourtSpeaker | string, content: string
 
 const AUTO_ERROR_THRESHOLD = 2;
 
+const isAbortError = (error: unknown) => (
+  typeof error === 'object' &&
+  error !== null &&
+  'name' in error &&
+  (error as { name?: string }).name === 'AbortError'
+);
+
 /**
  * 给定一个事件 id，把公开记录截取到该事件（含），并基于截取后的事件重算结构化庭审状态。
  * 撤回与分支共用此函数：撤回是原地替换，分支是用截取数据生成新 session。
@@ -206,6 +215,29 @@ export function useCourtSession(enabled = true) {
   const currentCourtIdRef = useRef('');
   const isRunningRef = useRef(false);
   const consecutiveErrorsRef = useRef(0);
+  const activeAbortRef = useRef<AbortController | null>(null);
+
+  const abortActiveTurn = useCallback(() => {
+    activeAbortRef.current?.abort();
+    activeAbortRef.current = null;
+  }, []);
+
+  useEffect(() => () => abortActiveTurn(), [abortActiveTurn]);
+
+  useEffect(() => {
+    if (!isNative()) return;
+
+    let listener: { remove: () => Promise<void> } | undefined;
+    CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) abortActiveTurn();
+    }).then(handle => {
+      listener = handle;
+    });
+
+    return () => {
+      listener?.remove();
+    };
+  }, [abortActiveTurn]);
 
   const commitSessions = useCallback((updater: (prev: CourtSession[]) => CourtSession[]) => {
     const next = updater(sessionsRef.current);
@@ -711,6 +743,9 @@ export function useCourtSession(enabled = true) {
     isRunningRef.current = true;
     setIsRunning(true);
     setStatus('正在推进下一轮庭审。');
+    const abortController = new AbortController();
+    activeAbortRef.current?.abort();
+    activeAbortRef.current = abortController;
 
     const handleAutoFallback = () => {
       if (consecutiveErrorsRef.current < AUTO_ERROR_THRESHOLD) return;
@@ -757,7 +792,7 @@ export function useCourtSession(enabled = true) {
     };
 
     try {
-      const response = await courtTurn(session);
+      const response = await courtTurn(session, abortController.signal);
       const { hadError, errorMessage, failedSpeaker } = await processCourtStream(response, session.id);
 
       if (hadError) {
@@ -783,6 +818,18 @@ export function useCourtSession(enabled = true) {
         setStatus('本轮已完成。');
       }
     } catch (error: any) {
+      if (isAbortError(error)) {
+        patchSession(session.id, prev => ({
+          ...prev,
+          court_state: turnSnapshot.court_state,
+          public_events: turnSnapshot.public_events,
+          public_summary: turnSnapshot.public_summary,
+          agent_states: turnSnapshot.agent_states
+        }));
+        setStatus('已停止当前庭审回合。');
+        return;
+      }
+
       console.error('Court turn failed:', error);
       // 网络/认证类异常也回滚本回合产生的状态和半截发言。
       consecutiveErrorsRef.current += 1;
@@ -791,6 +838,9 @@ export function useCourtSession(enabled = true) {
       setStatus(message);
       handleAutoFallback();
     } finally {
+      if (activeAbortRef.current === abortController) {
+        activeAbortRef.current = null;
+      }
       isRunningRef.current = false;
       setIsRunning(false);
     }

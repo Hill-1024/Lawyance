@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { ChevronDown, GitBranch, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
+import { ChevronDown, Download, GitBranch, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -13,6 +13,7 @@ import { Message, ThoughtBlock } from '../types';
 import { Mermaid } from './Mermaid';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
+import { downloadWorkspaceFile, safeDownloadName } from '../lib/download';
 
 interface MessageItemProps {
   msg: Message;
@@ -399,6 +400,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   const latestThought = thoughtBlocks[thoughtBlocks.length - 1];
   const collapsedStatus = getStatusLabel(latestThought) || (isThinking ? '正在思考' : null);
   const showThinking = isThinking && thoughtBlocks.length > 0;
+  const generatedFileName = msg.download_path ? safeDownloadName(msg.download_path) : '';
 
   return (
     <motion.div
@@ -505,9 +507,24 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
             {msg.download_path && (
               <div className="source-list-container w-full text-[14px] text-[var(--fg-2)]">
-                <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
-                  <Info size={14} strokeWidth={2} />
-                  Generated file
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
+                  <Info size={14} strokeWidth={2} className="shrink-0" />
+                  <span className="max-w-[220px] truncate">{generatedFileName}</span>
+                  <HoverInfo label="Download" placement="top">
+                    <button
+                      onClick={async () => {
+                        try {
+                          await downloadWorkspaceFile(msg.download_path!, generatedFileName);
+                        } catch (error: any) {
+                          alert(error?.message || 'Download failed');
+                        }
+                      }}
+                      className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
+                      aria-label="Download generated file"
+                    >
+                      <Download size={14} strokeWidth={2} />
+                    </button>
+                  </HoverInfo>
                 </div>
               </div>
             )}

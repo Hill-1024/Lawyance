@@ -2,7 +2,7 @@
  * 模块描述：模拟法庭页面，与主聊天共享外壳结构——可收起侧栏、顶栏、庭审记录流、发言区与案件面板。
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Bot,
@@ -17,6 +17,7 @@ import {
   Play,
   Send,
   Paperclip,
+  Settings,
   Trash2,
   Upload,
   X
@@ -25,12 +26,13 @@ import { AnimatePresence, motion } from 'motion/react';
 import type { CourtAgentState, CourtSession, CourtSpeaker } from '../types';
 import { useCourtSession } from '../hooks/useCourtSession';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useBackButton } from '../hooks/useBackButton';
 import { flattenBranchTree } from '../lib/branchTree';
+import { downloadWorkspaceFile } from '../lib/download';
 import { BrandMark, BrandLockup } from './Brand';
 import { BranchRails } from './BranchRails';
 import { HoverInfo } from './HoverInfo';
 import { StorageIndicator } from './StorageIndicator';
-import { ThemeToggle } from './ThemeToggle';
 import { CourtSetup } from './CourtSetup';
 import { CourtTranscript, SPEAKER_META, phaseLabel } from './CourtTranscript';
 
@@ -41,9 +43,8 @@ type WorkspaceFile = { name: string; path: string; type: 'upload' | 'generated' 
 
 interface CourtPageProps {
   onBack: () => void;
+  onSettingsClick: () => void;
   secureAccessBanner?: React.ReactNode;
-  themeMode: 'light' | 'system' | 'dark';
-  setThemeMode: (mode: 'light' | 'system' | 'dark') => void;
   windowWidth: number;
 }
 
@@ -134,7 +135,7 @@ const CourtSidebar: React.FC<{
                 新建后会保存在这里。
               </p>
             ) : (
-              flattenBranchTree<CourtSession>(sessions).map(({ item: session, ancestorTrails, isLastSibling }) => {
+              flattenBranchTree(sessions).map(({ item: session, ancestorTrails, isLastSibling }) => {
                 const active = session.id === currentId;
                 return (
                   <div
@@ -188,7 +189,7 @@ const CourtSidebar: React.FC<{
             )}
           </div>
 
-          <div className="border-t border-[var(--border-subtle)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          <div className="border-t border-[var(--border-subtle)] p-4 pb-[calc(1rem+var(--safe-bottom))]">
             <StorageIndicator />
           </div>
         </div>
@@ -223,6 +224,13 @@ const CourtCasePanel: React.FC<{
     ? { width: isOpen ? PANEL_WIDTH : 0, opacity: isOpen ? 1 : 0, borderLeftWidth: isOpen ? 1 : 0 }
     : { x: isOpen ? 0 : '100%', opacity: isOpen ? 1 : 0 };
   const contentWidth = isDesktopLayout ? `${PANEL_WIDTH}px` : 'min(86vw, 340px)';
+  const handleDownload = async (file: WorkspaceFile) => {
+    try {
+      await downloadWorkspaceFile(file.path, file.name);
+    } catch (error: any) {
+      alert(error?.message || '下载失败');
+    }
+  };
 
   return (
     <>
@@ -371,14 +379,13 @@ const CourtCasePanel: React.FC<{
                       <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--fg-1)]">{file.name}</span>
                       <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                         <HoverInfo label="下载" placement="top">
-                          <a
-                            href={`/api/download?file_path=${encodeURIComponent(file.path)}`}
-                            download={file.name}
+                          <button
+                            onClick={() => handleDownload(file)}
                             className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
                             aria-label="下载文件"
                           >
                             <Download size={14} strokeWidth={2} />
-                          </a>
+                          </button>
                         </HoverInfo>
                         <HoverInfo label="删除" placement="top">
                           <button
@@ -461,7 +468,7 @@ const CourtComposerDock: React.FC<{
   };
 
   return (
-    <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2.5 sm:px-5">
+    <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-[calc(0.75rem+var(--safe-bottom))] pt-2.5 sm:px-5">
       <div className="mx-auto w-full max-w-3xl">
         {/* 阶段控制条 */}
         <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -593,9 +600,8 @@ const CourtComposerDock: React.FC<{
 
 export const CourtPage: React.FC<CourtPageProps> = ({
   onBack,
+  onSettingsClick,
   secureAccessBanner,
-  themeMode,
-  setThemeMode,
   windowWidth
 }) => {
   const {
@@ -626,6 +632,18 @@ export const CourtPage: React.FC<CourtPageProps> = ({
   const [isCasePanelOpen, setIsCasePanelOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useBackButton(useCallback(() => {
+    if (isCasePanelOpen) {
+      setIsCasePanelOpen(false);
+      return true;
+    }
+    if (isSidebarOpen) {
+      setIsSidebarOpen(false);
+      return true;
+    }
+    return false;
+  }, [isCasePanelOpen, isSidebarOpen]), isInitialized);
 
   useEffect(() => {
     if (isInitialized && courtSessions.length === 0) {
@@ -709,7 +727,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {secureAccessBanner}
 
-        <header className="lawver-topbar sticky top-0 z-30 flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-2.5 pb-2 pt-[calc(0.625rem+env(safe-area-inset-top))] sm:px-4 sm:pb-3 sm:pt-[calc(0.75rem+env(safe-area-inset-top))]">
+        <header className="lawver-topbar sticky top-0 z-30 flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-2.5 pb-2 pt-[calc(0.625rem+var(--safe-top))] sm:px-4 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]">
           <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -748,7 +766,15 @@ export const CourtPage: React.FC<CourtPageProps> = ({
                 </button>
               </HoverInfo>
             )}
-            <ThemeToggle themeMode={themeMode} setThemeMode={setThemeMode} windowWidth={windowWidth} />
+            <HoverInfo label="设置" placement="bottom">
+              <button
+                onClick={onSettingsClick}
+                className="lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+                aria-label="设置"
+              >
+                <Settings size={18} strokeWidth={2} className="sm:size-5" />
+              </button>
+            </HoverInfo>
           </div>
         </header>
 

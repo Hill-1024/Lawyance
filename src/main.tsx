@@ -6,12 +6,18 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { setupNativeChrome } from './lib/native-bootstrap';
 import './index.css';
+
+setupNativeChrome().catch(console.error);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <ThemeProvider>
+        <App />
+      </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,
 );

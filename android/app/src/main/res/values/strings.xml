@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Lawver</string>
+    <string name="title_activity_main">Lawver</string>
+    <string name="package_name">moe.mutsumi.lawver</string>
+    <string name="custom_url_scheme">moe.mutsumi.lawver</string>
+</resources>
