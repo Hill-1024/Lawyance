@@ -48,15 +48,29 @@ configured_usage_log_path = _configured_usage_log_path()
 configured_usage_log_path.parent.mkdir(parents=True, exist_ok=True)
 usage_logger = logging.getLogger("usage_logger")
 usage_logger.setLevel(logging.INFO)
-file_handler = RotatingFileHandler(
-    str(configured_usage_log_path),
-    maxBytes=int(os.environ.get("LAWVER_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
-    backupCount=int(os.environ.get("LAWVER_USAGE_LOG_BACKUPS", 5)),
-    encoding="utf-8",
-)
-file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
-if not usage_logger.handlers:
+
+
+def _install_usage_log_handler(log_path: Path) -> None:
+    target = log_path.resolve()
+    for handler in list(usage_logger.handlers):
+        if not isinstance(handler, RotatingFileHandler):
+            continue
+        if Path(handler.baseFilename).resolve() == target:
+            return
+        usage_logger.removeHandler(handler)
+        handler.close()
+
+    file_handler = RotatingFileHandler(
+        str(log_path),
+        maxBytes=int(os.environ.get("LAWVER_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
+        backupCount=int(os.environ.get("LAWVER_USAGE_LOG_BACKUPS", 5)),
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
     usage_logger.addHandler(file_handler)
+
+
+_install_usage_log_handler(configured_usage_log_path)
 
 # 进程内限流：仅在单 worker 部署下精确；多 worker 部署需要把状态迁到 Redis 或共享存储。
 ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
