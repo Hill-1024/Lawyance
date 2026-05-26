@@ -8,6 +8,7 @@ import type { ContextUsage, ConversationMemory, CourtAgentState, CourtAgentState
 import { fileDB } from '../lib/db';
 import { isNative } from '../lib/platform';
 import { clearCourtMemory, courtTurn, deleteWorkspace, sendHeartbeat } from '../services/api';
+import { addLocalStorageDataChangeListener } from '../services/storageEvents';
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -281,6 +282,29 @@ export function useCourtSession(enabled = true) {
     };
     initData();
   }, []);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    return addLocalStorageDataChangeListener(async detail => {
+      const savedCourtSessions = await fileDB.getCourtSessions();
+      const normalized = savedCourtSessions.map(session => ({
+        ...session,
+        agent_states: ensureAgentStates(session.agent_states)
+      }));
+      sessionsRef.current = normalized;
+      setCourtSessions(normalized);
+
+      const preferredId = detail.courtSessionIds?.find(id =>
+        normalized.some(session => session.id === id)
+      );
+      setCurrentCourtId(current => {
+        const nextId = preferredId || (normalized.some(session => session.id === current) ? current : normalized[0]?.id || '');
+        currentCourtIdRef.current = nextId;
+        return nextId;
+      });
+    });
+  }, [isInitialized]);
 
   // 同步 ref。
   useEffect(() => {
