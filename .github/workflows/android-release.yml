@@ -1,20 +1,9 @@
 name: Android APK Release
 
 on:
-  repository_dispatch:
-    types:
-      - android-release
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Release tag to publish, for example v0.1.4
-        required: true
-        type: string
   push:
-    branches:
-      - main
-    paths:
-      - '.github/android-release-tag'
+    tags:
+      - 'v*.*.*'
 
 permissions:
   contents: write
@@ -27,8 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -46,42 +33,20 @@ jobs:
           corepack enable
           corepack prepare pnpm@10.33.2 --activate
 
-      - name: Resolve release tag
-        id: release_ref
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_EVENT_NAME}" = "repository_dispatch" ]; then
-            TAG="${{ github.event.client_payload.tag }}"
-          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-          elif [ "${GITHUB_REF_TYPE}" = "branch" ]; then
-            TAG="$(tr -d '[:space:]' < .github/android-release-tag 2>/dev/null || true)"
-          fi
-          VERSION="${TAG#v}"
-          if ! node -e "const v=process.argv[1]; if (!/^\\d+\\.\\d+\\.\\d+$/.test(v)) process.exit(1)" "$VERSION"; then
-            echo "Android release tags must be stable SemVer, got $VERSION" >&2
-            exit 1
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout release tag
-        run: |
-          TAG="${{ steps.release_ref.outputs.tag }}"
-          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
-          git checkout --detach "$TAG"
-
       - name: Validate tag and package version
         id: version
         run: |
-          TAG="${{ steps.release_ref.outputs.tag }}"
-          VERSION="${{ steps.release_ref.outputs.version }}"
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
             echo "Tag $TAG does not match package.json version $PACKAGE_VERSION" >&2
             exit 1
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if ! node -e "const v=process.argv[1]; if (!/^\\d+\\.\\d+\\.\\d+$/.test(v)) process.exit(1)" "$VERSION"; then
+            echo "Android release tags must be stable SemVer, got $VERSION" >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
@@ -144,7 +109,7 @@ jobs:
             "packageName": "moe.mutsumi.lawver",
             "versionName": "${VERSION}",
             "versionCode": ${VERSION_CODE},
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.version.outputs.tag }}/${APK_NAME}",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${APK_NAME}",
             "sha256": "${SHA256}",
             "size": ${SIZE},
             "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -156,7 +121,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
+          TAG="${GITHUB_REF_NAME}"
           APK_NAME="${{ steps.assets.outputs.apk_name }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "Lawver ${{ steps.version.outputs.version }}" --notes "Android APK release ${{ steps.version.outputs.version }}"
