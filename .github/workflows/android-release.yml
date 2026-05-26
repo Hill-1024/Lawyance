@@ -21,9 +21,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+        env:
+          CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECKOUT_REF" || git fetch --depth=1 origin "refs/tags/$CHECKOUT_REF"
+          git checkout --detach FETCH_HEAD
 
       - name: Use runner JDK 21
         run: |
