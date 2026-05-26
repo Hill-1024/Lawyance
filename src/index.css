@@ -183,6 +183,7 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --dur-fast: 160ms;
   --dur-base: 240ms;
+  --dur-theme: 280ms;
   --dur-slow: 360ms;
   --motion-fade-up: lawverFadeUp var(--dur-base) var(--ease-emphasized) both;
   --motion-sheet-in: lawverSheetIn var(--dur-slow) var(--ease-emphasized) both;
@@ -230,12 +231,6 @@
 
 * {
   box-sizing: border-box;
-  transition:
-    background-color var(--dur-base) var(--ease-standard),
-    color var(--dur-base) var(--ease-standard),
-    border-color var(--dur-base) var(--ease-standard),
-    box-shadow var(--dur-base) var(--ease-standard),
-    backdrop-filter var(--dur-base) var(--ease-standard);
 }
 
 html,
@@ -251,6 +246,38 @@ body {
   background: var(--bg-app);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+html.lawver-theme-transitioning *,
+html.lawver-theme-transitioning *::before,
+html.lawver-theme-transitioning *::after {
+  transition-delay: 0ms !important;
+  transition-duration: var(--dur-theme) !important;
+  transition-property:
+    background,
+    background-color,
+    border-color,
+    box-shadow,
+    color,
+    fill,
+    opacity,
+    stroke,
+    -webkit-backdrop-filter,
+    backdrop-filter !important;
+  transition-timing-function: var(--ease-standard) !important;
+}
+
+html.lawver-theme-view-transition *,
+html.lawver-theme-view-transition *::before,
+html.lawver-theme-view-transition *::after {
+  transition: none !important;
+}
+
+html.lawver-theme-view-transition::view-transition-old(root),
+html.lawver-theme-view-transition::view-transition-new(root) {
+  animation-duration: var(--dur-theme);
+  animation-timing-function: var(--ease-standard);
+  mix-blend-mode: normal;
 }
 
 .lawver-chat-shell {
@@ -1090,7 +1117,7 @@ textarea.composer-textarea:focus-visible {
 }
 
 .log-row {
-  animation: logSlideIn var(--dur-fast) var(--ease-emphasized) both;
+  animation: none;
 }
 
 @keyframes lawverFadeUp {

@@ -27,7 +27,7 @@ import { SettingsPage } from './components/SettingsPage';
 import { UpdateGate } from './components/UpdateGate';
 
 const SECURE_DOMAIN = 'law.mutsumi.moe';
-const ROUTE_TRANSITION = { duration: 0.24, ease: [0.2, 0, 0, 1] } as const;
+const ROUTE_TRANSITION = { duration: 0.26, ease: [0.2, 0, 0, 1] } as const;
 
 const isIpHostname = (hostname: string) => {
   if (!hostname) return false;
@@ -41,10 +41,11 @@ const AnimatedRouteSurface: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <motion.div
       className="min-h-[100dvh] bg-[var(--bg-app)]"
-      initial={reduceMotion ? false : { opacity: 0, y: 10 }}
-      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+      initial={reduceMotion ? false : { opacity: 0, x: 24, scale: 0.995 }}
+      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, x: 0, scale: 1 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 18, scale: 0.995 }}
       transition={reduceMotion ? { duration: 0.01 } : ROUTE_TRANSITION}
+      style={{ willChange: reduceMotion ? undefined : 'opacity, transform' }}
     >
       {children}
     </motion.div>
@@ -325,6 +326,7 @@ function App() {
               </div>
             ) : (
               <MessageList
+                conversationId={currentId}
                 messages={messages}
                 isLoading={isLoading}
                 bottomInset={composerOverlayHeight}
@@ -372,12 +374,14 @@ function App() {
   return (
     <UpdateGate>
       <AnimatePresence mode="wait" initial={false}>
-        <Routes>
-          <Route path="/" element={chatLayout} />
-          <Route path="/court" element={<CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} />} />
-          <Route path="/settings" element={<AnimatedRouteSurface><SettingsPage /></AnimatedRouteSurface>} />
-          <Route path="/admin" element={userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>} />
-        </Routes>
+        <React.Fragment key={location.pathname}>
+          <Routes location={location}>
+            <Route path="/" element={chatLayout} />
+            <Route path="/court" element={<CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} />} />
+            <Route path="/settings" element={<AnimatedRouteSurface><SettingsPage /></AnimatedRouteSurface>} />
+            <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>} />
+          </Routes>
+        </React.Fragment>
       </AnimatePresence>
     </UpdateGate>
   );
