@@ -147,7 +147,7 @@ jobs:
 
       - name: Publish GitHub Release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN || github.token }}
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           APK_NAME="${{ steps.assets.outputs.apk_name }}"
