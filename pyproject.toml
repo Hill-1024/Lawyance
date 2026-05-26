@@ -6,10 +6,12 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "dateparser>=1.4.0",
+    "docxtpl>=0.18.0",
     "fastapi>=0.135.2",
     "json-repair>=0.28.2",
     "openai>=2.29.0",
     "pydantic>=2.12.5",
+    "python-docx>=1.2.0",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
     "tldextract>=5.3.1",
