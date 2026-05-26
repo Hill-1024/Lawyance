@@ -26,6 +26,7 @@ import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import type { CourtPublicEvent, CourtSession, CourtSpeaker } from '../types';
 import { HoverInfo } from './HoverInfo';
+import { useAppDialog } from '../contexts/DialogContext';
 
 export const PHASE_LABELS: Record<string, string> = {
   opening: '开庭',
@@ -180,6 +181,8 @@ const CourtMessage: React.FC<{
   onRewind?: (eventId: string) => void;
   onBranch?: (eventId: string) => void;
 }> = ({ event, userSideLabel, isStreaming, isLast, onRewind, onBranch }) => {
+  const { showConfirm } = useAppDialog();
+
   if (event.speaker === 'system') {
     return <SystemNotice event={event} />;
   }
@@ -195,11 +198,14 @@ const CourtMessage: React.FC<{
   const canBranch = Boolean(onBranch) && !isStreaming;
   const canRewind = Boolean(onRewind) && !isStreaming && !isLast;
 
-  const handleRewind = () => {
+  const handleRewind = async () => {
     if (!onRewind) return;
-    const confirmed = typeof window !== 'undefined'
-      ? window.confirm('撤回到此点会删除该条之后的全部公开记录，并清除三个 AI 角色的私有记忆。继续？')
-      : true;
+    const confirmed = await showConfirm({
+      title: '撤回到此点？',
+      message: '此操作会删除该条之后的全部公开记录，并清除三个 AI 角色的私有记忆。',
+      tone: 'danger',
+      confirmLabel: '撤回',
+    });
     if (confirmed) onRewind(event.id);
   };
 
@@ -254,7 +260,7 @@ const CourtMessage: React.FC<{
         )}
 
         {(canRewind || canBranch) && (
-          <div className={`flex items-center gap-0.5 px-0.5 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 ${isUser ? 'self-end' : 'self-start'}`}>
+          <div className={`flex items-center gap-0.5 px-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 ${isUser ? 'self-end' : 'self-start'}`}>
             {canRewind && (
               <HoverInfo label="撤回到此点（破坏性）" placement="top">
                 <button

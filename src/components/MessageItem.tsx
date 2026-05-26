@@ -13,6 +13,7 @@ import { Mermaid } from './Mermaid';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
 import { downloadWorkspaceFile, safeDownloadName } from '../lib/download';
+import { useAppDialog } from '../contexts/DialogContext';
 
 interface MessageItemProps {
   msg: Message;
@@ -369,6 +370,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   onUndo,
   onBranch
 }) => {
+  const { showAlert } = useAppDialog();
   const markdownComponents: any = {
     a(props: any) {
       const { node, ...rest } = props;
@@ -512,7 +514,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                         try {
                           await downloadWorkspaceFile(msg.download_path!, generatedFileName);
                         } catch (error: any) {
-                          alert(error?.message || 'Download failed');
+                          await showAlert({
+                            title: '下载失败',
+                            message: error?.message || 'Download failed',
+                            tone: 'danger',
+                          });
                         }
                       }}
                       className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
@@ -569,7 +575,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           </div>
         )}
         {msg.role === 'assistant' && !isThinking && onBranch && (
-          <div className="mt-0.5 flex gap-2 self-start transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
+          <div className="mt-0.5 flex gap-2 self-start opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100">
             <HoverInfo label="从此分叉为新会话" placement="top">
               <button
                 onClick={() => onBranch(msg.id)}

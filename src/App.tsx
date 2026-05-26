@@ -40,7 +40,7 @@ const AnimatedRouteSurface: React.FC<{ children: React.ReactNode }> = ({ childre
   const reduceMotion = useReducedMotion();
   return (
     <motion.div
-      className="min-h-[100dvh] bg-[var(--bg-app)]"
+      className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-[var(--bg-app)]"
       initial={reduceMotion ? false : { opacity: 0, x: 24, scale: 0.995 }}
       animate={reduceMotion ? { opacity: 1 } : { opacity: 1, x: 0, scale: 1 }}
       exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 18, scale: 0.995 }}
@@ -151,7 +151,9 @@ function App() {
       }
     };
     checkAuth();
-    requestPersistence().catch(console.error);
+    if (!isNative()) {
+      requestPersistence().catch(console.error);
+    }
   }, []);
 
   useEffect(() => {

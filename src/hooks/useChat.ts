@@ -8,6 +8,7 @@ import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMem
 import { fileDB } from '../lib/db';
 import { isNative } from '../lib/platform';
 import { chat, deleteWorkspace, MemoryRevisionConflictError, summarizeTitle, syncConversationMemory } from '../services/api';
+import { useAppDialog } from '../contexts/DialogContext';
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -152,6 +153,7 @@ const createEmptyConversationMemory = (conversationId: string): ConversationMemo
 };
 
 export function useChat() {
+  const { showAlert } = useAppDialog();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentId, setCurrentId] = useState<string>('');
   const [input, setInput] = useState('');
@@ -834,7 +836,11 @@ export function useChat() {
     deleteConversation,
     handleSend: async (pendingUploads: {name: string, path: string}[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>, isLowStorage?: boolean) => {
       if (isLowStorage) {
-        alert('本地存储空间不足！请点击侧边栏下方的存储指示器进行【导出并清理】，否则无法继续发送消息。');
+        await showAlert({
+          title: '本地存储空间不足',
+          message: '请点击侧边栏下方的存储指示器进行导出并清理，否则无法继续发送消息。',
+          tone: 'warning',
+        });
         return;
       }
       return handleSend(pendingUploads, setPendingUploads, onFileGenerated, syncFiles);
