@@ -9,9 +9,11 @@ import App from './App';
 import { DialogProvider } from './contexts/DialogContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { setupNativeChrome } from './lib/native-bootstrap';
+import { registerPwa } from './lib/pwa';
 import './index.css';
 
 setupNativeChrome().catch(console.error);
+registerPwa();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
