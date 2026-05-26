@@ -12,3 +12,4 @@ PyMuPDF
 python-docx
 python-multipart
 json-repair>=0.28.2
+docxtpl>=0.18.0

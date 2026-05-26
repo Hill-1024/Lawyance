@@ -30,6 +30,11 @@ from mcp.memory_client import (
     sync_conversation_memory,
     update_conversation_memory,
 )
+from mcp.legal_document import (
+    list_legal_templates,
+    get_template_fields,
+    generate_legal_document,
+)
 from workspace import WorkspacePathError, get_result_path, resolve_workspace_file, validate_workspace_scope
 
 from .registry import registry
@@ -495,6 +500,44 @@ def _register_agent_tools() -> None:
             exposure=AGENT_PLAN_AND_SOLVE_COURT,
             text_coercer=_text_field("company"),
         )
+
+    registry.register(
+        name="list_legal_templates",
+        schema=_tool_schema(
+            "list_legal_templates",
+            "列出所有可用的法律文书模板及其字段概览。当用户需要生成法律文书（如起诉书、答辩状、判决书等）时，应首先调用此工具查看有哪些可用模板，再根据需求选择合适的模板。",
+            {"category": {"type": "string", "description": "可选，按分类筛选模板，如'刑事诉讼'、'民事诉讼'、'行政诉讼'。不填则返回所有模板。"}},
+            [],
+        ),
+        handler=lambda arguments, _scope: list_legal_templates(arguments.get("category")),
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+    )
+    registry.register(
+        name="get_template_fields",
+        schema=_tool_schema(
+            "get_template_fields",
+            "获取指定法律文书模板的完整字段清单，包括每个字段的名称、类型、是否必填、说明等。在选择了模板之后、生成文书之前，必须调用此工具了解需要收集哪些信息。",
+            {"template_name": {"type": "string", "description": "模板名称，应从 list_legal_templates 的返回结果中获取，如'起诉书'、'答辩状'。"}},
+            ["template_name"],
+        ),
+        handler=lambda arguments, _scope: get_template_fields(arguments.get("template_name", "")),
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+    )
+    registry.register(
+        name="generate_legal_document",
+        schema=_tool_schema(
+            "generate_legal_document",
+            "根据指定的模板和用户提供的字段值，生成格式规范的法律文书（.docx）。调用前必须先通过 get_template_fields 了解模板需要哪些字段，并确保所有必填字段已从用户处收集完整。生成成功后会返回文件路径。",
+            {
+                "template_name": {"type": "string", "description": "模板名称，应与 get_template_fields 使用的名称一致，如'起诉书'。"},
+                "fields": {"type": "object", "description": "字段键值对，key 为字段名（与 get_template_fields 返回的 key 一致），value 为字段值。字符串字段传字符串，列表字段传数组，布尔字段传 true/false，数字字段传数字。"},
+            },
+            ["template_name", "fields"],
+        ),
+        handler=lambda arguments, workspace_scope: generate_legal_document(
+            arguments.get("template_name", ""), arguments.get("fields", {}), workspace_scope),
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+    )
 
     registry.register(
         name="submit_plan",
