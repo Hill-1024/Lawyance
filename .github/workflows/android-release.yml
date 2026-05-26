@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish, for example v0.1.6'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -16,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -35,8 +43,10 @@ jobs:
 
       - name: Validate tag and package version
         id: version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           VERSION="${TAG#v}"
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           if [ "$VERSION" != "$PACKAGE_VERSION" ]; then
@@ -47,6 +57,7 @@ jobs:
             echo "Android release tags must be stable SemVer, got $VERSION" >&2
             exit 1
           fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
@@ -87,6 +98,7 @@ jobs:
       - name: Prepare release assets
         id: assets
         run: |
+          TAG="${{ steps.version.outputs.tag }}"
           VERSION="${{ steps.version.outputs.version }}"
           APK_SOURCE="android/app/build/outputs/apk/release/app-release.apk"
           APK_NAME="Lawver-${VERSION}.apk"
@@ -109,7 +121,7 @@ jobs:
             "packageName": "moe.mutsumi.lawver",
             "versionName": "${VERSION}",
             "versionCode": ${VERSION_CODE},
-            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${APK_NAME}",
+            "apkUrl": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${APK_NAME}",
             "sha256": "${SHA256}",
             "size": ${SIZE},
             "publishedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -121,7 +133,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ steps.version.outputs.tag }}"
           APK_NAME="${{ steps.assets.outputs.apk_name }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "Lawver ${{ steps.version.outputs.version }}" --notes "Android APK release ${{ steps.version.outputs.version }}"
