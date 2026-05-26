@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Clock3, ExternalLink, Info, Link2, Monitor, Moon, PackageCheck, Palette, RefreshCw, RotateCcw, Server, Settings, Smartphone, Sun } from 'lucide-react';
+import { ArrowLeft, Check, Clock3, ExternalLink, Link2, Monitor, Moon, PackageCheck, Palette, RefreshCw, RotateCcw, Server, Settings, Smartphone, Sun } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
@@ -268,55 +268,56 @@ export const SettingsPage: React.FC = () => {
             )}
           </section>
 
-          <section className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-1)]">
-            <div className="flex items-start gap-4 p-4 sm:p-5">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--accent-quiet)] text-[var(--accent)]">
-                <Info size={21} strokeWidth={2} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="t-title-m truncate">{BUILD_INFO.appName}</h2>
-                    <p className="mt-1 text-[13px] leading-5 text-[var(--fg-3)]">{BUILD_INFO.description}</p>
-                  </div>
-                  <BrandMark className="hidden h-10 w-10 shrink-0 text-[var(--accent)] sm:block" />
+          <section className="mt-1 flex flex-col gap-4">
+            <h2 className="px-2 text-lg font-bold text-[var(--fg-1)]">关于应用</h2>
+            <div className="flex flex-col gap-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-5 shadow-[var(--shadow-1)]">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)]">
+                  <BrandMark className="h-7 w-7 [--brand-logo-ink:var(--accent)]" />
+                </div>
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate text-lg font-bold text-[var(--fg-1)]">{BUILD_INFO.appName}</span>
+                  <span className="mt-1 text-xs leading-5 text-[var(--fg-3)]">{BUILD_INFO.description}</span>
                 </div>
               </div>
-            </div>
-            <div className="grid gap-0 border-t border-[var(--border-subtle)] sm:grid-cols-2">
-              <div className="flex min-w-0 gap-3 border-b border-[var(--border-subtle)] p-4 sm:border-r">
-                <PackageCheck size={17} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--accent)]" />
-                <div className="min-w-0">
-                  <div className="t-label-s t-weak">版本 (Version)</div>
-                  <div className="mt-1 truncate text-sm font-medium text-[var(--fg-1)]">{BUILD_INFO.version}</div>
+
+              <div className="h-px w-full bg-[var(--border-subtle)]" />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0] text-[var(--fg-4)]">
+                    <PackageCheck size={12} strokeWidth={2} />
+                    版本 (Version)
+                  </span>
+                  <span className="truncate text-sm font-medium text-[var(--fg-1)]">{BUILD_INFO.version}</span>
                 </div>
-              </div>
-              <div className="flex min-w-0 gap-3 border-b border-[var(--border-subtle)] p-4">
-                <Server size={17} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--accent)]" />
-                <div className="min-w-0">
-                  <div className="t-label-s t-weak">构建环境 (Env)</div>
-                  <div className="mt-1 truncate text-sm font-medium text-[var(--fg-1)]">{BUILD_INFO.environment}</div>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0] text-[var(--fg-4)]">
+                    <Server size={12} strokeWidth={2} />
+                    构建环境 (Env)
+                  </span>
+                  <span className="truncate text-sm font-medium text-[var(--fg-1)]">{BUILD_INFO.environment}</span>
                 </div>
-              </div>
-              <div className="flex min-w-0 gap-3 border-b border-[var(--border-subtle)] p-4 sm:border-b-0 sm:border-r">
-                <Clock3 size={17} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--accent)]" />
-                <div className="min-w-0">
-                  <div className="t-label-s t-weak">构建时间 (Build Time)</div>
-                  <div className="mt-1 break-words font-mono text-sm text-[var(--fg-1)]">{BUILD_INFO.buildTime}</div>
+                <div className="col-span-2 flex min-w-0 flex-col gap-1">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0] text-[var(--fg-4)]">
+                    <Clock3 size={12} strokeWidth={2} />
+                    构建时间 (Build Time)
+                  </span>
+                  <span className="break-words font-mono text-sm text-[var(--fg-1)] opacity-80">{BUILD_INFO.buildTime}</span>
                 </div>
-              </div>
-              <div className="flex min-w-0 gap-3 p-4">
-                <Link2 size={17} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--accent)]" />
-                <div className="min-w-0">
-                  <div className="t-label-s t-weak">项目地址 (Project Url)</div>
+                <div className="col-span-2 flex min-w-0 flex-col gap-1">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0] text-[var(--fg-4)]">
+                    <Link2 size={12} strokeWidth={2} />
+                    项目地址 (Project Url)
+                  </span>
                   <a
                     href={BUILD_INFO.projectUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-1 inline-flex min-w-0 max-w-full items-center gap-1.5 text-sm font-medium text-[var(--accent)] hover:underline"
+                    className="inline-flex min-w-0 max-w-full items-center gap-1.5 break-all font-mono text-sm text-[var(--fg-1)] opacity-80 transition-opacity hover:opacity-100 hover:underline"
                   >
-                    <span className="truncate">{BUILD_INFO.projectUrl}</span>
-                    <ExternalLink size={13} strokeWidth={2} className="shrink-0" />
+                    <span>{BUILD_INFO.projectUrl}</span>
+                    <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
                   </a>
                 </div>
               </div>

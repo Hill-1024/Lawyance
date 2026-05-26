@@ -4,7 +4,6 @@
 
 import React from 'react';
 import { ChevronDown, Download, GitBranch, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
-import { motion } from 'motion/react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -403,10 +402,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   const generatedFileName = msg.download_path ? safeDownloadName(msg.download_path) : '';
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.24, ease: [0.2, 0, 0, 1] }}
+    <div
       className={`group flex max-w-full gap-2 sm:gap-4 ${msg.role === 'user' ? 'self-end flex-row-reverse md:max-w-[85%]' : 'self-start'}`}
     >
       <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-[var(--shadow-1)] sm:h-10 sm:w-10 ${msg.role === 'user' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
@@ -586,6 +582,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 };

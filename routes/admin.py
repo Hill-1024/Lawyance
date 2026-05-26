@@ -3,12 +3,12 @@
 """
 
 from typing import Optional
-import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from auth import add_or_update_account, delete_account, list_accounts
 from schemas import AccountRequest
+from services.app_security import clear_usage_logs, get_usage_log_path
 from services.auth_dependencies import require_admin
 
 
@@ -22,9 +22,9 @@ async def get_admin_logs(
     admin_user: str = Depends(require_admin),
 ):
     logs = []
-    log_file = "data/usage.log"
-    if os.path.exists(log_file):
-        with open(log_file, "r", encoding="utf-8") as f:
+    log_file = get_usage_log_path()
+    if log_file.exists():
+        with log_file.open("r", encoding="utf-8") as f:
             for line in f:
                 if ip and ip not in line:
                     continue
@@ -32,6 +32,12 @@ async def get_admin_logs(
                     continue
                 logs.append(line.strip())
     return {"status": "success", "logs": logs[::-1][:1000]}
+
+
+@router.delete("/api/admin/logs")
+async def clear_admin_logs(admin_user: str = Depends(require_admin)):
+    cleared_count = clear_usage_logs()
+    return {"status": "success", "message": "日志已清空", "cleared_files": cleared_count}
 
 
 @router.get("/api/admin/accounts")

@@ -2,7 +2,7 @@
  * 模块描述：全局主题上下文，统一管理外观模式、种子色调色板和 Material You 占位状态。
  */
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import {
   DEFAULT_SEED,
@@ -47,6 +47,7 @@ interface ThemeContextValue extends ThemeState {
 
 const STORAGE_KEY = 'lawver.theme.settings';
 const LEGACY_THEME_KEY = 'themeMode';
+const THEME_TRANSITION_MS = 280;
 const FALLBACK_THEME: PersistedThemeState = {
   mode: 'system',
   colorSource: 'default',
@@ -85,6 +86,17 @@ const FAVICON_COLOR: Record<ResolvedTheme, {
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
+
+interface BrowserViewTransition {
+  finished: Promise<void>;
+}
+
+type DocumentWithViewTransition = Document & {
+  startViewTransition?: (callback: () => void | Promise<void>) => BrowserViewTransition;
+};
+
+let themeTransitionSequence = 0;
+let themeTransitionCleanupTimer: number | undefined;
 
 const isThemeMode = (value: unknown): value is ThemeMode => (
   value === 'light' || value === 'system' || value === 'dark'
@@ -148,6 +160,7 @@ const syncBrowserChrome = (resolvedTheme: ResolvedTheme) => {
   const root = document.documentElement;
   root.classList.toggle('dark', resolvedTheme === 'dark');
   root.dataset.theme = resolvedTheme;
+  root.style.colorScheme = resolvedTheme;
 
   const favicon = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
   if (favicon) {
@@ -158,6 +171,55 @@ const syncBrowserChrome = (resolvedTheme: ResolvedTheme) => {
   const bgApp = getComputedStyle(root).getPropertyValue('--bg-app').trim() || THEME_COLOR_FALLBACK[resolvedTheme];
   const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (themeColor) themeColor.content = bgApp;
+};
+
+const canAnimateThemeTransition = () => (
+  typeof window !== 'undefined' &&
+  !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+);
+
+const runThemeStyleTransition = (commit: () => void, animated: boolean) => {
+  if (typeof document === 'undefined' || !animated || !canAnimateThemeTransition()) {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.remove('lawver-theme-transitioning', 'lawver-theme-view-transition');
+    }
+    commit();
+    return;
+  }
+
+  const root = document.documentElement;
+  const sequence = ++themeTransitionSequence;
+  window.clearTimeout(themeTransitionCleanupTimer);
+  root.classList.remove('lawver-theme-transitioning', 'lawver-theme-view-transition');
+
+  const cleanup = (className: string) => {
+    if (sequence === themeTransitionSequence) {
+      root.classList.remove(className);
+    }
+  };
+
+  const transitionDocument = document as DocumentWithViewTransition;
+  if (transitionDocument.startViewTransition) {
+    root.classList.add('lawver-theme-view-transition');
+    const transition = transitionDocument.startViewTransition(() => {
+      commit();
+    });
+    transition.finished.finally(() => cleanup('lawver-theme-view-transition'));
+    themeTransitionCleanupTimer = window.setTimeout(
+      () => cleanup('lawver-theme-view-transition'),
+      THEME_TRANSITION_MS + 120
+    );
+    return;
+  }
+
+  root.classList.add('lawver-theme-transitioning');
+  // 让浏览器先计算统一 transition，再提交变量/class 变化，避免各组件按自身 duration 抢跑。
+  void root.offsetWidth;
+  commit();
+  themeTransitionCleanupTimer = window.setTimeout(
+    () => cleanup('lawver-theme-transitioning'),
+    THEME_TRANSITION_MS + 80
+  );
 };
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -172,6 +234,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [monetStatus, setMonetStatus] = useState<MonetStatus>('idle');
   const [monetError, setMonetError] = useState<string | undefined>();
   const [monetRefreshToken, setMonetRefreshToken] = useState(0);
+  const hasCommittedThemeRef = useRef(false);
   const resolvedTheme = resolveTheme(mode, systemPrefersDark);
   const isMonetAvailableOnPlatform = isNativeAndroid();
 
@@ -200,37 +263,39 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   }, [mode, colorSource, customSeed]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let canceled = false;
 
-    const applyTheme = async () => {
-      document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
-      document.documentElement.dataset.theme = resolvedTheme;
+    const commitTheme = (applyColors: () => void) => {
+      if (canceled) return;
 
+      runThemeStyleTransition(() => {
+        applyColors();
+        syncBrowserChrome(resolvedTheme);
+      }, hasCommittedThemeRef.current);
+      hasCommittedThemeRef.current = true;
+      syncNativeChrome(resolvedTheme).catch(console.error);
+    };
+
+    const applyTheme = async () => {
       if (colorSource === 'default') {
-        clearDynamicPalette();
         setMonetStatus('idle');
         setMonetError(undefined);
-        syncBrowserChrome(resolvedTheme);
-        syncNativeChrome(resolvedTheme).catch(console.error);
+        commitTheme(clearDynamicPalette);
         return;
       }
 
       if (colorSource === 'custom') {
-        applyPalette(paletteFromSeed(customSeed), resolvedTheme);
         setMonetStatus('idle');
         setMonetError(undefined);
-        syncBrowserChrome(resolvedTheme);
-        syncNativeChrome(resolvedTheme).catch(console.error);
+        commitTheme(() => applyPalette(paletteFromSeed(customSeed), resolvedTheme));
         return;
       }
 
       if (!isMonetAvailableOnPlatform) {
-        clearDynamicPalette();
         setMonetStatus('unavailable');
         setMonetError('需 Android 客户端。');
-        syncBrowserChrome(resolvedTheme);
-        syncNativeChrome(resolvedTheme).catch(console.error);
+        commitTheme(clearDynamicPalette);
         return;
       }
 
@@ -239,17 +304,15 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const monetPalette = await getMonetPalette();
         if (canceled || !monetPalette) return;
-        applyPalette(paletteFromMonet(monetPalette), resolvedTheme);
+        commitTheme(() => applyPalette(paletteFromMonet(monetPalette), resolvedTheme));
         setMonetStatus('available');
       } catch (error) {
         if (canceled) return;
         const message = error instanceof Error ? error.message : String(error);
         setMonetStatus(isMonetUnavailableError(error) ? 'unavailable' : 'error');
         setMonetError(message);
-        applyPalette(paletteFromSeed(DEFAULT_SEED), resolvedTheme);
+        commitTheme(() => applyPalette(paletteFromSeed(DEFAULT_SEED), resolvedTheme));
       }
-      syncBrowserChrome(resolvedTheme);
-      syncNativeChrome(resolvedTheme).catch(console.error);
     };
 
     applyTheme();

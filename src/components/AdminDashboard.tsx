@@ -4,8 +4,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchLogs, fetchAccounts, setAccount, logout as apiLogout, deleteAccount } from '../services/api';
-import { Search, ShieldAlert, Users, Activity, EyeOff, RefreshCw, ArrowLeft, LogOut, Plus, KeyRound, Globe, Clock, User, Trash2 } from 'lucide-react';
+import { fetchLogs, clearLogs, fetchAccounts, setAccount, logout as apiLogout, deleteAccount } from '../services/api';
+import { Search, ShieldAlert, Users, Activity, EyeOff, RefreshCw, ArrowLeft, LogOut, Plus, KeyRound, Globe, Clock, User, Trash2, MonitorSmartphone } from 'lucide-react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
@@ -15,6 +15,7 @@ interface ParsedLog {
   time: string;
   ip: string;
   user: string;
+  client: string;
   method: string;
   path: string;
   status: string;
@@ -22,23 +23,24 @@ interface ParsedLog {
 }
 
 function parseLogLine(raw: string): ParsedLog {
-  // Format: "2026-04-22 19:46:30,123 | INFO | 127.0.0.1 | admin | POST | /api/chat | 200"
+  // Format: "2026-04-22 19:46:30,123 | INFO | 127.0.0.1 | admin | web | POST | /api/chat | 200"
   const parts = raw.split(' | ');
   if (parts.length >= 3) {
-    // Try to parse the structured part after INFO
     const afterLevel = raw.split(' | INFO | ')[1] || raw.split(' | ')[2] || '';
     const fields = afterLevel.split(' | ');
+    const hasClientType = fields.length >= 6;
     return {
       time: (parts[0] || '').trim(),
       ip: (fields[0] || '').trim(),
       user: (fields[1] || '').trim(),
-      method: (fields[2] || '').trim(),
-      path: (fields[3] || '').trim(),
-      status: (fields[4] || '').trim(),
+      client: (hasClientType ? fields[2] : 'web').trim(),
+      method: (hasClientType ? fields[3] : fields[2] || '').trim(),
+      path: (hasClientType ? fields[4] : fields[3] || '').trim(),
+      status: (hasClientType ? fields[5] : fields[4] || '').trim(),
       raw,
     };
   }
-  return { time: '', ip: '', user: '', method: '', path: '', status: '', raw };
+  return { time: '', ip: '', user: '', client: '', method: '', path: '', status: '', raw };
 }
 
 function statusColor(s: string) {
@@ -67,6 +69,8 @@ export const AdminDashboard: React.FC = () => {
   const [ipFilter, setIpFilter] = useState('');
   const [ignoreHeartbeat, setIgnoreHeartbeat] = useState(true);
   const [isLogsLoading, setIsLogsLoading] = useState(false);
+  const [isClearingLogs, setIsClearingLogs] = useState(false);
+  const [isClearLogsDialogOpen, setIsClearLogsDialogOpen] = useState(false);
   const [logsError, setLogsError] = useState('');
 
   const [accounts, setAccounts] = useState<{ username: string; role: string }[]>([]);
@@ -86,11 +90,38 @@ export const AdminDashboard: React.FC = () => {
     else loadAccounts();
   }, [activeTab]);
 
+  useEffect(() => {
+    if (!isClearLogsDialogOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !isClearingLogs) {
+        setIsClearLogsDialogOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isClearLogsDialogOpen, isClearingLogs]);
+
   const loadLogs = async () => {
     setIsLogsLoading(true); setLogsError('');
     try { const d = await fetchLogs(ipFilter, ignoreHeartbeat); setLogs(d.logs || []); }
     catch (e: any) { setLogsError(e.message); }
     finally { setIsLogsLoading(false); }
+  };
+
+  const confirmClearLogs = async () => {
+    setIsClearingLogs(true);
+    setLogsError('');
+    try {
+      await clearLogs();
+      setLogs([]);
+      setIsClearLogsDialogOpen(false);
+    } catch (e: any) {
+      setLogsError(e.message);
+    } finally {
+      setIsClearingLogs(false);
+    }
   };
 
   const loadAccounts = async () => {
@@ -126,25 +157,25 @@ export const AdminDashboard: React.FC = () => {
   const parsedLogs = useMemo(() => logs.map(parseLogLine), [logs]);
 
   return (
-    <div className="flex h-screen flex-col bg-[var(--bg-app)] text-[var(--fg-1)] transition-colors duration-500">
+    <div className="flex h-[100dvh] flex-col bg-[var(--bg-app)] text-[var(--fg-1)] transition-colors duration-500">
 
       {/* ── Top Bar (Liquid Glass) ── */}
-      <header className="liquid-glass z-20 flex shrink-0 items-center justify-between px-5 py-3" style={{ borderRadius: 0, borderTop: 'none', borderLeft: 'none', borderRight: 'none' }}>
-        <div className="relative z-[1] flex items-center gap-2">
+      <header className="lawver-topbar liquid-glass sticky top-0 z-30 flex shrink-0 items-center justify-between gap-3 px-3 pb-2 pt-[calc(0.625rem+var(--safe-top))] text-[var(--fg-1)] sm:px-5 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]" style={{ borderRadius: 0, borderTop: 'none', borderLeft: 'none', borderRight: 'none' }}>
+        <div className="relative z-[1] flex min-w-0 items-center gap-2">
           <HoverInfo label="返回聊天" placement="bottom">
-            <button onClick={() => navigate('/')} className="md3-btn-text !p-2 !rounded-full" aria-label="返回聊天">
+            <button onClick={() => navigate('/')} className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11" aria-label="返回聊天">
               <ArrowLeft className="h-5 w-5" strokeWidth={2} />
             </button>
           </HoverInfo>
-          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)]">
+          <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)] sm:flex">
             <BrandMark className="h-5 w-5" />
           </div>
-          <div>
-            <h1 className="t-title-m">管理后台</h1>
-            <p className="t-body-s t-muted">Lawver Admin Console</p>
+          <div className="min-w-0">
+            <h1 className="lawver-header-title t-title-l truncate">管理后台</h1>
+            <p className="truncate text-[12px] text-[var(--fg-3)]">Lawver Admin Console</p>
           </div>
         </div>
-        <button onClick={handleLogout} className="md3-btn-text relative z-[1] !gap-1.5 !text-[var(--color-danger-500)] text-sm">
+        <button onClick={handleLogout} className="md3-btn-text relative z-[1] shrink-0 !gap-1.5 !text-[var(--color-danger-500)] text-sm">
           <LogOut className="h-4 w-4" strokeWidth={2} /> 退出
         </button>
       </header>
@@ -187,6 +218,9 @@ export const AdminDashboard: React.FC = () => {
               <button onClick={loadLogs} disabled={isLogsLoading} className="md3-btn-tonal">
                 <RefreshCw className={`h-4 w-4 ${isLogsLoading ? 'animate-spin' : ''}`} strokeWidth={2} /> 刷新
               </button>
+              <button onClick={() => setIsClearLogsDialogOpen(true)} disabled={isLogsLoading || isClearingLogs} className="md3-btn-tonal !text-[var(--color-danger-500)]">
+                <Trash2 className="h-4 w-4" strokeWidth={2} /> {isClearingLogs ? '清理中…' : '清理日志'}
+              </button>
             </div>
 
             {logsError && (
@@ -210,6 +244,7 @@ export const AdminDashboard: React.FC = () => {
                         <th className="t-label-s t-muted px-4 py-3 text-left">时间</th>
                         <th className="t-label-s t-muted px-4 py-3 text-left">IP</th>
                         <th className="t-label-s t-muted px-4 py-3 text-left">用户</th>
+                        <th className="t-label-s t-muted px-4 py-3 text-left">客户端</th>
                         <th className="t-label-s t-muted px-4 py-3 text-left">方法</th>
                         <th className="t-label-s t-muted px-4 py-3 text-left">路径</th>
                         <th className="t-label-s t-muted px-4 py-3 text-right">状态</th>
@@ -218,7 +253,7 @@ export const AdminDashboard: React.FC = () => {
                     <tbody className="divide-y divide-[var(--border-subtle)]">
                       {parsedLogs.map((log, i) => (
                         log.ip ? (
-                          <tr key={i} className="log-row transition-colors hover:bg-[rgba(59,98,184,0.05)]" style={{ animationDelay: `${Math.min(i * 15, 300)}ms` }}>
+                          <tr key={i} className="log-row transition-colors hover:bg-[rgba(59,98,184,0.05)]">
                             <td className="whitespace-nowrap px-4 py-2.5 text-[var(--fg-3)]">
                               <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />{log.time.split(',')[0]}</span>
                             </td>
@@ -228,6 +263,9 @@ export const AdminDashboard: React.FC = () => {
                             <td className="px-4 py-2.5 whitespace-nowrap">
                               <span className="flex items-center gap-1.5"><User className="h-3.5 w-3.5 opacity-40" strokeWidth={2} /><span className="text-[var(--fg-1)]">{log.user}</span></span>
                             </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap text-xs text-[var(--fg-3)]">
+                              <span className="flex items-center gap-1.5"><MonitorSmartphone className="h-3.5 w-3.5 opacity-40" strokeWidth={2} />{log.client}</span>
+                            </td>
                             <td className="px-4 py-2.5 whitespace-nowrap">
                               <span className={`md3-chip text-[11px] ${methodBadge(log.method)}`}>{log.method}</span>
                             </td>
@@ -235,7 +273,7 @@ export const AdminDashboard: React.FC = () => {
                             <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${statusColor(log.status)}`}>{log.status}</td>
                           </tr>
                         ) : (
-                          <tr key={i} className="log-row"><td colSpan={6} className="break-all px-4 py-2 text-xs text-[var(--fg-3)]">{log.raw}</td></tr>
+                          <tr key={i} className="log-row"><td colSpan={7} className="break-all px-4 py-2 text-xs text-[var(--fg-3)]">{log.raw}</td></tr>
                         )
                       ))}
                     </tbody>
@@ -311,6 +349,61 @@ export const AdminDashboard: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* ── Clear Logs Dialog ── */}
+      {isClearLogsDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 bg-[var(--bg-overlay)]"
+            onClick={() => !isClearingLogs && setIsClearLogsDialogOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="clear-logs-title"
+            aria-describedby="clear-logs-description"
+            className="relative w-full max-w-md rounded-[28px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-6 text-[var(--fg-1)] shadow-2xl"
+            style={{ animation: 'lawverPopoverIn 0.2s ease-out' }}
+          >
+            <div className="mb-5 flex items-start gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[rgba(176,70,62,0.12)] text-[var(--color-danger-500)]">
+                <Trash2 className="h-5 w-5" strokeWidth={2} />
+              </div>
+              <div className="min-w-0">
+                <h3 id="clear-logs-title" className="t-title-l">清理全部日志？</h3>
+                <p id="clear-logs-description" className="mt-2 text-sm leading-6 text-[var(--fg-3)]">
+                  此操作会清空当前使用日志和已轮转的日志文件，清理后无法撤销。
+                </p>
+                <p className="mt-3 rounded-[var(--radius-md)] bg-[var(--bg-inset)] px-3 py-2 text-xs text-[var(--fg-3)]">
+                  当前列表显示 {logs.length} 条记录；筛选隐藏的日志也会被一并清理。
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="md3-btn-text"
+                onClick={() => setIsClearLogsDialogOpen(false)}
+                disabled={isClearingLogs}
+                autoFocus
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="md3-btn-tonal !text-[var(--color-danger-500)]"
+                onClick={confirmClearLogs}
+                disabled={isClearingLogs}
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={2} />
+                {isClearingLogs ? '清理中…' : '确认清理'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal (MD3 Dialog) ── */}
       {isModalOpen && (

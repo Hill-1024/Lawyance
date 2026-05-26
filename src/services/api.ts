@@ -291,6 +291,18 @@ export const fetchLogs = async (ip?: string, ignoreHeartbeat?: boolean) => {
   return res.json();
 };
 
+export const clearLogs = async () => {
+  const res = await apiFetch('/api/admin/logs', {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    if (res.status === 403) throw new Error('Access denied. Admin role required.');
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to clear logs');
+  }
+  return res.json();
+};
+
 export const fetchAccounts = async () => {
   const res = await apiFetch('/api/admin/accounts');
   if (!res.ok) {

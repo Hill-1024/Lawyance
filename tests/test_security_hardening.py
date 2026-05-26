@@ -221,6 +221,28 @@ class ApiBoundaryTests(unittest.TestCase):
         allowed = self.client.post("/api/logout", headers={"origin": "http://localhost:5173"})
         self.assertEqual(allowed.status_code, 200)
 
+    def test_admin_can_clear_usage_logs(self):
+        login = self.client.post(
+            "/api/login",
+            json={"username": "admin", "password": "bootstrap-password"},
+            headers={"origin": "http://localhost:5173"},
+        )
+        self.assertEqual(login.status_code, 200)
+
+        log_path = os.path.join(self.tmp, "usage.log")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write("2026-05-26 10:00:00,000 | INFO | 127.0.0.1 | admin | GET | /api/example | 200\n")
+        with open(f"{log_path}.1", "w", encoding="utf-8") as f:
+            f.write("rotated log\n")
+
+        response = self.client.delete("/api/admin/logs", headers={"origin": "http://localhost:5173"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "success")
+        with open(log_path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "")
+        self.assertFalse(os.path.exists(f"{log_path}.1"))
+
     def test_cors_allows_configured_origin_but_not_arbitrary_origin(self):
         allowed = self.client.options(
             "/api/verify_auth",

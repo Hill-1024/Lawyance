@@ -4,6 +4,7 @@
 
 from collections import defaultdict
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from urllib.parse import urlparse
 import ipaddress
 import logging
@@ -23,6 +24,13 @@ LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\
 RATE_LIMIT = 100
 
 
+def _configured_usage_log_path() -> Path:
+    explicit_path = os.getenv("LAWVER_USAGE_LOG_PATH")
+    if explicit_path:
+        return Path(explicit_path)
+    return Path(os.getenv("LAWVER_DATA_DIR", "data")) / "usage.log"
+
+
 def _configured_origins() -> set[str]:
     origins = {SECURE_ORIGIN, *NATIVE_CLIENT_ORIGINS}
     for raw_name in ("LAWVER_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
@@ -36,11 +44,12 @@ def _configured_origins() -> set[str]:
 
 ALLOWED_ORIGINS = sorted(_configured_origins())
 
-os.makedirs("data", exist_ok=True)
+configured_usage_log_path = _configured_usage_log_path()
+configured_usage_log_path.parent.mkdir(parents=True, exist_ok=True)
 usage_logger = logging.getLogger("usage_logger")
 usage_logger.setLevel(logging.INFO)
 file_handler = RotatingFileHandler(
-    "data/usage.log",
+    str(configured_usage_log_path),
     maxBytes=int(os.environ.get("LAWVER_USAGE_LOG_MAX_BYTES", 5 * 1024 * 1024)),
     backupCount=int(os.environ.get("LAWVER_USAGE_LOG_BACKUPS", 5)),
     encoding="utf-8",
@@ -52,6 +61,60 @@ if not usage_logger.handlers:
 # 进程内限流：仅在单 worker 部署下精确；多 worker 部署需要把状态迁到 Redis 或共享存储。
 ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
 last_rate_limit_prune = 0.0
+
+
+def get_usage_log_path() -> Path:
+    for handler in usage_logger.handlers:
+        if isinstance(handler, RotatingFileHandler):
+            return Path(handler.baseFilename)
+    return _configured_usage_log_path()
+
+
+def clear_usage_logs() -> int:
+    cleared_count = 0
+    handled_paths: set[Path] = set()
+
+    for handler in usage_logger.handlers:
+        if not isinstance(handler, RotatingFileHandler):
+            continue
+
+        handler.acquire()
+        try:
+            handler.flush()
+            base_path = Path(handler.baseFilename)
+            base_path.parent.mkdir(parents=True, exist_ok=True)
+            if handler.stream:
+                handler.stream.seek(0)
+                handler.stream.truncate()
+            else:
+                base_path.write_text("", encoding="utf-8")
+            handled_paths.add(base_path.resolve())
+            cleared_count += 1
+        finally:
+            handler.release()
+
+        for rotated_path in sorted(base_path.parent.glob(f"{base_path.name}.*")):
+            resolved_path = rotated_path.resolve()
+            if resolved_path in handled_paths:
+                continue
+            try:
+                rotated_path.unlink()
+                handled_paths.add(resolved_path)
+                cleared_count += 1
+            except FileNotFoundError:
+                continue
+
+    if cleared_count == 0:
+        base_path = get_usage_log_path()
+        if base_path.exists():
+            base_path.write_text("", encoding="utf-8")
+            cleared_count = 1
+
+    return cleared_count
+
+
+def should_record_usage_log(method: str, path: str) -> bool:
+    return path.startswith("/api") and not (method == "DELETE" and path == "/api/admin/logs")
 
 
 def origin_from_url(value: str | None) -> str | None:
@@ -142,7 +205,7 @@ async def security_and_logging_middleware(request: Request, call_next):
 
     response = await call_next(request)
 
-    if path.startswith("/api"):
+    if should_record_usage_log(method, path):
         username = "anonymous"
         token = None
         authorization = request.headers.get("authorization")
