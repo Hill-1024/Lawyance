@@ -5,8 +5,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fileDB } from '../lib/db';
 import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile, apiFetch } from '../services/api';
+import { useAppDialog } from '../contexts/DialogContext';
 
 export function useWorkspace(currentId: string, enabled = true) {
+  const { showAlert } = useAppDialog();
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [workspaceFiles, setWorkspaceFiles] = useState<{ name: string, path: string, type: 'upload' | 'generated' }[]>([]);
   const [pendingUploads, setPendingUploads] = useState<{ name: string, path: string }[]>([]);
@@ -90,9 +92,13 @@ export function useWorkspace(currentId: string, enabled = true) {
       await fileDB.saveFile(currentId, file.name, file, filePath);
       await syncFiles(); // Refresh from server
     } catch (error: any) {
-      alert(error.message || 'Upload failed');
+      await showAlert({
+        title: '上传失败',
+        message: error.message || 'Upload failed',
+        tone: 'danger',
+      });
     }
-  }, [currentId, syncFiles]);
+  }, [currentId, showAlert, syncFiles]);
 
   const handleGeneratedFile = useCallback(async (name: string, path: string) => {
     if (path) {
@@ -132,7 +138,11 @@ export function useWorkspace(currentId: string, enabled = true) {
         await deleteWorkspaceFile(currentId, fileToDelete.path);
       } catch (err: any) {
         console.error('Failed to delete file from server:', err);
-        alert(err?.message || '删除服务端文件失败，本地文件已保留。');
+        await showAlert({
+          title: '删除失败',
+          message: err?.message || '删除服务端文件失败，本地文件已保留。',
+          tone: 'danger',
+        });
         return;
       }
 
@@ -142,7 +152,7 @@ export function useWorkspace(currentId: string, enabled = true) {
     } catch (error) {
       console.error('Failed to delete file:', error);
     }
-  }, [currentId, workspaceFiles]);
+  }, [currentId, showAlert, workspaceFiles]);
 
   return {
     isWorkspaceOpen,

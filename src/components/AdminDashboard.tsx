@@ -9,6 +9,7 @@ import { Search, ShieldAlert, Users, Activity, EyeOff, RefreshCw, ArrowLeft, Log
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
+import { useAppDialog } from '../contexts/DialogContext';
 
 /* ── helpers ── */
 interface ParsedLog {
@@ -63,6 +64,7 @@ function methodBadge(m: string) {
 /* ── component ── */
 export const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { showConfirm } = useAppDialog();
   const [activeTab, setActiveTab] = useState<'logs' | 'accounts'>('logs');
 
   const [logs, setLogs] = useState<string[]>([]);
@@ -140,7 +142,13 @@ export const AdminDashboard: React.FC = () => {
 
   const handleDeleteAccount = async (username: string) => {
     if (username === 'admin') return;
-    if (!window.confirm(`确定要删除账号 "${username}" 吗？此操作不可撤销。`)) return;
+    const confirmed = await showConfirm({
+      title: '删除账号？',
+      message: `确定要删除账号 "${username}" 吗？此操作不可撤销。`,
+      tone: 'danger',
+      confirmLabel: '删除',
+    });
+    if (!confirmed) return;
 
     try {
       await deleteAccount(username);
@@ -313,7 +321,7 @@ export const AdminDashboard: React.FC = () => {
                         {acc.role === 'admin' ? '管理员' : '普通用户'}
                       </span>
                     </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <div className="flex shrink-0 gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                       <HoverInfo label="重置密码" placement="top">
                         <button onClick={() => openResetModal(acc.username, acc.role)}
                           className="md3-btn-text !p-2 !rounded-full" aria-label="重置密码">

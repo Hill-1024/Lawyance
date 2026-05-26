@@ -9,6 +9,7 @@ import { storageService } from '../services/storageService';
 import { motion, AnimatePresence } from 'motion/react';
 import { HoverInfo } from './HoverInfo';
 import { isNative } from '../lib/platform';
+import { useAppDialog } from '../contexts/DialogContext';
 
 interface StorageIndicatorProps {
   compact?: boolean;
@@ -16,9 +17,11 @@ interface StorageIndicatorProps {
 
 export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) => {
   const { usage, quota, usageRatio, isLowStorage, isPersistent, requestPersistence, updateEstimate, error } = useStorage();
+  const { showAlert } = useAppDialog();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
+  const showPersistenceControls = !isNative();
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -32,7 +35,11 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
     setIsCleaning(true);
     try {
       const result = await storageService.garbageCollect();
-      alert(`清理完成。已移除 ${result.cleanedCount} 个无效文件。`);
+      await showAlert({
+        title: '清理完成',
+        message: `已移除 ${result.cleanedCount} 个无效文件。`,
+        tone: 'success',
+      });
     } finally {
       setIsCleaning(false);
       updateEstimate();
@@ -40,13 +47,34 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
   };
 
   const handleRequestPersistence = async () => {
+    if (!window.isSecureContext) {
+      await showAlert({
+        title: '无法开启永久保护',
+        message: '必须在 HTTPS 安全环境（或 localhost）下才能申请此权限。',
+        tone: 'warning',
+      });
+      return;
+    }
+
     const granted = await requestPersistence();
     if (granted) {
-      alert('【开启成功】\n已启用永久保护模式。浏览器将绝对不会在磁盘紧张时自动清理本应用的数据。');
+      await showAlert({
+        title: '开启成功',
+        message: '已启用永久保护模式。浏览器将绝对不会在磁盘紧张时自动清理本应用的数据。',
+        tone: 'success',
+      });
     } else if (isNative()) {
-      alert('【原生客户端】\n本地数据由应用沙箱管理，无需安装为 PWA。');
+      await showAlert({
+        title: '原生客户端',
+        message: '本地数据由应用沙箱管理，无需安装为 PWA。',
+        tone: 'info',
+      });
     } else {
-      alert('【当前无法开启】\n原因：浏览器尚未授予此站点的持久化权限。\n\n解决办法：\n1. 继续使用一段时间（增加站点互动得分）\n2. 点击地址栏右侧图标，将本站【安装为应用(PWA)】\n3. 将本站加入书签');
+      await showAlert({
+        title: '当前无法开启',
+        message: '原因：浏览器尚未授予此站点的持久化权限。\n\n解决办法：\n1. 继续使用一段时间（增加站点互动得分）\n2. 点击地址栏右侧图标，将本站安装为应用（PWA）\n3. 将本站加入书签',
+        tone: 'warning',
+      });
     }
   };
 
@@ -108,7 +136,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
           )}
         </div>
 
-        {!isPersistent && (
+        {showPersistenceControls && !isPersistent && (
           <button 
             onClick={handleRequestPersistence}
             className="t-label-m mt-3 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-3 py-1.5 text-[var(--brand-primary-700)] transition-colors hover:bg-[rgba(59,98,184,0.16)] dark:text-[var(--accent)]"
@@ -118,7 +146,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
           </button>
         )}
         
-        {isPersistent && (
+        {showPersistenceControls && isPersistent && (
           <div className="t-label-s mt-3 flex items-center justify-center gap-1.5 text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
             <ShieldCheck size={14} strokeWidth={2} />
             系统持久化模式已开启
@@ -228,7 +256,11 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             await storageService.exportConversationsText();
                           } catch (err) {
                             console.error(err);
-                            alert('导出失败：' + (err as Error).message);
+                            await showAlert({
+                              title: '导出失败',
+                              message: (err as Error).message,
+                              tone: 'danger',
+                            });
                           } finally {
                             setIsExporting(false);
                           }
@@ -255,11 +287,19 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             setIsExporting(true);
                             try {
                               const count = await storageService.importConversationsFromFile(file);
-                              alert(`成功导入 ${count} 条记录。\n请刷新页面以查看更新。`);
+                              await showAlert({
+                                title: '导入完成',
+                                message: `成功导入 ${count} 条记录。\n请刷新页面以查看更新。`,
+                                tone: 'success',
+                              });
                               updateEstimate();
                             } catch (err) {
                               console.error(err);
-                              alert('导入失败，请确保文件格式正确且未损坏。');
+                              await showAlert({
+                                title: '导入失败',
+                                message: '请确保文件格式正确且未损坏。',
+                                tone: 'danger',
+                              });
                             } finally {
                               setIsExporting(false);
                               e.target.value = ''; // Reset input

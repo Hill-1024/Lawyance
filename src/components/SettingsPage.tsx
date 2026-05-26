@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Clock3, ExternalLink, Link2, Monitor, Moon, PackageCheck, Palette, RefreshCw, RotateCcw, Server, Settings, Smartphone, Sun } from 'lucide-react';
+import { ArrowLeft, Check, Clock3, ExternalLink, Link2, Monitor, Moon, PackageCheck, Palette, RotateCcw, Server, Settings, Smartphone, Sun } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
@@ -44,7 +44,6 @@ export const SettingsPage: React.FC = () => {
     customSeed,
     resolvedTheme,
     monetStatus,
-    monetError,
     isMonetAvailableOnPlatform,
     setMode,
     setColorSource,
@@ -83,8 +82,8 @@ export const SettingsPage: React.FC = () => {
   ].join(' ');
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-[var(--bg-app)] text-[var(--fg-1)]">
-      <header className="lawver-topbar sticky top-0 z-30 flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-2 pt-[calc(0.625rem+var(--safe-top))] sm:px-5 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]">
+    <div className="flex min-h-[100dvh] w-full max-w-full flex-col overflow-x-hidden bg-[var(--bg-app)] text-[var(--fg-1)]">
+      <header className="lawver-topbar sticky top-0 z-30 flex w-full max-w-full shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-2 pt-[calc(0.625rem+var(--safe-top))] sm:px-5 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]">
         <div className="flex min-w-0 items-center gap-2">
           <HoverInfo label="返回" placement="bottom">
             <button
@@ -107,9 +106,9 @@ export const SettingsPage: React.FC = () => {
         </div>
       </header>
 
-      <main className="custom-scrollbar flex min-h-0 flex-1 overflow-y-auto px-4 py-5 pb-[calc(1.25rem+var(--safe-bottom))] sm:px-6 sm:py-8">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
-          <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+      <main className="custom-scrollbar flex min-h-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 pb-[calc(1.25rem+var(--safe-bottom))] sm:px-6 sm:py-8">
+        <div className="mx-auto flex min-w-0 w-full max-w-3xl flex-col gap-5">
+          <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
             <div className="mb-4 flex items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
                 <Sun size={20} strokeWidth={2} />
@@ -141,7 +140,7 @@ export const SettingsPage: React.FC = () => {
             </div>
           </section>
 
-          <section className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+          <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
             <div className="mb-4 flex items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
                 <Palette size={20} strokeWidth={2} />
@@ -244,28 +243,6 @@ export const SettingsPage: React.FC = () => {
               </div>
             )}
 
-            {colorSource === 'monet' && (
-              <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4 text-sm text-[var(--fg-2)]">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="font-medium text-[var(--fg-1)]">
-                      {monetStatus === 'available' ? '已跟随系统动态色' : monetDescription}
-                    </div>
-                    {monetError && <div className="mt-1 break-words text-[12px] text-[var(--fg-3)]">{monetError}</div>}
-                  </div>
-                  {isMonetAvailableOnPlatform && (
-                    <button
-                      onClick={refreshMonet}
-                      className="md3-btn-tonal lawver-pressable shrink-0 px-3 py-2 text-sm"
-                      disabled={monetStatus === 'loading'}
-                    >
-                      <RefreshCw size={15} strokeWidth={2} className={monetStatus === 'loading' ? 'animate-spin' : ''} />
-                      重试
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
           </section>
 
           <section className="mt-1 flex flex-col gap-4">
@@ -316,7 +293,7 @@ export const SettingsPage: React.FC = () => {
                     rel="noreferrer"
                     className="inline-flex min-w-0 max-w-full items-center gap-1.5 break-all font-mono text-sm text-[var(--fg-1)] opacity-80 transition-opacity hover:opacity-100 hover:underline"
                   >
-                    <span>{BUILD_INFO.projectUrl}</span>
+                    <span className="min-w-0 break-all">{BUILD_INFO.projectUrl}</span>
                     <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
                   </a>
                 </div>

@@ -38,7 +38,7 @@ export function useStorage() {
 
   const requestPersistence = async () => {
     if (!window.isSecureContext) {
-      alert('持久化存储申请失败：必须在 HTTPS 安全环境（或 localhost）下才能申请此权限。');
+      setError('持久化存储申请失败：必须在 HTTPS 安全环境（或 localhost）下才能申请此权限。');
       return false;
     }
 

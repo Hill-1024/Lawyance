@@ -35,6 +35,7 @@ import { HoverInfo } from './HoverInfo';
 import { StorageIndicator } from './StorageIndicator';
 import { CourtSetup } from './CourtSetup';
 import { CourtTranscript, SPEAKER_META, phaseLabel } from './CourtTranscript';
+import { useAppDialog } from '../contexts/DialogContext';
 
 const PANEL_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
@@ -220,6 +221,7 @@ const CourtCasePanel: React.FC<{
   onDeleteFile: (path: string) => void;
   isDesktopLayout: boolean;
 }> = ({ isOpen, setIsOpen, session, files, onRequestUpload, onDeleteFile, isDesktopLayout }) => {
+  const { showAlert } = useAppDialog();
   const panelAnimation = isDesktopLayout
     ? { width: isOpen ? PANEL_WIDTH : 0, opacity: isOpen ? 1 : 0, borderLeftWidth: isOpen ? 1 : 0 }
     : { x: isOpen ? 0 : '100%', opacity: isOpen ? 1 : 0 };
@@ -228,7 +230,11 @@ const CourtCasePanel: React.FC<{
     try {
       await downloadWorkspaceFile(file.path, file.name);
     } catch (error: any) {
-      alert(error?.message || '下载失败');
+      await showAlert({
+        title: '下载失败',
+        message: error?.message || '下载失败',
+        tone: 'danger',
+      });
     }
   };
 
@@ -377,7 +383,7 @@ const CourtCasePanel: React.FC<{
                     >
                       <FileText size={15} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
                       <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--fg-1)]">{file.name}</span>
-                      <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                      <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                         <HoverInfo label="下载" placement="top">
                           <button
                             onClick={() => handleDownload(file)}
