@@ -3,6 +3,10 @@
  */
 
 import { fileDB } from '../lib/db';
+import { Directory, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { isNative } from '../lib/platform';
+import { notifyLocalStorageDataChanged } from './storageEvents';
 import type { Conversation, CourtAgentStates, CourtPublicEvent, CourtSession } from '../types';
 
 const EXPORT_SECURITY_KEY = "Lawver-Security-Migration-Key-2024";
@@ -12,6 +16,24 @@ const PREVIOUS_EXPORT_SECURITY_KEYS = [
   decodeCodes([71, 68, 85, 84, 45, 76, 97, 119, 121, 101, 114, 45, 83, 101, 99, 117, 114, 105, 116, 121, 45, 77, 105, 103, 114, 97, 116, 105, 111, 110, 45, 75, 101, 121, 45, 50, 48, 50, 52])
 ];
 const LEGACY_EXPORT_EXTENSION = decodeCodes([46, 108, 97, 119, 118, 101, 114]);
+
+const encryptDataToBytes = (data: string): Uint8Array => {
+  const key = EXPORT_SECURITY_KEY;
+  const encoded = new TextEncoder().encode(data);
+  for (let i = 0; i < encoded.length; i++) {
+    encoded[i] = encoded[i] ^ key.charCodeAt(i % key.length);
+  }
+  return encoded;
+};
+
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+};
 
 const decodeExportBytes = (source: Uint8Array, key: string): string => {
   const bytes = new Uint8Array(source);
@@ -206,12 +228,7 @@ export const storageService = {
   async encryptDataToBlob(data: string): Promise<Blob> {
     // 使用简单的异或加密（混淆）来防止明文泄露，并避免因为 IP 访问（非 HTTPS 环境）导致 crypto.subtle 无法使用的问题。
     // 同时使用 Blob 直接生成文件，避免超大文本使用 String.fromCharCode 导致栈溢出。
-    const key = EXPORT_SECURITY_KEY;
-    const encoded = new TextEncoder().encode(data);
-    for (let i = 0; i < encoded.length; i++) {
-      encoded[i] = encoded[i] ^ key.charCodeAt(i % key.length);
-    }
-    return new Blob([encoded], { type: 'application/octet-stream' });
+    return new Blob([encryptDataToBytes(data)], { type: 'application/octet-stream' });
   },
 
   async decryptDataFromFile(file: File): Promise<string> {
@@ -243,12 +260,36 @@ export const storageService = {
       conversations,
       courtSessions
     });
+    const fileName = `lawver_dialogues_${new Date().toISOString().split('T')[0]}.lawver`;
+
+    if (isNative()) {
+      const targetPath = `exports/${fileName}`;
+      await Filesystem.writeFile({
+        directory: Directory.Cache,
+        path: targetPath,
+        data: bytesToBase64(encryptDataToBytes(data)),
+        recursive: true
+      });
+
+      const stored = await Filesystem.getUri({
+        directory: Directory.Cache,
+        path: targetPath
+      });
+
+      await Share.share({
+        title: fileName,
+        dialogTitle: '导出或分享备份',
+        files: [stored.uri]
+      });
+      return;
+    }
+
     const blob = await this.encryptDataToBlob(data);
     
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `lawver_dialogues_${new Date().toISOString().split('T')[0]}.lawver`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -272,6 +313,11 @@ export const storageService = {
       newConversations.length ? fileDB.addConversations(newConversations) : Promise.resolve(),
       newCourtSessions.length ? fileDB.addCourtSessions(newCourtSessions) : Promise.resolve()
     ]);
+    notifyLocalStorageDataChanged({
+      source: 'import',
+      conversationIds: newConversations.map(conversation => conversation.id),
+      courtSessionIds: newCourtSessions.map(session => session.id)
+    });
     return newConversations.length + newCourtSessions.length;
   }
 };

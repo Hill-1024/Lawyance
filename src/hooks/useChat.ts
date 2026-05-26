@@ -8,6 +8,7 @@ import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMem
 import { fileDB } from '../lib/db';
 import { isNative } from '../lib/platform';
 import { chat, deleteWorkspace, MemoryRevisionConflictError, summarizeTitle, syncConversationMemory } from '../services/api';
+import { addLocalStorageDataChangeListener } from '../services/storageEvents';
 import { useAppDialog } from '../contexts/DialogContext';
 
 const generateUUID = () => {
@@ -235,6 +236,23 @@ export function useChat() {
     
     initData();
   }, []);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    return addLocalStorageDataChangeListener(async detail => {
+      const savedConvs = await fileDB.getConversations();
+      if (savedConvs.length === 0) return;
+
+      const preferredId = detail.conversationIds?.find(id =>
+        savedConvs.some(conversation => conversation.id === id)
+      );
+      setConversations(savedConvs);
+      setCurrentId(current =>
+        preferredId || (savedConvs.some(conversation => conversation.id === current) ? current : savedConvs[0].id)
+      );
+    });
+  }, [isInitialized]);
 
   useEffect(() => {
     if (isInitialized) {

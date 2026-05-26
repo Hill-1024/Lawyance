@@ -289,7 +289,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                               const count = await storageService.importConversationsFromFile(file);
                               await showAlert({
                                 title: '导入完成',
-                                message: `成功导入 ${count} 条记录。\n请刷新页面以查看更新。`,
+                                message: `成功导入 ${count} 条记录。\n列表已自动刷新，可直接切换查看。`,
                                 tone: 'success',
                               });
                               updateEstimate();
