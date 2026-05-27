@@ -6,7 +6,6 @@ import os
 from os.path import exists
 
 from docx import Document
-from docx.shared import Inches
 import docx
 
 

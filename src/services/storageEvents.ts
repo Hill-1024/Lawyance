@@ -8,7 +8,7 @@ export interface LocalStorageDataChangeDetail {
   courtSessionIds?: string[];
 }
 
-export const LOCAL_STORAGE_DATA_CHANGED_EVENT = 'lawver:local-storage-data-changed';
+const LOCAL_STORAGE_DATA_CHANGED_EVENT = 'lawver:local-storage-data-changed';
 
 export const notifyLocalStorageDataChanged = (detail: LocalStorageDataChangeDetail) => {
   if (typeof window === 'undefined') return;

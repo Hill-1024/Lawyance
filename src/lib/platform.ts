@@ -6,6 +6,6 @@ import { Capacitor } from '@capacitor/core';
 
 export const isNative = () => Capacitor.isNativePlatform();
 
-export const platform = () => Capacitor.getPlatform();
+const platform = () => Capacitor.getPlatform();
 
 export const isNativeAndroid = () => isNative() && platform() === 'android';

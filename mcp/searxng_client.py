@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import timezone
 from logging.handlers import RotatingFileHandler
 from typing import Any
-from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 import dateparser
 import requests

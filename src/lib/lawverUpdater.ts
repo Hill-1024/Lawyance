@@ -21,19 +21,19 @@ export interface DownloadProgress {
   percent: number;
 }
 
-export interface DownloadApkOptions {
+interface DownloadApkOptions {
   url: string;
   fileName: string;
   sha256: string;
 }
 
-export interface DownloadApkResult {
+interface DownloadApkResult {
   filePath: string;
   fileName: string;
   size: number;
 }
 
-export interface InstallApkResult {
+interface InstallApkResult {
   needsPermission: boolean;
   started?: boolean;
 }

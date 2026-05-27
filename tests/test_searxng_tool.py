@@ -23,6 +23,7 @@ class _FakeResponse:
         self.closed = False
 
     def iter_content(self, chunk_size=65536):
+        del chunk_size
         yield self.body
 
     def close(self):
