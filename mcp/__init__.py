@@ -8,7 +8,7 @@ from .searxng_client import web_fetch, web_search
 from .word_annotator import word_reader, word_writer
 from .PDF_processor import pdf_text_reader, pdf_commit_by_sentence
 from .qcc_client import get_company_profile, get_listing_info, get_contact_info, get_shareholder_info, get_company_registration_info, get_key_personnel, get_external_investments
-from .legal_document import list_legal_templates, get_template_fields, generate_legal_document
+from .legal_document import list_legal_document_types, get_legal_document_guide, compose_legal_document
 __all__ = ["match_legal_case",
            "get_article",
            "search_article",
@@ -26,6 +26,6 @@ __all__ = ["match_legal_case",
            "get_shareholder_info",
            "get_company_registration_info",
            "get_external_investments",
-           "list_legal_templates",
-           "get_template_fields",
-           "generate_legal_document"]
+           "list_legal_document_types",
+           "get_legal_document_guide",
+           "compose_legal_document"]

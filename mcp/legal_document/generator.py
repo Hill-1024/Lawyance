@@ -1,16 +1,20 @@
 """
-模块描述：结构化法律文书生成器。
-核心接口：list_legal_templates、get_template_fields、generate_legal_document。
+模块描述：Block-based 法律文书生成器。
+对外暴露三个 MCP 工具：
+  - list_legal_document_types: 列出可用文种
+  - get_legal_document_guide:  返回写作守则（强约束 prompt）
+  - compose_legal_document:    根据 blocks 数组渲染 docx
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import time
-from pathlib import Path
 
-from .cache import template_cache
+from .cache import guide_cache
+from .composer import compose_docx
 from .errors import (
     DocumentGenerationError,
     FieldValidationError,
@@ -22,10 +26,11 @@ from .logger import (
     log_generation_error,
     log_generation_start,
 )
-from .validator import validate_input_fields
+from .validator import evaluate_soft_constraints, validate_blocks
 from workspace import WorkspacePathError, validate_workspace_scope
 
-_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+
+_OUTPUT_NAME_SAFE = re.compile(r"[^\w一-龥\-]+")
 
 
 def _make_response(success: bool, data: dict | None = None, meta: dict | None = None) -> str:
@@ -44,18 +49,27 @@ def _make_error_response(error: LegalDocumentError, meta: dict | None = None) ->
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def _get_output_path(template_name: str, workspace_scope: str | None) -> str:
+def _sanitize_output_name(name: str) -> str:
+    name = name.strip()
+    name = _OUTPUT_NAME_SAFE.sub("_", name)
+    return name.strip("_") or "document"
+
+
+def _get_output_path(doc_type: str, workspace_scope: str | None, output_name: str | None) -> str:
     safe_scope = validate_workspace_scope(workspace_scope)
     result_dir = os.path.join("Result", safe_scope)
     os.makedirs(result_dir, exist_ok=True)
-    safe_name = template_name.replace("/", "_").replace("\\", "_")
-    return os.path.join(result_dir, "{}_lawver.docx".format(safe_name)).replace("\\", "/")
+    if output_name:
+        base = _sanitize_output_name(output_name)
+    else:
+        base = _sanitize_output_name(doc_type)
+    return os.path.join(result_dir, "{}_lawver.docx".format(base)).replace("\\", "/")
 
 
-def list_legal_templates(category: str | None = None) -> str:
-    """列出所有可用的法律文书模板。"""
+def list_legal_document_types(category: str | None = None) -> str:
+    """列出所有可用的法律文书文种。"""
     try:
-        index = template_cache.get_index()
+        index = guide_cache.get_index()
     except Exception as e:
         return _make_response(False, data={"error": str(e)})
 
@@ -63,104 +77,121 @@ def list_legal_templates(category: str | None = None) -> str:
         category = category.strip()
         index = [e for e in index if e.category == category]
 
-    templates = [
+    items = [
         {
-            "name": e.name, "version": e.version, "category": e.category,
-            "description": e.description, "field_count": e.field_count,
-            "required_fields": e.field_keys,
+            "doc_type": e.doc_type,
+            "category": e.category,
+            "description": e.description,
+            "required_sections": e.required_sections,
+            "applicable_law": e.applicable_law,
         }
         for e in index
     ]
-    return _make_response(success=True, data={"templates": templates, "total": len(templates)})
+    return _make_response(success=True, data={"document_types": items, "total": len(items)})
 
 
-def get_template_fields(template_name: str) -> str:
-    """获取指定模板的字段清单。"""
+def get_legal_document_guide(doc_type: str) -> str:
+    """获取指定文种的写作守则（markdown）与结构性约束。"""
     try:
-        cached = template_cache.get(template_name)
+        guide = guide_cache.get(doc_type)
     except TemplateNotFoundError as e:
         return _make_error_response(e)
-
-    manifest = cached.manifest
-    fields_info = []
-    for f in manifest["fields"]:
-        fi = {
-            "key": f["key"], "label": f["label"], "type": f["type"],
-            "required": f.get("required", False), "description": f.get("description", ""),
-        }
-        if f.get("default") is not None:
-            fi["default"] = f["default"]
-        if f.get("max_length"):
-            fi["max_length"] = f["max_length"]
-        if f.get("item_schema"):
-            fi["item_schema"] = f["item_schema"]
-        fields_info.append(fi)
+    except Exception as e:
+        return _make_response(False, data={"error": str(e)})
 
     return _make_response(success=True, data={
-        "template_name": manifest["name"], "version": manifest["version"],
-        "category": manifest["category"], "description": manifest["description"],
-        "fields": fields_info,
+        "doc_type": guide["doc_type"],
+        "category": guide["category"],
+        "description": guide["description"],
+        "applicable_law": guide["applicable_law"],
+        "required_sections": guide["required_sections"],
+        "soft_warnings": guide["soft_warnings"],
+        "guide": guide["guide_markdown"],
+        "block_schema": {
+            "supported_types": [
+                "title", "heading", "paragraph", "ordered_list",
+                "unordered_list", "table", "signature_block",
+                "page_break", "blank_line",
+            ],
+            "examples": {
+                "title": {"type": "title", "text": "民事起诉状"},
+                "heading": {"type": "heading", "level": 2, "text": "诉讼请求"},
+                "paragraph": {"type": "paragraph", "text": "段落正文…", "indent": True, "align": "justify"},
+                "ordered_list": {"type": "ordered_list", "items": ["请求一", "请求二"]},
+                "unordered_list": {"type": "unordered_list", "items": ["要点 A", "要点 B"]},
+                "table": {"type": "table", "header": ["列 1", "列 2"], "rows": [["a", "b"]]},
+                "signature_block": {"type": "signature_block", "signer": "XXX", "date": "二〇二六年五月二十六日"},
+                "page_break": {"type": "page_break"},
+                "blank_line": {"type": "blank_line"},
+            },
+        },
     })
 
 
-def generate_legal_document(
-    template_name: str, fields: dict, workspace_scope: str | None = None,
+def compose_legal_document(
+    doc_type: str,
+    blocks: list[dict],
+    output_name: str | None = None,
+    workspace_scope: str | None = None,
 ) -> str:
-    """根据模板和字段值生成法律文书。"""
+    """根据 blocks 数组渲染指定文种的法律文书。"""
     start_time = time.time()
 
     try:
-        cached = template_cache.get(template_name)
+        guide = guide_cache.get(doc_type)
     except TemplateNotFoundError as e:
         return _make_error_response(e)
-
-    manifest = cached.manifest
+    except Exception as e:
+        return _make_response(False, data={"error": str(e)})
 
     try:
-        normalized_fields = validate_input_fields(fields, manifest)
+        normalized_blocks = validate_blocks(blocks, doc_type)
     except FieldValidationError as e:
         return _make_error_response(e)
 
-    generation_id = log_generation_start(template_name, len(normalized_fields))
+    generation_id = log_generation_start(doc_type, len(normalized_blocks))
+
+    soft_warnings = evaluate_soft_constraints(normalized_blocks, guide)
 
     try:
-        from docxtpl import DocxTemplate
-        docx_path = str(_TEMPLATES_DIR / template_name / "template.docx")
-        render_docx = DocxTemplate(docx_path)
-        render_docx.render(normalized_fields)
-    except Exception as e:
-        duration_ms = (time.time() - start_time) * 1000
-        error = DocumentGenerationError(template_name, "模板渲染失败: {}".format(e))
-        log_generation_error(generation_id, error, duration_ms)
-        return _make_error_response(error, meta={"generation_id": generation_id, "duration_ms": round(duration_ms, 1)})
-
-    try:
-        output_path = _get_output_path(template_name, workspace_scope)
-        render_docx.save(output_path)
+        output_path = _get_output_path(doc_type, workspace_scope, output_name)
     except WorkspacePathError as e:
         duration_ms = (time.time() - start_time) * 1000
-        error = DocumentGenerationError(template_name, "工作区作用域非法: {}".format(e))
+        error = DocumentGenerationError(doc_type, "工作区作用域非法: {}".format(e))
         log_generation_error(generation_id, error, duration_ms)
-        return _make_error_response(error, meta={"generation_id": generation_id, "duration_ms": round(duration_ms, 1)})
+        return _make_error_response(error, meta={
+            "generation_id": generation_id, "duration_ms": round(duration_ms, 1),
+        })
+
+    try:
+        compose_stats = compose_docx(normalized_blocks, output_path)
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        error = DocumentGenerationError(template_name, "文件保存失败: {}".format(e))
+        error = DocumentGenerationError(doc_type, "DOCX 渲染失败: {}".format(e))
         log_generation_error(generation_id, error, duration_ms)
-        return _make_error_response(error, meta={"generation_id": generation_id, "duration_ms": round(duration_ms, 1)})
+        return _make_error_response(error, meta={
+            "generation_id": generation_id, "duration_ms": round(duration_ms, 1),
+        })
 
     duration_ms = (time.time() - start_time) * 1000
     log_generation_complete(generation_id, duration_ms, output_path)
 
-    return _make_response(success=True, data={"output_path": output_path}, meta={
-        "generation_id": generation_id, "status": "completed",
-        "duration_ms": round(duration_ms, 1), "template_name": template_name,
-        "fields_provided": len(normalized_fields),
+    return _make_response(success=True, data={
+        "output_path": output_path,
+        "soft_warnings": soft_warnings,
+        "rendered_block_counts": compose_stats["rendered_block_counts"],
+        "skipped_unknown_types": compose_stats["skipped_unknown_types"],
+    }, meta={
+        "generation_id": generation_id,
+        "status": "completed",
+        "duration_ms": round(duration_ms, 1),
+        "doc_type": doc_type,
+        "blocks_provided": len(normalized_blocks),
     })
 
 
 # ---------------------------------------------------------------------------
 # 自测试代码：python -m mcp.legal_document.generator
-# 以「民事行政起诉状」模板为示例
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import sys as _sys
@@ -177,115 +208,147 @@ if __name__ == "__main__":
             _FAIL += 1
             print("  [FAIL] {}  --  {}".format(desc, detail))
 
-    TEMPLATE = "民事行政起诉状"
-    TOTAL_FIELDS = 18
-    REQUIRED_FIELDS = 18
-    OPTIONAL_FIELDS = 0
+    EXPECTED_TYPES = {
+        "民事起诉状", "民事答辩状", "行政起诉状", "上诉状",
+        "刑事辩护词", "法律意见书", "律师函",
+        "仲裁申请书", "民事再审申请书", "强制执行申请书",
+        "委托代理合同", "和解协议",
+    }
 
     print("=" * 60)
-    print("结构化文书生成器 — 自测试")
-    print("示例模板: {}".format(TEMPLATE))
+    print("Block-based 文书编排器 — 自测试")
     print("=" * 60)
 
-    # [1]
-    print("\n[1] list_legal_templates")
-    r = json.loads(list_legal_templates())
+    # [1] list_legal_document_types
+    print("\n[1] list_legal_document_types")
+    r = json.loads(list_legal_document_types())
     _check("返回 success=True", r["success"])
-    _check("至少 1 个模板", r["data"]["total"] >= 1)
-    if r["data"]["templates"]:
-        t0 = r["data"]["templates"][0]
-        _check("模板含 name", "name" in t0)
-        _check("模板含 category", "category" in t0)
-        _check("模板含 field_count", "field_count" in t0)
-        _check("模板名称匹配", t0["name"] == TEMPLATE)
-    r = json.loads(list_legal_templates(category="民事诉讼"))
-    _check("category='民事诉讼' 筛选有效", r["data"]["total"] >= 1)
-    r = json.loads(list_legal_templates(category="nonexistent"))
-    _check("category 无匹配时返回空", r["data"]["total"] == 0)
+    types_in_response = {t["doc_type"] for t in r["data"]["document_types"]}
+    _check(
+        "12 个文种全部出现",
+        EXPECTED_TYPES.issubset(types_in_response),
+        "缺失: {}".format(EXPECTED_TYPES - types_in_response),
+    )
+    r = json.loads(list_legal_document_types(category="诉讼"))
+    _check("category='诉讼' 筛选有效", r["data"]["total"] >= 4)
+    r = json.loads(list_legal_document_types(category="不存在"))
+    _check("无匹配返回空", r["data"]["total"] == 0)
 
-    # [2]
-    print("\n[2] get_template_fields")
-    r = json.loads(get_template_fields(TEMPLATE))
+    # [2] get_legal_document_guide
+    print("\n[2] get_legal_document_guide")
+    r = json.loads(get_legal_document_guide("民事起诉状"))
     _check("返回 success=True", r["success"])
-    fields = r["data"].get("fields", [])
-    required = [f for f in fields if f["required"]]
-    optional = [f for f in fields if not f["required"]]
-    _check("总字段数 {}".format(TOTAL_FIELDS), len(fields) == TOTAL_FIELDS, "实际: {}".format(len(fields)))
-    _check("必填字段 {}".format(REQUIRED_FIELDS), len(required) == REQUIRED_FIELDS, "实际: {}".format(len(required)))
-    _check("可选字段 {}".format(OPTIONAL_FIELDS), len(optional) == OPTIONAL_FIELDS, "实际: {}".format(len(optional)))
-    _check("每个字段含 key", all("key" in f for f in fields))
-    _check("每个字段含 type", all("type" in f for f in fields))
-    _check("每个字段含 label", all("label" in f for f in fields))
-    r = json.loads(get_template_fields("不存在的模板"))
-    _check("不存在的模板返回失败", not r["success"])
+    _check("含 guide_markdown 内容", "诉讼请求" in r["data"]["guide"])
+    _check("含 block_schema", "supported_types" in r["data"]["block_schema"])
+    _check("含 required_sections", len(r["data"]["required_sections"]) > 0)
+    r = json.loads(get_legal_document_guide("不存在的文种"))
+    _check("未知文种返回 success=False", not r["success"])
     _check("错误码 TEMPLATE_NOT_FOUND", r["error"]["code"] == "TEMPLATE_NOT_FOUND")
 
-    # [3]
-    print("\n[3] generate_legal_document — 正常生成")
-    test_fields = {
-        "document_title": "民事起诉状",
-        "plaintiff_name": "王小明", "plaintiff_gender": "男", "plaintiff_birth": "1988年3月15日",
-        "plaintiff_id_card": "110108198803150019", "plaintiff_address": "北京市海淀区学院路30号",
-        "plaintiff_phone": "13800138001",
-        "defendant_name": "李大伟", "defendant_gender": "男", "defendant_birth": "1985年7月20日",
-        "defendant_id_card": "110108198507200025", "defendant_address": "北京市朝阳区建国路100号",
-        "defendant_phone": "13900139002",
-        "claims": "1. 请求判令被告偿还借款本金人民币20万元；\n2. 请求判令被告支付利息；\n3. 请求判令被告承担本案诉讼费用。",
-        "facts_and_reasons": "2023年6月1日，被告向原告借款人民币20万元，约定借期一年，年利率6%，并出具借条。借款到期后被告以各种理由推脱，至今未还。\n\n根据《中华人民共和国民法典》相关规定，被告逾期未还款已构成违约。为维护合法权益，特向贵院提起诉讼。",
-        "evidence": "1. 借条原件一份；\n2. 银行转账记录一份；\n3. 微信聊天记录截图。",
-        "court_name": "北京市海淀区", "date_filed": "二〇二五年五月二十六日",
-    }
-    r = json.loads(generate_legal_document(TEMPLATE, test_fields, "test/self_test"))
+    # [3] compose_legal_document — 完整文档
+    print("\n[3] compose_legal_document — 完整文档")
+    test_blocks = [
+        {"type": "title", "text": "民事起诉状"},
+        {"type": "heading", "level": 2, "text": "原告"},
+        {"type": "paragraph", "text": "王小明，男，1988 年 3 月 15 日出生，汉族，住北京市海淀区学院路 30 号，身份证号 110108198803150019，电话 13800138001。"},
+        {"type": "heading", "level": 2, "text": "被告"},
+        {"type": "paragraph", "text": "李大伟，男，1985 年 7 月 20 日出生，汉族，住北京市朝阳区建国路 100 号，身份证号 110108198507200025，电话 13900139002。"},
+        {"type": "heading", "level": 2, "text": "诉讼请求"},
+        {"type": "ordered_list", "items": [
+            "请求判令被告偿还借款本金人民币 200,000 元；",
+            "请求判令被告支付自 2023 年 6 月 1 日起按年利率 6% 计算至实际清偿之日的利息；",
+            "本案诉讼费用由被告承担。",
+        ]},
+        {"type": "heading", "level": 2, "text": "事实和理由"},
+        {"type": "paragraph", "text": "2023 年 6 月 1 日，被告向原告借款人民币 200,000 元，约定借期一年，年利率 6%，并出具借条。借款到期后被告以各种理由推脱，至今未还。"},
+        {"type": "paragraph", "text": "综上，根据《中华人民共和国民法典》第六百七十五条之规定，请求贵院依法判决。"},
+        {"type": "heading", "level": 2, "text": "证据清单"},
+        {"type": "table", "header": ["序号", "证据名称", "证据来源", "证明事项"], "rows": [
+            ["1", "借条原件", "原告持有", "借贷关系成立"],
+            ["2", "银行转账记录", "中国工商银行", "借款实际交付"],
+        ]},
+        {"type": "paragraph", "text": "此致", "indent": False, "align": "left"},
+        {"type": "paragraph", "text": "北京市海淀区人民法院", "indent": False, "align": "left"},
+        {"type": "signature_block", "signer": "王小明", "date": "二〇二六年五月二十六日"},
+    ]
+    r = json.loads(compose_legal_document(
+        "民事起诉状", test_blocks, output_name="self_test_起诉状",
+        workspace_scope="test/self_test",
+    ))
     _check("返回 success=True", r["success"])
     _check("含 output_path", bool(r["data"].get("output_path")))
     output_path = r["data"].get("output_path", "")
     _check("文件已生成", os.path.exists(output_path), output_path)
     if os.path.exists(output_path):
-        _check("文件大小 > 10KB", os.path.getsize(output_path) > 10240, "{} bytes".format(os.path.getsize(output_path)))
-    _check("含 generation_id", bool(r["meta"].get("generation_id")))
-    _check("status 为 completed", r["meta"].get("status") == "completed")
-    _check("含 duration_ms", isinstance(r["meta"].get("duration_ms"), (int, float)))
-    _check("template_name 正确", r["meta"].get("template_name") == TEMPLATE)
-    _check("fields_provided={}".format(TOTAL_FIELDS), r["meta"].get("fields_provided") == TOTAL_FIELDS)
+        _check("文件大小 > 5KB", os.path.getsize(output_path) > 5120, "{} bytes".format(os.path.getsize(output_path)))
+    _check("无 soft_warnings 或仅含合理告警", isinstance(r["data"]["soft_warnings"], list))
+    _check("rendered_block_counts 含 title", r["data"]["rendered_block_counts"].get("title") == 1)
+    _check("rendered_block_counts 含 signature_block", r["data"]["rendered_block_counts"].get("signature_block") == 1)
 
-    # [4]
-    print("\n[4] generate_legal_document — 错误场景")
-    r = json.loads(generate_legal_document(TEMPLATE, {}, "test"))
-    _check("缺必填字段 → success=False", not r["success"])
+    # [4] compose_legal_document — 软警告
+    print("\n[4] compose_legal_document — 软警告（缺关键章节）")
+    minimal_blocks = [
+        {"type": "title", "text": "民事起诉状"},
+        {"type": "paragraph", "text": "原告 王小明…"},
+        {"type": "signature_block", "signer": "王小明", "date": "二〇二六年五月二十六日"},
+    ]
+    r = json.loads(compose_legal_document(
+        "民事起诉状", minimal_blocks, output_name="self_test_minimal",
+        workspace_scope="test/self_test",
+    ))
+    _check("仍然 success=True（软约束）", r["success"])
+    _check("返回 soft_warnings", len(r["data"]["soft_warnings"]) > 0)
+
+    # [5] compose_legal_document — 错误场景
+    print("\n[5] compose_legal_document — 错误场景")
+    r = json.loads(compose_legal_document(
+        "民事起诉状", [], workspace_scope="test/self_test",
+    ))
+    _check("空 blocks → success=False", not r["success"])
     _check("错误码 FIELD_VALIDATION_ERROR", r["error"]["code"] == "FIELD_VALIDATION_ERROR")
-    _check("返回 {} 个错误".format(TOTAL_FIELDS),
-           len(r["error"]["details"].get("errors", [])) == TOTAL_FIELDS)
-    r = json.loads(generate_legal_document("不存在的模板", {}, "test"))
-    _check("不存在的模板 → success=False", not r["success"])
+
+    r = json.loads(compose_legal_document(
+        "不存在的文种", [{"type": "title", "text": "X"}], workspace_scope="test/self_test",
+    ))
+    _check("不存在文种 → success=False", not r["success"])
     _check("错误码 TEMPLATE_NOT_FOUND", r["error"]["code"] == "TEMPLATE_NOT_FOUND")
-    _check("提示可用模板列表", bool(r["error"]["details"].get("available_templates")))
-    r = json.loads(generate_legal_document(TEMPLATE, {"unknown_key": "value"}, "test"))
-    _check("未知字段被拒绝", not r["success"])
-    _check("提示未知字段", "未知字段" in r["error"]["message"])
-    r = json.loads(generate_legal_document(TEMPLATE, {"plaintiff_name": 12345}, "test"))
-    _check("类型错误被拒绝", not r["success"])
+
+    r = json.loads(compose_legal_document(
+        "民事起诉状", [{"type": "未知块"}], workspace_scope="test/self_test",
+    ))
+    _check("未知 block 类型 → success=False", not r["success"])
     _check("错误码 FIELD_VALIDATION_ERROR", r["error"]["code"] == "FIELD_VALIDATION_ERROR")
 
-    # [5]
-    print("\n[5] MCP registry 集成")
+    # [6] MCP registry 集成
+    print("\n[6] MCP registry 集成")
     try:
         from tools.registry import registry as _reg
         agent_tools = _reg.names("agent")
-        _check("list_legal_templates 在 agent 中", "list_legal_templates" in agent_tools)
-        _check("get_template_fields 在 agent 中", "get_template_fields" in agent_tools)
-        _check("generate_legal_document 在 agent 中", "generate_legal_document" in agent_tools)
-        r = json.loads(_reg.dispatch("list_legal_templates", {}, None))
+        _check("list_legal_document_types 在 agent 中", "list_legal_document_types" in agent_tools)
+        _check("get_legal_document_guide 在 agent 中", "get_legal_document_guide" in agent_tools)
+        _check("compose_legal_document 在 agent 中", "compose_legal_document" in agent_tools)
+        r = json.loads(_reg.dispatch("list_legal_document_types", {}, None))
         _check("registry.dispatch list 成功", r["success"])
-        df = {
-            "document_title": "测", "plaintiff_name": "测", "plaintiff_gender": "男",
-            "plaintiff_birth": "1", "plaintiff_id_card": "1", "plaintiff_address": "1",
-            "plaintiff_phone": "1", "defendant_name": "测", "defendant_gender": "男",
-            "defendant_birth": "1", "defendant_id_card": "1", "defendant_address": "1",
-            "defendant_phone": "1", "claims": "诉请", "facts_and_reasons": "事实",
-            "evidence": "证据", "court_name": "法院", "date_filed": "日",
-        }
-        r = json.loads(_reg.dispatch("generate_legal_document", {"template_name": TEMPLATE, "fields": df}, "test/dispatch"))
-        _check("registry.dispatch generate 成功", r["success"])
+        r = json.loads(_reg.dispatch(
+            "compose_legal_document",
+            {
+                "doc_type": "民事答辩状",
+                "blocks": [
+                    {"type": "title", "text": "民事答辩状"},
+                    {"type": "paragraph", "text": "答辩人 …"},
+                    {"type": "heading", "level": 2, "text": "答辩请求"},
+                    {"type": "ordered_list", "items": ["请求驳回原告诉请"]},
+                    {"type": "heading", "level": 2, "text": "事实与理由"},
+                    {"type": "paragraph", "text": "答辩人认为…"},
+                    {"type": "paragraph", "text": "此致", "indent": False, "align": "left"},
+                    {"type": "paragraph", "text": "XX 法院", "indent": False, "align": "left"},
+                    {"type": "signature_block", "lines": ["答辩人：李大伟", "二〇二六年五月二十六日"]},
+                ],
+                "output_name": "dispatch_答辩状",
+            },
+            "test/dispatch",
+        ))
+        _check("registry.dispatch compose 成功", r["success"])
     except ImportError:
         print("  [SKIP] tools.registry 不可用")
 
