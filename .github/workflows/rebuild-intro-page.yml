@@ -1,0 +1,37 @@
+name: Rebuild Intro Page on Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  rebuild:
+    name: Trigger Cloudflare Pages Rebuild
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Deploy Hook
+        env:
+          CF_PAGES_DEPLOY_HOOK: ${{ secrets.CF_PAGES_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$CF_PAGES_DEPLOY_HOOK" ]; then
+            echo "Error: CF_PAGES_DEPLOY_HOOK secret is not configured!" >&2
+            exit 1
+          fi
+
+          hooks="$(printf '%s\n' "$CF_PAGES_DEPLOY_HOOK" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed '/^$/d')"
+          if [ -z "$hooks" ]; then
+            echo "Error: CF_PAGES_DEPLOY_HOOK did not contain any deploy hook URLs!" >&2
+            exit 1
+          fi
+
+          count=0
+          while IFS= read -r hook; do
+            count=$((count + 1))
+            echo "Sending POST request to Cloudflare Pages deploy hook #$count..."
+            curl --fail --show-error --silent -X POST "$hook" >/dev/null
+          done <<EOF
+          $hooks
+          EOF
+
+          echo "Triggered $count Cloudflare Pages deploy hook(s)."
