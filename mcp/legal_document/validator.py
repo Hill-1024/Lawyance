@@ -1,211 +1,159 @@
 """
-模块描述：结构化文书校验器。
-三层校验：manifest 结构校验 → 模板语法预检 → 输入数据校验。
+模块描述：Block 输入校验器与文书写作软约束校验。
+- validate_blocks: 硬校验 block 结构合法性（类型字段、必填值），失败抛 FieldValidationError。
+- evaluate_soft_constraints: 软校验文书是否符合 guide 中声明的章节结构，返回 warning 列表（不阻断）。
 """
 
 from __future__ import annotations
 
 import json
-import re
-from pathlib import Path
 from typing import Any
 
-from docx import Document as DocxDocument
-
+from .composer import SUPPORTED_BLOCK_TYPES
 from .errors import FieldValidationError, ManifestValidationError
 
-_ALLOWED_FIELD_TYPES = {"string", "text", "list", "boolean", "number"}
-_JINJA2_KEYWORDS = {
-    "for", "endfor", "if", "endif", "else", "elif",
-    "block", "endblock", "extends", "include", "import", "macro", "endmacro",
-    "set", "endset", "with", "endwith", "filter", "endfilter", "raw", "endraw",
-}
-_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+
+def load_and_validate_guide(guide_path: str) -> dict:
+    """读取 guide JSON 并做结构校验，返回规范化 guide。"""
+    with open(guide_path, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+    return validate_guide(raw)
 
 
-def validate_manifest(raw: dict) -> dict:
-    """校验 manifest.json 结构并返回规范化后的 manifest。"""
-    template_name = raw.get("name", "(未知)")
+def validate_guide(raw: dict) -> dict:
+    """校验 guide JSON 必填字段，返回规范化 guide。"""
+    doc_type = raw.get("doc_type", "(未知)")
+    for key in ("doc_type", "category", "description", "guide_markdown"):
+        if key not in raw:
+            raise ManifestValidationError(doc_type, f"guide 缺少顶层必填字段 '{key}'")
+    if not isinstance(raw.get("guide_markdown"), str) or not raw["guide_markdown"].strip():
+        raise ManifestValidationError(doc_type, "guide_markdown 必须是非空字符串")
 
-    for required_key in ("name", "version", "category", "description", "fields"):
-        if required_key not in raw:
-            raise ManifestValidationError(template_name, f"缺少顶层必填字段 '{required_key}'")
-    if not isinstance(raw.get("fields"), list) or len(raw["fields"]) == 0:
-        raise ManifestValidationError(template_name, "fields 必须是非空数组")
+    required_sections = raw.get("required_sections") or []
+    if not isinstance(required_sections, list):
+        raise ManifestValidationError(doc_type, "required_sections 必须为字符串数组")
 
-    seen_keys: set[str] = set()
-    normalized_fields: list[dict] = []
+    soft_warnings = raw.get("soft_warnings") or []
+    if not isinstance(soft_warnings, list):
+        raise ManifestValidationError(doc_type, "soft_warnings 必须为字符串数组")
 
-    for i, field in enumerate(raw["fields"]):
-        if not isinstance(field, dict):
-            raise ManifestValidationError(template_name, f"fields[{i}] 必须是对象类型")
-
-        key = field.get("key")
-        if not key or not isinstance(key, str):
-            raise ManifestValidationError(template_name, f"fields[{i}] 缺少 key 属性")
-
-        if not _KEY_PATTERN.match(key):
-            raise ManifestValidationError(
-                template_name, f"字段 key '{key}' 不合法（仅允许 snake_case，小写字母开头）", key)
-        if key in _JINJA2_KEYWORDS:
-            raise ManifestValidationError(template_name, f"字段 key '{key}' 与 Jinja2 关键字冲突", key)
-        if key in seen_keys:
-            raise ManifestValidationError(template_name, f"字段 key '{key}' 重复定义", key)
-        seen_keys.add(key)
-
-        ftype = field.get("type", "string")
-        if ftype not in _ALLOWED_FIELD_TYPES:
-            raise ManifestValidationError(
-                template_name,
-                f"字段 '{key}' 的 type '{ftype}' 不合法，允许值: {', '.join(sorted(_ALLOWED_FIELD_TYPES))}",
-                key)
-        if ftype == "list" and "item_schema" not in field:
-            raise ManifestValidationError(template_name, f"list 类型字段 '{key}' 缺少 item_schema", key)
-
-        normalized_fields.append({
-            "key": key,
-            "label": field.get("label", key),
-            "type": ftype,
-            "required": bool(field.get("required", False)),
-            "default": field.get("default"),
-            "max_length": field.get("max_length"),
-            "item_schema": field.get("item_schema"),
-            "description": field.get("description", ""),
-        })
+    applicable_law = raw.get("applicable_law") or []
 
     return {
-        "name": raw["name"],
-        "version": raw["version"],
+        "doc_type": raw["doc_type"],
         "category": raw["category"],
         "description": raw["description"],
-        "output_format": raw.get("output_format", "docx"),
-        "fields": normalized_fields,
+        "applicable_law": list(applicable_law),
+        "required_sections": [str(s) for s in required_sections],
+        "soft_warnings": [str(s) for s in soft_warnings],
+        "guide_markdown": raw["guide_markdown"],
     }
 
 
-def validate_template_syntax(docx_path: str, manifest: dict) -> list[str]:
-    """检查 DOCX 模板占位符与 manifest 字段定义的一致性，返回告警列表。"""
-    warnings: list[str] = []
-    template_name = manifest["name"]
-    declared_keys = {f["key"] for f in manifest["fields"]}
-    required_keys = {f["key"] for f in manifest["fields"] if f.get("required")}
-
-    try:
-        doc = DocxDocument(docx_path)
-    except Exception as e:
-        warnings.append("无法打开 DOCX 文件: {}".format(e))
-        return warnings
-
-    full_text_parts: list[str] = []
-    for para in doc.paragraphs:
-        full_text_parts.append(para.text)
-    full_text = "\n".join(full_text_parts)
-
-    var_refs = set(re.findall(r"\{\{\s*(\w+)\s*(?:\|[^}]*)?\}\}", full_text))
-    for_loop_vars = set(re.findall(r"\{%\s*for\s+\w+\s+in\s+(\w+)\s*%\}", full_text))
-    if_vars = set(re.findall(r"\{%\s*if\s+(\w+)\s*%\}", full_text))
-    all_template_keys = var_refs | for_loop_vars | if_vars
-
-    undeclared = all_template_keys - declared_keys
-    if undeclared:
-        warnings.append(
-            "模板中存在未在 manifest 中声明的占位符: {}".format(", ".join(sorted(undeclared))))
-
-    missing_in_template = required_keys - all_template_keys
-    if missing_in_template:
-        warnings.append(
-            "manifest 中声明的必填字段在模板中未找到对应占位符: {}".format(", ".join(sorted(missing_in_template))))
-
-    for_tag = re.compile(r"\{%\s*for\s+")
-    endfor_tag = re.compile(r"\{%\s*endfor\s*%\}")
-    if_tag = re.compile(r"\{%\s*if\s+")
-    endif_tag = re.compile(r"\{%\s*endif\s*%\}")
-
-    for_opens = len(for_tag.findall(full_text))
-    endfor_closes = len(endfor_tag.findall(full_text))
-    if for_opens != endfor_closes:
-        warnings.append(
-            "{% for %} 标签不匹配: 开放 {} 个, 闭合 {} 个".format(for_opens, endfor_closes))
-
-    if_opens = len(if_tag.findall(full_text))
-    if_closes = len(endif_tag.findall(full_text))
-    if if_opens != if_closes:
-        warnings.append(
-            "{% if %} 标签不匹配: 开放 {} 个, 闭合 {} 个".format(if_opens, if_closes))
-
-    return warnings
-
-
-def validate_input_fields(fields: dict, manifest: dict) -> dict:
-    """校验用户输入的字段数据，返回规范化后的字段数据（补默认值）。失败抛 FieldValidationError。"""
-    template_name = manifest["name"]
-    field_defs = {f["key"]: f for f in manifest["fields"]}
+def validate_blocks(blocks: Any, doc_type: str) -> list[dict]:
+    """硬校验 blocks 数组结构。返回规范化 blocks，失败抛 FieldValidationError。"""
     errors: list[str] = []
-    normalized: dict[str, Any] = {}
 
-    unknown_keys = set(fields.keys()) - set(field_defs.keys())
-    if unknown_keys:
-        errors.append("未知字段: {}".format(", ".join(sorted(unknown_keys))))
+    if blocks is None:
+        raise FieldValidationError(doc_type, ["blocks 不能为空"])
+    if not isinstance(blocks, list):
+        raise FieldValidationError(doc_type, [f"blocks 必须是数组，实际为 {type(blocks).__name__}"])
+    if len(blocks) == 0:
+        raise FieldValidationError(doc_type, ["blocks 不能为空数组"])
 
-    for fdef in manifest["fields"]:
-        key = fdef["key"]
-        ftype = fdef["type"]
-        required = fdef.get("required", False)
-        value = fields.get(key)
-
-        if required and (value is None or (isinstance(value, str) and not value.strip())):
-            errors.append("'{}'({}) 为必填项".format(fdef["label"], key))
+    normalized: list[dict] = []
+    for i, block in enumerate(blocks):
+        if not isinstance(block, dict):
+            errors.append(f"blocks[{i}] 必须是对象，实际为 {type(block).__name__}")
+            continue
+        btype = block.get("type")
+        if not btype or not isinstance(btype, str):
+            errors.append(f"blocks[{i}] 缺少 type 字段")
+            continue
+        if btype not in SUPPORTED_BLOCK_TYPES:
+            errors.append(
+                f"blocks[{i}] type='{btype}' 不在支持范围内 "
+                f"(支持: {', '.join(sorted(SUPPORTED_BLOCK_TYPES))})"
+            )
             continue
 
-        if value is None:
-            if "default" in fdef:
-                normalized[key] = fdef["default"]
-            continue
+        if btype == "title":
+            if not str(block.get("text", "")).strip():
+                errors.append(f"blocks[{i}] title 缺少 text")
+        elif btype == "heading":
+            if not str(block.get("text", "")).strip():
+                errors.append(f"blocks[{i}] heading 缺少 text")
+            level = block.get("level", 1)
+            if not isinstance(level, int) or level < 1 or level > 3:
+                errors.append(f"blocks[{i}] heading.level 必须为 1-3 的整数")
+        elif btype == "paragraph":
+            if not str(block.get("text", "")).strip():
+                errors.append(f"blocks[{i}] paragraph 缺少 text")
+        elif btype in ("ordered_list", "unordered_list"):
+            items = block.get("items")
+            if not isinstance(items, list) or len(items) == 0:
+                errors.append(f"blocks[{i}] {btype} items 必须为非空数组")
+        elif btype == "table":
+            header = block.get("header")
+            rows = block.get("rows")
+            if header is not None and not isinstance(header, list):
+                errors.append(f"blocks[{i}] table.header 必须为数组")
+            if rows is not None and not isinstance(rows, list):
+                errors.append(f"blocks[{i}] table.rows 必须为二维数组")
+            elif isinstance(rows, list):
+                for j, row in enumerate(rows):
+                    if not isinstance(row, list):
+                        errors.append(f"blocks[{i}] table.rows[{j}] 必须为数组")
+                        break
+            if (not header or not isinstance(header, list)) and (not rows or not isinstance(rows, list)):
+                errors.append(f"blocks[{i}] table 至少需提供 header 或 rows")
+        elif btype == "signature_block":
+            lines = block.get("lines")
+            has_lines = isinstance(lines, list) and any(str(x).strip() for x in lines)
+            has_signer = bool(str(block.get("signer", "")).strip())
+            has_entity = bool(str(block.get("entity", "")).strip())
+            has_date = bool(str(block.get("date", "")).strip())
+            if not (has_lines or has_signer or has_entity or has_date):
+                errors.append(f"blocks[{i}] signature_block 必须提供 lines 或 signer/entity/date 中至少一个")
 
-        if ftype in ("string", "text"):
-            if not isinstance(value, str):
-                errors.append("'{}'({}) 期望字符串类型，实际为 {}".format(
-                    fdef["label"], key, type(value).__name__))
-                continue
-            if fdef.get("max_length") and len(value) > fdef["max_length"]:
-                errors.append("'{}'({}) 超出最大长度 {}（当前 {} 字符）".format(
-                    fdef["label"], key, fdef["max_length"], len(value)))
-            normalized[key] = value
-
-        elif ftype == "list":
-            if not isinstance(value, list):
-                errors.append("'{}'({}) 期望数组类型，实际为 {}".format(
-                    fdef["label"], key, type(value).__name__))
-                continue
-            normalized[key] = value
-
-        elif ftype == "boolean":
-            if not isinstance(value, bool):
-                errors.append("'{}'({}) 期望布尔类型，实际为 {}".format(
-                    fdef["label"], key, type(value).__name__))
-                continue
-            normalized[key] = value
-
-        elif ftype == "number":
-            if not isinstance(value, (int, float)):
-                errors.append("'{}'({}) 期望数字类型，实际为 {}".format(
-                    fdef["label"], key, type(value).__name__))
-                continue
-            normalized[key] = value
+        normalized.append(block)
 
     if errors:
-        raise FieldValidationError(template_name, errors)
-
-    for fdef in manifest["fields"]:
-        key = fdef["key"]
-        if key not in normalized and "default" in fdef:
-            normalized[key] = fdef["default"]
+        raise FieldValidationError(doc_type, errors)
 
     return normalized
 
 
-def load_and_validate_manifest(manifest_path: str) -> dict:
-    """读取 manifest.json 文件并校验，返回规范化 manifest。"""
-    with open(manifest_path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-    return validate_manifest(raw)
+def evaluate_soft_constraints(blocks: list[dict], guide: dict) -> list[str]:
+    """对照 guide 的 required_sections 与 soft_warnings 评估 blocks 是否符合规范。返回 warning 列表。"""
+    warnings: list[str] = []
+
+    has_title = any(b.get("type") == "title" for b in blocks)
+    has_signature = any(b.get("type") == "signature_block" for b in blocks)
+
+    if not has_title:
+        warnings.append("缺少标题（title 块）。")
+    if not has_signature:
+        warnings.append("缺少落款（signature_block 块）。")
+
+    headings_text: list[str] = []
+    for b in blocks:
+        if b.get("type") in ("heading", "title"):
+            headings_text.append(str(b.get("text", "")))
+        elif b.get("type") == "paragraph":
+            # 部分文书将\"此致\"等关键词置于段落而非标题中，纳入检索范围
+            text = str(b.get("text", ""))
+            if len(text) <= 30:
+                headings_text.append(text)
+    combined = "\n".join(headings_text)
+
+    missing_sections: list[str] = []
+    for section in guide.get("required_sections", []):
+        if section not in combined:
+            missing_sections.append(section)
+    if missing_sections:
+        warnings.append(
+            "guide 声明的关键章节未在文书中找到：{}".format("、".join(missing_sections))
+        )
+
+    return warnings

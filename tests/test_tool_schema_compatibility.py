@@ -35,9 +35,9 @@ EXPECTED_AGENT_TOOL_NAMES = [
     "get_key_personnel",
     "get_listing_info",
     "get_shareholder_info",
-    "list_legal_templates",
-    "get_template_fields",
-    "generate_legal_document",
+    "list_legal_document_types",
+    "get_legal_document_guide",
+    "compose_legal_document",
 ]
 
 

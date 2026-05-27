@@ -31,9 +31,9 @@ from mcp.memory_client import (
     update_conversation_memory,
 )
 from mcp.legal_document import (
-    list_legal_templates,
-    get_template_fields,
-    generate_legal_document,
+    list_legal_document_types,
+    get_legal_document_guide,
+    compose_legal_document,
 )
 from workspace import WorkspacePathError, get_result_path, resolve_workspace_file, validate_workspace_scope
 
@@ -198,9 +198,9 @@ def _register_agent_tools() -> None:
             ["keywords"],
         ),
         handler=lambda arguments, _scope: match_legal_case(
-            arguments.get("keywords"),
-            arguments.get("start_year"),
-            arguments.get("end_year"),
+            keywords=arguments.get("keywords") or [],
+            start_year=arguments.get("start_year") or "2020-12-22",
+            end_year=arguments.get("end_year") or "2025-12-22",
         ),
         exposure=AGENT_PLAN_AND_SOLVE_COURT,
         text_coercer=_keywords_text,
@@ -216,7 +216,10 @@ def _register_agent_tools() -> None:
             },
             ["title", "number"],
         ),
-        handler=lambda arguments, _scope: get_article(arguments.get("title"), arguments.get("number")),
+        handler=lambda arguments, _scope: get_article(
+            str(arguments.get("title") or ""),
+            str(arguments.get("number") or ""),
+        ),
         exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_article_text,
     )
@@ -228,7 +231,9 @@ def _register_agent_tools() -> None:
             {"query": {"type": "string", "description": "语义检索关键词或自然语言描述，应提取自用户查询的核心意图"}},
             ["query"],
         ),
-        handler=lambda arguments, _scope: search_article(arguments.get("query")),
+        handler=lambda arguments, _scope: search_article(
+            str(arguments.get("query") or ""),
+        ),
         exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("query"),
     )
@@ -240,7 +245,9 @@ def _register_agent_tools() -> None:
             {"message": {"type": "string", "description": "包含法规条文、法律概念和相关术语的文本"}},
             ["message"],
         ),
-        handler=lambda arguments, _scope: get_linked_content(arguments.get("message")),
+        handler=lambda arguments, _scope: get_linked_content(
+            str(arguments.get("message") or ""),
+        ),
         exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("message"),
     )
@@ -270,7 +277,7 @@ def _register_agent_tools() -> None:
             ["query"],
         ),
         handler=lambda arguments, _scope: web_search(
-            arguments.get("query"),
+            str(arguments.get("query") or ""),
             engines=arguments.get("engines"),
             categories=arguments.get("categories"),
             language=arguments.get("language"),
@@ -294,7 +301,7 @@ def _register_agent_tools() -> None:
             ["url"],
         ),
         handler=lambda arguments, _scope: web_fetch(
-            arguments.get("url"),
+            str(arguments.get("url") or ""),
             max_chars=arguments.get("max_chars"),
         ),
         exposure=AGENT_PLAN_AND_SOLVE_COURT,
@@ -502,40 +509,55 @@ def _register_agent_tools() -> None:
         )
 
     registry.register(
-        name="list_legal_templates",
+        name="list_legal_document_types",
         schema=_tool_schema(
-            "list_legal_templates",
-            "列出所有可用的法律文书模板及其字段概览。当用户需要生成法律文书（如起诉书、答辩状、判决书等）时，应首先调用此工具查看有哪些可用模板，再根据需求选择合适的模板。",
-            {"category": {"type": "string", "description": "可选，按分类筛选模板，如'刑事诉讼'、'民事诉讼'、'行政诉讼'。不填则返回所有模板。"}},
+            "list_legal_document_types",
+            "列出所有可用的法律文书文种（起诉状、答辩状、律师函、法律意见书等）及其分类、简介、关键章节、法律依据。当用户需要生成法律文书时，应首先调用此工具查看可用文种，再根据需求选择合适的文种。",
+            {"category": {"type": "string", "description": "可选，按分类筛选文种。可选值：'诉讼'、'辩护与意见'、'申请'、'合同'。不填则返回所有文种。"}},
             [],
         ),
-        handler=lambda arguments, _scope: list_legal_templates(arguments.get("category")),
+        handler=lambda arguments, _scope: list_legal_document_types(arguments.get("category")),
         exposure=AGENT_PLAN_AND_SOLVE_COURT,
     )
     registry.register(
-        name="get_template_fields",
+        name="get_legal_document_guide",
         schema=_tool_schema(
-            "get_template_fields",
-            "获取指定法律文书模板的完整字段清单，包括每个字段的名称、类型、是否必填、说明等。在选择了模板之后、生成文书之前，必须调用此工具了解需要收集哪些信息。",
-            {"template_name": {"type": "string", "description": "模板名称，应从 list_legal_templates 的返回结果中获取，如'起诉书'、'答辩状'。"}},
-            ["template_name"],
+            "get_legal_document_guide",
+            "获取指定文种的写作守则（markdown 形式），包含强制结构、文体规范、常见错误、参考骨架，以及 compose_legal_document 支持的 block schema 与示例。**调用 compose_legal_document 之前必须先调用此工具**，严格按守则中的结构与文体要求组织 blocks 数组。",
+            {"doc_type": {"type": "string", "description": "文种名称，应从 list_legal_document_types 的返回结果中获取，如'民事起诉状'、'律师函'。"}},
+            ["doc_type"],
         ),
-        handler=lambda arguments, _scope: get_template_fields(arguments.get("template_name", "")),
+        handler=lambda arguments, _scope: get_legal_document_guide(arguments.get("doc_type", "")),
         exposure=AGENT_PLAN_AND_SOLVE_COURT,
     )
     registry.register(
-        name="generate_legal_document",
+        name="compose_legal_document",
         schema=_tool_schema(
-            "generate_legal_document",
-            "根据指定的模板和用户提供的字段值，生成格式规范的法律文书（.docx）。调用前必须先通过 get_template_fields 了解模板需要哪些字段，并确保所有必填字段已从用户处收集完整。生成成功后会返回文件路径。",
+            "compose_legal_document",
+            "根据 LLM 自由编排的 blocks 数组渲染指定文种的法律文书（.docx）。**调用前必须先通过 get_legal_document_guide 取得该文种的写作守则**，严格遵循守则中的强制结构、文体规范、常见错误清单进行编排。本工具接受灵活的块组合，可表达多被告、多诉请、表格化证据清单等复杂场景。返回 output_path 与软约束告警 soft_warnings。",
             {
-                "template_name": {"type": "string", "description": "模板名称，应与 get_template_fields 使用的名称一致，如'起诉书'。"},
-                "fields": {"type": "object", "description": "字段键值对，key 为字段名（与 get_template_fields 返回的 key 一致），value 为字段值。字符串字段传字符串，列表字段传数组，布尔字段传 true/false，数字字段传数字。"},
+                "doc_type": {
+                    "type": "string",
+                    "description": "文种名称，与 get_legal_document_guide 使用的名称一致。",
+                },
+                "blocks": {
+                    "type": "array",
+                    "description": "文书内容块数组，按文档自上而下的顺序排列。每个块必须包含 type 字段，支持的类型：title（标题）、heading（章节标题，含 level=1/2/3 与 text）、paragraph（正文段，可选 indent/align）、ordered_list（有序列表 items）、unordered_list（无序列表 items）、table（表格，含 header 与 rows）、signature_block（落款，含 signer/entity/date 或 lines 数组）、page_break、blank_line。每种类型的字段定义详见 get_legal_document_guide 返回的 block_schema。",
+                    "items": {"type": "object"},
+                },
+                "output_name": {
+                    "type": "string",
+                    "description": "可选，输出文件基名（不含 .docx 后缀），用于区分同一会话生成的多份文书；不填则使用文种名作为基名。",
+                },
             },
-            ["template_name", "fields"],
+            ["doc_type", "blocks"],
         ),
-        handler=lambda arguments, workspace_scope: generate_legal_document(
-            arguments.get("template_name", ""), arguments.get("fields", {}), workspace_scope),
+        handler=lambda arguments, workspace_scope: compose_legal_document(
+            arguments.get("doc_type", ""),
+            arguments.get("blocks", []),
+            arguments.get("output_name"),
+            workspace_scope,
+        ),
         exposure=AGENT_PLAN_AND_SOLVE_COURT,
     )
 

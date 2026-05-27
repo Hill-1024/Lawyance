@@ -1,6 +1,6 @@
 """
-模块描述：结构化法律文书生成模块。
-提供模板发现、字段查询和文书生成三个 MCP 工具函数。
+模块描述：Block-based 法律文书生成模块。
+对外暴露文种发现、写作守则查询、文书编排三个 MCP 工具函数。
 """
 
 from .errors import (
@@ -12,15 +12,15 @@ from .errors import (
     TemplateSyntaxError,
 )
 from .generator import (
-    generate_legal_document,
-    get_template_fields,
-    list_legal_templates,
+    compose_legal_document,
+    get_legal_document_guide,
+    list_legal_document_types,
 )
 
 __all__ = [
-    "list_legal_templates",
-    "get_template_fields",
-    "generate_legal_document",
+    "list_legal_document_types",
+    "get_legal_document_guide",
+    "compose_legal_document",
     "LegalDocumentError",
     "TemplateNotFoundError",
     "ManifestValidationError",
