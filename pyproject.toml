@@ -19,3 +19,19 @@ dependencies = [
     "trafilatura>=2.0.0",
     "uvicorn[standard]>=0.42.0",
 ]
+
+[tool.pyright]
+include = ["."]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "src",
+    "dist",
+    ".venv"
+]
+extraPaths = ["."]
+
+[tool.pyrefly]
+search-path = ["."]
+disable-search-path-heuristics = true
+
