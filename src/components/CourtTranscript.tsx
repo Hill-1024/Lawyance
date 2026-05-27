@@ -28,7 +28,7 @@ import type { CourtPublicEvent, CourtSession, CourtSpeaker } from '../types';
 import { HoverInfo } from './HoverInfo';
 import { useAppDialog } from '../contexts/DialogContext';
 
-export const PHASE_LABELS: Record<string, string> = {
+const PHASE_LABELS: Record<string, string> = {
   opening: '开庭',
   claim_statement: '诉辩陈述',
   prosecution_statement: '宣读起诉',
@@ -120,7 +120,7 @@ const markdownComponents: any = {
   }
 };
 
-export const CourtMarkdown: React.FC<{ content?: string; compact?: boolean; className?: string }> = ({
+const CourtMarkdown: React.FC<{ content?: string; compact?: boolean; className?: string }> = ({
   content,
   compact = false,
   className = ''

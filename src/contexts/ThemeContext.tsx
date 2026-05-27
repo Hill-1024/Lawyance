@@ -19,9 +19,9 @@ import { getMonetPalette, isMonetUnavailableError } from '../services/monetServi
 
 export type ThemeMode = 'light' | 'system' | 'dark';
 export type ColorSource = 'default' | 'custom' | 'monet';
-export type MonetStatus = 'idle' | 'loading' | 'available' | 'unavailable' | 'error';
+type MonetStatus = 'idle' | 'loading' | 'available' | 'unavailable' | 'error';
 
-export interface ThemeState {
+interface ThemeState {
   mode: ThemeMode;
   colorSource: ColorSource;
   customSeed: string;

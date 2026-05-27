@@ -13,6 +13,7 @@ class _NonStreamToolCall:
         self.function = types.SimpleNamespace(name=name, arguments=arguments)
 
     def model_dump(self, exclude_unset=True):
+        del exclude_unset
         return {
             "id": self.id,
             "type": "function",

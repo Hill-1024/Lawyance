@@ -21,9 +21,8 @@ from .logger import (
     log_generation_complete,
     log_generation_error,
     log_generation_start,
-    log_template_syntax_warnings,
 )
-from .validator import validate_input_fields, validate_template_syntax
+from .validator import validate_input_fields
 from workspace import WorkspacePathError, validate_workspace_scope
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"

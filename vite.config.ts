@@ -9,6 +9,8 @@ import path from 'path'
 import { readFileSync } from 'fs'
 
 const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+const devServerPort = Number(process.env.LAWVER_VITE_PORT || 5173)
+const apiProxyTarget = process.env.LAWVER_API_PROXY_TARGET || 'http://localhost:8080'
 const buildEnvironment = process.env.LAWVER_BUILD_ENV
   || packageJson.appConfig?.environment
   || (process.env.NODE_ENV === 'production' ? 'Web/Vite' : 'Development')
@@ -33,7 +35,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 8080,
+    port: devServerPort,
     strictPort: true,
     host: '0.0.0.0',
     watch: {
@@ -41,7 +43,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },

@@ -41,7 +41,7 @@ export type Message = {
   updated_at?: string;
 };
 
-export type ConversationMemoryEvent = {
+type ConversationMemoryEvent = {
   id: string;
   type: string;
   role: 'user' | 'assistant' | 'system';
@@ -55,7 +55,7 @@ export type ConversationMemoryEvent = {
   turn_id?: string;
 };
 
-export type ConversationMemoryFact = {
+type ConversationMemoryFact = {
   id: string;
   kind: string;
   text: string;
@@ -76,7 +76,7 @@ export type ConversationMemoryFact = {
   supersedes?: string;
 };
 
-export type ConversationMemoryFocus = {
+type ConversationMemoryFocus = {
   id: string;
   text: string;
   status: 'active' | 'deprecated';

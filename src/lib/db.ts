@@ -4,7 +4,7 @@
 
 import { Conversation, CourtSession } from '../types';
 
-export class FileDB {
+class FileDB {
   private dbName = 'LawverFileDB';
   private previousDbNames = [
     this.decodeName([76, 97, 119, 118, 101, 114]) + 'FileDB',
