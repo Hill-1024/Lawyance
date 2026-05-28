@@ -33,9 +33,11 @@ class ToolExposureTests(unittest.TestCase):
         self.assertIn("retrieve_conversation_memory", names)
         self.assertIn("pdf_text_reader", names)
         self.assertIn("word_reader", names)
+        self.assertIn("txt_md_reader", names)
         self.assertIn("list_workspace_files", names)
         self.assertNotIn("pdf_commit_by_sentence", names)
         self.assertNotIn("word_writer", names)
+        self.assertNotIn("txt_md_writer", names)
         self.assertNotIn("submit_plan", names)
         self.assertNotIn("submit_final_answer", names)
 

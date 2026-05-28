@@ -33,6 +33,8 @@ class PromptLoaderTest(unittest.TestCase):
 
         self.assertIn("web_search", prompt)
         self.assertIn("web_fetch", prompt)
+        self.assertIn("txt_md_reader", prompt)
+        self.assertIn("txt_md_writer", prompt)
         self.assertIn("url", prompt)
         self.assertIn("final_url", prompt)
         self.assertIn("## 法律/案例信源", prompt)

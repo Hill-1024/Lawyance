@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 from mcp.deli_client import match_legal_case
 from mcp.pkulaw_client import get_article, get_linked_content, search_article
 from mcp.searxng_client import web_fetch, web_search
 from mcp.PDF_processor import pdf_commit_by_sentence, pdf_text_reader
+from mcp.text_file_client import TEXT_FILE_EXTENSIONS, txt_md_reader, txt_md_writer
 from mcp.word_annotator import word_reader, word_writer
 from mcp.qcc_client import (
     get_company_profile,
@@ -172,6 +174,64 @@ def _write_word(arguments: dict[str, Any], workspace_scope: str | None):
         return f"错误：{e}"
     success = word_writer(safe_path, arguments.get("index"), arguments.get("text"), output_path=output_path)
     return f"批注成功，文件保存在: {output_path}" if success else "批注失败"
+
+
+def _read_txt_md(arguments: dict[str, Any], workspace_scope: str | None):
+    path = arguments.get("file_path") or arguments.get("path")
+    if not path:
+        return "错误：未提供TXT/Markdown文件路径。"
+    try:
+        safe_path = resolve_workspace_file(path, workspace_scope, allowed_roots=("TEMP", "Result"))
+    except WorkspacePathError as e:
+        return f"错误：{e}"
+    return txt_md_reader(safe_path, max_chars=arguments.get("max_chars"))
+
+
+def _normalize_txt_md_output_name(output_name: Any, file_type: Any) -> str:
+    raw_name = str(output_name or "").replace("\\", "/").strip()
+    safe_name = os.path.basename(raw_name)
+    safe_name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", safe_name).strip()
+    if not safe_name or safe_name in {".", ".."}:
+        safe_name = "lawver_text"
+
+    requested_type = str(file_type or "").strip().lower().lstrip(".")
+    if requested_type and requested_type not in {"txt", "md"}:
+        raise WorkspacePathError("仅支持 file_type=txt 或 md。")
+
+    base, ext = os.path.splitext(safe_name)
+    if ext:
+        if ext.lower() not in TEXT_FILE_EXTENSIONS:
+            raise WorkspacePathError("输出文件仅支持 .txt 或 .md 后缀。")
+        if requested_type and TEXT_FILE_EXTENSIONS[ext.lower()] != requested_type:
+            safe_name = f"{base}.{requested_type}"
+    else:
+        safe_name = f"{safe_name}.{requested_type or 'md'}"
+    return safe_name
+
+
+def _txt_md_output_path(arguments: dict[str, Any], workspace_scope: str | None) -> str:
+    explicit_path = arguments.get("file_path") or arguments.get("output_path")
+    if explicit_path:
+        safe_path = resolve_workspace_file(str(explicit_path), workspace_scope, allowed_roots=("Result",))
+    else:
+        safe_name = _normalize_txt_md_output_name(arguments.get("output_name"), arguments.get("file_type"))
+        result_dir = os.path.join("Result", validate_workspace_scope(workspace_scope))
+        safe_path = os.path.join(result_dir, safe_name)
+
+    if os.path.splitext(safe_path)[1].lower() not in TEXT_FILE_EXTENSIONS:
+        raise WorkspacePathError("输出文件仅支持 .txt 或 .md 后缀。")
+    return safe_path.replace("\\", "/")
+
+
+def _write_txt_md(arguments: dict[str, Any], workspace_scope: str | None):
+    content = arguments.get("content")
+    if content is None:
+        return "错误：未提供写入内容。"
+    try:
+        output_path = _txt_md_output_path(arguments, workspace_scope)
+    except WorkspacePathError as e:
+        return f"错误：{e}"
+    return txt_md_writer(output_path, str(content))
 
 
 def _register_agent_tools() -> None:
@@ -363,6 +423,36 @@ def _register_agent_tools() -> None:
         handler=_write_word,
         exposure=AGENT_PLAN_AND_SOLVE,
         text_coercer=_text_field("file_path"),
+    )
+    registry.register(
+        name="txt_md_reader",
+        schema=_tool_schema(
+            "txt_md_reader",
+            "读取当前对话工作区中的 .txt 或 .md 文件，返回已过滤可执行嵌入内容的文本。会移除或中和 Markdown/HTML 中的 <script>、事件属性、javascript:/data: 危险链接等内容。",
+            {
+                "file_path": {"type": "string", "description": "TXT 或 Markdown 文件路径，必须来自当前对话的 TEMP/Result 工作区。"},
+                "max_chars": {"type": "integer", "description": "可选，返回文本最大字符数，默认 30000，最大 60000。"},
+            },
+            ["file_path"],
+        ),
+        handler=_read_txt_md,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+        text_coercer=_text_field("file_path"),
+    )
+    registry.register(
+        name="txt_md_writer",
+        schema=_tool_schema(
+            "txt_md_writer",
+            "把纯文本或 Markdown 写入当前对话的 Result 工作区。写入前会过滤可执行嵌入内容，避免保存 <script>、事件属性、javascript:/data: 链接等可渲染执行片段。",
+            {
+                "output_name": {"type": "string", "description": "输出文件名，只允许 .txt 或 .md；不写后缀时按 file_type 自动补全，默认 .md。"},
+                "file_type": {"type": "string", "enum": ["txt", "md"], "description": "可选，输出类型；当 output_name 没有后缀时使用，默认 md。"},
+                "content": {"type": "string", "description": "需要写入文件的文本或 Markdown 内容。"},
+            },
+            ["output_name", "content"],
+        ),
+        handler=_write_txt_md,
+        exposure=AGENT_PLAN_AND_SOLVE,
     )
     registry.register(
         name="list_workspace_files",

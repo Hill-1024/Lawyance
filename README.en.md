@@ -2,7 +2,7 @@
 
 [中文](./README.md) | English | [日本語](./README.ja.md)
 
-Lawver is a Chinese legal AI assistant project built by the GDUT legal intelligence team. It combines legal consultation, statute retrieval, case matching, company information lookup, contract/PDF/Word document handling, conversation-level memory, and a frontend workspace into one application. The goal is not to return unverifiable one-line answers, but to structure legal questions into facts, authorities, retrieved evidence, and analysis paths that can be checked further.
+Lawver is a Chinese legal AI assistant project built by the GDUT legal intelligence team. It combines legal consultation, statute retrieval, case matching, company information lookup, contract/PDF/Word/TXT/Markdown document handling, conversation-level memory, and a frontend workspace into one application. The goal is not to return unverifiable one-line answers, but to structure legal questions into facts, authorities, retrieved evidence, and analysis paths that can be checked further.
 
 The repository contains a FastAPI backend, a React/Vite frontend, a tool forwarding layer, legal data clients, document processors, a conversation memory system, and an output review flow. Module boundaries matter: business tools are exposed to agents through `mcps`, and product code should not bypass that middleware.
 
@@ -18,7 +18,7 @@ The repository contains a FastAPI backend, a React/Vite frontend, a tool forward
 
 - **Legal and web retrieval**: exact statute lookup, natural-language statute search, source link confirmation, similar-case matching, and public web search through self-hosted SearXNG.
 - **Company information**: company profile, listing information, contacts, shareholders, registration data, key personnel, and external investments.
-- **Document processing**: PDF text extraction, sentence-level PDF annotation, Word reading, and Word annotation writing.
+- **Document processing**: PDF text extraction, sentence-level PDF annotation, Word reading, Word annotation writing, and safe TXT/Markdown read/write support.
 - **Agent modes**: default answer and Plan-and-Solve workflows.
 - **Moot court**: civil, administrative, and criminal trial simulations driven by a phase state machine, with four built-in roles (judge, opposing counsel, post-trial reviewer, optional user-side AI agent), fact/source boundaries between the public record and the private brief, and rewind/branch support.
 - **Conversation workspace**: isolates `TEMP` and `Result` file spaces by user and conversation.
@@ -60,7 +60,7 @@ Important paths:
 | `function_calling.py` | OpenAI-compatible model call wrapper and tool message pairing |
 | `tools/` | Explicit business tool registry (schema / handler / coercer / exposure) |
 | `mcps.py` | Unified business tool forwarding entrypoint |
-| `mcp/` | Legal, company, PDF, Word, memory, and SearXNG web-search tool clients |
+| `mcp/` | Legal, company, PDF, Word, TXT/Markdown, memory, and SearXNG web-search tool clients |
 | `memory_system/` | Conversation-level structured memory service |
 | `RAG/` | Local statute and regulation retrieval engine |
 | `prompts/lawver/` | Dynamic prompt resources: core / modes / focus / tasks / court |
@@ -188,6 +188,8 @@ OCP is a post-answer formatting review pass. Main-model failures still follow th
 This architecture work does not include Lawver naming cleanup, tool naming rewrites, or agent reasoning strategy rewrites.
 
 The web-search tool uses self-hosted SearXNG and does not depend on third-party search APIs such as Tavily or SerpAPI. `web_search` only returns structured results and snippets; when full page text is needed, the model should call `web_fetch`. `web_fetch` marks returned page text as untrusted web data and it must not be followed as instructions.
+
+TXT/Markdown files are handled by `txt_md_reader` / `txt_md_writer` within the current conversation workspace. Reads and writes filter executable Markdown/HTML embeds such as `<script>`, event-handler attributes, and `javascript:` / `data:` links.
 
 Optional environment variables:
 

@@ -24,6 +24,8 @@ EXPECTED_AGENT_TOOL_NAMES = [
     "pdf_commit_by_sentence",
     "word_reader",
     "word_writer",
+    "txt_md_reader",
+    "txt_md_writer",
     "list_workspace_files",
     "retrieve_conversation_memory",
     "inspect_conversation_memory",
