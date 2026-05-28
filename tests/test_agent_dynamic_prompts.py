@@ -54,7 +54,7 @@ class AgentDynamicPromptTests(unittest.TestCase):
         self.assertIn('name="general_gate"', prompt)
         self.assertIn('name="file_processing"', prompt)
         self.assertIn('name="legal_retrieval"', prompt)
-        self.assertIn("inactive guidance", prompt)
+        self.assertIn("视本节为非激活指引", prompt)
 
     def test_build_agent_react_falls_back_to_default_configuration(self):
         from services.agent_builder import build_agent
