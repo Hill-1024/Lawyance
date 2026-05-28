@@ -1,7 +1,7 @@
 {
   "name": "lawver",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "工大法智团队的中文法律 AI 助手原型",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
