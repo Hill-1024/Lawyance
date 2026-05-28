@@ -143,6 +143,7 @@ Android の正式リリースは GitHub Actions の `vX.Y.Z` タグ workflow で
 - `LAWVER_RELEASE_DIR`: APK キャッシュディレクトリ。既定値は `data/releases/android/`
 - `LAWVER_PUBLIC_BASE_URL`: 外部公開 URL。本番では `https://law.mutsumi.moe` を推奨
 - `LAWVER_APK_DOWNLOAD_RPM`: APK ダウンロードの単一 IP RPM 制限。既定値は `6`
+- `LAWVER_TRUSTED_PROXY_CIDRS`: 追加で信頼する reverse proxy の CIDR。既定では loopback のみを信頼し、信頼済み送信元からの `CF-Connecting-IP` / `X-Forwarded-For` だけをログとレート制限に使います
 - `LAWVER_GITHUB_TOKEN`: private repository または GitHub API rate limit 用の読み取り専用 token
 
 ## テスト
@@ -232,6 +233,7 @@ OCP は主回答後のフォーマット審査 pass です。主モデルの失�
 - 初回デプロイでは 32 文字以上のランダムな `SECRET_KEY` と一度限りの `INITIAL_ADMIN_PASSWORD` を設定してください。`data/account.json` 作成後は初期パスワード用の環境変数を削除します。
 - 現在の CORS、レート制限、認証の既定値は内部プロトタイプ向けです。公開デプロイ前には実際のドメインと安全方針に合わせて強化してください。
 - GET 以外の `/api` リクエストは信頼できる Origin か Referer を必須とします。本番のフロントエンドドメインは `LAWVER_ALLOWED_ORIGINS`（旧名 `ALLOWED_ORIGINS` も互換）で追加してください。ローカルのループバックアドレスは既定で許可されます。
+- `CF-Connecting-IP` / `X-Forwarded-For` は既定で loopback proxy からのみ採用します。本番 proxy がローカルでない場合は `LAWVER_TRUSTED_PROXY_CIDRS` で明示してください。
 - レート制限のカウンタはプロセス内状態です。`UVICORN_WORKERS>1` で動かす場合、各 worker が個別にカウントするため、公開デプロイでは Redis などの共有ストアに移行することを推奨します。
 - 管理者 API はアカウント管理とログ閲覧ができるため、信頼できる管理者だけに公開してください。
 - ファイル注釈、文書読み取り、ダウンロード API では、パス分離と権限境界を継続的に確認してください。

@@ -13,6 +13,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -199,6 +200,102 @@ class ApiBoundaryTests(unittest.TestCase):
         self.assertEqual(verify.status_code, 200)
         self.assertEqual(verify.json()["username"], "admin")
 
+    def test_deleted_account_token_is_rejected_immediately(self):
+        admin_login = self.client.post(
+            "/api/login",
+            json={"username": "admin", "password": "bootstrap-password"},
+            headers={"origin": "http://localhost:5173"},
+        )
+        self.assertEqual(admin_login.status_code, 200)
+
+        create_user = self.client.post(
+            "/api/admin/accounts",
+            json={"username": "revoked_user", "password": "secret-password", "role": "user"},
+            headers={"origin": "http://localhost:5173"},
+        )
+        self.assertEqual(create_user.status_code, 200)
+
+        user_client = TestClient(self.agent.app, base_url="http://localhost")
+        try:
+            user_login = user_client.post(
+                "/api/login",
+                json={"username": "revoked_user", "password": "secret-password"},
+                headers={
+                    "origin": "https://localhost:443",
+                    "x-lawver-client": "capacitor",
+                },
+            )
+            self.assertEqual(user_login.status_code, 200)
+            token = user_login.json()["token"]
+
+            delete_user = self.client.delete(
+                "/api/admin/accounts/revoked_user",
+                headers={"origin": "http://localhost:5173"},
+            )
+            self.assertEqual(delete_user.status_code, 200)
+
+            verify = user_client.get(
+                "/api/verify_auth",
+                headers={"authorization": f"Bearer {token}", "x-lawver-client": "capacitor"},
+            )
+        finally:
+            user_client.close()
+
+        self.assertEqual(verify.status_code, 401)
+
+    def test_password_reset_invalidates_older_bearer_token(self):
+        admin_login = self.client.post(
+            "/api/login",
+            json={"username": "admin", "password": "bootstrap-password"},
+            headers={"origin": "http://localhost:5173"},
+        )
+        self.assertEqual(admin_login.status_code, 200)
+
+        create_user = self.client.post(
+            "/api/admin/accounts",
+            json={"username": "reset_user", "password": "old-password", "role": "user"},
+            headers={"origin": "http://localhost:5173"},
+        )
+        self.assertEqual(create_user.status_code, 200)
+
+        user_client = TestClient(self.agent.app, base_url="http://localhost")
+        try:
+            user_login = user_client.post(
+                "/api/login",
+                json={"username": "reset_user", "password": "old-password"},
+                headers={
+                    "origin": "https://localhost:443",
+                    "x-lawver-client": "capacitor",
+                },
+            )
+            self.assertEqual(user_login.status_code, 200)
+            token = user_login.json()["token"]
+
+            reset_password = self.client.post(
+                "/api/admin/accounts",
+                json={"username": "reset_user", "password": "new-password", "role": "user"},
+                headers={"origin": "http://localhost:5173"},
+            )
+            self.assertEqual(reset_password.status_code, 200)
+
+            verify_old_token = user_client.get(
+                "/api/verify_auth",
+                headers={"authorization": f"Bearer {token}", "x-lawver-client": "capacitor"},
+            )
+            new_login = user_client.post(
+                "/api/login",
+                json={"username": "reset_user", "password": "new-password"},
+                headers={
+                    "origin": "https://localhost:443",
+                    "x-lawver-client": "capacitor",
+                },
+            )
+        finally:
+            user_client.close()
+
+        self.assertEqual(verify_old_token.status_code, 401)
+        self.assertEqual(new_login.status_code, 200)
+
     def test_cross_site_unsafe_api_request_is_rejected(self):
         response = self.client.post("/api/logout", headers={"origin": "https://evil.example"})
 
@@ -262,6 +359,42 @@ class ApiBoundaryTests(unittest.TestCase):
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(allowed.headers.get("access-control-allow-origin"), "https://law.mutsumi.moe")
         self.assertNotEqual(denied.headers.get("access-control-allow-origin"), "https://evil.example")
+
+    def test_forwarded_ip_headers_are_only_trusted_from_configured_proxies(self):
+        app_security = importlib.import_module("services.app_security")
+
+        def make_request(client_host: str, headers: list[tuple[bytes, bytes]]) -> Request:
+            return Request(
+                {
+                    "type": "http",
+                    "method": "GET",
+                    "path": "/api/verify_auth",
+                    "headers": headers,
+                    "client": (client_host, 1234),
+                    "scheme": "http",
+                    "server": ("localhost", 80),
+                }
+            )
+
+        old_trusted_proxies = os.environ.pop("LAWVER_TRUSTED_PROXY_CIDRS", None)
+        try:
+            private_direct = make_request("10.0.0.8", [(b"x-forwarded-for", b"203.0.113.9")])
+            self.assertEqual(app_security.client_ip_for_request(private_direct), "10.0.0.8")
+
+            loopback_proxy = make_request("127.0.0.1", [(b"x-forwarded-for", b"203.0.113.9")])
+            self.assertEqual(app_security.client_ip_for_request(loopback_proxy), "203.0.113.9")
+
+            malformed_forwarded = make_request("127.0.0.1", [(b"x-forwarded-for", b"not-an-ip")])
+            self.assertEqual(app_security.client_ip_for_request(malformed_forwarded), "127.0.0.1")
+
+            os.environ["LAWVER_TRUSTED_PROXY_CIDRS"] = "10.0.0.0/8"
+            configured_proxy = make_request("10.0.0.8", [(b"cf-connecting-ip", b"198.51.100.22")])
+            self.assertEqual(app_security.client_ip_for_request(configured_proxy), "198.51.100.22")
+        finally:
+            if old_trusted_proxies is None:
+                os.environ.pop("LAWVER_TRUSTED_PROXY_CIDRS", None)
+            else:
+                os.environ["LAWVER_TRUSTED_PROXY_CIDRS"] = old_trusted_proxies
 
 
 if __name__ == "__main__":
