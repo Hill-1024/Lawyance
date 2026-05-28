@@ -111,6 +111,7 @@ const TOOL_ACTION_LABELS: Record<string, string> = {
   web_fetch: '抓取公开网页',
   pdf_text_reader: '阅读 PDF 卷宗',
   word_reader: '阅读 Word 卷宗',
+  txt_md_reader: '阅读文本卷宗',
   list_workspace_files: '清点案卷文件',
   retrieve_conversation_memory: '回溯本角色记忆',
   inspect_conversation_memory: '梳理已有记忆',

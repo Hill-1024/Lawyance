@@ -72,6 +72,11 @@ class McpsWorkspacePathTests(unittest.TestCase):
 
         self.assertEqual(args, {"url": "https://example.com/news"})
 
+    def test_text_arguments_are_coerced_for_txt_md_reader(self):
+        args = mcps._coerce_arguments("txt_md_reader", "TEMP/user/conv/note.md")
+
+        self.assertEqual(args, {"file_path": "TEMP/user/conv/note.md"})
+
 
 if __name__ == "__main__":
     unittest.main()
