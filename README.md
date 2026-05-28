@@ -143,6 +143,7 @@ Android 正式发布通过 GitHub Actions 的 `vX.Y.Z` 标签工作流构建 rel
 - `LAWVER_RELEASE_DIR`：APK 缓存目录，默认 `data/releases/android/`。
 - `LAWVER_PUBLIC_BASE_URL`：对外生产域名，默认按请求推断，生产建议设为 `https://law.mutsumi.moe`。
 - `LAWVER_APK_DOWNLOAD_RPM`：APK 下载接口单 IP 每分钟限制，默认 `6`。
+- `LAWVER_TRUSTED_PROXY_CIDRS`：额外可信反向代理 CIDR，默认只信任 loopback；只有这些来源的 `CF-Connecting-IP` / `X-Forwarded-For` 会用于限流和日志。
 - `LAWVER_GITHUB_TOKEN`：私有仓库或 GitHub API 限流时使用的只读 token。
 
 ## 动态 Prompt
@@ -250,6 +251,7 @@ python -m pytest
 - 首次部署必须配置 `SECRET_KEY`（至少 32 位随机值）和一次性的 `INITIAL_ADMIN_PASSWORD`；创建 `data/account.json` 后应移除初始密码环境变量。
 - 默认 CORS、限流和认证策略适合内部原型阶段，公开部署前需要按实际域名和安全策略收紧。
 - 所有非 GET 的 `/api` 请求都要求可信 Origin 或 Referer。可通过 `LAWVER_ALLOWED_ORIGINS`（兼容 `ALLOWED_ORIGINS`）追加生产前端域名；本地开发回环地址默认放行。
+- 默认只从 loopback 代理读取 `CF-Connecting-IP` / `X-Forwarded-For`；如果生产反代不在本机，请通过 `LAWVER_TRUSTED_PROXY_CIDRS` 明确列入。
 - 限流计数为进程内状态，多 worker 部署（`UVICORN_WORKERS>1`）时各 worker 各自计数，公开部署应迁到 Redis 或共享存储。
 - 管理员接口具备账号管理和日志读取能力，应只暴露给可信管理员。
 - 文件批注、文档读取和下载接口需要持续关注路径隔离和权限边界。

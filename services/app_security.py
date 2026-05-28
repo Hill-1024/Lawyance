@@ -22,6 +22,7 @@ NATIVE_CLIENT_ORIGINS = {"https://localhost", "capacitor://localhost"}
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$")
 RATE_LIMIT = 100
+DEFAULT_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8", "::1/128")
 
 
 def _configured_usage_log_path() -> Path:
@@ -151,24 +152,53 @@ def is_local_host(hostname: str | None) -> bool:
     return hostname in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 
+def _configured_trusted_proxy_networks() -> tuple[ipaddress._BaseNetwork, ...]:
+    networks = [ipaddress.ip_network(cidr) for cidr in DEFAULT_TRUSTED_PROXY_CIDRS]
+    raw_value = os.getenv("LAWVER_TRUSTED_PROXY_CIDRS", "")
+    for item in raw_value.split(","):
+        cidr = item.strip()
+        if not cidr:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(cidr, strict=False))
+        except ValueError:
+            usage_logger.warning("Ignoring invalid LAWVER_TRUSTED_PROXY_CIDRS entry: %s", cidr)
+    return tuple(networks)
+
+
 def is_trusted_proxy_host(hostname: str | None) -> bool:
     if not hostname:
         return False
+    if hostname == "localhost":
+        return True
     try:
         ip = ipaddress.ip_address(hostname)
     except ValueError:
         return False
-    return ip.is_loopback or ip.is_private
+    return any(ip in network for network in _configured_trusted_proxy_networks())
+
+
+def _validated_forwarded_ip(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = value.strip().strip("[]")
+    if not candidate:
+        return None
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return None
+    return candidate
 
 
 def client_ip_for_request(request: Request) -> str:
     direct_host = request.client.host if request.client else None
     if is_trusted_proxy_host(direct_host):
-        cf_ip = (request.headers.get("cf-connecting-ip") or "").strip()
+        cf_ip = _validated_forwarded_ip(request.headers.get("cf-connecting-ip"))
         if cf_ip:
             return cf_ip
         x_forwarded_for = request.headers.get("x-forwarded-for") or ""
-        forwarded_ip = x_forwarded_for.split(",", 1)[0].strip()
+        forwarded_ip = _validated_forwarded_ip(x_forwarded_for.split(",", 1)[0])
         if forwarded_ip:
             return forwarded_ip
     return direct_host or "unknown"

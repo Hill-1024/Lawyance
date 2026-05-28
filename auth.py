@@ -168,6 +168,15 @@ def get_accounts_data():
         return accounts
 
 
+def _account_auth_version(user_data) -> int:
+    if not isinstance(user_data, dict):
+        return 0
+    try:
+        return max(int(user_data.get("auth_version", 0)), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def get_user_role(username: str) -> str:
     accounts = get_accounts_data()
     user_data = accounts.get(username)
@@ -193,7 +202,12 @@ def add_or_update_account(username: str, password: str, role: str = "user") -> t
         if username in accounts and accounts[username].get("role") == "admin" and normalized_role != "admin":
             return False, "不能将管理员账号降级为普通用户"
 
-        accounts[username] = {"hash": hash_password(password), "role": normalized_role}
+        previous_auth_version = _account_auth_version(accounts.get(username))
+        accounts[username] = {
+            "hash": hash_password(password),
+            "role": normalized_role,
+            "auth_version": previous_auth_version + 1,
+        }
 
         try:
             _write_json(ACCOUNT_FILE, accounts)
@@ -235,7 +249,12 @@ def verify_password(password: str, hashed_password: str) -> bool:
 
 def create_token(username: str) -> str:
     header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').decode("utf-8").rstrip("=")
-    payload_dict = {"sub": username, "exp": int(time.time()) + 7 * 24 * 3600}
+    user_data = get_accounts_data().get(username)
+    payload_dict = {
+        "sub": username,
+        "exp": int(time.time()) + 7 * 24 * 3600,
+        "ver": _account_auth_version(user_data),
+    }
     payload = base64.urlsafe_b64encode(json.dumps(payload_dict).encode("utf-8")).decode("utf-8").rstrip("=")
     signature = base64.urlsafe_b64encode(
         hmac.new(SECRET_KEY.encode("utf-8"), f"{header}.{payload}".encode("utf-8"), hashlib.sha256).digest()
@@ -257,7 +276,19 @@ def verify_token(token: str) -> Optional[str]:
         payload_dict = json.loads(base64.urlsafe_b64decode(payload.encode("utf-8")))
         if payload_dict["exp"] < time.time():
             return None
-        return payload_dict["sub"]
+        username = payload_dict["sub"]
+        if not isinstance(username, str) or not username:
+            return None
+        user_data = get_accounts_data().get(username)
+        if not user_data:
+            return None
+        try:
+            token_auth_version = int(payload_dict.get("ver", 0))
+        except (TypeError, ValueError):
+            return None
+        if token_auth_version != _account_auth_version(user_data):
+            return None
+        return username
     except Exception:
         return None
 

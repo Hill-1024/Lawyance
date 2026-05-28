@@ -143,6 +143,7 @@ Optional environment variables:
 - `LAWVER_RELEASE_DIR`: APK cache directory, default `data/releases/android/`.
 - `LAWVER_PUBLIC_BASE_URL`: public production base URL. Production should set `https://law.mutsumi.moe`.
 - `LAWVER_APK_DOWNLOAD_RPM`: per-IP RPM limit for APK downloads, default `6`.
+- `LAWVER_TRUSTED_PROXY_CIDRS`: additional trusted reverse-proxy CIDRs. By default only loopback is trusted; only trusted sources may supply `CF-Connecting-IP` / `X-Forwarded-For` for logs and rate limits.
 - `LAWVER_GITHUB_TOKEN`: read-only token for private repositories or GitHub API rate limits.
 
 ## Tests
@@ -232,6 +233,7 @@ Backend entrypoint: `routes/court.py`; pipeline: `services/court_pipeline.py` an
 - First deployment must set `SECRET_KEY` with at least 32 random characters and a one-time `INITIAL_ADMIN_PASSWORD`; remove the initial password variable after `data/account.json` is created.
 - Current CORS, rate limit, and auth defaults fit an internal prototype. Public deployment requires domain-specific hardening.
 - Every non-GET `/api` request now requires a trusted Origin or Referer. Add production frontend origins to `LAWVER_ALLOWED_ORIGINS` (or the legacy `ALLOWED_ORIGINS`); local loopback addresses are accepted by default.
+- By default, `CF-Connecting-IP` / `X-Forwarded-For` are honored only from loopback proxies. Add production proxy ranges with `LAWVER_TRUSTED_PROXY_CIDRS` when the proxy is not local.
 - The rate limiter stores counters in process memory. With `UVICORN_WORKERS>1` each worker counts independently, so public deployments should move the counters to Redis or another shared store.
 - Admin APIs can manage accounts and read logs, so they should only be available to trusted administrators.
 - File annotation, document reading, and download APIs require ongoing attention to path isolation and permissions.

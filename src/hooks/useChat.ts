@@ -171,12 +171,16 @@ export function useChat() {
   const contextUsage = currentConversation.context_usage || null;
   const nowIso = () => new Date().toISOString();
 
-  const abortActiveRequest = useCallback(() => {
+  const abortActiveRequest = useCallback((resetUi = true) => {
     activeAbortRef.current?.abort();
     activeAbortRef.current = null;
+    if (resetUi) {
+      setIsLoading(false);
+      setComposerStatus(null);
+    }
   }, []);
 
-  useEffect(() => () => abortActiveRequest(), [abortActiveRequest]);
+  useEffect(() => () => abortActiveRequest(false), [abortActiveRequest]);
 
   useEffect(() => {
     if (!isNative()) return;
@@ -309,7 +313,9 @@ export function useChat() {
   const updateMessages = (convId: string, updater: (prev: Message[]) => Message[]) => {
     setConversations(prev => prev.map(conv => {
       if (conv.id === convId) {
-        return { ...conv, messages: updater(conv.messages), updated_at: nowIso() };
+        const nextMessages = updater(conv.messages);
+        if (nextMessages === conv.messages) return conv;
+        return { ...conv, messages: nextMessages, updated_at: nowIso() };
       }
       return conv;
     }));
@@ -419,11 +425,17 @@ export function useChat() {
     }
   };
 
-  const processStream = async (response: Response, agentMessageId: string | null, convId: string, onFileGenerated?: (name: string, path: string) => void) => {
+  const processStream = async (
+    response: Response,
+    agentMessageId: string | null,
+    convId: string,
+    onFileGenerated?: (name: string, path: string) => void,
+    signal?: AbortSignal
+  ): Promise<boolean> => {
     const reader = response.body?.getReader();
     if (!reader) {
-      setIsLoading(false);
-      return;
+      if (!signal?.aborted) setIsLoading(false);
+      return false;
     }
 
     const decoder = new TextDecoder();
@@ -436,8 +448,10 @@ export function useChat() {
     let thoughtIdCounter = 0;
 
     const nextThoughtId = () => `${agentMessageId || 'assistant'}-thought-${thoughtIdCounter++}`;
+    const isStreamActive = () => !signal?.aborted;
 
     const handleStreamData = (data: any) => {
+      if (!isStreamActive()) return;
       if (data.type === 'content') {
         bodyText += data.content || '';
       } else if (data.type === 'thought') {
@@ -480,34 +494,42 @@ export function useChat() {
     };
 
     const commitAssistantState = () => {
-      updateMessages(convId, prev => prev.map(msg =>
-        msg.id === agentMessageId ? {
-          ...msg,
-          content: bodyText,
-          thought_blocks: thoughtBlocks,
-          context_messages: contextMessages,
-          thought_signature: currentSignature || msg.thought_signature,
-          download_path: currentDownloadPath || msg.download_path
-        } : msg
-      ));
+      if (!agentMessageId || !isStreamActive()) return;
+      updateMessages(convId, prev => {
+        if (!prev.some(msg => msg.id === agentMessageId)) return prev;
+        return prev.map(msg =>
+          msg.id === agentMessageId ? {
+            ...msg,
+            content: bodyText,
+            thought_blocks: thoughtBlocks,
+            context_messages: contextMessages,
+            thought_signature: currentSignature || msg.thought_signature,
+            download_path: currentDownloadPath || msg.download_path
+          } : msg
+        );
+      });
     };
 
     if (!agentMessageId) {
-      agentMessageId = (Date.now() + 1).toString();
+      if (!isStreamActive()) return false;
+      agentMessageId = generateUUID();
       const now = nowIso();
       updateMessages(convId, prev => [...prev, { id: agentMessageId!, role: 'assistant', content: '', thought_blocks: [], created_at: now, updated_at: now }]);
     }
 
     try {
       while (true) {
+        if (!isStreamActive()) return false;
         const { done, value } = await reader.read();
         if (done) break;
+        if (!isStreamActive()) return false;
 
         streamBuffer += decoder.decode(value, { stream: true });
         const lines = streamBuffer.split('\n');
         streamBuffer = lines.pop() || '';
 
         for (const line of lines) {
+          if (!isStreamActive()) return false;
           if (line.startsWith('data: ')) {
             const dataStr = line.slice(6);
             if (dataStr === '[DONE]') continue;
@@ -527,6 +549,7 @@ export function useChat() {
       }
 
       if (streamBuffer.trim().startsWith('data: ')) {
+        if (!isStreamActive()) return false;
         try {
           const dataStr = streamBuffer.trim().slice(6);
           if (dataStr && dataStr !== '[DONE]') {
@@ -538,13 +561,17 @@ export function useChat() {
         }
       }
       commitAssistantState();
+      return isStreamActive();
     } catch (err) {
-      if (isAbortError(err)) throw err;
+      if (isAbortError(err) || !isStreamActive()) return false;
       console.error('Stream read error:', err);
+      return false;
     } finally {
       reader.releaseLock();
-      setIsLoading(false);
-      onFileGenerated?.('sync', '');
+      if (isStreamActive()) {
+        setIsLoading(false);
+        onFileGenerated?.('sync', '');
+      }
     }
   };
 
@@ -595,12 +622,16 @@ export function useChat() {
 
       const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot, 'merge', lastContextTokens, abortController.signal);
 
+      if (abortController.signal.aborted) return;
+
       if (isStreaming) {
         setComposerStatus(null);
-        await processStream(response, null, convId, onFileGenerated);
+        const completed = await processStream(response, null, convId, onFileGenerated, abortController.signal);
+        if (!completed) return;
       } else {
         const data = await response.json();
-        const agentMessageId = (Date.now() + 1).toString();
+        if (abortController.signal.aborted) return;
+        const agentMessageId = generateUUID();
 
         if (data.download_path) {
           const fileName = data.download_path.split('/').pop() || 'generated_file';
@@ -644,15 +675,15 @@ export function useChat() {
         }, 5000);
       }
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!isAbortError(error) && !abortController.signal.aborted) {
         console.error('Failed to send message:', error);
       }
-      setIsLoading(false);
+      if (!abortController.signal.aborted) setIsLoading(false);
     } finally {
       if (activeAbortRef.current === abortController) {
         activeAbortRef.current = null;
+        setComposerStatus(null);
       }
-      setComposerStatus(null);
     }
   };
 
@@ -695,12 +726,16 @@ export function useChat() {
 
       const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild', lastContextTokens, abortController.signal);
 
+      if (abortController.signal.aborted) return;
+
       if (isStreaming) {
         setComposerStatus(null);
-        await processStream(response, null, convId, onFileGenerated);
+        const completed = await processStream(response, null, convId, onFileGenerated, abortController.signal);
+        if (!completed) return;
       } else {
         const data = await response.json();
-        const agentMessageId = (Date.now() + 1).toString();
+        if (abortController.signal.aborted) return;
+        const agentMessageId = generateUUID();
 
         if (data.download_path) {
           const fileName = data.download_path.split('/').pop() || 'generated_file';
@@ -744,15 +779,15 @@ export function useChat() {
         }, 5000);
       }
     } catch (error) {
-      if (!isAbortError(error)) {
+      if (!isAbortError(error) && !abortController.signal.aborted) {
         console.error('Failed to regenerate message:', error);
       }
-      setIsLoading(false);
+      if (!abortController.signal.aborted) setIsLoading(false);
     } finally {
       if (activeAbortRef.current === abortController) {
         activeAbortRef.current = null;
+        setComposerStatus(null);
       }
-      setComposerStatus(null);
     }
   };
 
@@ -765,6 +800,8 @@ export function useChat() {
 
     const msg = conv.messages[msgIndex];
     if (msg.role !== 'user') return;
+
+    abortActiveRequest();
 
     let textContent = msg.content;
     let filesToRestore: {name: string, path: string}[] = [];
