@@ -14,6 +14,8 @@ import { useAppDialog } from '../contexts/DialogContext';
 import { getWebDavConfig, setWebDavConfig, emptyWebDavConfig, type WebDavConfig } from '../lib/webdav-storage';
 import { webdavService, type WebDavFileInfo } from '../services/webdavService';
 import { buildBackupSnapshot, applyBackupSnapshot } from '../services/storageService';
+import { AnimatedSwitch } from './AnimatedSwitch';
+import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
 
 const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -339,11 +341,22 @@ export const SettingsPage: React.FC = () => {
     refreshMonet,
   } = useThemeContext();
   const [seedDraft, setSeedDraft] = useState(customSeed);
+  const [resumeEnabled, setResumeEnabledState] = useState(false);
   const seedValid = isHexColor(seedDraft);
 
   useEffect(() => {
     setSeedDraft(customSeed);
   }, [customSeed]);
+
+  useEffect(() => {
+    getResumeEnabled().then(setResumeEnabledState).catch(() => setResumeEnabledState(false));
+  }, []);
+
+  const updateResumeEnabled = async (enabled: boolean) => {
+    setResumeEnabledState(enabled);
+    await setResumeEnabled(enabled);
+    notifyResumeEnabledChanged(enabled);
+  };
 
   const monetDescription = useMemo(() => {
     if (!isMonetAvailableOnPlatform) return '需 Android 客户端';
@@ -533,6 +546,27 @@ export const SettingsPage: React.FC = () => {
           </section>
 
           <WebDavSection />
+
+          <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                  <RotateCcw size={20} strokeWidth={2} />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="t-title-m">断线续传</h2>
+                  <p className="mt-1 text-[13px] leading-5 text-[var(--fg-3)]">
+                    开启后，未来的回答会在服务器内存中临时缓存最多 45 分钟，并在本设备确认接收后删除。
+                  </p>
+                </div>
+              </div>
+              <AnimatedSwitch
+                checked={resumeEnabled}
+                onCheckedChange={updateResumeEnabled}
+                ariaLabel="切换断线续传"
+              />
+            </div>
+          </section>
 
           <section className="mt-1 flex flex-col gap-4">
             <h2 className="px-2 text-lg font-bold text-[var(--fg-1)]">关于应用</h2>

@@ -21,6 +21,7 @@ class ChatRequest(BaseModel):
     history: List[dict] = Field(default_factory=list)
     conversation_id: str = "default"
     stream: bool = True
+    resume_enabled: bool = False
     agent_mode: str = "default"
     use_ocp: bool = True
     memory_snapshot: Optional[dict] = None
@@ -41,6 +42,15 @@ class MemorySyncRequest(BaseModel):
     mode: str = "rebuild"
     expected_revision: Optional[int] = None
     memory_conflict_strategy: Optional[str] = None
+
+
+class ResumeAckRequest(BaseModel):
+    stream_id: str
+    acked_seq: int
+
+
+class StreamCancelRequest(BaseModel):
+    stream_id: str
 
 
 class CourtTurnRequest(BaseModel):

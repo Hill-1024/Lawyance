@@ -6,8 +6,23 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
 import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
 import { fileDB } from '../lib/db';
-import { isNative } from '../lib/platform';
-import { chat, deleteWorkspace, MemoryRevisionConflictError, summarizeTitle, syncConversationMemory } from '../services/api';
+import { getAuthToken } from '../lib/auth-storage';
+import { isNative, isNativeAndroid } from '../lib/platform';
+import { NativeStream, requestNativeStreamNotificationPermission, type NativeStreamEvent } from '../lib/native-stream';
+import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled, subscribeResumeEnabled } from '../lib/resume-prefs';
+import {
+  ackStream,
+  apiUrl,
+  buildChatRequestBody,
+  cancelStream,
+  chat,
+  deleteWorkspace,
+  MemoryRevisionConflictError,
+  resumeStream,
+  StreamExpiredError,
+  summarizeTitle,
+  syncConversationMemory
+} from '../services/api';
 import { addLocalStorageDataChangeListener } from '../services/storageEvents';
 import { useAppDialog } from '../contexts/DialogContext';
 
@@ -154,7 +169,7 @@ const createEmptyConversationMemory = (conversationId: string): ConversationMemo
 };
 
 export function useChat() {
-  const { showAlert } = useAppDialog();
+  const { showAlert, showChoice } = useAppDialog();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [currentId, setCurrentId] = useState<string>('');
   const [input, setInput] = useState('');
@@ -165,11 +180,35 @@ export function useChat() {
   const [isOCPEnabled, setIsOCPEnabled] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
   const activeAbortRef = useRef<AbortController | null>(null);
+  const activeServerStreamRef = useRef<string | null>(null);
+  const activeNativeStreamRef = useRef<{ streamId: string; nextIndex: number } | null>(null);
+  const drainNativeStreamRef = useRef<(() => Promise<void>) | null>(null);
+  const conversationsRef = useRef<Conversation[]>([]);
+  const resumeEnabledRef = useRef(false);
+  const ackStateRef = useRef<Record<string, { seq: number; at: number }>>({});
+  const resumingStreamsRef = useRef<Set<string>>(new Set());
+  const promptedDisconnectsRef = useRef<Set<string>>(new Set());
+  const regenerateMessageRef = useRef<((convId: string, messageId: string, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => Promise<void>) | null>(null);
 
   const currentConversation = conversations.find(c => c.id === currentId) || { id: '', title: '', messages: [] };
   const messages = currentConversation.messages;
   const contextUsage = currentConversation.context_usage || null;
   const nowIso = () => new Date().toISOString();
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    getResumeEnabled().then(enabled => {
+      resumeEnabledRef.current = enabled;
+    }).catch(() => {
+      resumeEnabledRef.current = false;
+    });
+    return subscribeResumeEnabled(enabled => {
+      resumeEnabledRef.current = enabled;
+    });
+  }, []);
 
   const abortActiveRequest = useCallback((resetUi = true) => {
     activeAbortRef.current?.abort();
@@ -180,6 +219,19 @@ export function useChat() {
     }
   }, []);
 
+  const stopActiveGeneration = useCallback(async () => {
+    const serverStreamId = activeServerStreamRef.current;
+    const nativeStreamId = activeNativeStreamRef.current?.streamId;
+    await stopActiveGeneration();
+    activeServerStreamRef.current = null;
+    activeNativeStreamRef.current = null;
+    drainNativeStreamRef.current = null;
+    await Promise.all([
+      serverStreamId ? cancelStream(serverStreamId).catch(console.error) : Promise.resolve(),
+      nativeStreamId ? NativeStream.stop({ streamId: nativeStreamId }).catch(console.error) : Promise.resolve(),
+    ]);
+  }, [abortActiveRequest]);
+
   useEffect(() => () => abortActiveRequest(false), [abortActiveRequest]);
 
   useEffect(() => {
@@ -187,7 +239,10 @@ export function useChat() {
 
     let listener: { remove: () => Promise<void> } | undefined;
     CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) abortActiveRequest();
+      if (isActive) {
+        drainNativeStreamRef.current?.().catch(console.error);
+      }
+      if (!isActive && !isNativeAndroid()) abortActiveRequest();
     }).then(handle => {
       listener = handle;
     });
@@ -370,14 +425,15 @@ export function useChat() {
     memorySnapshot: ConversationMemory,
     memorySyncMode: 'merge' | 'rebuild' = 'merge',
     lastContextTokens?: number | null,
+    resumeEnabled = false,
     signal?: AbortSignal
   ) => {
     try {
-      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, undefined, lastContextTokens, signal);
+      return await chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, undefined, lastContextTokens, resumeEnabled, signal);
     } catch (error) {
       if (!(error instanceof MemoryRevisionConflictError)) throw error;
       updateConversationMemory(convId, error.detail?.memory_snapshot as ConversationMemory | undefined);
-      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, 'server_merge', lastContextTokens, signal);
+      return chat(message, history, convId, stream, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, 'server_merge', lastContextTokens, resumeEnabled, signal);
     }
   };
 
@@ -425,6 +481,129 @@ export function useChat() {
     }
   };
 
+  const ackBufferedStream = useCallback((streamId: string, seq: number, force = false) => {
+    if (seq < 0) return;
+    const last = ackStateRef.current[streamId];
+    const now = Date.now();
+    if (!force && last && (seq <= last.seq || now - last.at < 500)) return;
+    ackStateRef.current[streamId] = { seq, at: now };
+    ackStream(streamId, seq).catch(error => {
+      console.warn('Stream ACK failed:', error);
+    });
+  }, []);
+
+  const processStreamPayload = (
+    data: any,
+    state: {
+      agentMessageId: string;
+      convId: string;
+      bodyText: string;
+      thoughtBlocks: ThoughtBlock[];
+      contextMessages: BackendHistoryMessage[];
+      currentSignature: string;
+      currentDownloadPath: string;
+      thoughtIdCounter: number;
+      lastSeq: number;
+      streamId?: string;
+      buffered: boolean;
+      seenDone: boolean;
+      finalSeq?: number;
+      status: Message['stream_status'];
+    },
+    onFileGenerated?: (name: string, path: string) => void
+  ) => {
+    const incomingSeq = Number.isInteger(data.seq) ? Number(data.seq) : state.lastSeq + 1;
+    if (incomingSeq <= state.lastSeq) return false;
+    state.lastSeq = incomingSeq;
+
+    const nextThoughtId = () => `${state.agentMessageId}-thought-${state.thoughtIdCounter++}`;
+    if (data.type === 'stream_start') {
+      state.streamId = data.stream_id || state.streamId;
+      state.buffered = Boolean(data.buffered);
+      state.status = 'streaming';
+      if (state.buffered && state.streamId) activeServerStreamRef.current = state.streamId;
+    } else if (data.type === 'content') {
+      state.bodyText += data.content || '';
+    } else if (data.type === 'thought') {
+      const thoughtType = (['reasoning', 'draft', 'tool', 'ocp', 'memory'].includes(data.thought_type)
+        ? data.thought_type
+        : 'reasoning') as ThoughtBlock['type'];
+      const shouldAppend = data.mode === 'append' || thoughtType === 'reasoning' || thoughtType === 'draft';
+      state.thoughtBlocks = appendThoughtBlock(
+        state.thoughtBlocks,
+        data.content || '',
+        thoughtType,
+        nextThoughtId(),
+        shouldAppend
+      );
+    } else if (data.type === 'thought_signature') {
+      state.currentSignature = data.content;
+    } else if (data.type === 'download_path') {
+      if (data.content && data.content !== state.currentDownloadPath) {
+        state.currentDownloadPath = data.content;
+        const fileName = state.currentDownloadPath.split('/').pop() || 'generated_file';
+        onFileGenerated?.(fileName, state.currentDownloadPath);
+      }
+    } else if (data.type === 'memory_sync') {
+      updateConversationMemory(state.convId, data.content as ConversationMemory);
+    } else if (data.type === 'context_usage') {
+      updateConversationContextUsage(state.convId, data.content as ContextUsage);
+    } else if (data.type === 'history_trace') {
+      const traceMessages = Array.isArray(data.content) ? data.content : [data.content];
+      state.contextMessages = [
+        ...state.contextMessages,
+        ...traceMessages
+          .map((item: BackendHistoryMessage) => normalizeBackendMessage(item))
+          .filter((item: BackendHistoryMessage | null): item is BackendHistoryMessage => Boolean(item))
+      ];
+    } else if (data.type === 'content_replace') {
+      state.bodyText = data.content || '';
+    } else if (data.type === 'resume_unavailable') {
+      state.status = 'error';
+      state.bodyText += '\n\n**续传不可用：** 本次回答的临时缓存已不可用，请重新生成。';
+    } else if (data.type === 'error') {
+      state.status = 'error';
+      state.bodyText += `\n\n**Error:** ${data.content}`;
+    } else if (data.type === 'done') {
+      state.seenDone = true;
+      state.status = 'done';
+      state.finalSeq = Number.isInteger(data.final_seq) ? Number(data.final_seq) : incomingSeq;
+    }
+    return true;
+  };
+
+  const showDisconnectPrompt = async (
+    convId: string,
+    agentMessageId: string,
+    onFileGenerated?: (name: string, path: string) => void
+  ) => {
+    const key = `${convId}:${agentMessageId}`;
+    if (promptedDisconnectsRef.current.has(key) || resumeEnabledRef.current) return;
+    promptedDisconnectsRef.current.add(key);
+    const choice = await showChoice({
+      title: '回答已中断',
+      tone: 'warning',
+      message: '本次回答因离开页面或网络中断而停止。是否开启断线续传？开启后，今后的回答会在中断时自动恢复；为此服务器会在内存中临时缓存回答内容，最多 45 分钟，或在你的设备确认接收后立即删除。本次回答可重新生成。',
+      confirmLabel: '开启续传',
+      secondaryLabel: '仅重新生成本次',
+      cancelLabel: '不了',
+    });
+    if (choice === 'confirm') {
+      resumeEnabledRef.current = true;
+      await setResumeEnabled(true);
+      notifyResumeEnabledChanged(true);
+    } else if (choice === 'secondary') {
+      const conv = conversationsRef.current.find(item => item.id === convId);
+      const messageIndex = conv?.messages.findIndex(item => item.id === agentMessageId) ?? -1;
+      const previousUser = messageIndex > 0
+        ? conv?.messages.slice(0, messageIndex).reverse().find(item => item.role === 'user')
+        : undefined;
+      if (previousUser) {
+        regenerateMessageRef.current?.(convId, previousUser.id, onFileGenerated).catch(console.error);
+      }
+    }
+  };
+
   const processStream = async (
     response: Response,
     agentMessageId: string | null,
@@ -438,84 +617,95 @@ export function useChat() {
       return false;
     }
 
-    const decoder = new TextDecoder();
-    let thoughtBlocks: ThoughtBlock[] = [];
-    let contextMessages: BackendHistoryMessage[] = [];
-    let bodyText = '';
-    let currentSignature = '';
-    let currentDownloadPath = '';
-    let streamBuffer = '';
-    let thoughtIdCounter = 0;
+    if (!agentMessageId) {
+      if (signal?.aborted) return false;
+      agentMessageId = generateUUID();
+      const now = nowIso();
+      updateMessages(convId, prev => [...prev, {
+        id: agentMessageId!,
+        role: 'assistant',
+        content: '',
+        thought_blocks: [],
+        stream_status: 'streaming',
+        last_committed_seq: -1,
+        created_at: now,
+        updated_at: now
+      }]);
+    }
 
-    const nextThoughtId = () => `${agentMessageId || 'assistant'}-thought-${thoughtIdCounter++}`;
+    const existing = conversationsRef.current
+      .find(conv => conv.id === convId)
+      ?.messages.find(msg => msg.id === agentMessageId);
+    const streamState = {
+      agentMessageId,
+      convId,
+      bodyText: existing?.content || '',
+      thoughtBlocks: existing?.thought_blocks ? [...existing.thought_blocks] : [],
+      contextMessages: existing?.context_messages ? [...existing.context_messages] : [],
+      currentSignature: existing?.thought_signature || '',
+      currentDownloadPath: existing?.download_path || '',
+      thoughtIdCounter: existing?.thought_blocks?.length || 0,
+      lastSeq: existing?.last_committed_seq ?? -1,
+      streamId: existing?.stream_id,
+      buffered: false,
+      seenDone: false,
+      finalSeq: undefined as number | undefined,
+      status: (existing?.stream_status || 'streaming') as Message['stream_status'],
+    };
+    const decoder = new TextDecoder();
+    let streamBuffer = '';
     const isStreamActive = () => !signal?.aborted;
 
-    const handleStreamData = (data: any) => {
-      if (!isStreamActive()) return;
-      if (data.type === 'content') {
-        bodyText += data.content || '';
-      } else if (data.type === 'thought') {
-        const thoughtType = (['reasoning', 'draft', 'tool', 'ocp', 'memory'].includes(data.thought_type)
-          ? data.thought_type
-          : 'reasoning') as ThoughtBlock['type'];
-        const shouldAppend = data.mode === 'append' || thoughtType === 'reasoning' || thoughtType === 'draft';
-        thoughtBlocks = appendThoughtBlock(
-          thoughtBlocks,
-          data.content || '',
-          thoughtType,
-          nextThoughtId(),
-          shouldAppend
-        );
-      } else if (data.type === 'thought_signature') {
-        currentSignature = data.content;
-      } else if (data.type === 'download_path') {
-        if (data.content && data.content !== currentDownloadPath) {
-          currentDownloadPath = data.content;
-          const fileName = currentDownloadPath.split('/').pop() || 'generated_file';
-          onFileGenerated?.(fileName, currentDownloadPath);
-        }
-      } else if (data.type === 'memory_sync') {
-        updateConversationMemory(convId, data.content as ConversationMemory);
-      } else if (data.type === 'context_usage') {
-        updateConversationContextUsage(convId, data.content as ContextUsage);
-      } else if (data.type === 'history_trace') {
-        const traceMessages = Array.isArray(data.content) ? data.content : [data.content];
-        contextMessages = [
-          ...contextMessages,
-          ...traceMessages
-            .map((item: BackendHistoryMessage) => normalizeBackendMessage(item))
-            .filter((item: BackendHistoryMessage | null): item is BackendHistoryMessage => Boolean(item))
-        ];
-      } else if (data.type === 'content_replace') {
-        bodyText = data.content || '';
-      } else if (data.type === 'error') {
-        bodyText += `\n\n**Error:** ${data.content}`;
-      }
-    };
-
-    const commitAssistantState = () => {
+    const commitAssistantState = (forceAck = false) => {
       if (!agentMessageId || !isStreamActive()) return;
-      updateMessages(convId, prev => {
-        if (!prev.some(msg => msg.id === agentMessageId)) return prev;
-        return prev.map(msg =>
-          msg.id === agentMessageId ? {
-            ...msg,
-            content: bodyText,
-            thought_blocks: thoughtBlocks,
-            context_messages: contextMessages,
-            thought_signature: currentSignature || msg.thought_signature,
-            download_path: currentDownloadPath || msg.download_path
-          } : msg
-        );
+      setConversations(prev => {
+        let changed = false;
+        const next = prev.map(conv => {
+          if (conv.id !== convId) return conv;
+          const nextMessages = conv.messages.map(msg => {
+            if (msg.id !== agentMessageId) return msg;
+            changed = true;
+            return {
+              ...msg,
+              content: streamState.bodyText,
+              thought_blocks: streamState.thoughtBlocks,
+              context_messages: streamState.contextMessages,
+              thought_signature: streamState.currentSignature || msg.thought_signature,
+              download_path: streamState.currentDownloadPath || msg.download_path,
+              stream_id: streamState.streamId || msg.stream_id,
+              stream_status: streamState.status,
+              last_committed_seq: streamState.lastSeq,
+              updated_at: nowIso()
+            };
+          });
+          return changed ? { ...conv, messages: nextMessages, updated_at: nowIso() } : conv;
+        });
+        if (changed) {
+          fileDB.saveConversations(next).then(() => {
+            if (streamState.buffered && streamState.streamId) {
+              ackBufferedStream(streamState.streamId, streamState.lastSeq, forceAck || streamState.status === 'done');
+            }
+          }).catch(error => {
+            console.error('Failed to persist stream progress:', error);
+          });
+        }
+        return next;
       });
     };
 
-    if (!agentMessageId) {
-      if (!isStreamActive()) return false;
-      agentMessageId = generateUUID();
-      const now = nowIso();
-      updateMessages(convId, prev => [...prev, { id: agentMessageId!, role: 'assistant', content: '', thought_blocks: [], created_at: now, updated_at: now }]);
-    }
+    const handleLine = (line: string) => {
+      if (!isStreamActive() || !line.startsWith('data: ')) return;
+      const dataStr = line.slice(6).trim();
+      if (!dataStr) return;
+      if (dataStr === '[DONE]') return;
+      try {
+        const data = JSON.parse(dataStr);
+        const changed = processStreamPayload(data, streamState, onFileGenerated);
+        if (changed) commitAssistantState(data.type === 'done');
+      } catch {
+        console.warn('Failed to parse stream data:', dataStr);
+      }
+    };
 
     try {
       while (true) {
@@ -527,53 +717,198 @@ export function useChat() {
         streamBuffer += decoder.decode(value, { stream: true });
         const lines = streamBuffer.split('\n');
         streamBuffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!isStreamActive()) return false;
-          if (line.startsWith('data: ')) {
-            const dataStr = line.slice(6);
-            if (dataStr === '[DONE]') continue;
-
-            try {
-              const data = JSON.parse(dataStr);
-              handleStreamData(data);
-            } catch (e) {
-              console.warn('Failed to parse stream data:', dataStr);
-            }
-          }
-        }
-
-        if (bodyText || thoughtBlocks.length > 0 || currentSignature || currentDownloadPath) {
-          commitAssistantState();
-        }
+        lines.forEach(handleLine);
       }
 
       if (streamBuffer.trim().startsWith('data: ')) {
-        if (!isStreamActive()) return false;
-        try {
-          const dataStr = streamBuffer.trim().slice(6);
-          if (dataStr && dataStr !== '[DONE]') {
-            const data = JSON.parse(dataStr);
-            handleStreamData(data);
-          }
-        } catch (e) {
-          console.warn('Failed to parse trailing stream data:', streamBuffer);
-        }
+        handleLine(streamBuffer.trim());
       }
-      commitAssistantState();
-      return isStreamActive();
+      commitAssistantState(streamState.seenDone);
+      if (!streamState.seenDone && !streamState.buffered && agentMessageId) {
+        await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
+      }
+      return isStreamActive() && streamState.seenDone;
     } catch (err) {
       if (isAbortError(err) || !isStreamActive()) return false;
       console.error('Stream read error:', err);
+      commitAssistantState(false);
+      if (!streamState.buffered && agentMessageId) {
+        await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
+      }
       return false;
     } finally {
       reader.releaseLock();
       if (isStreamActive()) {
         setIsLoading(false);
+        setComposerStatus(null);
+        if (streamState.status === 'done') {
+          activeServerStreamRef.current = null;
+        }
         onFileGenerated?.('sync', '');
       }
     }
   };
+
+  const resumePendingStreams = useCallback(async () => {
+    const pending: Array<{ convId: string; message: Message }> = [];
+    conversationsRef.current.forEach(conv => {
+      conv.messages.forEach(message => {
+        if (message.role === 'assistant' && message.stream_status === 'streaming' && message.stream_id) {
+          pending.push({ convId: conv.id, message });
+        }
+      });
+    });
+
+    for (const item of pending) {
+      const streamId = item.message.stream_id;
+      if (!streamId || resumingStreamsRef.current.has(streamId)) continue;
+      resumingStreamsRef.current.add(streamId);
+      const controller = new AbortController();
+      try {
+        setIsLoading(true);
+        setComposerStatus('正在恢复中断的回答');
+        const response = await resumeStream(streamId, item.message.last_committed_seq ?? -1, controller.signal);
+        await processStream(response, item.message.id, item.convId, undefined, controller.signal);
+      } catch (error) {
+        if (error instanceof StreamExpiredError) {
+          updateMessages(item.convId, prev => prev.map(message =>
+            message.id === item.message.id
+              ? {
+                ...message,
+                stream_status: 'error',
+                content: `${message.content}\n\n**续传窗口已过：** 请重新生成本次回答。`,
+                updated_at: nowIso()
+              }
+              : message
+          ));
+        } else if (!isAbortError(error)) {
+          console.error('Failed to resume stream:', error);
+        }
+      } finally {
+        resumingStreamsRef.current.delete(streamId);
+        setIsLoading(false);
+        setComposerStatus(null);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    resumePendingStreams().catch(console.error);
+  }, [isInitialized, resumePendingStreams]);
+
+  const processNativeChatStream = async (
+    body: string,
+    agentMessageId: string | null,
+    convId: string,
+    onFileGenerated?: (name: string, path: string) => void,
+    signal?: AbortSignal
+  ): Promise<boolean> => {
+    const token = await getAuthToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Lawver-Client': 'capacitor',
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    await requestNativeStreamNotificationPermission().catch(() => false);
+
+    const encoder = new TextEncoder();
+    let nativeStreamId = '';
+    let eventHandle: { remove: () => Promise<void> } | null = null;
+    let doneHandle: { remove: () => Promise<void> } | null = null;
+
+    const response = new Response(new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const enqueuePayload = (payload: string) => {
+          if (signal?.aborted) return;
+          controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+        };
+        const drain = async () => {
+          const active = activeNativeStreamRef.current;
+          if (!active) return;
+          const result = await NativeStream.drain({ streamId: active.streamId, fromIndex: active.nextIndex });
+          result.events.forEach(payload => enqueuePayload(payload));
+          active.nextIndex = result.nextIndex;
+          if (result.done) {
+            if (result.error) {
+              enqueuePayload(JSON.stringify({ type: 'error', content: result.error }));
+            }
+            enqueuePayload('[DONE]');
+            controller.close();
+          }
+        };
+
+        eventHandle = await NativeStream.addListener('streamEvent', (event: NativeStreamEvent) => {
+          if (event.streamId !== nativeStreamId) return;
+          const active = activeNativeStreamRef.current;
+          if (!active || event.index < active.nextIndex) return;
+          enqueuePayload(event.payload);
+          active.nextIndex = event.index + 1;
+        });
+        doneHandle = await NativeStream.addListener('streamDone', event => {
+          if (event.streamId !== nativeStreamId) return;
+          drain().catch(error => {
+            controller.error(error);
+          });
+        });
+
+        try {
+          const started = await NativeStream.startStream({
+            url: apiUrl('/api/chat'),
+            headers,
+            body,
+          });
+          nativeStreamId = started.streamId;
+          activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
+          drainNativeStreamRef.current = drain;
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+      cancel() {
+        if (nativeStreamId) {
+          NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
+        }
+      }
+    }));
+
+    try {
+      const completed = await processStream(response, agentMessageId, convId, onFileGenerated, signal);
+      if (nativeStreamId) {
+        await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
+      }
+      return completed;
+    } finally {
+      await eventHandle?.remove();
+      await doneHandle?.remove();
+      activeNativeStreamRef.current = null;
+      drainNativeStreamRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    const handleResume = () => {
+      resumePendingStreams().catch(console.error);
+    };
+    window.addEventListener('focus', handleResume);
+    window.addEventListener('online', handleResume);
+
+    let listener: { remove: () => Promise<void> } | undefined;
+    if (isNative()) {
+      CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) handleResume();
+      }).then(handle => {
+        listener = handle;
+      });
+    }
+
+    return () => {
+      window.removeEventListener('focus', handleResume);
+      window.removeEventListener('online', handleResume);
+      listener?.remove();
+    };
+  }, [isInitialized, resumePendingStreams]);
 
   const handleSend = async (pendingUploads: {name: string, path: string}[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => {
     if ((!input.trim() && pendingUploads.length === 0) || isLoading || !isInitialized) {
@@ -620,38 +955,58 @@ export function useChat() {
         await syncFiles();
       }
 
-      const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot, 'merge', lastContextTokens, abortController.signal);
-
-      if (abortController.signal.aborted) return;
-
-      if (isStreaming) {
+      const resumeEnabled = await getResumeEnabled();
+      resumeEnabledRef.current = resumeEnabled;
+      if (isStreaming && isNativeAndroid()) {
+        const body = JSON.stringify(buildChatRequestBody(
+          messageContent,
+          history,
+          convId,
+          true,
+          agentMode,
+          isOCPEnabled,
+          memorySnapshot,
+          'merge',
+          undefined,
+          lastContextTokens,
+          resumeEnabled
+        ));
         setComposerStatus(null);
-        const completed = await processStream(response, null, convId, onFileGenerated, abortController.signal);
+        const completed = await processNativeChatStream(body, null, convId, onFileGenerated, abortController.signal);
         if (!completed) return;
       } else {
-        const data = await response.json();
+        const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot, 'merge', lastContextTokens, resumeEnabled, abortController.signal);
+
         if (abortController.signal.aborted) return;
-        const agentMessageId = generateUUID();
+        if (isStreaming) {
+          setComposerStatus(null);
+          const completed = await processStream(response, null, convId, onFileGenerated, abortController.signal);
+          if (!completed) return;
+        } else {
+          const data = await response.json();
+          if (abortController.signal.aborted) return;
+          const agentMessageId = generateUUID();
 
-        if (data.download_path) {
-          const fileName = data.download_path.split('/').pop() || 'generated_file';
-          onFileGenerated?.(fileName, data.download_path);
+          if (data.download_path) {
+            const fileName = data.download_path.split('/').pop() || 'generated_file';
+            onFileGenerated?.(fileName, data.download_path);
+          }
+
+          updateMessages(convId, prev => [...prev, {
+            id: agentMessageId,
+            role: 'assistant',
+            content: data.reply,
+            download_path: data.download_path,
+            context_messages: data.context_messages || [],
+            created_at: nowIso(),
+            updated_at: nowIso()
+          }]);
+          updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
+          updateConversationContextUsage(convId, data.context_usage as ContextUsage | undefined);
+          setIsLoading(false);
+          setComposerStatus(null);
+          onFileGenerated?.('sync', '');
         }
-
-        updateMessages(convId, prev => [...prev, {
-          id: agentMessageId,
-          role: 'assistant',
-          content: data.reply,
-          download_path: data.download_path,
-          context_messages: data.context_messages || [],
-          created_at: nowIso(),
-          updated_at: nowIso()
-        }]);
-        updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
-        updateConversationContextUsage(convId, data.context_usage as ContextUsage | undefined);
-        setIsLoading(false);
-        setComposerStatus(null);
-        onFileGenerated?.('sync', '');
       }
 
       if (isFirstUserMessage) {
@@ -724,38 +1079,58 @@ export function useChat() {
       const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content, created_at: now, updated_at: now };
       updateMessages(convId, prev => [...prev, userMessage]);
 
-      const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild', lastContextTokens, abortController.signal);
-
-      if (abortController.signal.aborted) return;
-
-      if (isStreaming) {
+      const resumeEnabled = await getResumeEnabled();
+      resumeEnabledRef.current = resumeEnabled;
+      if (isStreaming && isNativeAndroid()) {
+        const body = JSON.stringify(buildChatRequestBody(
+          content,
+          history,
+          convId,
+          true,
+          agentMode,
+          isOCPEnabled,
+          memorySnapshot,
+          'rebuild',
+          undefined,
+          lastContextTokens,
+          resumeEnabled
+        ));
         setComposerStatus(null);
-        const completed = await processStream(response, null, convId, onFileGenerated, abortController.signal);
+        const completed = await processNativeChatStream(body, null, convId, onFileGenerated, abortController.signal);
         if (!completed) return;
       } else {
-        const data = await response.json();
+        const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild', lastContextTokens, resumeEnabled, abortController.signal);
+
         if (abortController.signal.aborted) return;
-        const agentMessageId = generateUUID();
+        if (isStreaming) {
+          setComposerStatus(null);
+          const completed = await processStream(response, null, convId, onFileGenerated, abortController.signal);
+          if (!completed) return;
+        } else {
+          const data = await response.json();
+          if (abortController.signal.aborted) return;
+          const agentMessageId = generateUUID();
 
-        if (data.download_path) {
-          const fileName = data.download_path.split('/').pop() || 'generated_file';
-          onFileGenerated?.(fileName, data.download_path);
+          if (data.download_path) {
+            const fileName = data.download_path.split('/').pop() || 'generated_file';
+            onFileGenerated?.(fileName, data.download_path);
+          }
+
+          updateMessages(convId, prev => [...prev, {
+            id: agentMessageId,
+            role: 'assistant',
+            content: data.reply,
+            download_path: data.download_path,
+            context_messages: data.context_messages || [],
+            created_at: nowIso(),
+            updated_at: nowIso()
+          }]);
+          updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
+          updateConversationContextUsage(convId, data.context_usage as ContextUsage | undefined);
+          setIsLoading(false);
+          setComposerStatus(null);
+          onFileGenerated?.('sync', '');
         }
-
-        updateMessages(convId, prev => [...prev, {
-          id: agentMessageId,
-          role: 'assistant',
-          content: data.reply,
-          download_path: data.download_path,
-          context_messages: data.context_messages || [],
-          created_at: nowIso(),
-          updated_at: nowIso()
-        }]);
-        updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
-        updateConversationContextUsage(convId, data.context_usage as ContextUsage | undefined);
-        setIsLoading(false);
-        setComposerStatus(null);
-        onFileGenerated?.('sync', '');
       }
 
       if (isFirstUserMessage) {
@@ -790,6 +1165,8 @@ export function useChat() {
       }
     }
   };
+
+  regenerateMessageRef.current = handleRegenerateMessage;
 
   const handleUndo = async (convId: string, messageId: string, setPendingUploads: (val: any) => void) => {
     const conv = conversations.find(c => c.id === convId);
@@ -901,6 +1278,7 @@ export function useChat() {
       return handleSend(pendingUploads, setPendingUploads, onFileGenerated, syncFiles);
     },
     handleRegenerateMessage,
+    stopActiveGeneration,
     handleUndo,
     handleEdit,
     branchConversation

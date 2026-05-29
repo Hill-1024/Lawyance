@@ -8,6 +8,7 @@ import { Share } from '@capacitor/share';
 import { isNative } from '../lib/platform';
 import { notifyLocalStorageDataChanged } from './storageEvents';
 import type { Conversation, CourtAgentStates, CourtPublicEvent, CourtSession } from '../types';
+import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
 
 const EXPORT_SECURITY_KEY = "Lawver-Security-Migration-Key-2024";
 const decodeCodes = (codes: number[]) => codes.map(code => String.fromCharCode(code)).join('');
@@ -164,16 +165,17 @@ const remapCourtSession = (session: any): CourtSession => {
   } as CourtSession;
 };
 
-// ─── 快照 v3（对话 + 庭审 + 应用设置，WebDAV 和本地导出共用对象结构）──────────
+// ─── 快照 v4（对话 + 庭审 + 应用设置，WebDAV 和本地导出共用对象结构）──────────
 
 const THEME_STORAGE_KEY = 'lawver.theme.settings';
 
 export interface BackupSnapshot {
-  version: 3;
+  version: 4;
   conversations: Conversation[];
   courtSessions: CourtSession[];
   settings: {
     theme: string | null;
+    resumeEnabled?: boolean;
   };
 }
 
@@ -183,11 +185,12 @@ export const buildBackupSnapshot = async (): Promise<BackupSnapshot> => {
     fileDB.getCourtSessions(),
   ]);
   return {
-    version: 3,
+    version: 4,
     conversations,
     courtSessions,
     settings: {
       theme: localStorage.getItem(THEME_STORAGE_KEY),
+      resumeEnabled: await getResumeEnabled(),
     },
   };
 };
@@ -217,6 +220,12 @@ export const applyBackupSnapshot = async (raw: any): Promise<number> => {
       newValue: themeRaw,
       storageArea: localStorage,
     }));
+  }
+
+  const resumeEnabledRaw = raw?.settings?.resumeEnabled;
+  if (typeof resumeEnabledRaw === 'boolean') {
+    await setResumeEnabled(resumeEnabledRaw);
+    notifyResumeEnabledChanged(resumeEnabledRaw);
   }
 
   notifyLocalStorageDataChanged({

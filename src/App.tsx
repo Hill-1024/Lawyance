@@ -81,6 +81,7 @@ function App() {
     deleteConversation,
     handleSend,
     handleRegenerateMessage,
+    stopActiveGeneration,
     handleUndo,
     handleEdit,
     branchConversation
@@ -343,6 +344,7 @@ function App() {
               input={input}
               setInput={setInput}
               handleSend={() => handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles, isLowStorage)}
+              handleStop={stopActiveGeneration}
               isLoading={isLoading}
               composerStatus={composerStatus}
               contextUsage={contextUsage}

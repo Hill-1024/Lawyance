@@ -29,6 +29,9 @@ export type Message = {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
+  stream_id?: string;
+  stream_status?: 'streaming' | 'done' | 'error';
+  last_committed_seq?: number;
   thought_blocks?: ThoughtBlock[];
   reasoning_content?: string;
   thought_signature?: string;
