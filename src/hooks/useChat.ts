@@ -174,6 +174,7 @@ export function useChat() {
   const [currentId, setCurrentId] = useState<string>('');
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<string | null>(null);
   const [composerStatus, setComposerStatus] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(true);
   const [agentMode, setAgentMode] = useState('default');
@@ -215,6 +216,7 @@ export function useChat() {
     activeAbortRef.current = null;
     if (resetUi) {
       setIsLoading(false);
+      setActiveAssistantMessageId(null);
       setComposerStatus(null);
     }
   }, []);
@@ -223,6 +225,7 @@ export function useChat() {
     const serverStreamId = activeServerStreamRef.current;
     const nativeStreamId = activeNativeStreamRef.current?.streamId;
     abortActiveRequest();
+    setActiveAssistantMessageId(null);
     activeServerStreamRef.current = null;
     activeNativeStreamRef.current = null;
     drainNativeStreamRef.current = null;
@@ -626,12 +629,14 @@ export function useChat() {
         role: 'assistant',
         content: '',
         thought_blocks: [],
+        stream_buffered: false,
         stream_status: 'streaming',
         last_committed_seq: -1,
         created_at: now,
         updated_at: now
       }]);
     }
+    setActiveAssistantMessageId(agentMessageId);
 
     const existing = conversationsRef.current
       .find(conv => conv.id === convId)
@@ -647,7 +652,7 @@ export function useChat() {
       thoughtIdCounter: existing?.thought_blocks?.length || 0,
       lastSeq: existing?.last_committed_seq ?? -1,
       streamId: existing?.stream_id,
-      buffered: false,
+      buffered: existing?.stream_buffered === true,
       seenDone: false,
       finalSeq: undefined as number | undefined,
       status: (existing?.stream_status || 'streaming') as Message['stream_status'],
@@ -673,6 +678,7 @@ export function useChat() {
               thought_signature: streamState.currentSignature || msg.thought_signature,
               download_path: streamState.currentDownloadPath || msg.download_path,
               stream_id: streamState.streamId || msg.stream_id,
+              stream_buffered: streamState.buffered,
               stream_status: streamState.status,
               last_committed_seq: streamState.lastSeq,
               updated_at: nowIso()
@@ -740,6 +746,7 @@ export function useChat() {
       reader.releaseLock();
       if (isStreamActive()) {
         setIsLoading(false);
+        setActiveAssistantMessageId(current => current === agentMessageId ? null : current);
         setComposerStatus(null);
         if (streamState.status === 'done') {
           activeServerStreamRef.current = null;
@@ -753,7 +760,12 @@ export function useChat() {
     const pending: Array<{ convId: string; message: Message }> = [];
     conversationsRef.current.forEach(conv => {
       conv.messages.forEach(message => {
-        if (message.role === 'assistant' && message.stream_status === 'streaming' && message.stream_id) {
+        if (
+          message.role === 'assistant' &&
+          message.stream_status === 'streaming' &&
+          message.stream_id &&
+          message.stream_buffered === true
+        ) {
           pending.push({ convId: conv.id, message });
         }
       });
@@ -766,6 +778,7 @@ export function useChat() {
       const controller = new AbortController();
       try {
         setIsLoading(true);
+        setActiveAssistantMessageId(item.message.id);
         setComposerStatus('正在恢复中断的回答');
         const response = await resumeStream(streamId, item.message.last_committed_seq ?? -1, controller.signal);
         await processStream(response, item.message.id, item.convId, undefined, controller.signal);
@@ -787,6 +800,7 @@ export function useChat() {
       } finally {
         resumingStreamsRef.current.delete(streamId);
         setIsLoading(false);
+        setActiveAssistantMessageId(null);
         setComposerStatus(null);
       }
     }
@@ -863,6 +877,7 @@ export function useChat() {
           nativeStreamId = started.streamId;
           activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
           drainNativeStreamRef.current = drain;
+          await drain();
         } catch (error) {
           controller.error(error);
         }
@@ -891,6 +906,10 @@ export function useChat() {
   useEffect(() => {
     if (!isInitialized) return;
     const handleResume = () => {
+      if (activeNativeStreamRef.current) {
+        drainNativeStreamRef.current?.().catch(console.error);
+        return;
+      }
       resumePendingStreams().catch(console.error);
     };
     window.addEventListener('focus', handleResume);
@@ -1255,6 +1274,7 @@ export function useChat() {
     input,
     setInput,
     isLoading,
+    activeAssistantMessageId,
     composerStatus,
     isStreaming,
     setIsStreaming,

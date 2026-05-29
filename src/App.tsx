@@ -77,6 +77,7 @@ function App() {
     currentConversation,
     contextUsage,
     messages,
+    activeAssistantMessageId,
     handleNewChat,
     deleteConversation,
     handleSend,
@@ -332,6 +333,7 @@ function App() {
                 conversationId={currentId}
                 messages={messages}
                 isLoading={isLoading}
+                activeAssistantMessageId={activeAssistantMessageId}
                 bottomInset={composerOverlayHeight}
                 onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
                 onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}

@@ -30,6 +30,7 @@ export type Message = {
   role: 'user' | 'assistant' | 'tool';
   content: string;
   stream_id?: string;
+  stream_buffered?: boolean;
   stream_status?: 'streaming' | 'done' | 'error';
   last_committed_seq?: number;
   thought_blocks?: ThoughtBlock[];

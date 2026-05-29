@@ -10,6 +10,7 @@ interface MessageListProps {
   conversationId?: string;
   messages: Message[];
   isLoading: boolean;
+  activeAssistantMessageId?: string | null;
   bottomInset?: number;
   onRegenerate: (id: string) => void;
   onEdit: (id: string) => void;
@@ -21,6 +22,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   conversationId,
   messages,
   isLoading,
+  activeAssistantMessageId,
   bottomInset = 0,
   onRegenerate,
   onEdit,
@@ -112,7 +114,9 @@ export const MessageList: React.FC<MessageListProps> = ({
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 sm:gap-8">
         {messages.map((msg, index) => {
           const isLast = index === messages.length - 1;
-          const isThinking = isLoading && isLast && msg.role === 'assistant';
+          const isThinking = isLoading && msg.role === 'assistant' && (
+            activeAssistantMessageId ? msg.id === activeAssistantMessageId : isLast
+          );
 
           return (
             <MessageItem
