@@ -7,10 +7,49 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from .composer import SUPPORTED_BLOCK_TYPES
 from .errors import FieldValidationError, ManifestValidationError
+
+
+# 元评论关键词:LLM 在文书中暴露思绪/起草过程的典型措辞,命中即发软警告
+_META_COMMENT_PATTERNS = [
+    re.compile(r'我(这样|这么|之所以|在此|在这里)(写|起草|拟定|表述|措辞).{0,20}(是因为|的原因|的目的|意在)'),
+    re.compile(r'(以下|下面|这里|此处)(是|为).{0,30}(修改|修订|起草|拟定|调整|完善|草拟)(后|过)?.{0,10}(的)?.{0,15}(正文|内容|版本|结果|诉讼请求|答辩|事实)'),
+    re.compile(r'(以上|上述|本文|本稿)(为|是).{0,20}(草拟|草稿|拟稿|初稿|参考).{0,30}(仅供参考)?'),
+    re.compile(r'(作者注|笔者注|此处补充|此处需补充|此处可补充|此处建议补充)\s*[:：]'),
+    re.compile(r'如有(疑问|问题|不当|遗漏).{0,30}(请|建议).{0,20}(咨询|联系|补充|修改)'),
+    re.compile(r'(由于|因为|鉴于)(篇幅|信息|材料|事实)(有限|不足|缺失|不全).{0,30}(暂|此处|此段|此部分)?(略|省略|不展开|从略|待补)'),
+]
+
+
+def _collect_block_text(blocks: list[dict]) -> str:
+    """提取所有 block 的可见文本,用于元评论扫描。"""
+    parts: list[str] = []
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        btype = b.get("type")
+        if btype in ("title", "heading", "paragraph"):
+            parts.append(str(b.get("text", "")))
+        elif btype in ("ordered_list", "unordered_list"):
+            for item in b.get("items") or []:
+                parts.append(str(item))
+        elif btype == "table":
+            for cell in b.get("header") or []:
+                parts.append(str(cell))
+            for row in b.get("rows") or []:
+                for cell in row or []:
+                    parts.append(str(cell))
+        elif btype == "signature_block":
+            for line in b.get("lines") or []:
+                parts.append(str(line))
+            for key in ("signer", "entity", "date"):
+                if b.get(key):
+                    parts.append(str(b[key]))
+    return "\n".join(parts)
 
 
 def load_and_validate_guide(guide_path: str) -> dict:
@@ -154,6 +193,23 @@ def evaluate_soft_constraints(blocks: list[dict], guide: dict) -> list[str]:
     if missing_sections:
         warnings.append(
             "guide 声明的关键章节未在文书中找到：{}".format("、".join(missing_sections))
+        )
+
+    full_text = _collect_block_text(blocks)
+    meta_hits: list[str] = []
+    for pat in _META_COMMENT_PATTERNS:
+        m = pat.search(full_text)
+        if m:
+            sample = m.group(0)
+            if len(sample) > 40:
+                sample = sample[:40] + "…"
+            meta_hits.append(sample)
+    if meta_hits:
+        warnings.append(
+            "检测到 {} 处元评论/起草过程说明(示例:{})。"
+            "文书是当事人立场的法律文书,不应包含\"我这样写是因为...\"\"以下是修改后的...\""
+            "\"以上为草拟稿\"\"如有疑问请咨询...\"等措辞,请重新撰写相关段落。"
+            .format(len(meta_hits), "；".join(meta_hits[:3]))
         )
 
     return warnings
