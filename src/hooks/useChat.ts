@@ -237,23 +237,8 @@ export function useChat() {
 
   useEffect(() => () => abortActiveRequest(false), [abortActiveRequest]);
 
-  useEffect(() => {
-    if (!isNative()) return;
-
-    let listener: { remove: () => Promise<void> } | undefined;
-    CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (isActive) {
-        drainNativeStreamRef.current?.().catch(console.error);
-      }
-      if (!isActive && !isNativeAndroid()) abortActiveRequest();
-    }).then(handle => {
-      listener = handle;
-    });
-
-    return () => {
-      listener?.remove();
-    };
-  }, [abortActiveRequest]);
+  // 回前台 / 网络恢复时的续传与 drain 收敛在下方单一 effect（resumePendingStreams 之后）处理，
+  // 不再在此重复监听 appStateChange；原生（含 Android）后台不再 abort，交由前台服务/服务端续传兜底。
 
   const shouldShowHistoryCompressionStatus = (
     usage: ContextUsage | null | undefined,
@@ -317,11 +302,27 @@ export function useChat() {
   }, [isInitialized]);
 
   useEffect(() => {
-    if (isInitialized) {
-      fileDB.saveConversations(conversations).catch(e => {
-        console.error('Failed to save conversations to IndexedDB:', e);
-      });
-    }
+    if (!isInitialized) return;
+    fileDB.saveConversations(conversations).then(() => {
+      // 落盘成功后再 ACK，保证服务端裁剪进度不超前于设备持久化进度（续传正确性依赖于此）。
+      for (const conv of conversations) {
+        for (const message of conv.messages) {
+          if (
+            message.role === 'assistant' &&
+            message.stream_buffered &&
+            message.stream_id &&
+            typeof message.last_committed_seq === 'number' &&
+            message.last_committed_seq >= 0 &&
+            (message.stream_status === 'streaming' || message.stream_status === 'done')
+          ) {
+            ackBufferedStream(message.stream_id, message.last_committed_seq, message.stream_status === 'done');
+          }
+        }
+      }
+    }).catch(e => {
+      console.error('Failed to save conversations to IndexedDB:', e);
+    });
+    // ackBufferedStream 为稳定引用（useCallback []），刻意不入依赖以避免 TDZ。
   }, [conversations, isInitialized]);
 
   const handleNewChat = () => {
@@ -661,7 +662,9 @@ export function useChat() {
     let streamBuffer = '';
     const isStreamActive = () => !signal?.aborted;
 
-    const commitAssistantState = (forceAck = false) => {
+    // 纯更新函数：只更新 React 状态。落盘与 ACK 交由 conversations 持久化 effect 处理，
+    // 避免在 setState updater 内执行副作用（StrictMode 双调用会导致双写 / 双 ACK / 顺序错乱）。
+    const commitAssistantState = () => {
       if (!agentMessageId || !isStreamActive()) return;
       setConversations(prev => {
         let changed = false;
@@ -686,16 +689,7 @@ export function useChat() {
           });
           return changed ? { ...conv, messages: nextMessages, updated_at: nowIso() } : conv;
         });
-        if (changed) {
-          fileDB.saveConversations(next).then(() => {
-            if (streamState.buffered && streamState.streamId) {
-              ackBufferedStream(streamState.streamId, streamState.lastSeq, forceAck || streamState.status === 'done');
-            }
-          }).catch(error => {
-            console.error('Failed to persist stream progress:', error);
-          });
-        }
-        return next;
+        return changed ? next : prev;
       });
     };
 
@@ -707,7 +701,7 @@ export function useChat() {
       try {
         const data = JSON.parse(dataStr);
         const changed = processStreamPayload(data, streamState, onFileGenerated);
-        if (changed) commitAssistantState(data.type === 'done');
+        if (changed) commitAssistantState();
       } catch {
         console.warn('Failed to parse stream data:', dataStr);
       }
@@ -729,7 +723,7 @@ export function useChat() {
       if (streamBuffer.trim().startsWith('data: ')) {
         handleLine(streamBuffer.trim());
       }
-      commitAssistantState(streamState.seenDone);
+      commitAssistantState();
       if (!streamState.seenDone && !streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
       }
@@ -737,7 +731,7 @@ export function useChat() {
     } catch (err) {
       if (isAbortError(err) || !isStreamActive()) return false;
       console.error('Stream read error:', err);
-      commitAssistantState(false);
+      commitAssistantState();
       if (!streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
       }
@@ -830,42 +824,74 @@ export function useChat() {
 
     const encoder = new TextEncoder();
     let nativeStreamId = '';
+    let nextIndex = 0;
+    let closed = false;
     let eventHandle: { remove: () => Promise<void> } | null = null;
     let doneHandle: { remove: () => Promise<void> } | null = null;
 
     const response = new Response(new ReadableStream<Uint8Array>({
       async start(controller) {
-        const enqueuePayload = (payload: string) => {
-          if (signal?.aborted) return;
-          controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+        let pumping = false;
+        let pumpAgain = false;
+
+        const safeEnqueue = (payload: string) => {
+          if (closed || signal?.aborted) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+          } catch {
+            // controller 已关闭，忽略。
+          }
         };
-        const drain = async () => {
-          const active = activeNativeStreamRef.current;
-          if (!active) return;
-          const result = await NativeStream.drain({ streamId: active.streamId, fromIndex: active.nextIndex });
-          result.events.forEach(payload => enqueuePayload(payload));
-          active.nextIndex = result.nextIndex;
-          if (result.done) {
-            if (result.error) {
-              enqueuePayload(JSON.stringify({ type: 'error', content: result.error }));
-            }
-            enqueuePayload('[DONE]');
+        const safeClose = () => {
+          if (closed) return;
+          closed = true;
+          try {
             controller.close();
+          } catch {
+            // controller 已关闭，忽略。
+          }
+        };
+
+        // 单一出口：所有事件都经由 pump 按 index 顺序从原生 buffer 拉出，
+        // 串行执行（pumping/pumpAgain 互斥），杜绝监听器与 drain 并发导致的乱序 / 双重 close。
+        const pump = async () => {
+          if (closed || !nativeStreamId) return;
+          if (pumping) {
+            pumpAgain = true;
+            return;
+          }
+          pumping = true;
+          try {
+            do {
+              pumpAgain = false;
+              const result = await NativeStream.drain({ streamId: nativeStreamId, fromIndex: nextIndex });
+              for (const payload of result.events) safeEnqueue(payload);
+              nextIndex = result.nextIndex;
+              if (activeNativeStreamRef.current?.streamId === nativeStreamId) {
+                activeNativeStreamRef.current.nextIndex = nextIndex;
+              }
+              if (result.done) {
+                if (result.error) safeEnqueue(JSON.stringify({ type: 'error', content: result.error }));
+                safeEnqueue('[DONE]');
+                safeClose();
+                return;
+              }
+            } while (pumpAgain && !closed);
+          } catch (error) {
+            safeEnqueue(JSON.stringify({ type: 'error', content: (error as Error)?.message || String(error) }));
+            safeClose();
+          } finally {
+            pumping = false;
           }
         };
 
         eventHandle = await NativeStream.addListener('streamEvent', (event: NativeStreamEvent) => {
           if (event.streamId !== nativeStreamId) return;
-          const active = activeNativeStreamRef.current;
-          if (!active || event.index < active.nextIndex) return;
-          enqueuePayload(event.payload);
-          active.nextIndex = event.index + 1;
+          pump().catch(console.error);
         });
         doneHandle = await NativeStream.addListener('streamDone', event => {
           if (event.streamId !== nativeStreamId) return;
-          drain().catch(error => {
-            controller.error(error);
-          });
+          pump().catch(console.error);
         });
 
         try {
@@ -876,13 +902,15 @@ export function useChat() {
           });
           nativeStreamId = started.streamId;
           activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
-          drainNativeStreamRef.current = drain;
-          await drain();
+          drainNativeStreamRef.current = pump;
+          await pump();
         } catch (error) {
-          controller.error(error);
+          safeEnqueue(JSON.stringify({ type: 'error', content: (error as Error)?.message || String(error) }));
+          safeClose();
         }
       },
       cancel() {
+        closed = true;
         if (nativeStreamId) {
           NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
         }

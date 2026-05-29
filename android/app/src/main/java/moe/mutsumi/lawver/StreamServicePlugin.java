@@ -54,6 +54,8 @@ public class StreamServicePlugin extends Plugin {
         }
 
         String streamId = "native_" + UUID.randomUUID().toString().replace("-", "");
+        // 先同步登记 session，避免前台服务异步启动期间 JS 端 drain 把"尚未注册"误判成终态。
+        StreamForegroundService.register(streamId);
         Intent intent = new Intent(getContext(), StreamForegroundService.class);
         intent.setAction(StreamForegroundService.ACTION_START_STREAM);
         intent.putExtra(StreamForegroundService.EXTRA_STREAM_ID, streamId);

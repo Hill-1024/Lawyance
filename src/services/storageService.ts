@@ -237,6 +237,56 @@ export const applyBackupSnapshot = async (raw: any): Promise<number> => {
   return newConversations.length + newCourtSessions.length;
 };
 
+/**
+ * 镜像式还原：让本地状态完全对齐备份——按原 id 保留（不重发 UUID），
+ * fileDB.saveConversations / saveCourtSessions 会删除备份里不存在的本地记录，
+ * 从而消除"恢复即重复"并让删除得以传播。仅用于 WebDAV 云端恢复，
+ * 不可用于"导入他人分享文件"（那会误删本地数据，文件导入仍走 applyBackupSnapshot）。
+ */
+export const restoreBackupSnapshot = async (raw: any): Promise<number> => {
+  const hasConversations = Array.isArray(raw?.conversations);
+  const hasCourtSessions = Array.isArray(raw?.courtSessions);
+  if (!Array.isArray(raw) && !hasConversations && !hasCourtSessions) {
+    throw new Error('备份文件格式无法识别，已取消恢复（避免误清空本地数据）。');
+  }
+
+  const conversations: Conversation[] = Array.isArray(raw)
+    ? raw
+    : hasConversations ? raw.conversations : [];
+  const courtSessions: CourtSession[] = Array.isArray(raw)
+    ? []
+    : hasCourtSessions ? raw.courtSessions : [];
+
+  await Promise.all([
+    fileDB.saveConversations(conversations),
+    fileDB.saveCourtSessions(courtSessions),
+  ]);
+
+  const themeRaw = raw?.settings?.theme;
+  if (themeRaw && typeof themeRaw === 'string') {
+    localStorage.setItem(THEME_STORAGE_KEY, themeRaw);
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: THEME_STORAGE_KEY,
+      newValue: themeRaw,
+      storageArea: localStorage,
+    }));
+  }
+
+  const resumeEnabledRaw = raw?.settings?.resumeEnabled;
+  if (typeof resumeEnabledRaw === 'boolean') {
+    await setResumeEnabled(resumeEnabledRaw);
+    notifyResumeEnabledChanged(resumeEnabledRaw);
+  }
+
+  notifyLocalStorageDataChanged({
+    source: 'import',
+    conversationIds: conversations.map(c => c.id),
+    courtSessionIds: courtSessions.map(s => s.id),
+  });
+
+  return conversations.length + courtSessions.length;
+};
+
 export const storageService = {
   acceptedConversationFileExtensions: [".lawver", ".json.enc", LEGACY_EXPORT_EXTENSION].join(","),
 
