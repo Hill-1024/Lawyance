@@ -2,14 +2,18 @@
  * 模块描述：应用设置页，集中管理外观模式、自定义种子色和 Material You 占位状态。
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Clock3, ExternalLink, Link2, Monitor, Moon, PackageCheck, Palette, RotateCcw, Server, Settings, Smartphone, Sun } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Link2, Loader2, Monitor, Moon, PackageCheck, Palette, RotateCcw, Server, Settings, Smartphone, Sun, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
 import { BUILD_INFO } from '../lib/buildInfo';
 import { HoverInfo } from './HoverInfo';
 import { BrandMark } from './Brand';
+import { useAppDialog } from '../contexts/DialogContext';
+import { getWebDavConfig, setWebDavConfig, emptyWebDavConfig, type WebDavConfig } from '../lib/webdav-storage';
+import { webdavService, type WebDavFileInfo } from '../services/webdavService';
+import { buildBackupSnapshot, applyBackupSnapshot } from '../services/storageService';
 
 const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -35,6 +39,289 @@ const COLOR_SOURCE_LABEL: Record<ColorSource, string> = {
 };
 
 const isHexColor = (value: string) => /^#[0-9a-f]{6}$/i.test(value);
+
+// ─── WebDAV 同步区块 ────────────────────────────────────────────────────────
+
+type WebDavSyncState = 'idle' | 'testing' | 'uploading' | 'listing' | 'restoring' | 'deleting';
+
+const WebDavSection: React.FC = () => {
+  const { showAlert } = useAppDialog();
+  const [cfg, setCfg] = useState<WebDavConfig>(emptyWebDavConfig);
+  const [syncState, setSyncState] = useState<WebDavSyncState>('idle');
+  const [activeFilename, setActiveFilename] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [backups, setBackups] = useState<WebDavFileInfo[] | null>(null);
+  const [showBackupList, setShowBackupList] = useState(false);
+  const busy = syncState !== 'idle';
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    getWebDavConfig().then(saved => { if (saved) setCfg(saved); });
+  }, []);
+
+  const saveConfig = async (next: WebDavConfig) => {
+    setCfg(next);
+    await setWebDavConfig(next);
+  };
+
+  const handleTest = async () => {
+    if (!cfg.url || !cfg.username) {
+      await showAlert({ title: '请填写 URL 和用户名', message: '连接测试需要至少填写服务器 URL 和用户名。', tone: 'warning' });
+      return;
+    }
+    setSyncState('testing');
+    try {
+      const result = await webdavService.testConnection(cfg);
+      await showAlert({
+        title: '连接成功',
+        message: result.created_directory
+          ? `已自动创建目录 ${cfg.directory}，可以开始备份。`
+          : `目录 ${cfg.directory} 已存在，连接正常。`,
+        tone: 'success',
+      });
+    } catch (e) {
+      await showAlert({ title: '连接失败', message: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSyncState('idle');
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!cfg.url || !cfg.username) {
+      await showAlert({ title: '请先配置 WebDAV', message: '填写服务器 URL 和账号后再备份。', tone: 'warning' });
+      return;
+    }
+    setSyncState('uploading');
+    try {
+      const snapshot = await buildBackupSnapshot();
+      const filename = webdavService.generateFilename();
+      await webdavService.uploadBackup(cfg, filename, snapshot);
+      await showAlert({ title: '备份成功', message: `已上传 ${filename} 到 ${cfg.directory}。`, tone: 'success' });
+      setBackups(null); // 清空缓存，下次列表重新拉取
+    } catch (e) {
+      await showAlert({ title: '备份失败', message: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSyncState('idle');
+    }
+  };
+
+  const handleListBackups = async () => {
+    if (!cfg.url || !cfg.username) {
+      await showAlert({ title: '请先配置 WebDAV', message: '填写服务器 URL 和账号后再查看备份列表。', tone: 'warning' });
+      return;
+    }
+    setSyncState('listing');
+    try {
+      const files = await webdavService.listBackups(cfg);
+      setBackups(files);
+      setShowBackupList(true);
+      setTimeout(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
+    } catch (e) {
+      await showAlert({ title: '列举失败', message: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSyncState('idle');
+    }
+  };
+
+  const handleRestore = async (filename: string) => {
+    setActiveFilename(filename);
+    setSyncState('restoring');
+    try {
+      const raw = await webdavService.downloadBackup(cfg, filename);
+      const count = await applyBackupSnapshot(raw);
+      setShowBackupList(false);
+      await showAlert({
+        title: '恢复成功',
+        message: `已从 ${filename} 恢复 ${count} 条记录，列表已自动刷新。`,
+        tone: 'success',
+      });
+    } catch (e) {
+      await showAlert({ title: '恢复失败', message: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSyncState('idle');
+      setActiveFilename(null);
+    }
+  };
+
+  const handleDelete = async (filename: string) => {
+    setActiveFilename(filename);
+    setSyncState('deleting');
+    try {
+      await webdavService.deleteBackup(cfg, filename);
+      setBackups(prev => prev ? prev.filter(f => f.filename !== filename) : prev);
+    } catch (e) {
+      await showAlert({ title: '删除失败', message: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSyncState('idle');
+      setActiveFilename(null);
+    }
+  };
+
+  const inputClass = 'h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm outline-none transition-colors focus:border-[var(--accent)] placeholder:text-[var(--fg-4)]';
+
+  return (
+    <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+          <Cloud size={20} strokeWidth={2} />
+        </span>
+        <div>
+          <h2 className="t-title-m">WebDAV 数据同步</h2>
+          <p className="text-[13px] text-[var(--fg-3)]">备份至自己的 WebDAV 云（坚果云、Nextcloud 等）。</p>
+        </div>
+      </div>
+
+      {/* 隐私提示 */}
+      <div className="mb-4 flex gap-3 rounded-[var(--radius-md)] border border-[rgba(184,132,42,0.3)] bg-[rgba(184,132,42,0.08)] p-3">
+        <AlertTriangle size={16} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--color-warning-500)]" />
+        <p className="text-[12px] leading-relaxed text-[#5C3F0E] dark:text-[#FBEBC8]">
+          备份文件以<strong>明文 JSON</strong>上传，对话内容对你的 WebDAV 服务商可见。请确保使用 HTTPS 且账号安全。密码仅存在本设备，不经过 Lawver 服务器保留。
+        </p>
+      </div>
+
+      {/* 配置表单 */}
+      <div className="flex flex-col gap-3">
+        <div>
+          <label className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">服务器 URL</label>
+          <input
+            className={inputClass}
+            placeholder="https://dav.example.com/dav/"
+            value={cfg.url}
+            onChange={e => saveConfig({ ...cfg, url: e.target.value })}
+            disabled={busy}
+            autoComplete="url"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">用户名</label>
+            <input
+              className={inputClass}
+              placeholder="username"
+              value={cfg.username}
+              onChange={e => saveConfig({ ...cfg, username: e.target.value })}
+              disabled={busy}
+              autoComplete="username"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">密码</label>
+            <div className="relative">
+              <input
+                className={inputClass + ' pr-16'}
+                type={showPassword ? 'text' : 'password'}
+                placeholder="password"
+                value={cfg.password}
+                onChange={e => saveConfig({ ...cfg, password: e.target.value })}
+                disabled={busy}
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(p => !p)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-[var(--fg-3)] hover:text-[var(--fg-1)]"
+              >
+                {showPassword ? '隐藏' : '显示'}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">备份目录（远端路径）</label>
+          <input
+            className={inputClass}
+            placeholder="/Lawver/"
+            value={cfg.directory}
+            onChange={e => saveConfig({ ...cfg, directory: e.target.value })}
+            disabled={busy}
+          />
+        </div>
+      </div>
+
+      {/* 操作按钮 */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={handleTest}
+          disabled={busy}
+          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface-2)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-inset)] disabled:opacity-50"
+        >
+          {syncState === 'testing' ? <Loader2 size={14} strokeWidth={2} className="animate-spin" /> : <Server size={14} strokeWidth={2} />}
+          测试连接
+        </button>
+
+        <button
+          onClick={handleUpload}
+          disabled={busy}
+          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {syncState === 'uploading' ? <Loader2 size={14} strokeWidth={2} className="animate-spin" /> : <CloudUpload size={14} strokeWidth={2} />}
+          立即备份
+        </button>
+
+        <button
+          onClick={handleListBackups}
+          disabled={busy}
+          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface-2)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-inset)] disabled:opacity-50"
+        >
+          {syncState === 'listing' ? <Loader2 size={14} strokeWidth={2} className="animate-spin" /> : <CloudDownload size={14} strokeWidth={2} />}
+          从云端恢复
+          <ChevronDown size={14} strokeWidth={2} className={`transition-transform ${showBackupList ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+
+      {/* 备份列表 */}
+      {showBackupList && backups !== null && (
+        <div ref={listRef} className="mt-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] overflow-hidden">
+          {backups.length === 0 ? (
+            <p className="p-4 text-center text-sm text-[var(--fg-3)]">目录下暂无备份文件。</p>
+          ) : (
+            <ul className="divide-y divide-[var(--border-subtle)]">
+              {backups.map(file => (
+                <li key={file.filename} className="flex items-center justify-between gap-2 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-[var(--fg-1)]">{file.filename}</p>
+                    <p className="text-[11px] text-[var(--fg-3)]">
+                      {file.last_modified ? new Date(file.last_modified).toLocaleString('zh-CN') : '—'}
+                      {file.size > 0 && <span className="ml-2">{(file.size / 1024).toFixed(1)} KB</span>}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      onClick={() => handleRestore(file.filename)}
+                      disabled={busy}
+                      className="lawver-pressable inline-flex h-8 items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-2.5 text-[12px] font-medium text-[var(--accent)] transition-colors hover:bg-[rgba(59,98,184,0.16)] disabled:opacity-50"
+                    >
+                      {syncState === 'restoring' && activeFilename === file.filename ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <CloudDownload size={12} />
+                      )}
+                      恢复
+                    </button>
+                    <button
+                      onClick={() => handleDelete(file.filename)}
+                      disabled={busy}
+                      className="lawver-pressable inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--fg-3)] transition-colors hover:bg-[rgba(184,42,42,0.08)] hover:text-[var(--color-danger-500)] disabled:opacity-50"
+                      title="删除此快照"
+                    >
+                      {syncState === 'deleting' && activeFilename === file.filename ? (
+                        <Loader2 size={13} className="animate-spin text-[var(--color-danger-500)]" />
+                      ) : (
+                        <Trash2 size={13} strokeWidth={2} />
+                      )}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  );
+};
+
+// ─── 主设置页 ────────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -244,6 +531,8 @@ export const SettingsPage: React.FC = () => {
             )}
 
           </section>
+
+          <WebDavSection />
 
           <section className="mt-1 flex flex-col gap-4">
             <h2 className="px-2 text-lg font-bold text-[var(--fg-1)]">关于应用</h2>

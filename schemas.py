@@ -68,3 +68,34 @@ class AccountRequest(BaseModel):
     username: str
     password: str
     role: Optional[str] = "user"
+
+
+class WebDavConfig(BaseModel):
+    url: str
+    username: str
+    password: str
+    directory: str = "/Lawver/"
+
+
+class WebDavTestRequest(BaseModel):
+    config: WebDavConfig
+
+
+class WebDavListRequest(BaseModel):
+    config: WebDavConfig
+
+
+class WebDavUploadRequest(BaseModel):
+    config: WebDavConfig
+    filename: str
+    data_b64: str  # base64 编码的 JSON 字节，上限 25MB
+
+
+class WebDavDownloadRequest(BaseModel):
+    config: WebDavConfig
+    filename: str
+
+
+class WebDavDeleteRequest(BaseModel):
+    config: WebDavConfig
+    filename: str

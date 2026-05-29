@@ -164,6 +164,70 @@ const remapCourtSession = (session: any): CourtSession => {
   } as CourtSession;
 };
 
+// ─── 快照 v3（对话 + 庭审 + 应用设置，WebDAV 和本地导出共用对象结构）──────────
+
+const THEME_STORAGE_KEY = 'lawver.theme.settings';
+
+export interface BackupSnapshot {
+  version: 3;
+  conversations: Conversation[];
+  courtSessions: CourtSession[];
+  settings: {
+    theme: string | null;
+  };
+}
+
+export const buildBackupSnapshot = async (): Promise<BackupSnapshot> => {
+  const [conversations, courtSessions] = await Promise.all([
+    fileDB.getConversations(),
+    fileDB.getCourtSessions(),
+  ]);
+  return {
+    version: 3,
+    conversations,
+    courtSessions,
+    settings: {
+      theme: localStorage.getItem(THEME_STORAGE_KEY),
+    },
+  };
+};
+
+export const applyBackupSnapshot = async (raw: any): Promise<number> => {
+  const conversations: any[] = Array.isArray(raw)
+    ? raw
+    : Array.isArray(raw?.conversations) ? raw.conversations : [];
+  const courtSessions: any[] = Array.isArray(raw)
+    ? []
+    : Array.isArray(raw?.courtSessions) ? raw.courtSessions : [];
+
+  const newConversations = conversations.map(remapConversation);
+  const newCourtSessions = courtSessions.map(remapCourtSession);
+
+  await Promise.all([
+    newConversations.length ? fileDB.addConversations(newConversations) : Promise.resolve(),
+    newCourtSessions.length ? fileDB.addCourtSessions(newCourtSessions) : Promise.resolve(),
+  ]);
+
+  // 恢复设置并通知 ThemeContext 刷新
+  const themeRaw = raw?.settings?.theme;
+  if (themeRaw && typeof themeRaw === 'string') {
+    localStorage.setItem(THEME_STORAGE_KEY, themeRaw);
+    window.dispatchEvent(new StorageEvent('storage', {
+      key: THEME_STORAGE_KEY,
+      newValue: themeRaw,
+      storageArea: localStorage,
+    }));
+  }
+
+  notifyLocalStorageDataChanged({
+    source: 'import',
+    conversationIds: newConversations.map(c => c.id),
+    courtSessionIds: newCourtSessions.map(s => s.id),
+  });
+
+  return newConversations.length + newCourtSessions.length;
+};
+
 export const storageService = {
   acceptedConversationFileExtensions: [".lawver", ".json.enc", LEGACY_EXPORT_EXTENSION].join(","),
 
@@ -251,15 +315,8 @@ export const storageService = {
   },
 
   async exportConversationsText() {
-    const [conversations, courtSessions] = await Promise.all([
-      fileDB.getConversations(),
-      fileDB.getCourtSessions()
-    ]);
-    const data = JSON.stringify({
-      version: 2,
-      conversations,
-      courtSessions
-    });
+    const snapshot = await buildBackupSnapshot();
+    const data = JSON.stringify(snapshot);
     const fileName = `lawver_dialogues_${new Date().toISOString().split('T')[0]}.lawver`;
 
     if (isNative()) {
@@ -299,25 +356,6 @@ export const storageService = {
   async importConversationsFromFile(file: File) {
     const decrypted = await this.decryptDataFromFile(file);
     const parsed = JSON.parse(decrypted);
-    const conversations = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed?.conversations) ? parsed.conversations : [];
-    const courtSessions = Array.isArray(parsed)
-      ? []
-      : Array.isArray(parsed?.courtSessions) ? parsed.courtSessions : [];
-
-    const newConversations = conversations.map(remapConversation);
-    const newCourtSessions = courtSessions.map(remapCourtSession);
-
-    await Promise.all([
-      newConversations.length ? fileDB.addConversations(newConversations) : Promise.resolve(),
-      newCourtSessions.length ? fileDB.addCourtSessions(newCourtSessions) : Promise.resolve()
-    ]);
-    notifyLocalStorageDataChanged({
-      source: 'import',
-      conversationIds: newConversations.map(conversation => conversation.id),
-      courtSessionIds: newCourtSessions.map(session => session.id)
-    });
-    return newConversations.length + newCourtSessions.length;
+    return applyBackupSnapshot(parsed);
   }
 };
