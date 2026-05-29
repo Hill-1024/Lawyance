@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import admin, auth, chat, court, releases, spa, workspace
+from routes import admin, auth, chat, court, releases, spa, webdav, workspace
 from services import law_cache, release_sync, workspace_cleanup
 from services.app_security import ALLOWED_ORIGINS, LOCAL_ORIGIN_RE, security_and_logging_middleware
 
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(court.router)
     app.include_router(releases.router)
+    app.include_router(webdav.router)
     app.include_router(workspace.router)
 
     # 3. SPA catch-all 必须最后注册，避免吞掉 /api/*。
