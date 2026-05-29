@@ -168,6 +168,62 @@ const createEmptyConversationMemory = (conversationId: string): ConversationMemo
   };
 };
 
+/** 把原生服务回传的 "HTTP <status>: <body>" 错误解析成结构化错误，使记忆冲突能与 Web 路径一致地重试。 */
+const parseHttpStreamError = (raw: string): Error => {
+  const match = /^HTTP (\d+):\s*([\s\S]*)$/.exec(raw || '');
+  if (match) {
+    const status = Number(match[1]);
+    let parsed: any = null;
+    try { parsed = JSON.parse(match[2]); } catch { /* 非 JSON 错误体 */ }
+    const detail = parsed?.detail ?? parsed;
+    if (status === 409 && detail?.error === 'memory_revision_conflict') {
+      return new MemoryRevisionConflictError(detail);
+    }
+    const message = (typeof detail === 'string' ? detail : detail?.detail || detail?.error) || raw;
+    return new Error(message);
+  }
+  return new Error(raw || '原生流式请求失败');
+};
+
+/**
+ * 在渲染任何内容之前判定原生流的 HTTP 层结果：
+ * 一旦有 SSE 事件到达即视为正常流（drain 为非消费式，processStream 仍可从头重放）；
+ * 若在没有任何事件的情况下就 done，则视为 HTTP 层失败（如 409 记忆冲突），交上层识别并重试。
+ */
+const waitForNativeStreamHead = async (
+  streamId: string,
+  signal?: AbortSignal
+): Promise<{ kind: 'ok' } | { kind: 'http_error'; error: string }> => {
+  if (signal?.aborted) return { kind: 'ok' };
+  let settle: (value: { kind: 'ok' } | { kind: 'http_error'; error: string }) => void = () => {};
+  const outcome = new Promise<{ kind: 'ok' } | { kind: 'http_error'; error: string }>(resolve => { settle = resolve; });
+  let settled = false;
+  const finish = (value: { kind: 'ok' } | { kind: 'http_error'; error: string }) => {
+    if (settled) return;
+    settled = true;
+    settle(value);
+  };
+  const evaluate = async () => {
+    if (signal?.aborted) { finish({ kind: 'ok' }); return; }
+    try {
+      const result = await NativeStream.drain({ streamId, fromIndex: 0 });
+      if (result.events.length > 0) finish({ kind: 'ok' });
+      else if (result.done) finish({ kind: 'http_error', error: result.error || '原生流在收到数据前已结束' });
+    } catch (error) {
+      finish({ kind: 'http_error', error: (error as Error)?.message || String(error) });
+    }
+  };
+  const eventHandle = await NativeStream.addListener('streamEvent', event => { if (event.streamId === streamId) evaluate(); });
+  const doneHandle = await NativeStream.addListener('streamDone', event => { if (event.streamId === streamId) evaluate(); });
+  await evaluate();
+  try {
+    return await outcome;
+  } finally {
+    await eventHandle.remove();
+    await doneHandle.remove();
+  }
+};
+
 export function useChat() {
   const { showAlert, showChoice } = useAppDialog();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -822,8 +878,27 @@ export function useChat() {
     if (token) headers.Authorization = `Bearer ${token}`;
     await requestNativeStreamNotificationPermission().catch(() => false);
 
+    const started = await NativeStream.startStream({ url: apiUrl('/api/chat'), headers, body });
+    const nativeStreamId = started.streamId;
+    activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
+
+    // 渲染前先判定 HTTP 层结果：非 2xx（如 409 记忆冲突）会以"无事件即 done"出现，
+    // 此时抛出结构化错误交由上层重试，避免把 "HTTP 409:..." 当作回答正文渲染。
+    let head: { kind: 'ok' } | { kind: 'http_error'; error: string };
+    try {
+      head = await waitForNativeStreamHead(nativeStreamId, signal);
+    } catch (error) {
+      await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
+      activeNativeStreamRef.current = null;
+      throw error;
+    }
+    if (head.kind === 'http_error') {
+      await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
+      activeNativeStreamRef.current = null;
+      throw parseHttpStreamError(head.error);
+    }
+
     const encoder = new TextEncoder();
-    let nativeStreamId = '';
     let nextIndex = 0;
     let closed = false;
     let eventHandle: { remove: () => Promise<void> } | null = null;
@@ -855,7 +930,7 @@ export function useChat() {
         // 单一出口：所有事件都经由 pump 按 index 顺序从原生 buffer 拉出，
         // 串行执行（pumping/pumpAgain 互斥），杜绝监听器与 drain 并发导致的乱序 / 双重 close。
         const pump = async () => {
-          if (closed || !nativeStreamId) return;
+          if (closed) return;
           if (pumping) {
             pumpAgain = true;
             return;
@@ -894,40 +969,49 @@ export function useChat() {
           pump().catch(console.error);
         });
 
-        try {
-          const started = await NativeStream.startStream({
-            url: apiUrl('/api/chat'),
-            headers,
-            body,
-          });
-          nativeStreamId = started.streamId;
-          activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
-          drainNativeStreamRef.current = pump;
-          await pump();
-        } catch (error) {
-          safeEnqueue(JSON.stringify({ type: 'error', content: (error as Error)?.message || String(error) }));
-          safeClose();
-        }
+        drainNativeStreamRef.current = pump;
+        await pump();
       },
       cancel() {
         closed = true;
-        if (nativeStreamId) {
-          NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
-        }
+        NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
       }
     }));
 
     try {
       const completed = await processStream(response, agentMessageId, convId, onFileGenerated, signal);
-      if (nativeStreamId) {
-        await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
-      }
+      await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
       return completed;
     } finally {
       await eventHandle?.remove();
       await doneHandle?.remove();
       activeNativeStreamRef.current = null;
       drainNativeStreamRef.current = null;
+    }
+  };
+
+  // 原生路径的记忆版本冲突重试，行为对齐 Web 的 sendChatWithMemoryRetry：
+  // 首发遇到 409 memory_revision_conflict 时，更新本地记忆快照并以 server_merge 重试一次。
+  const sendNativeChatWithMemoryRetry = async (
+    message: string,
+    history: BackendHistoryMessage[],
+    convId: string,
+    memorySnapshot: ConversationMemory,
+    memorySyncMode: 'merge' | 'rebuild',
+    lastContextTokens: number | null | undefined,
+    resumeEnabled: boolean,
+    onFileGenerated?: (name: string, path: string) => void,
+    signal?: AbortSignal
+  ): Promise<boolean> => {
+    const buildBody = (strategy?: 'server_merge') => JSON.stringify(buildChatRequestBody(
+      message, history, convId, true, agentMode, isOCPEnabled, memorySnapshot, memorySyncMode, strategy, lastContextTokens ?? null, resumeEnabled
+    ));
+    try {
+      return await processNativeChatStream(buildBody(undefined), null, convId, onFileGenerated, signal);
+    } catch (error) {
+      if (!(error instanceof MemoryRevisionConflictError)) throw error;
+      updateConversationMemory(convId, error.detail?.memory_snapshot as ConversationMemory | undefined);
+      return processNativeChatStream(buildBody('server_merge'), null, convId, onFileGenerated, signal);
     }
   };
 
@@ -1007,21 +1091,8 @@ export function useChat() {
       const resumeEnabled = await getResumeEnabled();
       resumeEnabledRef.current = resumeEnabled;
       if (isStreaming && isNativeAndroid()) {
-        const body = JSON.stringify(buildChatRequestBody(
-          messageContent,
-          history,
-          convId,
-          true,
-          agentMode,
-          isOCPEnabled,
-          memorySnapshot,
-          'merge',
-          undefined,
-          lastContextTokens,
-          resumeEnabled
-        ));
         setComposerStatus(null);
-        const completed = await processNativeChatStream(body, null, convId, onFileGenerated, abortController.signal);
+        const completed = await sendNativeChatWithMemoryRetry(messageContent, history, convId, memorySnapshot, 'merge', lastContextTokens, resumeEnabled, onFileGenerated, abortController.signal);
         if (!completed) return;
       } else {
         const response = await sendChatWithMemoryRetry(messageContent, history, convId, isStreaming, memorySnapshot, 'merge', lastContextTokens, resumeEnabled, abortController.signal);
@@ -1131,21 +1202,8 @@ export function useChat() {
       const resumeEnabled = await getResumeEnabled();
       resumeEnabledRef.current = resumeEnabled;
       if (isStreaming && isNativeAndroid()) {
-        const body = JSON.stringify(buildChatRequestBody(
-          content,
-          history,
-          convId,
-          true,
-          agentMode,
-          isOCPEnabled,
-          memorySnapshot,
-          'rebuild',
-          undefined,
-          lastContextTokens,
-          resumeEnabled
-        ));
         setComposerStatus(null);
-        const completed = await processNativeChatStream(body, null, convId, onFileGenerated, abortController.signal);
+        const completed = await sendNativeChatWithMemoryRetry(content, history, convId, memorySnapshot, 'rebuild', lastContextTokens, resumeEnabled, onFileGenerated, abortController.signal);
         if (!completed) return;
       } else {
         const response = await sendChatWithMemoryRetry(content, history, convId, isStreaming, memorySnapshot, 'rebuild', lastContextTokens, resumeEnabled, abortController.signal);
