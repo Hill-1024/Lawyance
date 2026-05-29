@@ -94,7 +94,7 @@ public class StreamForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTIFICATION_ID, buildNotification());
+        startForegroundCompat();
         if (intent == null) return START_NOT_STICKY;
         String action = intent.getAction();
         String streamId = intent.getStringExtra(EXTRA_STREAM_ID);
@@ -107,12 +107,23 @@ public class StreamForegroundService extends Service {
             String body = intent.getStringExtra(EXTRA_BODY);
             String headers = intent.getStringExtra(EXTRA_HEADERS);
             if (streamId != null && url != null && body != null) {
-                StreamSession session = new StreamSession(streamId);
-                SESSIONS.put(streamId, session);
+                StreamSession session = register(streamId);
                 executor.execute(() -> runStream(session, url, headers, body));
             }
         }
         return START_NOT_STICKY;
+    }
+
+    private void startForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                buildNotification(),
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            );
+        } else {
+            startForeground(NOTIFICATION_ID, buildNotification());
+        }
     }
 
     @Nullable
@@ -130,6 +141,16 @@ public class StreamForegroundService extends Service {
         }
         executor.shutdownNow();
         super.onDestroy();
+    }
+
+    /** 由插件在启动前台服务前同步调用，确保 session 已登记，避免 drain 竞态误判。 */
+    static StreamSession register(String streamId) {
+        StreamSession session = SESSIONS.get(streamId);
+        if (session == null) {
+            session = new StreamSession(streamId);
+            SESSIONS.put(streamId, session);
+        }
+        return session;
     }
 
     static DrainResult drain(String streamId, int fromIndex) {

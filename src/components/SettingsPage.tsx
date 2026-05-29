@@ -13,7 +13,7 @@ import { BrandMark } from './Brand';
 import { useAppDialog } from '../contexts/DialogContext';
 import { getWebDavConfig, setWebDavConfig, emptyWebDavConfig, type WebDavConfig } from '../lib/webdav-storage';
 import { webdavService, type WebDavFileInfo } from '../services/webdavService';
-import { buildBackupSnapshot, applyBackupSnapshot } from '../services/storageService';
+import { buildBackupSnapshot, restoreBackupSnapshot } from '../services/storageService';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
 
@@ -47,7 +47,7 @@ const isHexColor = (value: string) => /^#[0-9a-f]{6}$/i.test(value);
 type WebDavSyncState = 'idle' | 'testing' | 'uploading' | 'listing' | 'restoring' | 'deleting';
 
 const WebDavSection: React.FC = () => {
-  const { showAlert } = useAppDialog();
+  const { showAlert, showConfirm } = useAppDialog();
   const [cfg, setCfg] = useState<WebDavConfig>(emptyWebDavConfig);
   const [syncState, setSyncState] = useState<WebDavSyncState>('idle');
   const [activeFilename, setActiveFilename] = useState<string | null>(null);
@@ -126,15 +126,23 @@ const WebDavSection: React.FC = () => {
   };
 
   const handleRestore = async (filename: string) => {
+    const confirmed = await showConfirm({
+      title: '确认恢复？',
+      tone: 'danger',
+      message: '镜像恢复会用该备份覆盖本机的全部对话与模拟法庭记录；本地比备份多出来的会话会被删除。建议先“立即备份”当前数据。确定继续？',
+      confirmLabel: '覆盖并恢复',
+      cancelLabel: '取消',
+    });
+    if (!confirmed) return;
     setActiveFilename(filename);
     setSyncState('restoring');
     try {
       const raw = await webdavService.downloadBackup(cfg, filename);
-      const count = await applyBackupSnapshot(raw);
+      const count = await restoreBackupSnapshot(raw);
       setShowBackupList(false);
       await showAlert({
         title: '恢复成功',
-        message: `已从 ${filename} 恢复 ${count} 条记录，列表已自动刷新。`,
+        message: `已从 ${filename} 镜像恢复，本机现有 ${count} 条记录，列表已自动刷新。`,
         tone: 'success',
       });
     } catch (e) {
