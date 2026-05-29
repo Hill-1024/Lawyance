@@ -30,6 +30,37 @@ from .validator import evaluate_soft_constraints, validate_blocks
 from workspace import WorkspacePathError, validate_workspace_scope
 
 
+# 全局硬约束:置于每个 guide 顶部,高于个别文种守则,杜绝 HTML 标签与元评论污染。
+_GLOBAL_HARD_CONSTRAINTS = """## 文书写作硬约束（最高优先级，违反者后端将自动剥离或返回告警）
+
+### A. blocks.text 是纯文本，直进 docx
+- **禁止任何 HTML/XML 标签**:`<sup>` 角标、`<final_answer>` 包装、`<think>`、`<b>`、`<i>`、`<span>` 等一律不能出现在 block 的 text/items/header/rows 中。
+- 引用法条直接写正文,不加角标、不加链接:
+  - ❌ 错误:`根据《民法典》第六百七十五条<sup><a href="https://...">1</a></sup>之规定`
+  - ✅ 正确:`根据《中华人民共和国民法典》第六百七十五条之规定`
+- 你在工具检索中拿到的 URL 仅供你自行核实条文标准用语;**不要**塞进任何 block 字段,也**不要**在文书末尾追加「参考资料」「信源」等区块 —— 法律文书没有这种规范结构。
+
+### B. 文书中严禁元评论与思绪解释
+文书是「具状人/答辩人/申请人」的法律文书,**不是**对话回复。下列内容**绝对不能**出现在任何 block.text 中:
+- ❌ 「我这样写是因为...」「我之所以这样起草...」「我认为应当...」
+- ❌ 「以下是修改后的诉讼请求:」「这里是答辩状正文:」「下面给出事实部分:」
+- ❌ 「以上为草拟稿,仅供参考」「如有疑问请咨询执业律师」(这类提示属于工具调用语境,不属于文书本身)
+- ❌ 任何带「(作者注:...)」「(此处补充:...)」的括号注释
+- 文书必须以**当事人立场**写作:
+  - ✅ 「原告认为」「被告辩称」「具状人请求」「申请人主张」
+  - ❌ 「我认为」「我希望」「咱们」「您」「你」(除非引用对话原话)
+
+### C. 不要把工具调用上下文写入文书
+- `<final_answer>`、`<think>`、「正在调用工具处理中」等属于 Agent 协议或运行时提示,绝不能进入 blocks。
+- 检索结果的标题、来源说明、网页摘要也不能直接复制为 paragraph,需自行转译为符合法律文书语体的陈述。
+
+---
+
+（以下为本文种具体写作守则）
+
+"""
+
+
 _OUTPUT_NAME_SAFE = re.compile(r"[^\w一-龥\-]+")
 
 
@@ -106,7 +137,7 @@ def get_legal_document_guide(doc_type: str) -> str:
         "applicable_law": guide["applicable_law"],
         "required_sections": guide["required_sections"],
         "soft_warnings": guide["soft_warnings"],
-        "guide": guide["guide_markdown"],
+        "guide": _GLOBAL_HARD_CONSTRAINTS + guide["guide_markdown"],
         "block_schema": {
             "supported_types": [
                 "title", "heading", "paragraph", "ordered_list",
@@ -176,11 +207,20 @@ def compose_legal_document(
     duration_ms = (time.time() - start_time) * 1000
     log_generation_complete(generation_id, duration_ms, output_path)
 
+    extracted_refs = compose_stats.get("extracted_refs", [])
+    if extracted_refs:
+        soft_warnings = list(soft_warnings) + [
+            "检测到 {} 处 HTML 角标(如 <sup><a>),已自动剥离为 [N] 形式;"
+            "请勿在文书 block.text 中使用 <sup> 角标,引用法条直接写正文。"
+            .format(len(extracted_refs))
+        ]
+
     return _make_response(success=True, data={
         "output_path": output_path,
         "soft_warnings": soft_warnings,
         "rendered_block_counts": compose_stats["rendered_block_counts"],
         "skipped_unknown_types": compose_stats["skipped_unknown_types"],
+        "extracted_refs": extracted_refs,
     }, meta={
         "generation_id": generation_id,
         "status": "completed",

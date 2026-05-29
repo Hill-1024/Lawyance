@@ -19,6 +19,7 @@ from .styles import (
     apply_title_style,
     configure_page,
 )
+from .text_cleaner import clean_block_text, merge_refs
 
 
 SUPPORTED_BLOCK_TYPES = {
@@ -34,87 +35,118 @@ SUPPORTED_BLOCK_TYPES = {
 }
 
 
-def _add_title(doc, block: dict) -> None:
+def _add_title(doc, block: dict) -> list[dict]:
     text = str(block.get("text", "")).strip()
     if not text:
-        return
+        return []
+    cleaned, refs = clean_block_text(text)
+    if not cleaned:
+        return refs
     para = doc.add_paragraph()
-    para.add_run(text)
+    para.add_run(cleaned)
     apply_title_style(para)
+    return refs
 
 
-def _add_heading(doc, block: dict) -> None:
+def _add_heading(doc, block: dict) -> list[dict]:
     text = str(block.get("text", "")).strip()
     if not text:
-        return
+        return []
+    cleaned, refs = clean_block_text(text)
+    if not cleaned:
+        return refs
     level = int(block.get("level", 1))
     level = max(1, min(3, level))
     para = doc.add_paragraph()
-    para.add_run(text)
+    para.add_run(cleaned)
     apply_heading_style(para, level)
+    return refs
 
 
-def _add_paragraph(doc, block: dict) -> None:
+def _add_paragraph(doc, block: dict) -> list[dict]:
     text = str(block.get("text", "")).rstrip()
     if not text:
-        return
+        return []
+    cleaned, refs = clean_block_text(text)
+    if not cleaned:
+        return refs
     indent = block.get("indent", True)
     align = str(block.get("align", "justify"))
     # 内嵌换行符按段落拆分,保持每段独立缩进
-    parts = text.split("\n")
-    for part in parts:
+    for part in cleaned.split("\n"):
         if not part.strip():
             continue
         para = doc.add_paragraph()
         para.add_run(part.strip())
         apply_body_style(para, indent=bool(indent), align=align)
+    return refs
 
 
-def _add_ordered_list(doc, block: dict) -> None:
+def _add_ordered_list(doc, block: dict) -> list[dict]:
     items = block.get("items") or []
+    refs: list[dict] = []
     for i, item in enumerate(items, start=1):
         text = str(item).strip()
         if not text:
             continue
+        cleaned, item_refs = clean_block_text(text)
+        if not cleaned:
+            continue
+        refs = merge_refs(refs, item_refs)
         para = doc.add_paragraph()
-        para.add_run(f"{i}. {text}")
+        para.add_run(f"{i}. {cleaned}")
         apply_body_style(para, indent=True, align="justify")
+    return refs
 
 
-def _add_unordered_list(doc, block: dict) -> None:
+def _add_unordered_list(doc, block: dict) -> list[dict]:
     items = block.get("items") or []
+    refs: list[dict] = []
     for item in items:
         text = str(item).strip()
         if not text:
             continue
+        cleaned, item_refs = clean_block_text(text)
+        if not cleaned:
+            continue
+        refs = merge_refs(refs, item_refs)
         para = doc.add_paragraph()
-        para.add_run(f"· {text}")
+        para.add_run(f"· {cleaned}")
         apply_body_style(para, indent=True, align="justify")
+    return refs
 
 
-def _add_table(doc, block: dict) -> None:
+def _add_table(doc, block: dict) -> list[dict]:
     header = block.get("header") or []
     rows = block.get("rows") or []
     if not header and not rows:
-        return
+        return []
     col_count = len(header) if header else max((len(r) for r in rows), default=0)
     if col_count == 0:
-        return
+        return []
+    refs: list[dict] = []
     table = doc.add_table(rows=0, cols=col_count)
     table.style = "Table Grid"
     if header:
         cells = table.add_row().cells
         for i in range(col_count):
-            cells[i].text = str(header[i]) if i < len(header) else ""
+            raw = str(header[i]) if i < len(header) else ""
+            cleaned, cell_refs = clean_block_text(raw)
+            refs = merge_refs(refs, cell_refs)
+            cells[i].text = cleaned
             apply_table_cell_style(cells[i], header=True)
     for row in rows:
         cells = table.add_row().cells
         for i in range(col_count):
-            cells[i].text = str(row[i]) if i < len(row) else ""
+            raw = str(row[i]) if i < len(row) else ""
+            cleaned, cell_refs = clean_block_text(raw)
+            refs = merge_refs(refs, cell_refs)
+            cells[i].text = cleaned
             apply_table_cell_style(cells[i], header=False)
+    return refs
 
 
-def _add_signature_block(doc, block: dict) -> None:
+def _add_signature_block(doc, block: dict) -> list[dict]:
     """落款块：包含签名 / 单位 / 日期等，每行右对齐独立成段。"""
     lines: list[str] = []
     if block.get("lines"):
@@ -126,21 +158,29 @@ def _add_signature_block(doc, block: dict) -> None:
             lines.append(str(block["entity"]))
         if block.get("date"):
             lines.append(str(block["date"]))
+    refs: list[dict] = []
     for line in lines:
+        cleaned, line_refs = clean_block_text(line)
+        if not cleaned:
+            continue
+        refs = merge_refs(refs, line_refs)
         para = doc.add_paragraph()
-        para.add_run(line)
+        para.add_run(cleaned)
         apply_signature_style(para)
+    return refs
 
 
-def _add_page_break(doc, _block: dict) -> None:
+def _add_page_break(doc, _block: dict) -> list[dict]:
     para = doc.add_paragraph()
     run = para.add_run()
     run.add_break(WD_BREAK.PAGE)
+    return []
 
 
-def _add_blank_line(doc, _block: dict) -> None:
+def _add_blank_line(doc, _block: dict) -> list[dict]:
     para = doc.add_paragraph()
     apply_body_style(para, indent=False, align="left")
+    return []
 
 
 _DISPATCH = {
@@ -157,12 +197,13 @@ _DISPATCH = {
 
 
 def compose_docx(blocks: list[dict], output_path: str) -> dict:
-    """将 blocks 渲染为 docx 文件。返回渲染统计。"""
+    """将 blocks 渲染为 docx 文件。返回渲染统计与从 text 中提取的引用列表。"""
     doc = Document()
     configure_page(doc)
 
     rendered: dict[str, int] = {}
     skipped_unknown: list[str] = []
+    extracted_refs: list[dict] = []
 
     for block in blocks:
         if not isinstance(block, dict):
@@ -175,7 +216,8 @@ def compose_docx(blocks: list[dict], output_path: str) -> dict:
         if handler is None:
             skipped_unknown.append(btype)
             continue
-        handler(doc, block)
+        block_refs = handler(doc, block) or []
+        extracted_refs = merge_refs(extracted_refs, block_refs)
         rendered[btype] = rendered.get(btype, 0) + 1
 
     doc.save(output_path)
@@ -183,4 +225,5 @@ def compose_docx(blocks: list[dict], output_path: str) -> dict:
     return {
         "rendered_block_counts": rendered,
         "skipped_unknown_types": skipped_unknown,
+        "extracted_refs": extracted_refs,
     }
