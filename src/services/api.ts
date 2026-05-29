@@ -58,6 +58,40 @@ export class MemoryRevisionConflictError extends Error {
   }
 }
 
+export class StreamExpiredError extends Error {
+  constructor() {
+    super('Stream expired');
+    this.name = 'StreamExpiredError';
+  }
+}
+
+export const buildChatRequestBody = (
+  message: string,
+  history: any[],
+  conversationId: string,
+  stream: boolean,
+  agentMode: string,
+  useOcp: boolean,
+  memorySnapshot?: ConversationMemory | null,
+  memorySyncMode?: 'merge' | 'rebuild',
+  memoryConflictStrategy?: 'server_merge',
+  lastContextTokens?: number | null,
+  resumeEnabled = false
+) => ({
+  message,
+  history,
+  conversation_id: conversationId,
+  stream,
+  resume_enabled: resumeEnabled,
+  agent_mode: agentMode,
+  use_ocp: useOcp,
+  memory_snapshot: memorySnapshot || null,
+  memory_sync_mode: memorySyncMode,
+  expected_revision: memorySnapshot?.revision,
+  memory_conflict_strategy: memoryConflictStrategy,
+  last_context_tokens: lastContextTokens ?? null
+});
+
 export const verifyAuth = async () => {
   const res = await apiFetch('/api/verify_auth');
   if (!res.ok) throw new Error('Not authenticated');
@@ -120,25 +154,26 @@ export const chat = async (
   memorySyncMode?: 'merge' | 'rebuild',
   memoryConflictStrategy?: 'server_merge',
   lastContextTokens?: number | null,
+  resumeEnabled = false,
   signal?: AbortSignal
 ) => {
   const response = await apiFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     signal,
-    body: JSON.stringify({
+    body: JSON.stringify(buildChatRequestBody(
       message,
       history,
-      conversation_id: conversationId,
+      conversationId,
       stream,
-      agent_mode: agentMode,
-      use_ocp: useOcp,
-      memory_snapshot: memorySnapshot || null,
-      memory_sync_mode: memorySyncMode,
-      expected_revision: memorySnapshot?.revision,
-      memory_conflict_strategy: memoryConflictStrategy,
-      last_context_tokens: lastContextTokens ?? null
-    })
+      agentMode,
+      useOcp,
+      memorySnapshot,
+      memorySyncMode,
+      memoryConflictStrategy,
+      lastContextTokens,
+      resumeEnabled
+    ))
   });
 
   if (!response.ok) {
@@ -151,6 +186,46 @@ export const chat = async (
   }
 
   return response;
+};
+
+export const resumeStream = async (streamId: string, fromSeq: number, signal?: AbortSignal) => {
+  const response = await apiFetch(`/api/chat/resume/${encodeURIComponent(streamId)}?from_seq=${encodeURIComponent(String(fromSeq))}`, {
+    signal,
+  });
+  if (response.status === 410) {
+    throw new StreamExpiredError();
+  }
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || errorData?.error || 'Resume stream failed');
+  }
+  return response;
+};
+
+export const ackStream = async (streamId: string, ackedSeq: number) => {
+  const response = await apiFetch('/api/chat/ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stream_id: streamId, acked_seq: ackedSeq })
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || errorData?.error || 'Ack stream failed');
+  }
+  return response.json();
+};
+
+export const cancelStream = async (streamId: string) => {
+  const response = await apiFetch('/api/chat/cancel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stream_id: streamId })
+  });
+  if (!response.ok && response.status !== 404) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(errorData?.detail || errorData?.error || 'Cancel stream failed');
+  }
+  return response.ok ? response.json() : { ok: true };
 };
 
 export const courtTurn = async (session: CourtSession, signal?: AbortSignal) => {

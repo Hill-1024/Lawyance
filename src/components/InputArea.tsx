@@ -4,7 +4,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings2, Paperclip, X, Send, LoaderCircle } from 'lucide-react';
+import { Settings2, Paperclip, X, Send, LoaderCircle, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { HoverInfo } from './HoverInfo';
@@ -87,6 +87,7 @@ interface InputAreaProps {
   input: string;
   setInput: (val: string) => void;
   handleSend: () => void;
+  handleStop?: () => void;
   isLoading: boolean;
   composerStatus?: string | null;
   contextUsage?: ContextUsage | null;
@@ -108,6 +109,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   input,
   setInput,
   handleSend,
+  handleStop,
   isLoading,
   composerStatus,
   contextUsage,
@@ -379,16 +381,18 @@ export const InputArea: React.FC<InputAreaProps> = ({
               rows={1}
             />
             <button
-              onClick={onSendWrapper}
-              disabled={isLoading || (!input.trim() && pendingUploads.length === 0)}
+              onClick={isLoading ? handleStop : onSendWrapper}
+              disabled={!isLoading && (!input.trim() && pendingUploads.length === 0)}
               className={`lawver-composer-action lawver-pressable shadow-[var(--shadow-1)] transition-colors ${
-                input.trim() || pendingUploads.length > 0
+                isLoading
+                  ? 'bg-[var(--color-danger-500)] text-white hover:opacity-90'
+                  : input.trim() || pendingUploads.length > 0
                   ? 'bg-[var(--accent)] text-[var(--accent-on)] hover:bg-[var(--accent-hover)]'
                   : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] shadow-none dark:bg-white/[0.08]'
               }`}
-              aria-label="Send message"
+              aria-label={isLoading ? '停止生成' : 'Send message'}
             >
-              <Send size={20} strokeWidth={2} />
+              {isLoading ? <Square size={18} strokeWidth={2.4} fill="currentColor" /> : <Send size={20} strokeWidth={2} />}
             </button>
           </div>
         </div>

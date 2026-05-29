@@ -146,6 +146,19 @@ Android 正式发布通过 GitHub Actions 的 `vX.Y.Z` 标签工作流构建 rel
 - `LAWVER_TRUSTED_PROXY_CIDRS`：额外可信反向代理 CIDR，默认只信任 loopback；只有这些来源的 `CF-Connecting-IP` / `X-Forwarded-For` 会用于限流和日志。
 - `LAWVER_GITHUB_TOKEN`：私有仓库或 GitHub API 限流时使用的只读 token。
 
+## 聊天断线续传
+
+断线续传默认关闭。用户开启后，每个聊天请求会携带 `resume_enabled=true`，服务端仅在当前进程内临时缓存该回答的 SSE 事件；设备确认写入 IndexedDB 后会 ACK 裁剪，完成并确认收全后删除。
+
+可选环境变量：
+
+- `LAWVER_RESUME_MAX_STREAMS_PER_USER`：每用户并发缓冲流，默认 `3`。
+- `LAWVER_RESUME_MAX_BYTES_PER_STREAM`：单流缓冲字节，默认 `2097152`。
+- `LAWVER_RESUME_MAX_BYTES_GLOBAL`：全局缓冲字节，默认 `134217728`。
+- `LAWVER_RESUME_TTL_SECONDS`：缓冲 TTL，默认 `2700`。
+- `LAWVER_RESUME_SWEEP_SECONDS`：清扫间隔，默认 `60`。
+- `LAWVER_RESUME_REQUIRE_SINGLE_WORKER=1`：当 `UVICORN_WORKERS>1` 时拒绝启动，避免内存续传落到不同 worker。
+
 ## 动态 Prompt
 
 Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对话上下文时都会重新读取这些片段，并在运行时最多拆成三条 system message（稳定前缀 / 动态 memory / recap）：

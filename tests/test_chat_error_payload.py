@@ -125,7 +125,9 @@ class ChatErrorPayloadTests(unittest.TestCase):
             self.chat_pipeline.remember_memory_turn = original_remember
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('data: {"type": "content", "content": "ok"}', response.text)
+        self.assertIn('data: {"type": "stream_start", "seq": 0, "stream_id": "turn_', response.text)
+        self.assertIn('data: {"type": "content", "content": "ok", "seq": 1}', response.text)
+        self.assertIn('data: {"type": "done"', response.text)
         self.assertTrue(response.text.rstrip().endswith("data: [DONE]"))
 
 

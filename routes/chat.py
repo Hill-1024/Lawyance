@@ -4,21 +4,65 @@
 
 import json
 import traceback
+import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from function_calling import call
 from memory_system import MemoryRevisionConflict
 from output_sanitizer import strip_think_blocks, strip_wrapper_tags
-from schemas import ChatRequest, MemorySyncRequest, SummarizeRequest
+from schemas import ChatRequest, MemorySyncRequest, ResumeAckRequest, StreamCancelRequest, SummarizeRequest
 from services.auth_dependencies import get_current_user
 from services.chat_pipeline import prepare_chat_turn, run_agent_once, run_agent_stream
 from services.memory_coordinator import memory_conflict_detail, sync_memory_cache
+from services import stream_buffer
 from services.workspace_service import get_workspace_scope
 
 
 router = APIRouter()
+SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+def _sse_event(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _direct_stream(prepared, buffered: bool = False, unavailable_reason: str | None = None):
+    seq = 0
+    yield _sse_event({
+        "type": "stream_start",
+        "seq": seq,
+        "stream_id": prepared.turn_id,
+        "buffered": buffered,
+    })
+    seq += 1
+    if unavailable_reason:
+        yield _sse_event({
+            "type": "resume_unavailable",
+            "seq": seq,
+            "stream_id": prepared.turn_id,
+            "reason": unavailable_reason,
+        })
+        seq += 1
+    try:
+        async for event in run_agent_stream(prepared):
+            payload = dict(event)
+            payload["seq"] = seq
+            seq += 1
+            yield _sse_event(payload)
+    except Exception as e:
+        traceback.print_exc()
+        yield _sse_event({"type": "error", "seq": seq, "content": str(e)})
+        seq += 1
+    yield _sse_event({"type": "done", "seq": seq, "final_seq": seq})
+    yield "data: [DONE]\n\n"
+
+
+async def _buffered_stream(stream_id: str, from_seq: int):
+    async for payload in stream_buffer.reader(stream_id, from_seq):
+        yield _sse_event(payload)
+    yield "data: [DONE]\n\n"
 
 
 def _fallback_conversation_title(history: list[dict]) -> str:
@@ -44,19 +88,33 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
         raise HTTPException(status_code=409, detail=memory_conflict_detail(exc))
 
     if request.stream:
-        async def generate_agent():
-            try:
-                async for event in run_agent_stream(prepared):
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-            except Exception as e:
-                traceback.print_exc()
-                yield f"data: {json.dumps({'type': 'error', 'content': str(e)}, ensure_ascii=False)}\n\n"
-            yield "data: [DONE]\n\n"
+        if request.resume_enabled:
+            state = await stream_buffer.create(prepared.turn_id, current_user)
+            if state is None:
+                return StreamingResponse(
+                    _direct_stream(prepared, buffered=False, unavailable_reason="quota"),
+                    media_type="text/event-stream",
+                    headers=SSE_HEADERS,
+                )
+
+            await stream_buffer.append(prepared.turn_id, {
+                "type": "stream_start",
+                "stream_id": prepared.turn_id,
+                "buffered": True,
+            })
+            task = asyncio.create_task(stream_buffer.produce(prepared.turn_id, prepared))
+            await stream_buffer.set_task(prepared.turn_id, task)
+
+            return StreamingResponse(
+                _buffered_stream(prepared.turn_id, from_seq=-1),
+                media_type="text/event-stream",
+                headers=SSE_HEADERS,
+            )
 
         return StreamingResponse(
-            generate_agent(),
+            _direct_stream(prepared, buffered=False),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            headers=SSE_HEADERS,
         )
 
     try:
@@ -64,6 +122,38 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/chat/resume/{stream_id}")
+async def resume_chat_stream(
+    stream_id: str,
+    from_seq: int = Query(-1),
+    current_user: str = Depends(get_current_user),
+):
+    state = await stream_buffer.get(stream_id, current_user)
+    if state is None:
+        raise HTTPException(status_code=410, detail={"error": "stream_expired"})
+    return StreamingResponse(
+        _buffered_stream(stream_id, from_seq),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )
+
+
+@router.post("/api/chat/ack")
+async def ack_chat_stream(request: ResumeAckRequest, current_user: str = Depends(get_current_user)):
+    trimmed_to = await stream_buffer.ack(request.stream_id, current_user, request.acked_seq)
+    if trimmed_to is None:
+        raise HTTPException(status_code=404, detail="stream_not_found")
+    return {"ok": True, "trimmed_to": trimmed_to}
+
+
+@router.post("/api/chat/cancel")
+async def cancel_chat_stream(request: StreamCancelRequest, current_user: str = Depends(get_current_user)):
+    cancelled = await stream_buffer.cancel(request.stream_id, current_user)
+    if not cancelled:
+        raise HTTPException(status_code=404, detail="stream_not_found")
+    return {"ok": True}
 
 
 @router.post("/api/summarize")

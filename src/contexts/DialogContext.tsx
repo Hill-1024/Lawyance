@@ -14,19 +14,24 @@ interface DialogOptions {
   tone?: DialogTone;
   confirmLabel?: string;
   cancelLabel?: string;
+  secondaryLabel?: string;
 }
+
+type DialogResult = boolean | 'secondary';
 
 interface DialogRequest extends Required<Pick<DialogOptions, 'message' | 'tone' | 'confirmLabel'>> {
   id: number;
-  kind: 'alert' | 'confirm';
+  kind: 'alert' | 'confirm' | 'choice';
   title: string;
   cancelLabel: string;
-  resolve: (value: boolean) => void;
+  secondaryLabel?: string;
+  resolve: (value: DialogResult) => void;
 }
 
 interface DialogContextValue {
   showAlert: (options: string | DialogOptions) => Promise<void>;
   showConfirm: (options: DialogOptions) => Promise<boolean>;
+  showChoice: (options: DialogOptions & { secondaryLabel: string }) => Promise<'confirm' | 'secondary' | 'cancel'>;
 }
 
 const DialogContext = createContext<DialogContextValue | null>(null);
@@ -81,7 +86,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   const enqueueDialog = useCallback((request: Omit<DialogRequest, 'id' | 'resolve'>) => (
-    new Promise<boolean>(resolve => {
+    new Promise<DialogResult>(resolve => {
       queueRef.current.push({
         ...request,
         id: ++dialogId,
@@ -91,7 +96,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     })
   ), [openNextDialog]);
 
-  const settleDialog = useCallback((value: boolean) => {
+  const settleDialog = useCallback((value: DialogResult) => {
     const current = activeDialogRef.current;
     if (!current) return;
 
@@ -114,9 +119,9 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
   }, [enqueueDialog]);
 
-  const showConfirm = useCallback((options: DialogOptions) => {
+  const showConfirm = useCallback(async (options: DialogOptions) => {
     const tone = options.tone || 'warning';
-    return enqueueDialog({
+    const result = await enqueueDialog({
       kind: 'confirm',
       tone,
       title: options.title || toneMeta[tone].title,
@@ -124,6 +129,23 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       confirmLabel: options.confirmLabel || '确认',
       cancelLabel: options.cancelLabel || '取消',
     });
+    return result === true;
+  }, [enqueueDialog]);
+
+  const showChoice = useCallback(async (options: DialogOptions & { secondaryLabel: string }) => {
+    const tone = options.tone || 'warning';
+    const result = await enqueueDialog({
+      kind: 'choice',
+      tone,
+      title: options.title || toneMeta[tone].title,
+      message: options.message,
+      confirmLabel: options.confirmLabel || '确认',
+      cancelLabel: options.cancelLabel || '取消',
+      secondaryLabel: options.secondaryLabel,
+    });
+    if (result === true) return 'confirm';
+    if (result === 'secondary') return 'secondary';
+    return 'cancel';
   }, [enqueueDialog]);
 
   useEffect(() => {
@@ -142,7 +164,8 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const value = useMemo<DialogContextValue>(() => ({
     showAlert,
     showConfirm,
-  }), [showAlert, showConfirm]);
+    showChoice,
+  }), [showAlert, showConfirm, showChoice]);
 
   const Icon = activeDialog ? toneMeta[activeDialog.tone].icon : Info;
 
@@ -188,7 +211,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 </div>
               </div>
               <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-5 py-4 sm:px-6">
-                {activeDialog.kind === 'confirm' && (
+                {(activeDialog.kind === 'confirm' || activeDialog.kind === 'choice') && (
                   <button
                     type="button"
                     className="md3-btn-text px-4 py-2"
@@ -196,6 +219,15 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                     autoFocus
                   >
                     {activeDialog.cancelLabel}
+                  </button>
+                )}
+                {activeDialog.kind === 'choice' && activeDialog.secondaryLabel && (
+                  <button
+                    type="button"
+                    className="md3-btn-text px-4 py-2"
+                    onClick={() => settleDialog('secondary')}
+                  >
+                    {activeDialog.secondaryLabel}
                   </button>
                 )}
                 <button
