@@ -41,7 +41,7 @@ public class StreamForegroundService extends Service {
     private static final String NATIVE_ORIGIN = "capacitor://localhost";
     private static final int NOTIFICATION_ID = 5107;
     private static final int CONNECT_TIMEOUT_MS = 10000;
-    private static final int READ_TIMEOUT_MS = 60000;
+    private static final int READ_TIMEOUT_MS = 0;
     private static final Map<String, StreamSession> SESSIONS = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
@@ -166,6 +166,7 @@ public class StreamForegroundService extends Service {
             session.connection = connection;
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            // SSE responses may stay quiet while the model is thinking or a tool is running.
             connection.setReadTimeout(READ_TIMEOUT_MS);
             connection.setDoOutput(true);
             connection.setRequestProperty("Accept", "text/event-stream");
