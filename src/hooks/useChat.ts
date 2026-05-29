@@ -222,7 +222,7 @@ export function useChat() {
   const stopActiveGeneration = useCallback(async () => {
     const serverStreamId = activeServerStreamRef.current;
     const nativeStreamId = activeNativeStreamRef.current?.streamId;
-    await stopActiveGeneration();
+    abortActiveRequest();
     activeServerStreamRef.current = null;
     activeNativeStreamRef.current = null;
     drainNativeStreamRef.current = null;
@@ -808,6 +808,8 @@ export function useChat() {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Lawver-Client': 'capacitor',
+      'Origin': 'capacitor://localhost',
+      'Referer': 'capacitor://localhost/',
     };
     if (token) headers.Authorization = `Bearer ${token}`;
     await requestNativeStreamNotificationPermission().catch(() => false);

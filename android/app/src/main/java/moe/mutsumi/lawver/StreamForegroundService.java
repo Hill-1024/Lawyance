@@ -38,6 +38,7 @@ public class StreamForegroundService extends Service {
     static final String EXTRA_BODY = "body";
 
     private static final String CHANNEL_ID = "lawver_stream_generation";
+    private static final String NATIVE_ORIGIN = "capacitor://localhost";
     private static final int NOTIFICATION_ID = 5107;
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 60000;
@@ -168,6 +169,9 @@ public class StreamForegroundService extends Service {
             connection.setReadTimeout(READ_TIMEOUT_MS);
             connection.setDoOutput(true);
             connection.setRequestProperty("Accept", "text/event-stream");
+            connection.setRequestProperty("Origin", NATIVE_ORIGIN);
+            connection.setRequestProperty("Referer", NATIVE_ORIGIN + "/");
+            connection.setRequestProperty("X-Lawver-Client", "capacitor");
             applyHeaders(connection, rawHeaders);
 
             byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
