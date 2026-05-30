@@ -65,6 +65,32 @@ async def _buffered_stream(stream_id: str, from_seq: int):
     yield "data: [DONE]\n\n"
 
 
+# 服务端 SSE 心跳：空闲间隙（如 OCP/长思考无 token 输出时）每隔 HEARTBEAT_INTERVAL 秒
+# 发一条 SSE 注释行 ": ping"。注释行不是 data: 事件，前端与原生前台服务都会自然跳过，
+# 不污染内容；但能让 TCP 持续有字节流动，使原生端的有限读超时只在连接真正死亡时触发。
+HEARTBEAT_INTERVAL = 15.0
+HEARTBEAT_COMMENT = ": ping\n\n"
+
+
+async def _with_heartbeat(source):
+    iterator = source.__aiter__()
+    pending = asyncio.ensure_future(iterator.__anext__())
+    try:
+        while True:
+            try:
+                chunk = await asyncio.wait_for(asyncio.shield(pending), HEARTBEAT_INTERVAL)
+            except asyncio.TimeoutError:
+                yield HEARTBEAT_COMMENT
+                continue
+            except StopAsyncIteration:
+                return
+            yield chunk
+            pending = asyncio.ensure_future(iterator.__anext__())
+    finally:
+        if not pending.done():
+            pending.cancel()
+
+
 def _fallback_conversation_title(history: list[dict]) -> str:
     import re
 
@@ -92,7 +118,7 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
             state = await stream_buffer.create(prepared.turn_id, current_user)
             if state is None:
                 return StreamingResponse(
-                    _direct_stream(prepared, buffered=False, unavailable_reason="quota"),
+                    _with_heartbeat(_direct_stream(prepared, buffered=False, unavailable_reason="quota")),
                     media_type="text/event-stream",
                     headers=SSE_HEADERS,
                 )
@@ -106,13 +132,13 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
             await stream_buffer.set_task(prepared.turn_id, task)
 
             return StreamingResponse(
-                _buffered_stream(prepared.turn_id, from_seq=-1),
+                _with_heartbeat(_buffered_stream(prepared.turn_id, from_seq=-1)),
                 media_type="text/event-stream",
                 headers=SSE_HEADERS,
             )
 
         return StreamingResponse(
-            _direct_stream(prepared, buffered=False),
+            _with_heartbeat(_direct_stream(prepared, buffered=False)),
             media_type="text/event-stream",
             headers=SSE_HEADERS,
         )
@@ -134,7 +160,7 @@ async def resume_chat_stream(
     if state is None:
         raise HTTPException(status_code=410, detail={"error": "stream_expired"})
     return StreamingResponse(
-        _buffered_stream(stream_id, from_seq),
+        _with_heartbeat(_buffered_stream(stream_id, from_seq)),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )
