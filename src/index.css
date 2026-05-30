@@ -750,6 +750,15 @@ textarea.composer-textarea:focus-visible {
   cursor: not-allowed;
 }
 
+.lawver-dialog-copy {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.lawver-dialog-copy :where(*) {
+  max-width: 100%;
+}
+
 .md3-seg-btn {
   padding: 10px 20px;
   border-radius: var(--radius-pill);
@@ -901,9 +910,13 @@ textarea.composer-textarea:focus-visible {
 .message-copy.prose,
 .thought-copy,
 .thought-copy.prose {
+  min-width: 0;
+  max-width: 100%;
   font-family: var(--font-sans);
   font-synthesis: none;
   letter-spacing: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-copy.prose {
@@ -927,8 +940,11 @@ textarea.composer-textarea:focus-visible {
 
 .message-copy.prose :where(h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table, thead, tbody, tr, th, td, strong, em, a):not(:where([class~="not-prose"], [class~="not-prose"] *)),
 .thought-copy.prose :where(h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table, thead, tbody, tr, th, td, strong, em, a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  max-width: 100%;
   font-family: var(--font-sans);
   letter-spacing: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message-copy.prose :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
@@ -1020,6 +1036,7 @@ textarea.composer-textarea:focus-visible {
 
 .message-copy.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)),
 .thought-copy.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  max-width: 100%;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   background: var(--bg-inset);
@@ -1031,6 +1048,8 @@ textarea.composer-textarea:focus-visible {
   color: var(--accent);
   text-decoration: none;
   border-bottom: 1px dashed rgba(59, 98, 184, 0.35);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .prose a:hover {
@@ -1097,14 +1116,33 @@ textarea.composer-textarea:focus-visible {
 }
 
 .prose pre {
+  max-width: 100%;
   overflow-x: auto !important;
   white-space: pre-wrap !important;
   word-break: break-word !important;
 }
 
 .prose code {
+  max-width: 100%;
   white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
   word-break: break-word !important;
+}
+
+.prose :where(img, video, canvas, svg):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  max-width: 100%;
+  height: auto;
+}
+
+.prose :where(table):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  max-width: 100%;
+  table-layout: auto;
+}
+
+.prose :where(th, td):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @keyframes logSlideIn {

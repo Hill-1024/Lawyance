@@ -108,10 +108,10 @@ export const MessageList: React.FC<MessageListProps> = ({
         shouldStickToBottomRef.current = isNearBottom(event.currentTarget);
       }}
       data-testid="message-list-scroll"
-      className="custom-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-6 sm:py-8"
+      className="custom-scrollbar flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-4 py-6 sm:px-6 sm:py-8"
       style={scrollStyle}
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 sm:gap-8">
+      <div className="mx-auto flex min-w-0 w-full max-w-3xl flex-col gap-6 sm:gap-8">
         {messages.map((msg, index) => {
           const isLast = index === messages.length - 1;
           const isThinking = isLoading && msg.role === 'assistant' && (

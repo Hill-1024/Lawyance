@@ -174,7 +174,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       {children}
       <AnimatePresence>
         {activeDialog && (
-          <div className="fixed inset-0 z-[1200] flex min-h-[100dvh] items-center justify-center p-4">
+          <div className="fixed inset-0 z-[1200] flex min-h-[100dvh] items-center justify-center p-3 sm:p-4">
             <motion.div
               key={`dialog-overlay-${activeDialog.id}`}
               className="absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm"
@@ -191,30 +191,30 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
               aria-modal="true"
               aria-labelledby="lawver-dialog-title"
               aria-describedby="lawver-dialog-message"
-              className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--fg-1)] shadow-[var(--shadow-5)]"
+              className="relative max-h-[calc(100dvh-1.5rem)] w-full max-w-[min(100%,28rem)] overflow-hidden rounded-[24px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--fg-1)] shadow-[var(--shadow-5)] sm:max-h-[calc(100dvh-2rem)] sm:rounded-[28px]"
               initial={{ opacity: 0, y: 16, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.98 }}
               transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
             >
-              <div className="flex gap-4 px-5 pb-4 pt-5 sm:px-6 sm:pt-6">
-                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${toneMeta[activeDialog.tone].iconClass}`}>
+              <div className="flex gap-3 px-4 pb-3.5 pt-4 sm:gap-4 sm:px-6 sm:pb-4 sm:pt-6">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full sm:h-11 sm:w-11 ${toneMeta[activeDialog.tone].iconClass}`}>
                   <Icon className="h-5 w-5" strokeWidth={2} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h2 id="lawver-dialog-title" className="t-title-l break-words">
+                  <h2 id="lawver-dialog-title" className="break-words text-[18px] font-medium leading-6 text-[var(--fg-1)] sm:text-[22px] sm:leading-7">
                     {activeDialog.title}
                   </h2>
-                  <div id="lawver-dialog-message" className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-[var(--fg-3)]">
+                  <div id="lawver-dialog-message" className="lawver-dialog-copy custom-scrollbar mt-2 max-h-[52dvh] overflow-y-auto whitespace-pre-line break-words text-[13px] leading-6 text-[var(--fg-3)] sm:text-sm">
                     {activeDialog.message}
                   </div>
                 </div>
               </div>
-              <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-5 py-4 sm:px-6">
+              <div className="flex flex-col-reverse gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-4 py-3 sm:flex-row sm:justify-end sm:px-6 sm:py-4">
                 {(activeDialog.kind === 'confirm' || activeDialog.kind === 'choice') && (
                   <button
                     type="button"
-                    className="md3-btn-text px-4 py-2"
+                    className="md3-btn-text min-h-10 w-full whitespace-nowrap px-4 py-2.5 !text-[13px] sm:w-auto sm:!text-sm"
                     onClick={() => settleDialog(false)}
                     autoFocus
                   >
@@ -224,7 +224,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 {activeDialog.kind === 'choice' && activeDialog.secondaryLabel && (
                   <button
                     type="button"
-                    className="md3-btn-text px-4 py-2"
+                    className="md3-btn-text min-h-10 w-full whitespace-nowrap px-4 py-2.5 !text-[13px] sm:w-auto sm:!text-sm"
                     onClick={() => settleDialog('secondary')}
                   >
                     {activeDialog.secondaryLabel}
@@ -232,7 +232,9 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                 )}
                 <button
                   type="button"
-                  className={activeDialog.tone === 'danger' ? 'md3-btn-tonal !text-[var(--color-danger-500)] px-4 py-2' : 'md3-btn-tonal px-4 py-2'}
+                  className={activeDialog.tone === 'danger'
+                    ? 'md3-btn-tonal min-h-10 w-full whitespace-nowrap px-4 py-2.5 !text-[13px] !text-[var(--color-danger-500)] sm:w-auto sm:!text-sm'
+                    : 'md3-btn-tonal min-h-10 w-full whitespace-nowrap px-4 py-2.5 !text-[13px] sm:w-auto sm:!text-sm'}
                   onClick={() => settleDialog(true)}
                   autoFocus={activeDialog.kind === 'alert'}
                 >

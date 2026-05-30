@@ -405,7 +405,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
   return (
     <div
-      className={`group flex max-w-full gap-2 sm:gap-4 ${msg.role === 'user' ? 'self-end flex-row-reverse md:max-w-[85%]' : 'self-start'}`}
+      className={`group flex min-w-0 max-w-full gap-2 sm:gap-4 ${msg.role === 'user' ? 'self-end flex-row-reverse md:max-w-[85%]' : 'w-full self-start'}`}
     >
       <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full shadow-[var(--shadow-1)] sm:h-10 sm:w-10 ${msg.role === 'user' ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'}`}>
         {msg.role === 'user' ? <div className="text-sm font-medium sm:text-base">U</div> : <BrandMark className="h-4 w-4 sm:h-5 sm:w-5" />}
@@ -413,8 +413,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
       <div className={`flex flex-col gap-3 min-w-0 w-full ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
         {msg.role === 'user' ? (
-          <div className="message-copy w-fit rounded-[20px_6px_20px_20px] bg-[var(--accent)] px-3.5 py-2.5 text-[14px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:rounded-[24px_8px_24px_24px] sm:px-5 sm:py-3.5 sm:text-[16px]">
-            <div className="flex flex-col gap-2">
+          <div className="message-copy min-w-0 max-w-full w-fit rounded-[20px_6px_20px_20px] bg-[var(--accent)] px-3.5 py-2.5 text-[14px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:rounded-[24px_8px_24px_24px] sm:px-5 sm:py-3.5 sm:text-[16px]">
+            <div className="flex min-w-0 max-w-full flex-col gap-2">
               {(() => {
                 const fileInfoRegex = new RegExp("\\[用户已上传以下文件，请根据需要进行读取和处理\\]\\n([\\s\\S]*)$");
                 const match = msg.content.match(fileInfoRegex);
@@ -426,7 +426,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                   });
                   return (
                     <>
-                      {textContent && <p className="whitespace-pre-wrap">{textContent}</p>}
+                      {textContent && <p className="whitespace-pre-wrap break-words">{textContent}</p>}
                       {files.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-1">
                           {files.map((file: string, i: number) => (
@@ -440,7 +440,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                     </>
                   );
                 }
-                return <p className="whitespace-pre-wrap">{msg.content.replace(/TEMP\/[^\s"'`)\]<>*。，！？,?]+/g, '').trim()}</p>;
+                return <p className="whitespace-pre-wrap break-words">{msg.content.replace(/TEMP\/[^\s"'`)\]<>*。，！？,?]+/g, '').trim()}</p>;
               })()}
             </div>
           </div>
@@ -468,7 +468,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                         </span>
                       )}
                     </summary>
-                    <div data-testid="thought-column" className="mb-2 mt-3 flex w-full flex-col rounded-r-[14px] border-l-[3px] border-[var(--border-default)] bg-[rgba(59,98,184,0.04)] px-[18px] py-3.5 text-[13px] leading-[1.6] text-[var(--fg-2)]">
+                    <div data-testid="thought-column" className="mb-2 mt-3 flex min-w-0 w-full flex-col rounded-r-[14px] border-l-[3px] border-[var(--border-default)] bg-[rgba(59,98,184,0.04)] px-[18px] py-3.5 text-[13px] leading-[1.6] text-[var(--fg-2)]">
                       {thoughtBlocks.map((block, index) => {
                         const stepStatus = showThinking && block.id === latestThought?.id ? 'running' : 'done';
                         const blockContent = sanitizeThoughtContent(block.content, block.type);
@@ -496,7 +496,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             )}
 
             {mainContent && (
-              <div data-testid="assistant-content" className="w-full rounded-[6px_20px_20px_20px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:rounded-[8px_24px_24px_24px] sm:px-5 sm:py-3.5">
+              <div data-testid="assistant-content" className="min-w-0 w-full max-w-full rounded-[6px_20px_20px_20px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:rounded-[8px_24px_24px_24px] sm:px-5 sm:py-3.5">
                 <div className="message-copy prose dark:prose-invert w-full max-w-none">
                   <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]} components={markdownComponents}>{mainContent}</Markdown>
                 </div>
