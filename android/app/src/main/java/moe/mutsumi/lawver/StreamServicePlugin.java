@@ -70,6 +70,17 @@ public class StreamServicePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void listActive(PluginCall call) {
+        JSObject result = new JSObject();
+        JSArray ids = new JSArray();
+        for (String id : StreamForegroundService.listActiveStreamIds()) {
+            ids.put(id);
+        }
+        result.put("streamIds", ids);
+        call.resolve(result);
+    }
+
+    @PluginMethod
     public void drain(PluginCall call) {
         String streamId = call.getString("streamId");
         Integer fromIndex = call.getInt("fromIndex", 0);
@@ -78,7 +89,12 @@ public class StreamServicePlugin extends Plugin {
             return;
         }
 
-        StreamForegroundService.DrainResult drained = StreamForegroundService.drain(streamId, fromIndex == null ? 0 : fromIndex);
+        Integer maxEvents = call.getInt("maxEvents", 0);
+        StreamForegroundService.DrainResult drained = StreamForegroundService.drain(
+            streamId,
+            fromIndex == null ? 0 : fromIndex,
+            maxEvents == null ? 0 : maxEvents
+        );
         JSObject result = new JSObject();
         JSArray events = new JSArray();
         for (String event : drained.events) {
@@ -87,6 +103,7 @@ public class StreamServicePlugin extends Plugin {
         result.put("events", events);
         result.put("nextIndex", drained.nextIndex);
         result.put("done", drained.done);
+        result.put("hasMore", drained.hasMore);
         if (drained.error != null) {
             result.put("error", drained.error);
         }

@@ -33,6 +33,8 @@ export type Message = {
   stream_buffered?: boolean;
   stream_status?: 'streaming' | 'done' | 'error';
   last_committed_seq?: number;
+  /** Android 原生前台服务的流 id；WebView 重建后据此重新接上仍在进行的原生流。 */
+  native_stream_id?: string;
   thought_blocks?: ThoughtBlock[];
   reasoning_content?: string;
   thought_signature?: string;
