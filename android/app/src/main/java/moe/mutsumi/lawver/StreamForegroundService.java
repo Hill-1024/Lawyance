@@ -42,10 +42,9 @@ public class StreamForegroundService extends Service {
     private static final String NATIVE_ORIGIN = "capacitor://localhost";
     private static final int NOTIFICATION_ID = 5107;
     private static final int CONNECT_TIMEOUT_MS = 10000;
-    // 有限读超时：配合服务端的 SSE 心跳（": ping"，约 15s 一次）使用。
-    // 心跳会持续重置该超时，因此只有连接真正死亡（熄屏 doze、网络切换、NAT 回收等）
-    // 才会触发 SocketTimeoutException，从而避免"已断流却永远阻塞在 readLine"的误导态。
-    private static final int READ_TIMEOUT_MS = 45000;
+    // 非续传流保留有限读超时，避免真断线后永远阻塞；续传流会改用无限读超时，
+    // 因为服务端缓冲续传可以在前端恢复时主动兜底，原生层不应把安静阶段误判成失败。
+    private static final int FALLBACK_READ_TIMEOUT_MS = 45000;
     private static final Map<String, StreamSession> SESSIONS = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
@@ -54,12 +53,14 @@ public class StreamForegroundService extends Service {
         final int nextIndex;
         final boolean done;
         final String error;
+        final boolean hasMore;
 
-        DrainResult(List<String> events, int nextIndex, boolean done, String error) {
+        DrainResult(List<String> events, int nextIndex, boolean done, String error, boolean hasMore) {
             this.events = events;
             this.nextIndex = nextIndex;
             this.done = done;
             this.error = error;
+            this.hasMore = hasMore;
         }
     }
 
@@ -81,11 +82,14 @@ public class StreamForegroundService extends Service {
             }
         }
 
-        DrainResult drain(int fromIndex) {
+        DrainResult drain(int fromIndex, int maxEvents) {
             synchronized (events) {
                 int start = Math.max(0, Math.min(fromIndex, events.size()));
-                List<String> slice = new ArrayList<>(events.subList(start, events.size()));
-                return new DrainResult(slice, events.size(), done, error);
+                int end = maxEvents > 0 ? Math.min(events.size(), start + maxEvents) : events.size();
+                boolean hasMore = end < events.size();
+                boolean drainedDone = done && !hasMore;
+                List<String> slice = new ArrayList<>(events.subList(start, end));
+                return new DrainResult(slice, end, drainedDone, drainedDone ? error : null, hasMore);
             }
         }
     }
@@ -147,6 +151,11 @@ public class StreamForegroundService extends Service {
         super.onDestroy();
     }
 
+    /** 列出当前进程内仍存活的 session id（含已 done 但尚未 stop 的），供 WebView 重建后重新接上。 */
+    static java.util.List<String> listActiveStreamIds() {
+        return new ArrayList<>(SESSIONS.keySet());
+    }
+
     /** 由插件在启动前台服务前同步调用，确保 session 已登记，避免 drain 竞态误判。 */
     static StreamSession register(String streamId) {
         StreamSession session = SESSIONS.get(streamId);
@@ -157,12 +166,12 @@ public class StreamForegroundService extends Service {
         return session;
     }
 
-    static DrainResult drain(String streamId, int fromIndex) {
+    static DrainResult drain(String streamId, int fromIndex, int maxEvents) {
         StreamSession session = SESSIONS.get(streamId);
         if (session == null) {
-            return new DrainResult(new ArrayList<>(), fromIndex, true, "native stream is unavailable");
+            return new DrainResult(new ArrayList<>(), fromIndex, true, "native stream is unavailable", false);
         }
-        return session.drain(fromIndex);
+        return session.drain(fromIndex, maxEvents);
     }
 
     static void stopStream(Context context, String streamId) {
@@ -191,8 +200,8 @@ public class StreamForegroundService extends Service {
             session.connection = connection;
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
-            // SSE responses may stay quiet while the model is thinking or a tool is running.
-            connection.setReadTimeout(READ_TIMEOUT_MS);
+            boolean resumeEnabled = isResumeEnabled(body);
+            connection.setReadTimeout(resumeEnabled ? 0 : FALLBACK_READ_TIMEOUT_MS);
             connection.setDoOutput(true);
             connection.setRequestProperty("Accept", "text/event-stream");
             connection.setRequestProperty("Origin", NATIVE_ORIGIN);
@@ -232,7 +241,7 @@ public class StreamForegroundService extends Service {
             // 否则会把被截断的回答显示成"已完整"。
             finishSession(session, "连接已中断（未收到完成标记）");
         } catch (java.net.SocketTimeoutException ex) {
-            finishSession(session, "连接超时，可能已断开（" + (READ_TIMEOUT_MS / 1000) + "s 内无数据）");
+            finishSession(session, "连接超时，可能已断开（" + (FALLBACK_READ_TIMEOUT_MS / 1000) + "s 内无数据）");
         } catch (Exception ex) {
             finishSession(session, ex.getMessage());
         } finally {
@@ -259,6 +268,14 @@ public class StreamForegroundService extends Service {
             if (!key.trim().isEmpty() && !value.isEmpty()) {
                 connection.setRequestProperty(key, value);
             }
+        }
+    }
+
+    private boolean isResumeEnabled(String body) {
+        try {
+            return new JSONObject(body).optBoolean("resume_enabled", false);
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -290,12 +307,15 @@ public class StreamForegroundService extends Service {
 
     /** 点按通知回到应用：复用既有任务栈（MainActivity 为 singleTask），不新建实例。 */
     private PendingIntent buildContentIntent() {
-        Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
-        if (launch == null) {
-            launch = new Intent(this, MainActivity.class);
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        }
-        launch.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        Intent launch = new Intent(this, MainActivity.class);
+        launch.setAction(Intent.ACTION_MAIN);
+        launch.addCategory(Intent.CATEGORY_LAUNCHER);
+        launch.addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK |
+            Intent.FLAG_ACTIVITY_CLEAR_TOP |
+            Intent.FLAG_ACTIVITY_SINGLE_TOP |
+            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+        );
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;

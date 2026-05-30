@@ -55,6 +55,17 @@ const GREETING_MESSAGE = `您好，我是 **Lawver**，由 **工大法智团队*
 const CONTEXT_COMPRESSION_THRESHOLD_TOKENS = 500000;
 const HISTORY_COMPRESSION_STATUS = '正在整理较早上下文';
 const CJK_CHAR_PATTERN = /[\u3400-\u9fff\uf900-\ufaff]/g;
+const STREAM_COMMIT_THROTTLE_MS = 48;
+const NATIVE_DRAIN_BATCH_SIZE = 128;
+const NATIVE_STREAM_SESSIONS_KEY = 'lawver:native-stream-sessions';
+const NATIVE_STREAM_SESSION_TTL_MS = 60 * 60 * 1000;
+
+type NativeStreamSessionRecord = {
+  streamId: string;
+  convId: string;
+  messageId: string;
+  createdAt: string;
+};
 
 const isAbortError = (error: unknown) => (
   typeof error === 'object' &&
@@ -62,6 +73,46 @@ const isAbortError = (error: unknown) => (
   'name' in error &&
   (error as { name?: string }).name === 'AbortError'
 );
+
+const readNativeStreamSessions = (): NativeStreamSessionRecord[] => {
+  try {
+    const raw = localStorage.getItem(NATIVE_STREAM_SESSIONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const now = Date.now();
+    return parsed.filter((item): item is NativeStreamSessionRecord => {
+      if (!item || typeof item !== 'object') return false;
+      const record = item as NativeStreamSessionRecord;
+      if (!record.streamId || !record.convId || !record.messageId || !record.createdAt) return false;
+      const createdAt = Date.parse(record.createdAt);
+      return Number.isFinite(createdAt) && now - createdAt <= NATIVE_STREAM_SESSION_TTL_MS;
+    });
+  } catch {
+    return [];
+  }
+};
+
+const writeNativeStreamSessions = (records: NativeStreamSessionRecord[]) => {
+  try {
+    localStorage.setItem(NATIVE_STREAM_SESSIONS_KEY, JSON.stringify(records));
+  } catch (error) {
+    console.warn('Failed to persist native stream sessions:', error);
+  }
+};
+
+const rememberNativeStreamSession = (record: NativeStreamSessionRecord) => {
+  const records = readNativeStreamSessions().filter(item =>
+    item.streamId !== record.streamId && item.messageId !== record.messageId
+  );
+  records.push(record);
+  writeNativeStreamSessions(records);
+};
+
+const forgetNativeStreamSession = (streamId: string) => {
+  const records = readNativeStreamSessions().filter(item => item.streamId !== streamId);
+  writeNativeStreamSessions(records);
+};
 
 const normalizeBackendMessage = (msg: Partial<Message> | BackendHistoryMessage): BackendHistoryMessage | null => {
   const rawRole = (msg.role as string) || '';
@@ -206,7 +257,7 @@ const waitForNativeStreamHead = async (
   const evaluate = async () => {
     if (signal?.aborted) { finish({ kind: 'ok' }); return; }
     try {
-      const result = await NativeStream.drain({ streamId, fromIndex: 0 });
+      const result = await NativeStream.drain({ streamId, fromIndex: 0, maxEvents: 1 });
       if (result.events.length > 0) finish({ kind: 'ok' });
       else if (result.done) finish({ kind: 'http_error', error: result.error || '原生流在收到数据前已结束' });
     } catch (error) {
@@ -246,6 +297,8 @@ export function useChat() {
   const resumingStreamsRef = useRef<Set<string>>(new Set());
   const promptedDisconnectsRef = useRef<Set<string>>(new Set());
   const regenerateMessageRef = useRef<((convId: string, messageId: string, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => Promise<void>) | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistConversationsRef = useRef<(snapshot: Conversation[]) => Promise<void>>(async () => {});
 
   const currentConversation = conversations.find(c => c.id === currentId) || { id: '', title: '', messages: [] };
   const messages = currentConversation.messages;
@@ -285,6 +338,7 @@ export function useChat() {
     activeServerStreamRef.current = null;
     activeNativeStreamRef.current = null;
     drainNativeStreamRef.current = null;
+    if (nativeStreamId) forgetNativeStreamSession(nativeStreamId);
     await Promise.all([
       serverStreamId ? cancelStream(serverStreamId).catch(console.error) : Promise.resolve(),
       nativeStreamId ? NativeStream.stop({ streamId: nativeStreamId }).catch(console.error) : Promise.resolve(),
@@ -329,6 +383,7 @@ export function useChat() {
       }
 
       if (savedConvs.length > 0) {
+        conversationsRef.current = savedConvs;
         setConversations(savedConvs);
         setCurrentId(savedConvs[0].id);
       } else {
@@ -357,66 +412,119 @@ export function useChat() {
     });
   }, [isInitialized]);
 
-  useEffect(() => {
-    if (!isInitialized) return;
-    fileDB.saveConversations(conversations).then(() => {
-      // 落盘成功后再 ACK，保证服务端裁剪进度不超前于设备持久化进度（续传正确性依赖于此）。
-      for (const conv of conversations) {
-        for (const message of conv.messages) {
-          if (
-            message.role === 'assistant' &&
-            message.stream_buffered &&
-            message.stream_id &&
-            typeof message.last_committed_seq === 'number' &&
-            message.last_committed_seq >= 0 &&
-            (message.stream_status === 'streaming' || message.stream_status === 'done')
-          ) {
-            ackBufferedStream(message.stream_id, message.last_committed_seq, message.stream_status === 'done');
-          }
+  // 防抖持久化：流式期间每个事件都改 conversations，若每次都全量写 IndexedDB（序列化所有会话+消息），
+  // 答案越长写得越大、原生回前台积压一次性灌入时尤甚 → 长时间卡顿。改为合并写盘（默认 400ms），
+  // 并在切后台/页面隐藏时立即 flush，避免丢数据。落盘成功后才 ACK，保证服务端裁剪不超前于设备持久化。
+  const SAVE_DEBOUNCE_MS = 400;
+
+  // persistConversationsRef 每次渲染重新指向最新闭包；effect 在 commit 后才调用 .current，
+  // 故可安全引用稍后定义的 ackBufferedStream（与原实现同样的 TDZ-safe 模式）。
+  persistConversationsRef.current = async (snapshot: Conversation[]) => {
+    try {
+      await fileDB.saveConversations(snapshot);
+    } catch (e) {
+      console.error('Failed to save conversations to IndexedDB:', e);
+      return;
+    }
+    for (const conv of snapshot) {
+      for (const message of conv.messages) {
+        if (
+          message.role === 'assistant' &&
+          message.stream_buffered &&
+          message.stream_id &&
+          typeof message.last_committed_seq === 'number' &&
+          message.last_committed_seq >= 0 &&
+          (message.stream_status === 'streaming' || message.stream_status === 'done')
+        ) {
+          ackBufferedStream(message.stream_id, message.last_committed_seq, message.stream_status === 'done');
         }
       }
-    }).catch(e => {
-      console.error('Failed to save conversations to IndexedDB:', e);
-    });
-    // ackBufferedStream 为稳定引用（useCallback []），刻意不入依赖以避免 TDZ。
+    }
+  };
+
+  const flushConversationSave = useCallback(() => {
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    void persistConversationsRef.current(conversationsRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    const snapshot = conversations;
+    if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void persistConversationsRef.current(snapshot);
+    }, SAVE_DEBOUNCE_MS);
+    return () => {
+      if (saveTimerRef.current !== null) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
   }, [conversations, isInitialized]);
+
+  // 切后台/页面隐藏立即 flush，弥补防抖窗口内的潜在丢失（此刻最可能被系统回收）。
+  useEffect(() => {
+    if (!isInitialized) return;
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushConversationSave();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flushConversationSave);
+    let listener: { remove: () => Promise<void> } | undefined;
+    if (isNative()) {
+      CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        if (!isActive) flushConversationSave();
+      }).then(handle => { listener = handle; });
+    }
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flushConversationSave);
+      listener?.remove();
+    };
+  }, [isInitialized, flushConversationSave]);
 
   const handleNewChat = () => {
     const newId = generateUUID();
     const now = nowIso();
-    setConversations(prev => [{
+    const newConversation: Conversation = {
       id: newId,
       title: 'New Conversation',
       messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE, created_at: now, updated_at: now }],
       memory: createEmptyConversationMemory(newId),
       created_at: now,
       updated_at: now
-    }, ...prev]);
+    };
+    const nextConversations = [newConversation, ...conversationsRef.current];
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
     setCurrentId(newId);
   };
 
   const deleteConversation = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setConversations(prev => {
-      const filtered = prev.filter(c => c.id !== id);
-      if (filtered.length === 0) {
-        const newId = generateUUID();
-        const now = nowIso();
-        setCurrentId(newId);
-        return [{
-          id: newId,
-          title: 'New Conversation',
-          messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE, created_at: now, updated_at: now }],
-          memory: createEmptyConversationMemory(newId),
-          created_at: now,
-          updated_at: now
-        }];
-      }
-      if (currentId === id) {
-        setCurrentId(filtered[0].id);
-      }
-      return filtered;
-    });
+    const filtered = conversationsRef.current.filter(c => c.id !== id);
+    let nextConversations = filtered;
+    if (filtered.length === 0) {
+      const newId = generateUUID();
+      const now = nowIso();
+      setCurrentId(newId);
+      nextConversations = [{
+        id: newId,
+        title: 'New Conversation',
+        messages: [{ id: generateUUID(), role: 'assistant', content: GREETING_MESSAGE, created_at: now, updated_at: now }],
+        memory: createEmptyConversationMemory(newId),
+        created_at: now,
+        updated_at: now
+      }];
+    } else if (currentId === id) {
+      setCurrentId(filtered[0].id);
+    }
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
     await fileDB.deleteFilesByConvId(id);
     try {
       await deleteWorkspace(id);
@@ -426,19 +534,92 @@ export function useChat() {
   };
 
   const updateMessages = (convId: string, updater: (prev: Message[]) => Message[]) => {
-    setConversations(prev => prev.map(conv => {
+    const nextConversations = conversationsRef.current.map(conv => {
       if (conv.id === convId) {
         const nextMessages = updater(conv.messages);
         if (nextMessages === conv.messages) return conv;
         return { ...conv, messages: nextMessages, updated_at: nowIso() };
       }
       return conv;
-    }));
+    });
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
+  };
+
+  const ensureNativeAssistantMessage = (convId: string, messageId: string, nativeStreamId: string) => {
+    const now = nowIso();
+    const placeholderMessage: Message = {
+      id: messageId,
+      role: 'assistant',
+      content: '',
+      thought_blocks: [],
+      stream_buffered: false,
+      stream_status: 'streaming',
+      last_committed_seq: -1,
+      native_stream_id: nativeStreamId,
+      created_at: now,
+      updated_at: now
+    };
+    let changed = false;
+    const nextConversations = conversationsRef.current.map(conv => {
+      if (conv.id !== convId) return conv;
+      const existing = conv.messages.find(message => message.id === messageId);
+      if (existing) {
+        if (existing.native_stream_id === nativeStreamId && existing.stream_status === 'streaming') return conv;
+        changed = true;
+        return {
+          ...conv,
+          messages: conv.messages.map(message =>
+            message.id === messageId
+              ? {
+                ...message,
+                native_stream_id: nativeStreamId,
+                stream_status: (message.stream_status === 'done' ? 'done' : 'streaming') as Message['stream_status'],
+                updated_at: now
+              }
+              : message
+          ),
+          updated_at: now
+        };
+      }
+      changed = true;
+      return {
+        ...conv,
+        messages: [
+          ...conv.messages,
+          placeholderMessage
+        ],
+        updated_at: now
+      };
+    });
+    if (!changed) return;
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
+    void persistConversationsRef.current(nextConversations);
+  };
+
+  const removeEmptyNativeAssistantMessage = (convId: string, messageId: string, nativeStreamId: string) => {
+    const nextConversations = conversationsRef.current.map(conv => {
+      if (conv.id !== convId) return conv;
+      const nextMessages = conv.messages.filter(message => !(
+        message.id === messageId &&
+        message.role === 'assistant' &&
+        message.native_stream_id === nativeStreamId &&
+        !message.stream_id &&
+        !message.content &&
+        (!message.thought_blocks || message.thought_blocks.length === 0)
+      ));
+      if (nextMessages.length === conv.messages.length) return conv;
+      return { ...conv, messages: nextMessages, updated_at: nowIso() };
+    });
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
+    void persistConversationsRef.current(nextConversations);
   };
 
   const updateConversationMemory = (convId: string, memory?: ConversationMemory | null) => {
     if (!memory) return;
-    setConversations(prev => prev.map(conv => {
+    const nextConversations = conversationsRef.current.map(conv => {
       if (conv.id !== convId) return conv;
       return {
         ...conv,
@@ -447,16 +628,20 @@ export function useChat() {
           conversation_id: convId
         }
       };
-    }));
+    });
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
   };
 
   const updateConversationContextUsage = (convId: string, usage?: ContextUsage | null) => {
     if (!usage || typeof usage.prompt_tokens !== 'number') return;
-    setConversations(prev => prev.map(conv => (
+    const nextConversations = conversationsRef.current.map(conv => (
       conv.id === convId
         ? { ...conv, context_usage: usage, updated_at: nowIso() }
         : conv
-    )));
+    ));
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
   };
 
   const syncMemoryFromMessages = async (convId: string, messages: Message[]) => {
@@ -669,7 +854,8 @@ export function useChat() {
     agentMessageId: string | null,
     convId: string,
     onFileGenerated?: (name: string, path: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    nativeStreamId?: string
   ): Promise<boolean> => {
     const reader = response.body?.getReader();
     if (!reader) {
@@ -689,6 +875,8 @@ export function useChat() {
         stream_buffered: false,
         stream_status: 'streaming',
         last_committed_seq: -1,
+        // 持久化原生流 id：WebView 被系统重建后，resumeNativeStreams 据此重新接上仍在跑的前台服务流。
+        native_stream_id: nativeStreamId,
         created_at: now,
         updated_at: now
       }]);
@@ -716,18 +904,20 @@ export function useChat() {
     };
     const decoder = new TextDecoder();
     let streamBuffer = '';
+    let commitTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastCommitAt = 0;
     const isStreamActive = () => !signal?.aborted;
 
     // 纯更新函数：只更新 React 状态。落盘与 ACK 交由 conversations 持久化 effect 处理，
     // 避免在 setState updater 内执行副作用（StrictMode 双调用会导致双写 / 双 ACK / 顺序错乱）。
     const commitAssistantState = () => {
       if (!agentMessageId || !isStreamActive()) return;
-      setConversations(prev => {
-        let changed = false;
-        const next = prev.map(conv => {
+      let changed = false;
+      const next = conversationsRef.current.map(conv => {
           if (conv.id !== convId) return conv;
           const nextMessages = conv.messages.map(msg => {
             if (msg.id !== agentMessageId) return msg;
+            if ((msg.last_committed_seq ?? -1) > streamState.lastSeq) return msg;
             changed = true;
             return {
               ...msg,
@@ -740,13 +930,37 @@ export function useChat() {
               stream_buffered: streamState.buffered,
               stream_status: streamState.status,
               last_committed_seq: streamState.lastSeq,
+              native_stream_id: nativeStreamId || msg.native_stream_id,
               updated_at: nowIso()
             };
           });
           return changed ? { ...conv, messages: nextMessages, updated_at: nowIso() } : conv;
         });
-        return changed ? next : prev;
-      });
+      if (!changed) return;
+      lastCommitAt = Date.now();
+      conversationsRef.current = next;
+      setConversations(next);
+    };
+
+    const scheduleAssistantStateCommit = (force = false) => {
+      if (force) {
+        if (commitTimer !== null) {
+          clearTimeout(commitTimer);
+          commitTimer = null;
+        }
+        commitAssistantState();
+        return;
+      }
+      const waitMs = STREAM_COMMIT_THROTTLE_MS - (Date.now() - lastCommitAt);
+      if (waitMs <= 0) {
+        commitAssistantState();
+        return;
+      }
+      if (commitTimer !== null) return;
+      commitTimer = setTimeout(() => {
+        commitTimer = null;
+        commitAssistantState();
+      }, waitMs);
     };
 
     const handleLine = (line: string) => {
@@ -757,7 +971,7 @@ export function useChat() {
       try {
         const data = JSON.parse(dataStr);
         const changed = processStreamPayload(data, streamState, onFileGenerated);
-        if (changed) commitAssistantState();
+        if (changed) scheduleAssistantStateCommit();
       } catch {
         console.warn('Failed to parse stream data:', dataStr);
       }
@@ -779,20 +993,32 @@ export function useChat() {
       if (streamBuffer.trim().startsWith('data: ')) {
         handleLine(streamBuffer.trim());
       }
-      commitAssistantState();
+      scheduleAssistantStateCommit(true);
       if (!streamState.seenDone && !streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
+      } else if (!streamState.seenDone && streamState.buffered && streamState.streamId) {
+        setTimeout(() => {
+          resumePendingStreams().catch(console.error);
+        }, 0);
       }
       return isStreamActive() && streamState.seenDone;
     } catch (err) {
       if (isAbortError(err) || !isStreamActive()) return false;
       console.error('Stream read error:', err);
-      commitAssistantState();
+      scheduleAssistantStateCommit(true);
       if (!streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
+      } else if (streamState.buffered && streamState.streamId) {
+        setTimeout(() => {
+          resumePendingStreams().catch(console.error);
+        }, 0);
       }
       return false;
     } finally {
+      if (commitTimer !== null) {
+        clearTimeout(commitTimer);
+        commitTimer = null;
+      }
       reader.releaseLock();
       if (isStreamActive()) {
         setIsLoading(false);
@@ -866,36 +1092,64 @@ export function useChat() {
     agentMessageId: string | null,
     convId: string,
     onFileGenerated?: (name: string, path: string) => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    existingStreamId?: string
   ): Promise<boolean> => {
-    const token = await getAuthToken();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'X-Lawver-Client': 'capacitor',
-      'Origin': 'capacitor://localhost',
-      'Referer': 'capacitor://localhost/',
-    };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    await requestNativeStreamNotificationPermission().catch(() => false);
+    let nativeStreamId: string;
+    let createdPlaceholderId: string | null = null;
+    if (existingStreamId) {
+      // Attach 模式：WebView 重建后重新接上仍存活的前台服务流，不重发请求、不做 head 判定
+      // （流早已在进行，事件从原生 buffer index 0 全量重放，processStream 用 seq 去重）。
+      nativeStreamId = existingStreamId;
+      if (agentMessageId) {
+        ensureNativeAssistantMessage(convId, agentMessageId, nativeStreamId);
+      }
+      activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
+    } else {
+      const token = await getAuthToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Lawver-Client': 'capacitor',
+        'Origin': 'capacitor://localhost',
+        'Referer': 'capacitor://localhost/',
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      await requestNativeStreamNotificationPermission().catch(() => false);
 
-    const started = await NativeStream.startStream({ url: apiUrl('/api/chat'), headers, body });
-    const nativeStreamId = started.streamId;
-    activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
+      const started = await NativeStream.startStream({ url: apiUrl('/api/chat'), headers, body });
+      nativeStreamId = started.streamId;
+      activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
+      if (!agentMessageId) {
+        agentMessageId = generateUUID();
+        createdPlaceholderId = agentMessageId;
+      }
+      rememberNativeStreamSession({
+        streamId: nativeStreamId,
+        convId,
+        messageId: agentMessageId,
+        createdAt: nowIso()
+      });
+      ensureNativeAssistantMessage(convId, agentMessageId, nativeStreamId);
 
-    // 渲染前先判定 HTTP 层结果：非 2xx（如 409 记忆冲突）会以"无事件即 done"出现，
-    // 此时抛出结构化错误交由上层重试，避免把 "HTTP 409:..." 当作回答正文渲染。
-    let head: { kind: 'ok' } | { kind: 'http_error'; error: string };
-    try {
-      head = await waitForNativeStreamHead(nativeStreamId, signal);
-    } catch (error) {
-      await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
-      activeNativeStreamRef.current = null;
-      throw error;
-    }
-    if (head.kind === 'http_error') {
-      await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
-      activeNativeStreamRef.current = null;
-      throw parseHttpStreamError(head.error);
+      // 渲染前先判定 HTTP 层结果：非 2xx（如 409 记忆冲突）会以"无事件即 done"出现，
+      // 此时抛出结构化错误交由上层重试，避免把 "HTTP 409:..." 当作回答正文渲染。
+      let head: { kind: 'ok' } | { kind: 'http_error'; error: string };
+      try {
+        head = await waitForNativeStreamHead(nativeStreamId, signal);
+      } catch (error) {
+        await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
+        forgetNativeStreamSession(nativeStreamId);
+        if (createdPlaceholderId) removeEmptyNativeAssistantMessage(convId, createdPlaceholderId, nativeStreamId);
+        activeNativeStreamRef.current = null;
+        throw error;
+      }
+      if (head.kind === 'http_error') {
+        await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
+        forgetNativeStreamSession(nativeStreamId);
+        if (createdPlaceholderId) removeEmptyNativeAssistantMessage(convId, createdPlaceholderId, nativeStreamId);
+        activeNativeStreamRef.current = null;
+        throw parseHttpStreamError(head.error);
+      }
     }
 
     const encoder = new TextEncoder();
@@ -939,7 +1193,11 @@ export function useChat() {
           try {
             do {
               pumpAgain = false;
-              const result = await NativeStream.drain({ streamId: nativeStreamId, fromIndex: nextIndex });
+              const result = await NativeStream.drain({
+                streamId: nativeStreamId,
+                fromIndex: nextIndex,
+                maxEvents: NATIVE_DRAIN_BATCH_SIZE
+              });
               for (const payload of result.events) safeEnqueue(payload);
               nextIndex = result.nextIndex;
               if (activeNativeStreamRef.current?.streamId === nativeStreamId) {
@@ -956,6 +1214,10 @@ export function useChat() {
                 }
                 safeClose();
                 return;
+              }
+              if (result.hasMore) {
+                pumpAgain = true;
+                await new Promise(resolve => setTimeout(resolve, 0));
               }
             } while (pumpAgain && !closed);
           } catch (error) {
@@ -985,8 +1247,14 @@ export function useChat() {
     }));
 
     try {
-      const completed = await processStream(response, agentMessageId, convId, onFileGenerated, signal);
+      const completed = await processStream(response, agentMessageId, convId, onFileGenerated, signal, nativeStreamId);
       await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
+      forgetNativeStreamSession(nativeStreamId);
+      if (!completed && !signal?.aborted) {
+        setTimeout(() => {
+          resumePendingStreams().catch(console.error);
+        }, 0);
+      }
       return completed;
     } finally {
       await eventHandle?.remove();
@@ -994,6 +1262,77 @@ export function useChat() {
       activeNativeStreamRef.current = null;
       drainNativeStreamRef.current = null;
     }
+  };
+
+  // WebView 被系统重建后，前台服务里的原生流仍在跑，但 JS 侧的 activeNativeStreamRef 已丢失。
+  // 据持久化的 native_stream_id + listActive 找回仍存活的流并重新接上（attach 模式）。
+  // 注意：服务端缓冲流（stream_buffered）由 resumePendingStreams 负责，这里只管原生前台服务流。
+  const resumeNativeStreamsRef = useRef<() => void>(() => {});
+  resumeNativeStreamsRef.current = () => {
+    if (!isNativeAndroid() || !NativeStream.listActive) return;
+    void (async () => {
+      let liveIds: Set<string>;
+      try {
+        const active = await NativeStream.listActive!();
+        liveIds = new Set(active?.streamIds || []);
+      } catch (error) {
+        console.error('Failed to list active native streams:', error);
+        return;
+      }
+      const records = readNativeStreamSessions();
+      const recordByStreamId = new Map(records.map(record => [record.streamId, record]));
+      const retainedRecords = records.filter(record => liveIds.has(record.streamId));
+      if (retainedRecords.length !== records.length) {
+        writeNativeStreamSessions(retainedRecords);
+      }
+      if (liveIds.size === 0) return;
+      for (const conv of conversationsRef.current) {
+        for (const msg of conv.messages) {
+          if (msg.role !== 'assistant' || !msg.native_stream_id) continue;
+          if (!recordByStreamId.has(msg.native_stream_id)) {
+            recordByStreamId.set(msg.native_stream_id, {
+              streamId: msg.native_stream_id,
+              convId: conv.id,
+              messageId: msg.id,
+              createdAt: msg.created_at || nowIso()
+            });
+          }
+        }
+      }
+      for (const conv of conversationsRef.current) {
+        for (const msg of conv.messages) {
+          if (msg.role !== 'assistant' || msg.stream_status !== 'streaming') continue;
+          const nid = msg.native_stream_id;
+          if (!nid || !liveIds.has(nid)) continue;
+          if (resumingStreamsRef.current.has(nid)) continue;
+          if (activeNativeStreamRef.current?.streamId === nid) continue; // 已有活跃 pump 在 drain
+          resumingStreamsRef.current.add(nid);
+          const controller = new AbortController();
+          setIsLoading(true);
+          setActiveAssistantMessageId(msg.id);
+          processNativeChatStream('', msg.id, conv.id, undefined, controller.signal, nid)
+            .catch(err => { if (!isAbortError(err)) console.error('Failed to resume native stream:', err); })
+            .finally(() => { resumingStreamsRef.current.delete(nid); });
+        }
+      }
+      for (const nid of liveIds) {
+        const record = recordByStreamId.get(nid);
+        if (!record) continue;
+        const conv = conversationsRef.current.find(item => item.id === record.convId);
+        const msg = conv?.messages.find(item => item.id === record.messageId);
+        if (msg?.role === 'assistant' && msg.stream_status === 'streaming') continue;
+        ensureNativeAssistantMessage(record.convId, record.messageId, nid);
+        if (resumingStreamsRef.current.has(nid)) continue;
+        if (activeNativeStreamRef.current?.streamId === nid) continue;
+        resumingStreamsRef.current.add(nid);
+        const controller = new AbortController();
+        setIsLoading(true);
+        setActiveAssistantMessageId(record.messageId);
+        processNativeChatStream('', record.messageId, record.convId, undefined, controller.signal, nid)
+          .catch(err => { if (!isAbortError(err)) console.error('Failed to resume native stream from record:', err); })
+          .finally(() => { resumingStreamsRef.current.delete(nid); });
+      }
+    })();
   };
 
   // 原生路径的记忆版本冲突重试，行为对齐 Web 的 sendChatWithMemoryRetry：
@@ -1023,28 +1362,57 @@ export function useChat() {
 
   useEffect(() => {
     if (!isInitialized) return;
-    const handleResume = () => {
+    const resumeTimers = new Set<ReturnType<typeof setTimeout>>();
+    const runResumePass = () => {
+      if (document.visibilityState === 'hidden') return;
+      const hadActiveNative = Boolean(activeNativeStreamRef.current);
       if (activeNativeStreamRef.current) {
+        // WebView 仍在、流仍活：直接补 drain 后台积压的事件。
         drainNativeStreamRef.current?.().catch(console.error);
-        return;
+      } else {
+        // WebView 可能被重建：找回仍存活的原生流。
+        resumeNativeStreamsRef.current();
       }
-      resumePendingStreams().catch(console.error);
+      const timer = setTimeout(() => {
+        resumeTimers.delete(timer);
+        resumePendingStreams().catch(console.error);
+      }, hadActiveNative ? 600 : 0);
+      resumeTimers.add(timer);
     };
-    window.addEventListener('focus', handleResume);
-    window.addEventListener('online', handleResume);
+    const scheduleResumePasses = () => {
+      [0, 250, 1000, 2500].forEach(delay => {
+        const timer = setTimeout(() => {
+          resumeTimers.delete(timer);
+          runResumePass();
+        }, delay);
+        resumeTimers.add(timer);
+      });
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') scheduleResumePasses();
+    };
+    window.addEventListener('focus', scheduleResumePasses);
+    window.addEventListener('online', scheduleResumePasses);
+    window.addEventListener('pageshow', scheduleResumePasses);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     let listener: { remove: () => Promise<void> } | undefined;
     if (isNative()) {
       CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-        if (isActive) handleResume();
+        if (isActive) scheduleResumePasses();
       }).then(handle => {
         listener = handle;
       });
     }
+    scheduleResumePasses();
 
     return () => {
-      window.removeEventListener('focus', handleResume);
-      window.removeEventListener('online', handleResume);
+      resumeTimers.forEach(timer => clearTimeout(timer));
+      resumeTimers.clear();
+      window.removeEventListener('focus', scheduleResumePasses);
+      window.removeEventListener('online', scheduleResumePasses);
+      window.removeEventListener('pageshow', scheduleResumePasses);
+      document.removeEventListener('visibilitychange', handleVisibility);
       listener?.remove();
     };
   }, [isInitialized, resumePendingStreams]);

@@ -20,6 +20,7 @@ export interface NativeStreamDrainResult {
   nextIndex: number;
   done: boolean;
   error?: string;
+  hasMore?: boolean;
 }
 
 export interface NativeStreamEvent {
@@ -36,8 +37,10 @@ export interface NativeStreamDone {
 
 export interface NativeStreamPlugin {
   startStream(options: NativeStreamStartOptions): Promise<NativeStreamStartResult>;
-  drain(options: { streamId: string; fromIndex: number }): Promise<NativeStreamDrainResult>;
+  drain(options: { streamId: string; fromIndex: number; maxEvents?: number }): Promise<NativeStreamDrainResult>;
   stop(options: { streamId: string }): Promise<void>;
+  /** 列出进程内仍存活的原生流 id（WebView 被系统重建后用它重新接上前台服务里的流）。 */
+  listActive?(): Promise<{ streamIds: string[] }>;
   requestNotificationPermission?(): Promise<{ granted: boolean }>;
   addListener(
     eventName: 'streamEvent',
