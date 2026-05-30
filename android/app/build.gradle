@@ -13,8 +13,8 @@ android {
         applicationId "moe.mutsumi.lawver"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1016
-        versionName "0.1.16"
+        versionCode 1017
+        versionName "0.1.17"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
