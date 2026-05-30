@@ -73,22 +73,43 @@ HEARTBEAT_COMMENT = ": ping\n\n"
 
 
 async def _with_heartbeat(source):
-    iterator = source.__aiter__()
-    pending = asyncio.ensure_future(iterator.__anext__())
+    # 用单一 pump 任务消费 source，使其内部 set/reset 的 ContextVar 始终落在同一个 Context；
+    # 心跳循环只从队列取值并按超时插入 ": ping"。
+    # 不可用 ensure_future(__anext__()) 逐次取值——那会让每个 __anext__ 运行在各自复制的 Context 中，
+    # 导致 run_agent_stream 的 contextvar token “created in a different Context”。
+    queue: asyncio.Queue = asyncio.Queue()
+    done_marker = object()
+    error_box: list[Exception] = []
+
+    async def _pump():
+        try:
+            async for chunk in source:
+                await queue.put(chunk)
+        except Exception as exc:  # 转发给消费侧统一抛出，保持原有异常语义
+            error_box.append(exc)
+        finally:
+            await queue.put(done_marker)
+
+    pump_task = asyncio.create_task(_pump())
     try:
         while True:
             try:
-                chunk = await asyncio.wait_for(asyncio.shield(pending), HEARTBEAT_INTERVAL)
+                item = await asyncio.wait_for(queue.get(), HEARTBEAT_INTERVAL)
             except asyncio.TimeoutError:
                 yield HEARTBEAT_COMMENT
                 continue
-            except StopAsyncIteration:
-                return
-            yield chunk
-            pending = asyncio.ensure_future(iterator.__anext__())
+            if item is done_marker:
+                break
+            yield item
+        if error_box:
+            raise error_box[0]
     finally:
-        if not pending.done():
-            pending.cancel()
+        if not pump_task.done():
+            pump_task.cancel()
+            try:
+                await pump_task
+            except asyncio.CancelledError:
+                pass
 
 
 def _fallback_conversation_title(history: list[dict]) -> str:
