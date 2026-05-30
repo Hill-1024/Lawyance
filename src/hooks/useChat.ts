@@ -641,12 +641,12 @@ export function useChat() {
     if (promptedDisconnectsRef.current.has(key) || resumeEnabledRef.current) return;
     promptedDisconnectsRef.current.add(key);
     const choice = await showChoice({
-      title: '回答已中断',
+      title: '使用服务器续传？',
       tone: 'warning',
-      message: '本次回答因离开页面或网络中断而停止。是否开启断线续传？开启后，今后的回答会在中断时自动恢复；为此服务器会在内存中临时缓存回答内容，最多 45 分钟，或在你的设备确认接收后立即删除。本次回答可重新生成。',
+      message: '本次回答因离开页面、网络切换或连接中断而停止。\n\n开启后，后续回答中断时会自动恢复。服务器仅在内存中临时缓存回答内容，最多 45 分钟；设备确认接收后会立即删除。\n\n本次回答也可以直接重新生成。',
       confirmLabel: '开启续传',
-      secondaryLabel: '仅重新生成本次',
-      cancelLabel: '不了',
+      secondaryLabel: '重新生成',
+      cancelLabel: '暂不开启',
     });
     if (choice === 'confirm') {
       resumeEnabledRef.current = true;
@@ -946,8 +946,14 @@ export function useChat() {
                 activeNativeStreamRef.current.nextIndex = nextIndex;
               }
               if (result.done) {
-                if (result.error) safeEnqueue(JSON.stringify({ type: 'error', content: result.error }));
-                safeEnqueue('[DONE]');
+                if (result.error) {
+                  // 传输层中断（连接超时 / 截断 / 网络切换），区别于服务端 {type:'error'} 事件。
+                  // 不注入合成 error 事件——那会把状态钉成 'error' 而剥夺缓冲流的自动续传资格。
+                  // 直接关闭：processStream 因未见 {type:'done'} 走断线分支（缓冲流→续传，非缓冲→断线弹窗）。
+                  console.warn('Native stream transport ended without completion:', result.error);
+                } else {
+                  safeEnqueue('[DONE]');
+                }
                 safeClose();
                 return;
               }

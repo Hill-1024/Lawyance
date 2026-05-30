@@ -41,7 +41,10 @@ public class StreamForegroundService extends Service {
     private static final String NATIVE_ORIGIN = "capacitor://localhost";
     private static final int NOTIFICATION_ID = 5107;
     private static final int CONNECT_TIMEOUT_MS = 10000;
-    private static final int READ_TIMEOUT_MS = 0;
+    // 有限读超时：配合服务端的 SSE 心跳（": ping"，约 15s 一次）使用。
+    // 心跳会持续重置该超时，因此只有连接真正死亡（熄屏 doze、网络切换、NAT 回收等）
+    // 才会触发 SocketTimeoutException，从而避免"已断流却永远阻塞在 readLine"的误导态。
+    private static final int READ_TIMEOUT_MS = 45000;
     private static final Map<String, StreamSession> SESSIONS = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
@@ -224,7 +227,11 @@ public class StreamForegroundService extends Service {
                     StreamServicePlugin.notifyStreamEvent(session.streamId, index, payload);
                 }
             }
-            finishSession(session, null);
+            // 读到 EOF 但从未收到 [DONE]：连接被中途切断，按错误结束（而非当成正常完成），
+            // 否则会把被截断的回答显示成"已完整"。
+            finishSession(session, "连接已中断（未收到完成标记）");
+        } catch (java.net.SocketTimeoutException ex) {
+            finishSession(session, "连接超时，可能已断开（" + (READ_TIMEOUT_MS / 1000) + "s 内无数据）");
         } catch (Exception ex) {
             finishSession(session, ex.getMessage());
         } finally {
