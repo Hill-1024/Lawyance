@@ -384,7 +384,7 @@ function App() {
           <Routes location={location}>
             <Route path="/" element={chatLayout} />
             <Route path="/court" element={<CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} />} />
-            <Route path="/settings" element={<AnimatedRouteSurface><SettingsPage /></AnimatedRouteSurface>} />
+            <Route path="/settings/*" element={<AnimatedRouteSurface><SettingsPage /></AnimatedRouteSurface>} />
             <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>} />
           </Routes>
         </React.Fragment>

@@ -3,8 +3,8 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Link2, Loader2, Monitor, Moon, PackageCheck, Palette, RotateCcw, Server, Settings, Smartphone, Sun, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Link2, Loader2, Monitor, Moon, PackageCheck, Palette, RotateCcw, Server, Settings, Smartphone, Sun, Trash2 } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
 import { BUILD_INFO } from '../lib/buildInfo';
@@ -331,10 +331,74 @@ const WebDavSection: React.FC = () => {
   );
 };
 
+const getWebDavHostLabel = (cfg: WebDavConfig) => {
+  if (!cfg.url) return '未配置';
+  try {
+    return new URL(cfg.url).host || cfg.url;
+  } catch {
+    return cfg.url;
+  }
+};
+
+const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
+  const [cfg, setCfg] = useState<WebDavConfig>(emptyWebDavConfig);
+
+  useEffect(() => {
+    getWebDavConfig().then(saved => {
+      if (saved) setCfg(saved);
+    });
+  }, []);
+
+  const configured = Boolean(cfg.url && cfg.username);
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="lawver-pressable flex min-w-0 items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-4 text-left shadow-[var(--shadow-1)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-surface-2)]"
+    >
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+        <Cloud size={21} strokeWidth={2} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[15px] font-semibold text-[var(--fg-1)]">WebDAV 数据同步</span>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+            configured
+              ? 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
+              : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
+          }`}>
+            {configured ? '已配置' : '未配置'}
+          </span>
+        </span>
+        <span className="mt-1 block truncate text-[12px] leading-5 text-[var(--fg-3)]">
+          {configured ? `${getWebDavHostLabel(cfg)} · ${cfg.directory || '/Lawver/'}` : '把备份、恢复和账号信息放进独立页面'}
+        </span>
+      </span>
+      <ChevronRight size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-4)]" />
+    </button>
+  );
+};
+
+const AboutMetaRow: React.FC<{
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  label: string;
+  children: React.ReactNode;
+}> = ({ icon: Icon, label, children }) => (
+  <div className="flex min-w-0 items-start gap-3 border-t border-[var(--border-subtle)] px-1 py-3 first:border-t-0 first:pt-0 last:pb-0">
+    <Icon size={16} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--fg-4)]" />
+    <div className="min-w-0 flex-1">
+      <div className="text-[12px] font-medium text-[var(--fg-3)]">{label}</div>
+      <div className="mt-0.5 min-w-0 text-[14px] leading-6 text-[var(--fg-1)]">{children}</div>
+    </div>
+  </div>
+);
+
 // ─── 主设置页 ────────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     mode,
     colorSource,
@@ -351,6 +415,18 @@ export const SettingsPage: React.FC = () => {
   const [seedDraft, setSeedDraft] = useState(customSeed);
   const [resumeEnabled, setResumeEnabledState] = useState(false);
   const seedValid = isHexColor(seedDraft);
+  const normalizedPath = location.pathname.replace(/\/+$/, '');
+  const isWebDavRoute = normalizedPath === '/settings/webdav';
+  const pageTitle = isWebDavRoute ? 'WebDAV 同步' : '设置';
+  const pageSubtitle = isWebDavRoute ? '备份与恢复' : '外观、同步与应用信息';
+  const statusLabel = isWebDavRoute ? '数据同步' : `${resolvedTheme === 'dark' ? '深色' : '浅色'} · ${COLOR_SOURCE_LABEL[colorSource]}`;
+  const handleBack = () => {
+    if (isWebDavRoute) {
+      navigate('/settings');
+      return;
+    }
+    navigate(-1);
+  };
 
   useEffect(() => {
     setSeedDraft(customSeed);
@@ -395,27 +471,30 @@ export const SettingsPage: React.FC = () => {
         <div className="flex min-w-0 items-center gap-2">
           <HoverInfo label="返回" placement="bottom">
             <button
-              onClick={() => navigate(-1)}
+              onClick={handleBack}
               className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
               aria-label="返回"
             >
               <ArrowLeft size={20} strokeWidth={2} />
             </button>
           </HoverInfo>
-          <BrandMark className="hidden h-8 w-8 shrink-0 text-[var(--accent)] sm:block" />
           <div className="min-w-0">
-            <h1 className="t-title-l truncate">设置</h1>
-            <p className="truncate text-[12px] text-[var(--fg-3)]">Settings</p>
+            <h1 className="t-title-l truncate">{pageTitle}</h1>
+            <p className="truncate text-[12px] text-[var(--fg-3)]">{pageSubtitle}</p>
           </div>
         </div>
         <div className="hidden items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1.5 text-[12px] text-[var(--fg-3)] sm:flex">
           <Settings size={14} strokeWidth={2} />
-          {resolvedTheme === 'dark' ? '深色' : '浅色'} · {COLOR_SOURCE_LABEL[colorSource]}
+          {statusLabel}
         </div>
       </header>
 
       <main className="custom-scrollbar flex min-h-0 w-full max-w-full flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 pb-[calc(1.25rem+var(--safe-bottom))] sm:px-6 sm:py-8">
-        <div className="mx-auto flex min-w-0 w-full max-w-3xl flex-col gap-5">
+        <div className={`mx-auto flex min-w-0 w-full flex-col gap-5 ${isWebDavRoute ? 'max-w-2xl' : 'max-w-3xl'}`}>
+          {isWebDavRoute ? (
+            <WebDavSection />
+          ) : (
+            <>
           <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
             <div className="mb-4 flex items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
@@ -553,84 +632,67 @@ export const SettingsPage: React.FC = () => {
 
           </section>
 
-          <WebDavSection />
+          <section className="min-w-0">
+            <div className="mb-3 px-1">
+              <h2 className="t-title-m">数据与同步</h2>
+              <p className="mt-1 text-[13px] text-[var(--fg-3)]">把低频配置折叠到二级页面，主界面只保留状态和入口。</p>
+            </div>
+            <div className="flex flex-col gap-3">
+              <WebDavEntry onOpen={() => navigate('/settings/webdav')} />
+              <div className="flex min-w-0 items-start justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-4 shadow-[var(--shadow-1)]">
+                <div className="flex min-w-0 gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                    <RotateCcw size={20} strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="text-[15px] font-semibold text-[var(--fg-1)]">断线续传</h3>
+                    <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">
+                      回答中断时临时使用服务器内存缓存，最多 45 分钟，设备确认接收后删除。
+                    </p>
+                  </div>
+                </div>
+                <AnimatedSwitch
+                  checked={resumeEnabled}
+                  onCheckedChange={updateResumeEnabled}
+                  ariaLabel="切换断线续传"
+                />
+              </div>
+            </div>
+          </section>
 
           <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex min-w-0 gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-                  <RotateCcw size={20} strokeWidth={2} />
-                </span>
-                <div className="min-w-0">
-                  <h2 className="t-title-m">断线续传</h2>
-                  <p className="mt-1 text-[13px] leading-5 text-[var(--fg-3)]">
-                    开启后，未来的回答会在服务器内存中临时缓存最多 45 分钟，并在本设备确认接收后删除。
-                  </p>
-                </div>
-              </div>
-              <AnimatedSwitch
-                checked={resumeEnabled}
-                onCheckedChange={updateResumeEnabled}
-                ariaLabel="切换断线续传"
-              />
-            </div>
-          </section>
-
-          <section className="mt-1 flex flex-col gap-4">
-            <h2 className="px-2 text-lg font-bold text-[var(--fg-1)]">关于应用</h2>
-            <div className="flex flex-col gap-4 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-5 shadow-[var(--shadow-1)]">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)]">
-                  <BrandMark className="h-7 w-7 [--brand-logo-ink:var(--accent)]" />
-                </div>
-                <div className="flex min-w-0 flex-col">
-                  <span className="truncate text-lg font-bold text-[var(--fg-1)]">{BUILD_INFO.appName}</span>
-                  <span className="mt-1 text-xs leading-5 text-[var(--fg-3)]">{BUILD_INFO.description}</span>
-                </div>
-              </div>
-
-              <div className="h-px w-full bg-[var(--border-subtle)]" />
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex min-w-0 flex-col gap-1">
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0] text-[var(--fg-4)]">
-                    <PackageCheck size={12} strokeWidth={2} />
-                    版本 (Version)
-                  </span>
-                  <span className="truncate text-sm font-medium text-[var(--fg-1)]">{BUILD_INFO.version}</span>
-                </div>
-                <div className="flex min-w-0 flex-col gap-1">
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0] text-[var(--fg-4)]">
-                    <Server size={12} strokeWidth={2} />
-                    构建环境 (Env)
-                  </span>
-                  <span className="truncate text-sm font-medium text-[var(--fg-1)]">{BUILD_INFO.environment}</span>
-                </div>
-                <div className="col-span-2 flex min-w-0 flex-col gap-1">
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0] text-[var(--fg-4)]">
-                    <Clock3 size={12} strokeWidth={2} />
-                    构建时间 (Build Time)
-                  </span>
-                  <span className="break-words font-mono text-sm text-[var(--fg-1)] opacity-80">{BUILD_INFO.buildTime}</span>
-                </div>
-                <div className="col-span-2 flex min-w-0 flex-col gap-1">
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0] text-[var(--fg-4)]">
-                    <Link2 size={12} strokeWidth={2} />
-                    项目地址 (Project Url)
-                  </span>
-                  <a
-                    href={BUILD_INFO.projectUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex min-w-0 max-w-full items-center gap-1.5 break-all font-mono text-sm text-[var(--fg-1)] opacity-80 transition-opacity hover:opacity-100 hover:underline"
-                  >
-                    <span className="min-w-0 break-all">{BUILD_INFO.projectUrl}</span>
-                    <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
-                  </a>
-                </div>
+            <div className="mb-4 flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                <BrandMark className="h-5 w-5 [--brand-logo-ink:var(--accent)]" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="t-title-m truncate">{BUILD_INFO.appName}</h2>
+                <p className="truncate text-[13px] text-[var(--fg-3)]">{BUILD_INFO.description}</p>
               </div>
             </div>
+            <AboutMetaRow icon={PackageCheck} label="版本">
+              <span className="font-medium">{BUILD_INFO.version}</span>
+            </AboutMetaRow>
+            <AboutMetaRow icon={Server} label="构建环境">
+              <span className="font-medium">{BUILD_INFO.environment}</span>
+            </AboutMetaRow>
+            <AboutMetaRow icon={Clock3} label="构建时间">
+              <span className="break-words font-mono text-[13px]">{BUILD_INFO.buildTime}</span>
+            </AboutMetaRow>
+            <AboutMetaRow icon={Link2} label="项目地址">
+              <a
+                href={BUILD_INFO.projectUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-w-0 max-w-full items-center gap-1.5 break-all font-mono text-[13px] transition-opacity hover:opacity-80 hover:underline"
+              >
+                <span className="min-w-0 break-all">{BUILD_INFO.projectUrl}</span>
+                <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
+              </a>
+            </AboutMetaRow>
           </section>
+            </>
+          )}
         </div>
       </main>
     </div>
