@@ -3,6 +3,7 @@ package moe.mutsumi.lawver;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -287,13 +288,39 @@ public class StreamForegroundService extends Service {
         }
     }
 
+    /** 点按通知回到应用：复用既有任务栈（MainActivity 为 singleTask），不新建实例。 */
+    private PendingIntent buildContentIntent() {
+        Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (launch == null) {
+            launch = new Intent(this, MainActivity.class);
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
+        launch.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            flags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        return PendingIntent.getActivity(this, 0, launch, flags);
+    }
+
     private Notification buildNotification() {
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(getApplicationInfo().icon)
             .setContentTitle("Lawver 正在生成回答")
-            .setContentText("离开页面后仍会继续接收本次回答。")
+            .setContentText("离开页面后仍会继续接收本次回答，点按可返回应用。")
+            .setContentIntent(buildContentIntent())
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build();
+            .setPriority(NotificationCompat.PRIORITY_LOW);
+
+        // Android 16 (API 36) Live Update：将常驻通知提升为“持续进行中”活动，
+        // 在状态栏/锁屏以更醒目的形式呈现“正在生成”，并显示不确定进度条。
+        // 这些 API 由 androidx.core 1.16.0 提供，旧系统上回退为普通常驻低优先级通知。
+        if (Build.VERSION.SDK_INT >= 36) {
+            builder
+                .setStyle(new NotificationCompat.ProgressStyle().setProgressIndeterminate(true))
+                .setRequestPromotedOngoing(true)
+                .setShortCriticalText("生成中");
+        }
+        return builder.build();
     }
 }
