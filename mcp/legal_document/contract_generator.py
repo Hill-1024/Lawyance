@@ -61,6 +61,33 @@ _GLOBAL_HARD_CONSTRAINTS = """## 文书写作硬约束（最高优先级，违�
 
 """
 
+_CONTRACT_HARD_CONSTRAINTS = """## 合同定制化硬约束（以下内容绝对不能出现在任何 block 中）
+
+### A. 合同是法律文件，不是普法教材
+以下内容类型**绝对禁止**出现在合同中：
+- ❌ 通俗解释 / 名词解释（如"（通俗地说，这指的是...）""术语说明：..."）
+- ❌ 法律知识科普（如"法律小贴士：根据《民法典》...""普法提示"）
+- ❌ 风险提示独立段落（作为独立章节标题单独成立，如 heading="风险提示"；但作为合同条款内的"免责声明"子条款除外——那应放在违约责任条款中表述）
+- ❌ 权益告知书（如"消费者权益告知书""个人信息保护告知"等独立告知文书，不得嵌入或附加在合同里）
+- ❌ 操作建议（如"建议您在签署前咨询律师""温馨提示：请仔细阅读每一条款"——这些是工具调用语境中的提示，不是合同内容）
+- ❌ 政策解读（如"根据 2024 年最新司法解释...""近年来司法实践中..."等背景阐述）
+
+✅ 正确做法：合同条款应**直接陈述权利义务**，不解释为什么、不科普背景、不插入告知书。
+  - ✅ "乙方交付的软件应符合甲方提供的《技术规格书》要求。"
+  - ❌ "乙方交付的软件应符合甲方提供的《技术规格书》要求。（通俗地说，就是乙方做的软件要和甲方要求的完全一样，不能偷工减料）"
+
+### B. 合同是双方协议，不是多方会议纪要
+- 合同仅限**甲方与乙方**两方，不出现丙方、丁方等多方。
+- 落款（signature_block）仅限甲、乙两方签字，不出现第三方见证人、担保人（如需担保，应另签担保合同）。
+
+### C. 附件处理
+- 附件在正文中以条款引用（如"本合同附件一《需求规格说明书》为本合同不可分割的组成部分"）。
+- 不要单独生成附件内容块，不要把附件内容展开写进合同正文。
+
+---
+
+"""
+
 _CONTRACT_GUIDE_MARKDOWN = """## 合同写作通用守则
 
 ### A. 基本格式
@@ -97,7 +124,7 @@ _CONTRACT_SKELETON = [
     {"type": "title", "text": "合同标题"},
     {"type": "paragraph", "text": "甲方：[名称/姓名]，统一社会信用代码/身份证号：[号码]，住所地/住址：[地址]，法定代表人：[姓名]，联系电话：[电话]。", "indent": False},
     {"type": "paragraph", "text": "乙方：[名称/姓名]，统一社会信用代码/身份证号：[号码]，住所地/住址：[地址]，法定代表人：[姓名]，联系电话：[电话]。", "indent": False},
-    {"type": "heading", "level": 1, "text": "第一条  [此处应填写与合同需要的内容]"},
+    {"type": "heading", "level": 1, "text": "第一条  合同标的"},
     {"type": "paragraph", "text": "[在此处描述合同标的、数量、质量标准等具体内容]", "indent": True},
     {"type": "blank_line"},
     {"type": "signature_block", "signer": "甲方（盖章）：", "entity": "乙方（盖章）：", "date": "年  月  日"},
@@ -122,6 +149,61 @@ _CONTRACT_GUIDE = {
 }
 
 _OUTPUT_NAME_SAFE = re.compile(r"[^\w一-龥\-]+")
+
+# 合同不宜内容检测正则：(pattern, 告警描述)
+_CONTRACT_PROHIBITED_PATTERNS = [
+    (re.compile(r'通俗[的得地]?[说来]?(?:解释|讲|表述)'), "含'通俗解释/通俗地说'等普法用语"),
+    (re.compile(r'名词解释|术语[说明释表]'), "含'名词解释/术语说明'等科普内容"),
+    (re.compile(r'风险提示[：:]'), "含'风险提示'独立段落或章节标题"),
+    (re.compile(r'权益告知'), "含'权益告知书'等独立告知文书内容"),
+    (re.compile(r'法律[知识]?小贴士|普法提示|温馨提示|操作建议'), "含法律科普或操作建议用语"),
+    (re.compile(r'[（(]通俗[的得地]?[说来]?[：:，][^)）]*[)）]'), "含括号括注的通俗解释"),
+    (re.compile(r'丙方|丁方'), "含超出甲乙两方的多方签署（丙方/丁方）"),
+]
+
+
+def _collect_contract_text(blocks: list[dict]) -> str:
+    parts: list[str] = []
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        btype = b.get("type")
+        if btype in ("title", "heading", "paragraph"):
+            parts.append(str(b.get("text", "")))
+        elif btype in ("ordered_list", "unordered_list"):
+            for item in b.get("items") or []:
+                parts.append(str(item))
+        elif btype == "table":
+            for cell in b.get("header") or []:
+                parts.append(str(cell))
+            for row in b.get("rows") or []:
+                for cell in row or []:
+                    parts.append(str(cell))
+        elif btype == "signature_block":
+            for line in b.get("lines") or []:
+                parts.append(str(line))
+            for key in ("signer", "entity", "date"):
+                if b.get(key):
+                    parts.append(str(b[key]))
+    return "\n".join(parts)
+
+
+def _scan_contract_content(blocks: list[dict]) -> list[str]:
+    """扫描 blocks 中是否出现了合同不宜内容（通俗解释、风险提示、多方签署等），返回告警列表。"""
+    warnings: list[str] = []
+    full_text = _collect_contract_text(blocks)
+    for pat, desc in _CONTRACT_PROHIBITED_PATTERNS:
+        m = pat.search(full_text)
+        if m:
+            sample = m.group(0)
+            if len(sample) > 50:
+                sample = sample[:50] + "…"
+            warnings.append(
+                "检测到合同不宜内容（{}）：'{}'。"
+                "合同是法律文件而非普法教材，请移除通俗解释、风险提示独立段落、多方签署等内容，"
+                "直接以甲方/乙方立场陈述合同条款。".format(desc, sample)
+            )
+    return warnings
 
 
 def _make_response(success: bool, data: dict | None = None, meta: dict | None = None) -> str:
@@ -163,7 +245,7 @@ def get_contract_skeleton() -> str:
         "doc_type": "定制合同",
         "description": "根据用户需求自由定制的通用合同。适用于预置 12 种法律文书之外的任意合同类型（如买卖、服务、租赁、承揽、合作、保密、股权转让等）。",
         "skeleton": _CONTRACT_SKELETON,
-        "guide": _GLOBAL_HARD_CONSTRAINTS + _CONTRACT_GUIDE_MARKDOWN,
+        "guide": _GLOBAL_HARD_CONSTRAINTS + _CONTRACT_HARD_CONSTRAINTS + _CONTRACT_GUIDE_MARKDOWN,
         "block_schema": {
             "supported_types": [
                 "title", "heading", "paragraph", "ordered_list",
@@ -202,6 +284,10 @@ def compose_contract(
     generation_id = log_generation_start("定制合同", len(normalized_blocks))
 
     soft_warnings = evaluate_soft_constraints(normalized_blocks, _CONTRACT_GUIDE)
+
+    contract_warnings = _scan_contract_content(normalized_blocks)
+    if contract_warnings:
+        soft_warnings = list(soft_warnings) + contract_warnings
 
     try:
         output_path = _get_output_path(workspace_scope, output_name)
@@ -278,6 +364,7 @@ if __name__ == "__main__":
     _check("含 doc_type", r["data"]["doc_type"] == "定制合同")
     _check("含 skeleton", isinstance(r["data"]["skeleton"], list) and len(r["data"]["skeleton"]) == 7)
     _check("含 guide", "合同写作通用守则" in r["data"]["guide"])
+    _check("含 contract 硬约束", "合同定制化硬约束" in r["data"]["guide"])
     _check("含 block_schema", "supported_types" in r["data"]["block_schema"])
     _check("含 usage_note", bool(r["data"].get("usage_note")))
     _check("skeleton 含 title", any(b["type"] == "title" for b in r["data"]["skeleton"]))
@@ -393,8 +480,33 @@ if __name__ == "__main__":
     _check("success=True（元评论不阻断）", r["success"])
     _check("含元评论告警", any("元评论" in w or "起草过程" in w for w in r["data"]["soft_warnings"]))
 
-    # [6] MCP registry 集成
-    print("\n[6] MCP registry 集成")
+    # [6] compose_contract — 合同不宜内容检测
+    print("\n[6] compose_contract — 合同不宜内容检测")
+    bad_blocks = [
+        {"type": "title", "text": "测试合同"},
+        {"type": "paragraph", "text": "甲方委托乙方开发系统。（通俗地说，就是甲方出钱让乙方写代码）", "indent": True},
+        {"type": "heading", "level": 1, "text": "风险提示："},
+        {"type": "paragraph", "text": "本合同涉及金额较大，建议双方在签署前咨询专业律师。", "indent": True},
+        {"type": "paragraph", "text": "法律小贴士：根据《民法典》，合同双方应诚实守信。"},
+        {"type": "heading", "level": 1, "text": "丙方权利义务"},
+        {"type": "paragraph", "text": "丙方作为担保人，应对乙方的履约行为承担连带保证责任。"},
+        {"type": "heading", "level": 1, "text": "名词解释"},
+        {"type": "paragraph", "text": "知识产权：指依法享有的专利权、商标权、著作权等。"},
+        {"type": "signature_block", "signer": "甲方", "entity": "乙方", "date": "二〇二六年六月十一日"},
+    ]
+    r = json.loads(compose_contract(
+        bad_blocks, output_name="self_test_bad",
+        workspace_scope="test/self_test",
+    ))
+    _check("success=True（软约束不阻断）", r["success"])
+    _check("检测到通俗解释告警", any("通俗" in w for w in r["data"]["soft_warnings"]))
+    _check("检测到风险提示告警", any("风险提示" in w for w in r["data"]["soft_warnings"]))
+    _check("检测到普法告警", any("小贴士" in w or "科普" in w for w in r["data"]["soft_warnings"]))
+    _check("检测到多方签署告警", any("丙方" in w or "多方" in w for w in r["data"]["soft_warnings"]))
+    _check("检测到名词解释告警", any("名词解释" in w or "术语" in w for w in r["data"]["soft_warnings"]))
+
+    # [7] MCP registry 集成
+    print("\n[7] MCP registry 集成")
     try:
         from tools.registry import registry as _reg
         agent_tools = _reg.names("agent")
