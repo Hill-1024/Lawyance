@@ -33,9 +33,11 @@ from mcp.memory_client import (
     update_conversation_memory,
 )
 from mcp.legal_document import (
-    list_legal_document_types,
-    get_legal_document_guide,
+    compose_contract,
     compose_legal_document,
+    get_contract_skeleton,
+    get_legal_document_guide,
+    list_legal_document_types,
 )
 from workspace import WorkspacePathError, get_result_path, resolve_workspace_file, validate_workspace_scope
 
@@ -644,6 +646,43 @@ def _register_agent_tools() -> None:
         ),
         handler=lambda arguments, workspace_scope: compose_legal_document(
             arguments.get("doc_type", ""),
+            arguments.get("blocks", []),
+            arguments.get("output_name"),
+            workspace_scope,
+        ),
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+    )
+
+    registry.register(
+        name="get_contract_skeleton",
+        schema=_tool_schema(
+            "get_contract_skeleton",
+            "返回通用合同 block 骨架与写作守则。当用户需要生成定制化合同（买卖、服务、租赁、承揽、合作、保密、股权转让等 12 种预置文种之外的任意合同类型）时，应先调用此工具获取合同骨架和写作守则，然后根据用户需求修改扩展 blocks 数组，最后调用 compose_contract 渲染为 .docx。返回内容包括：skeleton（预置 block 骨架数组）、guide（合同写作守则 markdown）、block_schema（9 种支持 block 类型的示例）、usage_note（使用指引）。",
+            {},
+            [],
+        ),
+        handler=lambda arguments, _scope: get_contract_skeleton(),
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+    )
+    registry.register(
+        name="compose_contract",
+        schema=_tool_schema(
+            "compose_contract",
+            "根据 LLM 自由编排的 blocks 数组渲染定制化合同（.docx）。**调用前必须先通过 get_contract_skeleton 取得合同骨架与写作守则**，严格遵循守则中的硬约束（纯文本禁止 HTML 标签、禁止元评论与思绪解释）、文体要求（金额中文大写、甲乙方指代规范、必备八要素）。与 compose_legal_document 不同，本工具不依赖预置文种模板，LLM 可自由设计任意合同类型的条款结构。返回 output_path 与软约束告警 soft_warnings。",
+            {
+                "blocks": {
+                    "type": "array",
+                    "description": "合同内容块数组，按文档自上而下的顺序排列。每个块必须包含 type 字段，支持的类型：title（标题）、heading（章节标题，含 level=1/2/3 与 text）、paragraph（正文段，可选 indent/align）、ordered_list（有序列表 items）、unordered_list（无序列表 items）、table（表格，含 header 与 rows）、signature_block（落款，含 signer/entity/date 或 lines 数组）、page_break、blank_line。详见 get_contract_skeleton 返回的 block_schema。",
+                    "items": {"type": "object"},
+                },
+                "output_name": {
+                    "type": "string",
+                    "description": "可选，输出文件基名（不含 .docx 后缀），用于区分同一会话生成的多份合同；不填则使用《定制合同》作为基名。",
+                },
+            },
+            ["blocks"],
+        ),
+        handler=lambda arguments, workspace_scope: compose_contract(
             arguments.get("blocks", []),
             arguments.get("output_name"),
             workspace_scope,
