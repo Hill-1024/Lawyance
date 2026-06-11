@@ -11,6 +11,7 @@ from .errors import (
     TemplateNotFoundError,
     TemplateSyntaxError,
 )
+from .contract_generator import compose_contract, get_contract_skeleton
 from .generator import (
     compose_legal_document,
     get_legal_document_guide,
@@ -21,6 +22,8 @@ __all__ = [
     "list_legal_document_types",
     "get_legal_document_guide",
     "compose_legal_document",
+    "get_contract_skeleton",
+    "compose_contract",
     "LegalDocumentError",
     "TemplateNotFoundError",
     "ManifestValidationError",
