@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { ChevronDown, Download, GitBranch, Info, Paperclip, Undo2, Pencil, RefreshCw } from 'lucide-react';
+import { CheckCircle2, ChevronDown, CircleHelp, Download, GitBranch, Info, Paperclip, Send, Undo2, Pencil, RefreshCw } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -20,6 +20,7 @@ interface MessageItemProps {
   isThinking: boolean;
   isLast: boolean;
   onRegenerate?: (id: string) => void;
+  onAnswerChoice?: (id: string, value: string) => void;
   onEdit?: (id: string) => void;
   onUndo?: (id: string) => void;
   onBranch?: (id: string) => void;
@@ -366,11 +367,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   msg,
   isThinking,
   onRegenerate,
+  onAnswerChoice,
   onEdit,
   onUndo,
   onBranch
 }) => {
   const { showAlert } = useAppDialog();
+  const [customChoice, setCustomChoice] = React.useState('');
   const markdownComponents: any = {
     a(props: any) {
       const { node, ...rest } = props;
@@ -398,10 +401,18 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
   const thoughtBlocks = msg.role === 'assistant' ? (msg.thought_blocks || []).filter(block => block.content.trim()) : [];
   const mainContent = msg.role === 'assistant' ? normalizeBodyContent(msg.content || '') : '';
+  const pendingChoice = msg.role === 'assistant' ? msg.pending_choice : undefined;
+  const canAnswerChoice = Boolean(pendingChoice && !pendingChoice.answered && !isThinking && onAnswerChoice);
   const latestThought = thoughtBlocks[thoughtBlocks.length - 1];
   const collapsedStatus = getStatusLabel(latestThought) || (isThinking ? '正在思考' : null);
   const showThinking = isThinking && thoughtBlocks.length > 0;
   const generatedFileName = msg.download_path ? safeDownloadName(msg.download_path) : '';
+  const submitChoice = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed || !canAnswerChoice) return;
+    onAnswerChoice?.(msg.id, trimmed);
+    setCustomChoice('');
+  };
 
   return (
     <div
@@ -495,7 +506,107 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               </div>
             )}
 
-            {mainContent && (
+            {pendingChoice && (
+              <div data-testid="user-choice-request" className="min-w-0 w-full max-w-full rounded-[8px] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3.5 py-3 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:px-5 sm:py-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                    {pendingChoice.answered ? <CheckCircle2 size={17} strokeWidth={2.2} /> : <CircleHelp size={17} strokeWidth={2.2} />}
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-semibold uppercase leading-none tracking-[0.08em] text-[var(--fg-3)]">
+                        {pendingChoice.answered ? '已选择' : '需要确认'}
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap break-words text-[15px] leading-6 text-[var(--fg-1)]">
+                        {pendingChoice.question}
+                      </p>
+                    </div>
+
+                    {pendingChoice.options.length > 0 && (
+                      <div className="grid min-w-0 grid-cols-1 gap-2">
+                        {pendingChoice.options.map(option => {
+                          const isSelected = pendingChoice.selected_value === option.value;
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              disabled={!canAnswerChoice}
+                              onClick={() => submitChoice(option.value)}
+                              className={`lawver-pressable flex min-h-11 w-full min-w-0 items-start gap-2 rounded-[8px] border px-3 py-2.5 text-left transition-colors ${
+                                isSelected
+                                  ? 'border-[var(--accent)] bg-[var(--accent-quiet)] text-[var(--accent)]'
+                                  : 'border-[var(--border-default)] bg-[var(--bg-inset)] text-[var(--fg-1)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-surface-2)] disabled:hover:border-[var(--border-default)] disabled:hover:bg-[var(--bg-inset)]'
+                              } ${!canAnswerChoice ? 'cursor-default opacity-80' : ''}`}
+                              aria-label={`选择：${option.label}`}
+                            >
+                              <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full border ${isSelected ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--fg-4)]'}`} />
+                              <span className="flex min-w-0 flex-1 flex-col gap-1">
+                                <span className="break-words text-sm font-medium leading-5">{option.label}</span>
+                                {option.description && (
+                                  <span className="break-words text-xs leading-5 text-[var(--fg-3)]">{option.description}</span>
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {!pendingChoice.answered && (
+                      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                        {pendingChoice.allow_free_text && (
+                          <form
+                            className="flex min-w-0 flex-1 items-center gap-2"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              submitChoice(customChoice);
+                            }}
+                          >
+                            <input
+                              value={customChoice}
+                              onChange={(event) => setCustomChoice(event.target.value)}
+                              disabled={!canAnswerChoice}
+                              placeholder={pendingChoice.free_text_label || '自定义'}
+                              className="min-w-0 flex-1 rounded-[8px] border border-[var(--border-default)] bg-[var(--bg-inset)] px-3 py-2 text-sm text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] disabled:opacity-60"
+                            />
+                            <HoverInfo label="发送自定义答案" placement="top">
+                              <button
+                                type="submit"
+                                disabled={!canAnswerChoice || !customChoice.trim()}
+                                className="lawver-pressable flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-[var(--accent)] text-[var(--accent-on)] shadow-[var(--shadow-1)] transition-colors hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:bg-[rgba(20,23,31,0.08)] disabled:text-[var(--fg-4)] disabled:shadow-none dark:disabled:bg-white/[0.08]"
+                                aria-label="发送自定义答案"
+                              >
+                                <Send size={16} strokeWidth={2.2} />
+                              </button>
+                            </HoverInfo>
+                          </form>
+                        )}
+
+                        {pendingChoice.allow_ignore && (
+                          <button
+                            type="button"
+                            disabled={!canAnswerChoice}
+                            onClick={() => submitChoice(pendingChoice.ignore_value || '忽略此问题，请根据现有信息自行判断并继续。')}
+                            className="lawver-pressable min-h-9 shrink-0 rounded-[8px] border border-[var(--border-default)] bg-transparent px-3 py-2 text-sm font-medium text-[var(--fg-3)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-inset)] hover:text-[var(--fg-1)] disabled:cursor-default disabled:opacity-60"
+                          >
+                            {pendingChoice.ignore_label || '忽略此问题'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {pendingChoice.answered && pendingChoice.selected_value && (
+                      <div className="rounded-[8px] bg-[var(--bg-inset)] px-3 py-2 text-sm leading-5 text-[var(--fg-2)]">
+                        <span className="font-medium text-[var(--fg-1)]">你的选择：</span>
+                        <span className="break-words">{pendingChoice.selected_value}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {mainContent && !pendingChoice && (
               <div data-testid="assistant-content" className="min-w-0 w-full max-w-full rounded-[6px_20px_20px_20px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:rounded-[8px_24px_24px_24px] sm:px-5 sm:py-3.5">
                 <div className="message-copy prose dark:prose-invert w-full max-w-none">
                   <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]} components={markdownComponents}>{mainContent}</Markdown>

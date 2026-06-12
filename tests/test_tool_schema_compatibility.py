@@ -14,6 +14,7 @@ from tools import registry
 
 
 EXPECTED_AGENT_TOOL_NAMES = [
+    "ask_user",
     "match_legal_case",
     "get_article",
     "search_article",
@@ -40,6 +41,8 @@ EXPECTED_AGENT_TOOL_NAMES = [
     "list_legal_document_types",
     "get_legal_document_guide",
     "compose_legal_document",
+    "get_contract_skeleton",
+    "compose_contract",
 ]
 
 

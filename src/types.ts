@@ -8,6 +8,26 @@ export type ThoughtBlock = {
   content: string;
 };
 
+export type UserChoiceOption = {
+  id: string;
+  label: string;
+  value: string;
+  description?: string;
+};
+
+export type UserChoiceRequest = {
+  id: string;
+  question: string;
+  options: UserChoiceOption[];
+  allow_free_text: boolean;
+  allow_ignore: boolean;
+  free_text_label?: string;
+  ignore_label?: string;
+  ignore_value?: string;
+  answered?: boolean;
+  selected_value?: string;
+};
+
 export type BackendHistoryMessage = {
   role: 'user' | 'assistant' | 'tool' | 'system';
   content: string;
@@ -38,6 +58,7 @@ export type Message = {
   thought_blocks?: ThoughtBlock[];
   reasoning_content?: string;
   thought_signature?: string;
+  pending_choice?: UserChoiceRequest;
   download_path?: string;
   tool_calls?: unknown[];
   tool_call_id?: string;

@@ -168,6 +168,7 @@ async def _run_agent(prepared: PreparedChatTurn, stream: bool):
 async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
     full_result = ""
     memory_written = False
+    awaiting_user_choice = False
     turn_token = set_current_memory_turn_id(prepared.turn_id)
     usage_token, usage_accumulator = set_current_context_usage_accumulator()
     try:
@@ -180,6 +181,8 @@ async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
                         full_result += str(chunk.get("content") or "")
                     elif chunk_type == "content_replace":
                         full_result = str(chunk.get("content") or "")
+                    elif chunk_type == "user_choice_request":
+                        awaiting_user_choice = True
                     elif chunk_type == "memory_candidate":
                         if not memory_written:
                             yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "正在整理记忆"}
@@ -210,7 +213,7 @@ async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
         finally:
             reset_current_context_usage_accumulator(usage_token)
 
-        if not memory_written:
+        if not awaiting_user_choice and not memory_written:
             yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "正在整理记忆"}
             memory_payload = persist_turn(prepared.workspace_scope, prepared.content, full_result, prepared.turn_id)
             if memory_payload.get("memory"):
@@ -233,6 +236,7 @@ async def run_agent_once(prepared: PreparedChatTurn) -> dict:
         full_result = ""
         context_messages = []
         thought_signature = None
+        user_choice_request = None
         memory_payload = {}
         memory_written = False
 
@@ -246,6 +250,10 @@ async def run_agent_once(prepared: PreparedChatTurn) -> dict:
                         full_result = chunk.get("content", "")
                     elif chunk.get("type") == "thought_signature":
                         thought_signature = chunk.get("content")
+                    elif chunk.get("type") == "user_choice_request":
+                        user_choice_request = chunk.get("content") or {}
+                        if isinstance(user_choice_request, dict) and not full_result:
+                            full_result = str(user_choice_request.get("question") or "")
                     elif chunk.get("type") == "history_trace":
                         messages = chunk.get("content") or []
                         if isinstance(messages, dict):
@@ -271,7 +279,7 @@ async def run_agent_once(prepared: PreparedChatTurn) -> dict:
         finally:
             reset_current_context_usage_accumulator(usage_token)
 
-        if not memory_written:
+        if user_choice_request is None and not memory_written:
             memory_payload = persist_turn(prepared.workspace_scope, prepared.content, full_result, prepared.turn_id)
         result = {
             "reply": full_result,
@@ -280,6 +288,8 @@ async def run_agent_once(prepared: PreparedChatTurn) -> dict:
             "context_messages": context_messages,
             "memory_snapshot": memory_payload.get("memory"),
         }
+        if user_choice_request is not None:
+            result["user_choice_request"] = user_choice_request
         usage_payload = usage_accumulator.payload()
         if usage_payload:
             result["context_usage"] = usage_payload

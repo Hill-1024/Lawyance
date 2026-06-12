@@ -138,6 +138,55 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(msg.get("role") == "tool" and msg.get("tool_call_id") == "call_non_stream" for msg in traces))
         self.assertEqual(events[-1], {"type": "content", "content": "完成"})
 
+    async def test_tool_loop_pauses_for_user_choice_request(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        calls = {"count": 0}
+
+        async def fake_call(context, stream=False, **kwargs):
+            calls["count"] += 1
+            return types.SimpleNamespace(
+                content="",
+                tool_calls=[
+                    _NonStreamToolCall(
+                        name="ask_user",
+                        arguments='{"question":"下一步怎么做？","options":[{"label":"检索"},{"label":"起草"}]}',
+                        call_id="call_ask_user",
+                    )
+                ],
+            )
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[{"role": "user", "content": "x"}],
+                use_ocp=False,
+                execute_tool=lambda name, args: {
+                    "acknowledged": True,
+                    "question": args["question"],
+                    "options": [
+                        {"id": "option_1", "label": "检索", "value": "检索"},
+                        {"id": "option_2", "label": "起草", "value": "起草"},
+                    ],
+                    "allow_free_text": True,
+                    "free_text_label": "自定义",
+                },
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(calls["count"], 1)
+        choice_events = [event for event in events if event.get("type") == "user_choice_request"]
+        self.assertEqual(len(choice_events), 1)
+        self.assertEqual(choice_events[0]["content"]["question"], "下一步怎么做？")
+        self.assertEqual([option["label"] for option in choice_events[0]["content"]["options"]], ["检索", "起草"])
+        self.assertTrue(choice_events[0]["content"]["allow_ignore"])
+        self.assertEqual(choice_events[0]["content"]["ignore_label"], "忽略此问题")
+        self.assertFalse(any(event.get("type") == "content" for event in events))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,7 @@ interface MessageListProps {
   activeAssistantMessageId?: string | null;
   bottomInset?: number;
   onRegenerate: (id: string) => void;
+  onAnswerChoice?: (id: string, value: string) => void;
   onEdit: (id: string) => void;
   onUndo: (id: string) => void;
   onBranch?: (id: string) => void;
@@ -25,6 +26,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   activeAssistantMessageId,
   bottomInset = 0,
   onRegenerate,
+  onAnswerChoice,
   onEdit,
   onUndo,
   onBranch
@@ -54,6 +56,9 @@ export const MessageList: React.FC<MessageListProps> = ({
       message.id,
       message.content.length,
       thoughtKey,
+      message.pending_choice
+        ? `${message.pending_choice.id}:${message.pending_choice.answered ? 'answered' : 'pending'}:${message.pending_choice.selected_value || ''}`
+        : '',
       message.download_path || ''
     ].join('::');
   };
@@ -125,6 +130,7 @@ export const MessageList: React.FC<MessageListProps> = ({
               isThinking={isThinking}
               isLast={isLast}
               onRegenerate={onRegenerate}
+              onAnswerChoice={onAnswerChoice}
               onEdit={onEdit}
               onUndo={onUndo}
               onBranch={onBranch}
