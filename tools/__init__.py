@@ -124,6 +124,56 @@ def _submit_final_answer(arguments: dict[str, Any], _workspace_scope: str | None
     return {"acknowledged": True}
 
 
+def _normalize_user_choice_options(options: Any) -> list[dict[str, str]]:
+    if not isinstance(options, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    for index, option in enumerate(options, 1):
+        if isinstance(option, dict):
+            label = str(option.get("label") or option.get("title") or option.get("value") or "").strip()
+            value = str(option.get("value") or label).strip()
+            description = str(option.get("description") or "").strip()
+        else:
+            label = str(option or "").strip()
+            value = label
+            description = ""
+        if not label:
+            continue
+
+        item = {
+            "id": str(option.get("id") or f"option_{index}").strip() if isinstance(option, dict) else f"option_{index}",
+            "label": label[:120],
+            "value": value[:1000],
+        }
+        if description:
+            item["description"] = description[:240]
+        normalized.append(item)
+    return normalized[:6]
+
+
+def _ask_user(arguments: dict[str, Any], _workspace_scope: str | None):
+    question = str(arguments.get("question") or "").strip()
+    if not question:
+        question = "我需要你补充一个选择后才能继续。"
+    options = _normalize_user_choice_options(arguments.get("options"))
+    allow_free_text = arguments.get("allow_free_text")
+    allow_ignore = arguments.get("allow_ignore")
+    free_text_label = str(arguments.get("free_text_label") or "自定义").strip() or "自定义"
+    ignore_label = str(arguments.get("ignore_label") or "忽略此问题").strip() or "忽略此问题"
+    ignore_value = str(arguments.get("ignore_value") or "忽略此问题，请根据现有信息自行判断并继续。").strip()
+    return {
+        "acknowledged": True,
+        "question": question[:1000],
+        "options": options,
+        "allow_free_text": False if allow_free_text is False else True,
+        "allow_ignore": False if allow_ignore is False else True,
+        "free_text_label": free_text_label[:80],
+        "ignore_label": ignore_label[:80],
+        "ignore_value": ignore_value[:500],
+    }
+
+
 def _read_pdf(arguments: dict[str, Any], workspace_scope: str | None):
     path = arguments.get("pdf_path") or arguments.get("file_path") or arguments.get("path")
     if not path:
@@ -237,6 +287,55 @@ def _write_txt_md(arguments: dict[str, Any], workspace_scope: str | None):
 
 
 def _register_agent_tools() -> None:
+    registry.register(
+        name="ask_user",
+        schema=_tool_schema(
+            "ask_user",
+            "当下一步执行方向存在实质不确定性，且擅自选择会影响结果质量或用户成本时，向用户提交一个简短问题和可选方案并暂停本轮。仅在必须由用户裁决方向、范围、优先级或缺失关键信息时调用；不要用于普通澄清寒暄。调用时 options 应为 2-6 个互斥选项，界面会自动提供可自填选项和“忽略此问题”选项。",
+            {
+                "question": {
+                    "type": "string",
+                    "description": "要问用户的单个明确问题，说明需要用户决定什么。",
+                },
+                "options": {
+                    "type": "array",
+                    "description": "供用户点击的候选项。优先给出最可能的选项，每项简洁、互斥。",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string", "description": "按钮上显示的短标签。"},
+                            "value": {"type": "string", "description": "用户选择后发送给模型的完整含义；不填时使用 label。"},
+                            "description": {"type": "string", "description": "可选，一句话解释该选项的影响。"},
+                        },
+                        "required": ["label"],
+                    },
+                },
+                "allow_free_text": {
+                    "type": "boolean",
+                    "description": "是否允许用户填写不在候选项里的自定义答案，默认 true。",
+                },
+                "allow_ignore": {
+                    "type": "boolean",
+                    "description": "是否允许用户忽略该问题，让模型按现有信息自行判断并继续，默认 true。",
+                },
+                "free_text_label": {
+                    "type": "string",
+                    "description": "自定义答案区域的短标签，默认“自定义”。",
+                },
+                "ignore_label": {
+                    "type": "string",
+                    "description": "忽略按钮的短标签，默认“忽略此问题”。",
+                },
+                "ignore_value": {
+                    "type": "string",
+                    "description": "用户点击忽略后发送给模型的文本，默认要求模型按现有信息继续。",
+                },
+            },
+            ["question", "options"],
+        ),
+        handler=_ask_user,
+        exposure=AGENT_PLAN_AND_SOLVE,
+    )
     registry.register(
         name="match_legal_case",
         schema=_tool_schema(

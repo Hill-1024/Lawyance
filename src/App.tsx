@@ -82,6 +82,7 @@ function App() {
     deleteConversation,
     handleSend,
     handleRegenerateMessage,
+    handleUserChoice,
     stopActiveGeneration,
     handleUndo,
     handleEdit,
@@ -336,6 +337,7 @@ function App() {
                 activeAssistantMessageId={activeAssistantMessageId}
                 bottomInset={composerOverlayHeight}
                 onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
+                onAnswerChoice={(id, value) => handleUserChoice(id, value, handleGeneratedFile, syncFiles)}
                 onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}
                 onUndo={(id) => handleUndo(currentId, id, setPendingUploads)}
                 onBranch={(id) => branchConversation(currentId, id)}

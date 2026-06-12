@@ -25,6 +25,7 @@ _TRANSIENT_STREAM_ERROR_MARKERS = (
     "timeout",
     "timed out",
 )
+ASK_USER_TOOL_NAME = "ask_user"
 
 
 def _optional_positive_int_env(name: str, default: int | None = None):
@@ -45,6 +46,14 @@ def _json_content(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
+
+
+def _load_json_object(value: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _forced_tool_choice(name: str) -> dict[str, Any]:
@@ -197,6 +206,47 @@ class ToolLoopAgent:
         lines.extend(f"{index}. {step}" for index, step in enumerate(steps, 1))
         return "\n".join(lines)
 
+    @staticmethod
+    def _user_choice_payload(result_content: str, fallback_args: dict[str, Any]) -> dict[str, Any]:
+        payload = _load_json_object(result_content)
+        if not payload:
+            payload = fallback_args
+
+        question = str(payload.get("question") or fallback_args.get("question") or "").strip()
+        raw_options = payload.get("options")
+        if not isinstance(raw_options, list):
+            raw_options = fallback_args.get("options") if isinstance(fallback_args.get("options"), list) else []
+
+        options: list[dict[str, str]] = []
+        for index, raw_option in enumerate(raw_options or [], 1):
+            if isinstance(raw_option, dict):
+                label = str(raw_option.get("label") or raw_option.get("value") or "").strip()
+                value = str(raw_option.get("value") or label).strip()
+                description = str(raw_option.get("description") or "").strip()
+                option_id = str(raw_option.get("id") or f"option_{index}").strip()
+            else:
+                label = str(raw_option or "").strip()
+                value = label
+                description = ""
+                option_id = f"option_{index}"
+            if not label:
+                continue
+            item = {"id": option_id or f"option_{index}", "label": label, "value": value or label}
+            if description:
+                item["description"] = description
+            options.append(item)
+
+        return {
+            "id": f"ask_{int(time.time() * 1000)}",
+            "question": question or "我需要你补充一个选择后才能继续。",
+            "options": options,
+            "allow_free_text": False if payload.get("allow_free_text") is False else True,
+            "allow_ignore": False if payload.get("allow_ignore") is False else True,
+            "free_text_label": str(payload.get("free_text_label") or "自定义"),
+            "ignore_label": str(payload.get("ignore_label") or "忽略此问题"),
+            "ignore_value": str(payload.get("ignore_value") or "忽略此问题，请根据现有信息自行判断并继续。"),
+        }
+
     def _tool_choice(self, state: dict[str, Any]):
         if self.tool_choice_policy:
             return self.tool_choice_policy(state)
@@ -208,6 +258,7 @@ class ToolLoopAgent:
             "plan_submitted": False,
             "force_final": self.final_answer_source == "tool_arg" and self.mode == "plan_and_solve",
             "final_answer_submitted": False,
+            "awaiting_user": False,
         }
 
     def _process_tool_calls(
@@ -219,7 +270,7 @@ class ToolLoopAgent:
         reasoning_content: str = "",
         thought_signature: str = "",
         state: dict[str, Any],
-    ) -> tuple[list[dict[str, Any]], str | None]:
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
         events: list[dict[str, Any]] = []
         assistant_msg = create_assistant_message(
             content=assistant_content or "",
@@ -231,6 +282,7 @@ class ToolLoopAgent:
         events.append({"type": "history_trace", "content": [self._history_context_message(assistant_msg)]})
 
         final_answer: str | None = None
+        awaiting_user = False
         for tool_call in tool_calls:
             function = tool_call.get("function") or {}
             func_name = function.get("name") or ""
@@ -254,6 +306,11 @@ class ToolLoopAgent:
                 result_content = _json_content(self.execute_tool(func_name, args))
                 final_answer = str(args.get("answer") or "")
                 state["final_answer_submitted"] = True
+            elif func_name == ASK_USER_TOOL_NAME:
+                events.append({"type": "thought", "content": "等待用户确认下一步\n", "thought_type": "tool", "mode": "new"})
+                result_content = _json_content(self.execute_tool(func_name, args))
+                state["awaiting_user"] = True
+                awaiting_user = True
             else:
                 events.append({"type": "thought", "content": f"执行: `{func_name}`\n", "thought_type": "tool", "mode": "new"})
                 result_content = _json_content(self.execute_tool(func_name, args))
@@ -267,10 +324,16 @@ class ToolLoopAgent:
             current_mem.append(tool_msg)
             events.append({"type": "history_trace", "content": [self._history_context_message(tool_msg)]})
 
+            if awaiting_user:
+                events.append({
+                    "type": "user_choice_request",
+                    "content": self._user_choice_payload(result_content, args),
+                })
+                break
             if final_answer is not None:
                 break
 
-        return events, final_answer
+        return events, final_answer, awaiting_user
 
     async def _final_answer_events(self, raw_answer: str, *, stream: bool):
         if self.final_answer_source == "plain_text":
@@ -417,7 +480,7 @@ class ToolLoopAgent:
 
             if tool_calls:
                 yield {"type": "thought", "content": "**正在调用工具处理中...**\n", "thought_type": "tool", "mode": "new"}
-                events, final_answer = self._process_tool_calls(
+                events, final_answer, awaiting_user = self._process_tool_calls(
                     current_mem,
                     tool_calls,
                     assistant_content=assistant_content,
@@ -427,6 +490,10 @@ class ToolLoopAgent:
                 )
                 for event in events:
                     yield event
+                if awaiting_user:
+                    if thought_signature_str:
+                        yield {"type": "thought_signature", "content": thought_signature_str}
+                    return
                 if final_answer is not None:
                     async for event in self._final_answer_events(final_answer, stream=True):
                         yield event
@@ -484,7 +551,7 @@ class ToolLoopAgent:
 
             if raw_tool_calls:
                 tool_calls = [self._tool_call_dict(tool_call) for tool_call in raw_tool_calls]
-                events, final_answer = self._process_tool_calls(
+                events, final_answer, awaiting_user = self._process_tool_calls(
                     current_mem,
                     tool_calls,
                     assistant_content=content_output,
@@ -494,6 +561,10 @@ class ToolLoopAgent:
                 )
                 for event in events:
                     yield event
+                if awaiting_user:
+                    if thought_signature:
+                        yield {"type": "thought_signature", "content": thought_signature}
+                    return
                 if final_answer is not None:
                     async for event in self._final_answer_events(final_answer, stream=False):
                         yield event

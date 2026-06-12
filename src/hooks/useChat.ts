@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
-import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMemory, Message, ThoughtBlock } from '../types';
+import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMemory, Message, ThoughtBlock, UserChoiceRequest } from '../types';
 import { fileDB } from '../lib/db';
 import { getAuthToken } from '../lib/auth-storage';
 import { isNative, isNativeAndroid } from '../lib/platform';
@@ -199,6 +199,42 @@ const appendThoughtBlock = (
       content
     }
   ];
+};
+
+const normalizeUserChoiceRequest = (raw: any): UserChoiceRequest | null => {
+  const source = raw && typeof raw === 'object' && 'content' in raw ? raw.content : raw;
+  if (!source || typeof source !== 'object') return null;
+
+  const question = String(source.question || '').trim();
+  if (!question) return null;
+
+  const rawOptions = Array.isArray(source.options) ? source.options : [];
+  const options = rawOptions.flatMap((option: any, index: number) => {
+    if (option && typeof option === 'object') {
+      const label = String(option.label || option.value || '').trim();
+      if (!label) return [];
+      return [{
+        id: String(option.id || `option_${index + 1}`),
+        label,
+        value: String(option.value || label),
+        ...(option.description ? { description: String(option.description) } : {})
+      }];
+    }
+    const label = String(option || '').trim();
+    if (!label) return [];
+    return [{ id: `option_${index + 1}`, label, value: label }];
+  });
+
+  return {
+    id: String(source.id || `choice_${Date.now()}`),
+    question,
+    options,
+    allow_free_text: source.allow_free_text !== false,
+    allow_ignore: source.allow_ignore !== false,
+    free_text_label: String(source.free_text_label || '自定义'),
+    ignore_label: String(source.ignore_label || '忽略此问题'),
+    ignore_value: String(source.ignore_value || '忽略此问题，请根据现有信息自行判断并继续。'),
+  };
 };
 
 const createEmptyConversationMemory = (conversationId: string): ConversationMemory => {
@@ -747,6 +783,7 @@ export function useChat() {
       contextMessages: BackendHistoryMessage[];
       currentSignature: string;
       currentDownloadPath: string;
+      pendingChoice: UserChoiceRequest | null;
       thoughtIdCounter: number;
       lastSeq: number;
       streamId?: string;
@@ -788,6 +825,13 @@ export function useChat() {
         state.currentDownloadPath = data.content;
         const fileName = state.currentDownloadPath.split('/').pop() || 'generated_file';
         onFileGenerated?.(fileName, state.currentDownloadPath);
+      }
+    } else if (data.type === 'user_choice_request') {
+      const choiceRequest = normalizeUserChoiceRequest(data.content);
+      if (choiceRequest) {
+        state.pendingChoice = choiceRequest;
+        state.bodyText = choiceRequest.question;
+        state.status = 'done';
       }
     } else if (data.type === 'memory_sync') {
       updateConversationMemory(state.convId, data.content as ConversationMemory);
@@ -894,6 +938,7 @@ export function useChat() {
       contextMessages: existing?.context_messages ? [...existing.context_messages] : [],
       currentSignature: existing?.thought_signature || '',
       currentDownloadPath: existing?.download_path || '',
+      pendingChoice: existing?.pending_choice || null,
       thoughtIdCounter: existing?.thought_blocks?.length || 0,
       lastSeq: existing?.last_committed_seq ?? -1,
       streamId: existing?.stream_id,
@@ -925,6 +970,7 @@ export function useChat() {
               thought_blocks: streamState.thoughtBlocks,
               context_messages: streamState.contextMessages,
               thought_signature: streamState.currentSignature || msg.thought_signature,
+              pending_choice: streamState.pendingChoice || msg.pending_choice,
               download_path: streamState.currentDownloadPath || msg.download_path,
               stream_id: streamState.streamId || msg.stream_id,
               stream_buffered: streamState.buffered,
@@ -1417,6 +1463,113 @@ export function useChat() {
     };
   }, [isInitialized, resumePendingStreams]);
 
+  const handleUserChoice = async (
+    messageId: string,
+    value: string,
+    onFileGenerated?: (name: string, path: string) => void,
+    syncFiles?: () => Promise<void>
+  ) => {
+    const selectedValue = value.trim();
+    if (!selectedValue || isLoading || !isInitialized) return;
+
+    const convId = currentId;
+    const conv = conversationsRef.current.find(c => c.id === convId);
+    if (!conv) return;
+
+    const choiceMessage = conv.messages.find(message => message.id === messageId);
+    if (!choiceMessage?.pending_choice || choiceMessage.pending_choice.answered) return;
+
+    const history = formatHistoryForBackend(conv.messages);
+    const memorySnapshot = conv.memory || createEmptyConversationMemory(convId);
+    const lastContextTokens = conv.context_usage?.prompt_tokens ?? null;
+    const shouldShowCompressionStatus = shouldShowHistoryCompressionStatus(conv.context_usage, history, selectedValue);
+    const now = nowIso();
+    const userMessage: Message = {
+      id: generateUUID(),
+      role: 'user',
+      content: selectedValue,
+      created_at: now,
+      updated_at: now
+    };
+
+    updateMessages(convId, prev => [
+      ...prev.map(message =>
+        message.id === messageId && message.pending_choice
+          ? {
+            ...message,
+            pending_choice: {
+              ...message.pending_choice,
+              answered: true,
+              selected_value: selectedValue,
+            },
+            updated_at: now
+          }
+          : message
+      ),
+      userMessage
+    ]);
+    setIsLoading(true);
+    setComposerStatus(shouldShowCompressionStatus ? HISTORY_COMPRESSION_STATUS : null);
+
+    const abortController = new AbortController();
+    activeAbortRef.current?.abort();
+    activeAbortRef.current = abortController;
+
+    try {
+      if (syncFiles) {
+        await syncFiles();
+      }
+
+      const resumeEnabled = await getResumeEnabled();
+      resumeEnabledRef.current = resumeEnabled;
+      if (isStreaming && isNativeAndroid()) {
+        setComposerStatus(null);
+        const completed = await sendNativeChatWithMemoryRetry(selectedValue, history, convId, memorySnapshot, 'merge', lastContextTokens, resumeEnabled, onFileGenerated, abortController.signal);
+        if (!completed) return;
+      } else {
+        const response = await sendChatWithMemoryRetry(selectedValue, history, convId, isStreaming, memorySnapshot, 'merge', lastContextTokens, resumeEnabled, abortController.signal);
+
+        if (abortController.signal.aborted) return;
+        if (isStreaming) {
+          setComposerStatus(null);
+          const completed = await processStream(response, null, convId, onFileGenerated, abortController.signal);
+          if (!completed) return;
+        } else {
+          const data = await response.json();
+          if (abortController.signal.aborted) return;
+          const agentMessageId = generateUUID();
+          const pendingChoice = normalizeUserChoiceRequest(data.user_choice_request);
+
+          updateMessages(convId, prev => [...prev, {
+            id: agentMessageId,
+            role: 'assistant',
+            content: pendingChoice?.question || data.reply,
+            pending_choice: pendingChoice || undefined,
+            download_path: data.download_path,
+            context_messages: data.context_messages || [],
+            created_at: nowIso(),
+            updated_at: nowIso()
+          }]);
+          updateConversationMemory(convId, data.memory_snapshot as ConversationMemory | undefined);
+          updateConversationContextUsage(convId, data.context_usage as ContextUsage | undefined);
+          setIsLoading(false);
+          setComposerStatus(null);
+          onFileGenerated?.('sync', '');
+        }
+      }
+    } catch (error) {
+      if (!isAbortError(error) && !abortController.signal.aborted) {
+        console.error('Failed to send user choice:', error);
+      }
+      if (!abortController.signal.aborted) setIsLoading(false);
+    } finally {
+      if (activeAbortRef.current === abortController) {
+        activeAbortRef.current = null;
+        setComposerStatus(null);
+      }
+    }
+  };
+
   const handleSend = async (pendingUploads: {name: string, path: string}[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => {
     if ((!input.trim() && pendingUploads.length === 0) || isLoading || !isInitialized) {
       return;
@@ -1480,6 +1633,7 @@ export function useChat() {
           const data = await response.json();
           if (abortController.signal.aborted) return;
           const agentMessageId = generateUUID();
+          const pendingChoice = normalizeUserChoiceRequest(data.user_choice_request);
 
           if (data.download_path) {
             const fileName = data.download_path.split('/').pop() || 'generated_file';
@@ -1489,7 +1643,8 @@ export function useChat() {
           updateMessages(convId, prev => [...prev, {
             id: agentMessageId,
             role: 'assistant',
-            content: data.reply,
+            content: pendingChoice?.question || data.reply,
+            pending_choice: pendingChoice || undefined,
             download_path: data.download_path,
             context_messages: data.context_messages || [],
             created_at: nowIso(),
@@ -1591,6 +1746,7 @@ export function useChat() {
           const data = await response.json();
           if (abortController.signal.aborted) return;
           const agentMessageId = generateUUID();
+          const pendingChoice = normalizeUserChoiceRequest(data.user_choice_request);
 
           if (data.download_path) {
             const fileName = data.download_path.split('/').pop() || 'generated_file';
@@ -1600,7 +1756,8 @@ export function useChat() {
           updateMessages(convId, prev => [...prev, {
             id: agentMessageId,
             role: 'assistant',
-            content: data.reply,
+            content: pendingChoice?.question || data.reply,
+            pending_choice: pendingChoice || undefined,
             download_path: data.download_path,
             context_messages: data.context_messages || [],
             created_at: nowIso(),
@@ -1760,6 +1917,7 @@ export function useChat() {
       return handleSend(pendingUploads, setPendingUploads, onFileGenerated, syncFiles);
     },
     handleRegenerateMessage,
+    handleUserChoice,
     stopActiveGeneration,
     handleUndo,
     handleEdit,

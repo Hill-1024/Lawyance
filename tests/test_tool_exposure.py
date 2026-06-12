@@ -13,6 +13,7 @@ class ToolExposureTests(unittest.TestCase):
     def test_default_tools_do_not_include_control_plane(self):
         names = set(registry.names("agent"))
 
+        self.assertIn("ask_user", names)
         self.assertNotIn("submit_plan", names)
         self.assertNotIn("submit_final_answer", names)
 
@@ -21,6 +22,7 @@ class ToolExposureTests(unittest.TestCase):
         plan_names = set(registry.names("plan_and_solve"))
 
         self.assertTrue(default_names.issubset(plan_names))
+        self.assertIn("ask_user", plan_names)
         self.assertIn("submit_plan", plan_names)
         self.assertIn("submit_final_answer", plan_names)
 
@@ -35,6 +37,7 @@ class ToolExposureTests(unittest.TestCase):
         self.assertIn("word_reader", names)
         self.assertIn("txt_md_reader", names)
         self.assertIn("list_workspace_files", names)
+        self.assertNotIn("ask_user", names)
         self.assertNotIn("pdf_commit_by_sentence", names)
         self.assertNotIn("word_writer", names)
         self.assertNotIn("txt_md_writer", names)
