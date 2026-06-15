@@ -363,6 +363,18 @@ textarea.composer-textarea:focus-visible {
   box-shadow: none !important;
 }
 
+.lawver-choice-custom-input:focus,
+.lawver-choice-custom-input:focus-visible {
+  border-color: var(--accent) !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.lawver-choice-prompt :where(button, input):focus,
+.lawver-choice-prompt :where(button, input):focus-visible {
+  outline: none !important;
+}
+
 .lawver-composer-shell {
   display: flex;
   height: 52px;

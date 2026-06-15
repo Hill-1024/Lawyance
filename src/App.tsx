@@ -245,6 +245,19 @@ function App() {
     return true;
   }, [isInputExpanded, isSidebarOpen, isWorkspaceOpen, location.pathname, navigate]), isAuthenticated && isInitialized);
 
+  const activeChoicePrompt = React.useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.role === 'assistant' && message.pending_choice && !message.pending_choice.answered) {
+        return {
+          messageId: message.id,
+          choice: message.pending_choice
+        };
+      }
+    }
+    return null;
+  }, [messages]);
+
   if (isAuthChecking) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--bg-app)] text-[var(--accent)] transition-colors duration-300">
@@ -349,6 +362,8 @@ function App() {
               setInput={setInput}
               handleSend={() => handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles, isLowStorage)}
               handleStop={stopActiveGeneration}
+              activeChoicePrompt={activeChoicePrompt}
+              onAnswerChoice={(id, value) => handleUserChoice(id, value, handleGeneratedFile, syncFiles)}
               isLoading={isLoading}
               composerStatus={composerStatus}
               contextUsage={contextUsage}

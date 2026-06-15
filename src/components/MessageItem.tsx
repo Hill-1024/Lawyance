@@ -506,7 +506,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               </div>
             )}
 
-            {pendingChoice && (
+            {pendingChoice?.answered && (
               <div data-testid="user-choice-request" className="min-w-0 w-full max-w-full rounded-[8px] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3.5 py-3 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:px-5 sm:py-4">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[var(--accent-quiet)] text-[var(--accent)]">
