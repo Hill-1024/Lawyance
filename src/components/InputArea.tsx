@@ -8,7 +8,8 @@ import { Settings2, Paperclip, X, Send, LoaderCircle, Square } from 'lucide-reac
 import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { HoverInfo } from './HoverInfo';
-import type { ContextUsage } from '../types';
+import { UserChoicePrompt } from './UserChoicePrompt';
+import type { ContextUsage, UserChoiceRequest } from '../types';
 
 const DEFAULT_CONTEXT_THRESHOLD_TOKENS = 500000;
 
@@ -88,6 +89,8 @@ interface InputAreaProps {
   setInput: (val: string) => void;
   handleSend: () => void;
   handleStop?: () => void;
+  activeChoicePrompt?: { messageId: string; choice: UserChoiceRequest } | null;
+  onAnswerChoice?: (messageId: string, value: string) => void;
   isLoading: boolean;
   composerStatus?: string | null;
   contextUsage?: ContextUsage | null;
@@ -110,6 +113,8 @@ export const InputArea: React.FC<InputAreaProps> = ({
   setInput,
   handleSend,
   handleStop,
+  activeChoicePrompt,
+  onAnswerChoice,
   isLoading,
   composerStatus,
   contextUsage,
@@ -130,7 +135,10 @@ export const InputArea: React.FC<InputAreaProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
-  const [settingsPosition, setSettingsPosition] = useState({ left: 0, width: 0, bottom: 0 });
+  const choicePromptRef = useRef<HTMLDivElement>(null);
+  const [settingsPosition, setSettingsPosition] = useState({ left: 0, width: 0, bottom: 0, maxHeight: 0 });
+  const hasActiveChoicePrompt = Boolean(activeChoicePrompt);
+  const hasComposerOverlay = isInputExpanded || hasActiveChoicePrompt;
 
   const updateSettingsPosition = useCallback(() => {
     const rect = composerRef.current?.getBoundingClientRect();
@@ -140,41 +148,51 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const viewportHeight = viewport?.height ?? window.innerHeight;
     const viewportOffsetTop = viewport?.offsetTop ?? 0;
     const horizontalInset = 8;
+    const verticalGap = 12;
+    const topbarBottom = document.querySelector('.lawver-topbar')?.getBoundingClientRect().bottom ?? viewportOffsetTop;
     const width = Math.min(rect.width, viewportWidth - horizontalInset * 2);
     const left = Math.max(horizontalInset, Math.min(rect.left, viewportWidth - width - horizontalInset));
+    const bottom = Math.max(12, viewportHeight + viewportOffsetTop - rect.top + verticalGap);
+    const maxHeight = Math.max(80, rect.top - topbarBottom - verticalGap * 2);
 
     setSettingsPosition({
       left,
       width,
-      bottom: Math.max(12, viewportHeight + viewportOffsetTop - rect.top + 12)
+      bottom,
+      maxHeight
     });
   }, []);
 
   const updateSettingsClearance = useCallback(() => {
-    if (!isInputExpanded) {
+    if (!hasComposerOverlay) {
       onSettingsClearanceChange?.(0);
       return;
     }
 
-    const panelHeight = settingsPanelRef.current?.getBoundingClientRect().height ?? 0;
-    onSettingsClearanceChange?.((panelHeight || 168) + 20);
-  }, [isInputExpanded, onSettingsClearanceChange]);
+    const settingsHeight = isInputExpanded
+      ? (settingsPanelRef.current?.getBoundingClientRect().height ?? 168) + 20
+      : 0;
+    const choiceHeight = hasActiveChoicePrompt
+      ? (choicePromptRef.current?.getBoundingClientRect().height ?? 240) + 20
+      : 0;
+    onSettingsClearanceChange?.(Math.max(settingsHeight, choiceHeight));
+  }, [hasActiveChoicePrompt, hasComposerOverlay, isInputExpanded, onSettingsClearanceChange]);
 
   useLayoutEffect(() => {
-    if (isInputExpanded) {
+    if (hasComposerOverlay) {
       updateSettingsPosition();
       updateSettingsClearance();
     } else {
       onSettingsClearanceChange?.(0);
     }
-  }, [isInputExpanded, pendingUploads.length, onSettingsClearanceChange, updateSettingsClearance, updateSettingsPosition]);
+  }, [hasComposerOverlay, pendingUploads.length, onSettingsClearanceChange, updateSettingsClearance, updateSettingsPosition]);
 
   useLayoutEffect(() => {
     updateSettingsClearance();
   }, [settingsPosition.width, updateSettingsClearance]);
 
   useEffect(() => {
-    if (!isInputExpanded) return;
+    if (!hasComposerOverlay) return;
 
     updateSettingsPosition();
     updateSettingsClearance();
@@ -188,12 +206,16 @@ export const InputArea: React.FC<InputAreaProps> = ({
     const settingsResizeObserver = typeof ResizeObserver !== 'undefined' && settingsPanelRef.current
       ? new ResizeObserver(updateSettingsClearance)
       : null;
+    const choiceResizeObserver = typeof ResizeObserver !== 'undefined' && choicePromptRef.current
+      ? new ResizeObserver(updateSettingsClearance)
+      : null;
 
     window.addEventListener('resize', handleViewportChange);
     window.visualViewport?.addEventListener('resize', handleViewportChange);
     window.visualViewport?.addEventListener('scroll', handleViewportChange);
     composerResizeObserver?.observe(composerRef.current as Element);
     settingsResizeObserver?.observe(settingsPanelRef.current as Element);
+    choiceResizeObserver?.observe(choicePromptRef.current as Element);
 
     return () => {
       window.removeEventListener('resize', handleViewportChange);
@@ -201,10 +223,18 @@ export const InputArea: React.FC<InputAreaProps> = ({
       window.visualViewport?.removeEventListener('scroll', handleViewportChange);
       composerResizeObserver?.disconnect();
       settingsResizeObserver?.disconnect();
+      choiceResizeObserver?.disconnect();
     };
-  }, [isInputExpanded, updateSettingsClearance, updateSettingsPosition]);
+  }, [hasComposerOverlay, updateSettingsClearance, updateSettingsPosition]);
+
+  useEffect(() => {
+    if (activeChoicePrompt && isInputExpanded) {
+      setIsInputExpanded(false);
+    }
+  }, [activeChoicePrompt, isInputExpanded, setIsInputExpanded]);
 
   const onSendWrapper = () => {
+    if (hasActiveChoicePrompt) return;
     handleSend();
     if (isInputExpanded) {
       setIsInputExpanded(false);
@@ -236,7 +266,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
               left: settingsPosition.left,
               width: settingsPosition.width,
               bottom: settingsPosition.bottom,
-              maxHeight: `calc(100dvh - ${settingsPosition.bottom}px - var(--safe-top) - 12px)`,
+              maxHeight: settingsPosition.maxHeight || `calc(100dvh - ${settingsPosition.bottom}px - var(--safe-top) - 12px)`,
               overflowY: 'auto'
             }}
             className="glass lawver-popover z-[80] flex flex-col gap-0 rounded-[var(--radius-xl)] p-0 shadow-[var(--shadow-5)]"
@@ -290,9 +320,32 @@ export const InputArea: React.FC<InputAreaProps> = ({
     )
     : null;
 
+  const choicePromptLayer = typeof document !== 'undefined'
+    ? createPortal(
+      <AnimatePresence>
+        {activeChoicePrompt && onAnswerChoice && settingsPosition.width > 0 && (
+          <UserChoicePrompt
+            ref={choicePromptRef}
+            prompt={activeChoicePrompt}
+            disabled={isLoading}
+            onAnswerChoice={onAnswerChoice}
+            style={{
+              left: settingsPosition.left,
+              width: settingsPosition.width,
+              bottom: settingsPosition.bottom,
+              maxHeight: settingsPosition.maxHeight || `calc(100dvh - ${settingsPosition.bottom}px - var(--safe-top) - 12px)`
+            }}
+          />
+        )}
+      </AnimatePresence>,
+      document.body
+    )
+    : null;
+
   return (
     <>
       {settingsLayer}
+      {choicePromptLayer}
       <footer className="lawver-composer-footer pointer-events-none shrink-0 px-2 pb-[calc(0.75rem+var(--safe-bottom))] pt-1 sm:px-4 sm:pb-[calc(1rem+var(--safe-bottom))] sm:pt-2">
         <div ref={composerRef} className="pointer-events-auto relative mx-auto flex w-full max-w-3xl min-w-0 flex-col">
           {pendingUploads.length > 0 && (
@@ -376,13 +429,14 @@ export const InputArea: React.FC<InputAreaProps> = ({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              disabled={hasActiveChoicePrompt}
               placeholder="Message Lawver..."
-              className="composer-textarea lawver-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+              className="composer-textarea lawver-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] disabled:opacity-60 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
               rows={1}
             />
             <button
               onClick={isLoading ? handleStop : onSendWrapper}
-              disabled={!isLoading && (!input.trim() && pendingUploads.length === 0)}
+              disabled={!isLoading && (hasActiveChoicePrompt || (!input.trim() && pendingUploads.length === 0))}
               className={`lawver-composer-action lawver-pressable shadow-[var(--shadow-1)] transition-colors ${
                 isLoading
                   ? 'bg-[var(--color-danger-500)] text-white hover:opacity-90'
