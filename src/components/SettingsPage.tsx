@@ -422,7 +422,7 @@ export const SettingsPage: React.FC = () => {
   const statusLabel = isWebDavRoute ? '数据同步' : `${resolvedTheme === 'dark' ? '深色' : '浅色'} · ${COLOR_SOURCE_LABEL[colorSource]}`;
   const handleBack = () => {
     if (isWebDavRoute) {
-      navigate('/settings');
+      navigate(-1);
       return;
     }
     navigate(-1);
