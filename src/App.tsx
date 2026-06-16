@@ -25,6 +25,7 @@ import { BrandMark } from './components/Brand';
 import { CourtPage } from './components/CourtPage';
 import { SettingsPage } from './components/SettingsPage';
 import { UpdateGate } from './components/UpdateGate';
+import { GuidedTour } from './components/GuidedTour';
 
 const SECURE_DOMAIN = 'law.mutsumi.moe';
 const ROUTE_TRANSITION = { duration: 0.26, ease: [0.2, 0, 0, 1] } as const;
@@ -95,6 +96,7 @@ function App() {
     workspaceFiles,
     pendingUploads,
     setPendingUploads,
+    isUploadingFiles,
     handleFileUpload,
     handleGeneratedFile,
     removeUploadedFile,
@@ -360,7 +362,10 @@ function App() {
             <InputArea
               input={input}
               setInput={setInput}
-              handleSend={() => handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles, isLowStorage)}
+              handleSend={() => {
+                if (isUploadingFiles) return;
+                handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles, isLowStorage);
+              }}
               handleStop={stopActiveGeneration}
               activeChoicePrompt={activeChoicePrompt}
               onAnswerChoice={(id, value) => handleUserChoice(id, value, handleGeneratedFile, syncFiles)}
@@ -368,6 +373,7 @@ function App() {
               composerStatus={composerStatus}
               contextUsage={contextUsage}
               pendingUploads={pendingUploads}
+              isUploadingFiles={isUploadingFiles}
               removeUploadedFile={removeUploadedFile}
               handleFileUpload={handleFileUpload}
               isInputExpanded={isInputExpanded}
@@ -406,6 +412,7 @@ function App() {
           </Routes>
         </React.Fragment>
       </AnimatePresence>
+      <GuidedTour />
     </UpdateGate>
   );
 }

@@ -45,6 +45,22 @@ export type ContextUsage = {
   over_threshold: boolean;
 };
 
+export type PendingUpload = {
+  name: string;
+  path: string;
+};
+
+export type WorkspaceFile = {
+  name: string;
+  path: string;
+  type: 'upload' | 'generated';
+  size?: number;
+  uploadedBytes?: number;
+  uploadProgress?: number;
+  isUploading?: boolean;
+  tempId?: string;
+};
+
 export type Message = {
   id: string;
   role: 'user' | 'assistant' | 'tool';

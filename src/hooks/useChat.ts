@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { App as CapacitorApp } from '@capacitor/app';
-import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMemory, Message, ThoughtBlock, UserChoiceRequest } from '../types';
+import type { BackendHistoryMessage, ContextUsage, Conversation, ConversationMemory, Message, PendingUpload, ThoughtBlock, UserChoiceRequest } from '../types';
 import { fileDB } from '../lib/db';
 import { getAuthToken } from '../lib/auth-storage';
 import { isNative, isNativeAndroid } from '../lib/platform';
@@ -1570,7 +1570,7 @@ export function useChat() {
     }
   };
 
-  const handleSend = async (pendingUploads: {name: string, path: string}[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => {
+  const handleSend = async (pendingUploads: PendingUpload[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => {
     if ((!input.trim() && pendingUploads.length === 0) || isLoading || !isInitialized) {
       return;
     }
@@ -1819,7 +1819,7 @@ export function useChat() {
     abortActiveRequest();
 
     let textContent = msg.content;
-    let filesToRestore: {name: string, path: string}[] = [];
+    let filesToRestore: PendingUpload[] = [];
 
     const fileInfoRegex = new RegExp("\\[用户已上传以下文件，请根据需要进行读取和处理\\]\\n([\\s\\S]*)$");
     const match = msg.content.match(fileInfoRegex);
@@ -1905,7 +1905,7 @@ export function useChat() {
     messages,
     handleNewChat,
     deleteConversation,
-    handleSend: async (pendingUploads: {name: string, path: string}[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>, isLowStorage?: boolean) => {
+    handleSend: async (pendingUploads: PendingUpload[], setPendingUploads: (val: any) => void, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>, isLowStorage?: boolean) => {
       if (isLowStorage) {
         await showAlert({
           title: '本地存储空间不足',

@@ -125,10 +125,99 @@ export const logout = async () => {
   return res.json();
 };
 
-export const uploadFile = async (file: File, conversationId: string) => {
+export type UploadProgressSnapshot = {
+  loaded: number;
+  total: number;
+  progress: number;
+};
+
+const buildUploadProgressSnapshot = (
+  fileSize: number,
+  loaded: number,
+  total?: number
+): UploadProgressSnapshot => {
+  const safeFileSize = Math.max(fileSize, 0);
+  const ratio = total && total > 0
+    ? Math.min(Math.max(loaded / total, 0), 1)
+    : safeFileSize > 0
+    ? Math.min(Math.max(loaded / safeFileSize, 0), 1)
+    : 0;
+  const fileLoaded = safeFileSize > 0 ? Math.min(safeFileSize, Math.round(safeFileSize * ratio)) : 0;
+
+  return {
+    loaded: fileLoaded,
+    total: safeFileSize,
+    progress: ratio
+  };
+};
+
+const parseUploadResponse = (xhr: XMLHttpRequest) => {
+  if (xhr.response && typeof xhr.response === 'object') {
+    return xhr.response;
+  }
+  try {
+    return JSON.parse(xhr.responseText || '{}');
+  } catch {
+    return {};
+  }
+};
+
+export const uploadFile = async (
+  file: File,
+  conversationId: string,
+  onProgress?: (snapshot: UploadProgressSnapshot) => void
+) => {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('conversation_id', conversationId);
+
+  if (onProgress && typeof XMLHttpRequest !== 'undefined') {
+    onProgress({ loaded: 0, total: file.size, progress: 0 });
+
+    return new Promise<any>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', apiUrl('/api/upload'));
+      xhr.responseType = 'json';
+
+      xhr.upload.onprogress = event => {
+        onProgress(buildUploadProgressSnapshot(file.size, event.loaded, event.lengthComputable ? event.total : undefined));
+      };
+
+      xhr.onload = async () => {
+        const data = parseUploadResponse(xhr);
+
+        if (xhr.status === 401) {
+          await clearAuthToken();
+          await unauthorizedHandler?.();
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress({ loaded: file.size, total: file.size, progress: 1 });
+          resolve(data);
+          return;
+        }
+
+        reject(new Error(data?.detail || data?.error || 'Upload failed'));
+      };
+
+      xhr.onerror = () => reject(new Error('Upload failed'));
+      xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
+
+      const sendUpload = async () => {
+        if (isNative()) {
+          const token = await getAuthToken();
+          if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          xhr.setRequestHeader('X-Lawver-Client', 'capacitor');
+          xhr.withCredentials = false;
+        } else {
+          xhr.withCredentials = true;
+        }
+        xhr.send(formData);
+      };
+
+      sendUpload().catch(reject);
+    });
+  }
 
   const res = await apiFetch('/api/upload', {
     method: 'POST',
@@ -140,6 +229,7 @@ export const uploadFile = async (file: File, conversationId: string) => {
     throw new Error(errorData.detail || 'Upload failed');
   }
 
+  onProgress?.({ loaded: file.size, total: file.size, progress: 1 });
   return res.json();
 };
 
