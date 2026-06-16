@@ -23,7 +23,7 @@ import {
   X
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import type { CourtAgentState, CourtSession, CourtSpeaker } from '../types';
+import type { CourtAgentState, CourtSession, CourtSpeaker, WorkspaceFile } from '../types';
 import { useCourtSession } from '../hooks/useCourtSession';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useBackButton } from '../hooks/useBackButton';
@@ -36,11 +36,10 @@ import { StorageIndicator } from './StorageIndicator';
 import { CourtSetup } from './CourtSetup';
 import { CourtTranscript, SPEAKER_META, phaseLabel } from './CourtTranscript';
 import { useAppDialog } from '../contexts/DialogContext';
+import { FileUploadProgress } from './FileUploadProgress';
 
 const PANEL_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
-
-type WorkspaceFile = { name: string; path: string; type: 'upload' | 'generated' };
 
 interface CourtPageProps {
   onBack: () => void;
@@ -378,31 +377,36 @@ const CourtCasePanel: React.FC<{
                 ) : (
                   files.map(file => (
                     <div
-                      key={`${file.type}:${file.path}`}
+                      key={`${file.type}:${file.tempId || file.path}`}
                       className="group flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-2"
                     >
                       <FileText size={15} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--fg-1)]">{file.name}</span>
-                      <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
-                        <HoverInfo label="下载" placement="top">
-                          <button
-                            onClick={() => handleDownload(file)}
-                            className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
-                            aria-label="下载文件"
-                          >
-                            <Download size={14} strokeWidth={2} />
-                          </button>
-                        </HoverInfo>
-                        <HoverInfo label="删除" placement="top">
-                          <button
-                            onClick={() => onDeleteFile(file.path)}
-                            className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-                            aria-label="删除文件"
-                          >
-                            <Trash2 size={14} strokeWidth={2} />
-                          </button>
-                        </HoverInfo>
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] leading-5 text-[var(--fg-1)]">{file.name}</span>
+                        <FileUploadProgress file={file} />
                       </div>
+                      {!file.isUploading && (
+                        <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
+                          <HoverInfo label="下载" placement="top">
+                            <button
+                              onClick={() => handleDownload(file)}
+                              className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
+                              aria-label="下载文件"
+                            >
+                              <Download size={14} strokeWidth={2} />
+                            </button>
+                          </HoverInfo>
+                          <HoverInfo label="删除" placement="top">
+                            <button
+                              onClick={() => onDeleteFile(file.path)}
+                              className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+                              aria-label="删除文件"
+                            >
+                              <Trash2 size={14} strokeWidth={2} />
+                            </button>
+                          </HoverInfo>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -429,7 +433,8 @@ const CourtComposerDock: React.FC<{
   onSetAutoMode: (auto: boolean) => void;
   onSetUserAgentMode: (enabled: boolean) => void;
   onRequestUpload: () => void;
-}> = ({ session, isRunning, status, value, onChange, onSend, onRunNext, onForceAdvance, onSetAutoMode, onSetUserAgentMode, onRequestUpload }) => {
+  isUploadingFiles: boolean;
+}> = ({ session, isRunning, status, value, onChange, onSend, onRunNext, onForceAdvance, onSetAutoMode, onSetUserAgentMode, onRequestUpload, isUploadingFiles }) => {
   const state = session.court_state;
   const trialOver = state.trial_over;
   const awaitingUser = state.awaiting_user;
@@ -456,6 +461,8 @@ const CourtComposerDock: React.FC<{
 
   const placeholder = trialOver
     ? '庭审已结束'
+    : isUploadingFiles
+      ? '文件上传完成后可继续发送'
     : isRunning
       ? '发言中…你的输入会作为插话排队'
       : awaitingUser
@@ -469,9 +476,12 @@ const CourtComposerDock: React.FC<{
     const sendTriggered = isMac ? event.metaKey && event.key === 'Enter' : event.ctrlKey && event.key === 'Enter';
     if (sendTriggered) {
       event.preventDefault();
+      if (isUploadingFiles) return;
       onSend();
     }
   };
+
+  const canSend = value.trim().length > 0 && !trialOver && !isUploadingFiles;
 
   return (
     <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-[calc(0.75rem+var(--safe-bottom))] pt-2.5 sm:px-5">
@@ -586,13 +596,13 @@ const CourtComposerDock: React.FC<{
           />
           <button
             onClick={onSend}
-            disabled={!value.trim() || trialOver}
+            disabled={!canSend}
             className={`lawver-composer-action lawver-pressable transition-colors ${
-              value.trim() && !trialOver
+              canSend
                 ? 'bg-[var(--accent)] text-[var(--accent-on)] shadow-[var(--shadow-1)] hover:bg-[var(--accent-hover)]'
                 : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] dark:bg-white/[0.08]'
             }`}
-            aria-label="发送"
+            aria-label={isUploadingFiles ? '文件上传完成前暂不能发送' : '发送'}
           >
             <Send size={20} strokeWidth={2} />
           </button>
@@ -813,6 +823,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
                   onSetAutoMode={setAutoMode}
                   onSetUserAgentMode={setUserAgentMode}
                   onRequestUpload={openFilePicker}
+                  isUploadingFiles={workspace.isUploadingFiles}
                 />
               </>
             )}

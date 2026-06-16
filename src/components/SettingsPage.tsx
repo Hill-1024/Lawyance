@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Link2, Loader2, Monitor, Moon, PackageCheck, Palette, RotateCcw, Server, Settings, Smartphone, Sun, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, CirclePlay, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Folder, Gavel, Link2, Loader2, MessageSquareText, Monitor, Moon, PackageCheck, Palette, PanelLeftOpen, Paperclip, RotateCcw, Send, Server, Settings, Settings2, Smartphone, Sparkles, Sun, Trash2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
@@ -16,6 +16,7 @@ import { webdavService, type WebDavFileInfo } from '../services/webdavService';
 import { buildBackupSnapshot, restoreBackupSnapshot } from '../services/storageService';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
+import { requestGuidedTour } from '../lib/guided-tour';
 
 const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -380,6 +381,161 @@ const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
   );
 };
 
+const HelpEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => (
+  <button
+    type="button"
+    onClick={onOpen}
+    className="lawver-pressable flex min-w-0 items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-4 text-left shadow-[var(--shadow-1)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-surface-2)]"
+  >
+    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+      <BookOpen size={21} strokeWidth={2} />
+    </span>
+    <span className="min-w-0 flex-1">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-[15px] font-semibold text-[var(--fg-1)]">帮助与指引</span>
+        <span className="shrink-0 rounded-full bg-[var(--accent-quiet)] px-2 py-0.5 text-[11px] font-medium text-[var(--accent)]">
+          新
+        </span>
+      </span>
+      <span className="mt-1 block truncate text-[12px] leading-5 text-[var(--fg-3)]">
+        查看按钮手册，随时重播首次使用导览
+      </span>
+    </span>
+    <ChevronRight size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-4)]" />
+  </button>
+);
+
+const HELP_TOPICS: Array<{
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  title: string;
+  description: string;
+}> = [
+  {
+    icon: MessageSquareText,
+    title: '对话与追问',
+    description: '围绕案件事实、法条检索、文书草拟继续追问；对回答可重新生成、编辑或创建分叉。',
+  },
+  {
+    icon: Paperclip,
+    title: '上传材料',
+    description: '在输入区上传 PDF、Word、Markdown 或文本，当前会话会带着材料上下文工作。',
+  },
+  {
+    icon: Folder,
+    title: '工作区',
+    description: '右上角文件夹集中查看上传文件和生成文件，便于下载、清理和继续使用。',
+  },
+  {
+    icon: Gavel,
+    title: '模拟法庭',
+    description: '从侧栏进入庭审推演，将公开案卷和用户私有作战笔记分开组织。',
+  },
+  {
+    icon: Settings2,
+    title: '输入区设置',
+    description: '切换流式输出、OCP 检查流程和 Agent Mode，适配不同回答风格。',
+  },
+  {
+    icon: Cloud,
+    title: '数据同步',
+    description: '在 WebDAV 二级页配置自己的云端备份，恢复前建议先保留当前快照。',
+  },
+];
+
+const QUICK_ACTIONS: Array<{
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  label: string;
+  hint: string;
+}> = [
+  { icon: PanelLeftOpen, label: '菜单', hint: '展开会话侧栏' },
+  { icon: Send, label: '发送', hint: '提交问题或停止生成' },
+  { icon: Paperclip, label: '上传', hint: '添加案件材料' },
+  { icon: Folder, label: 'Workspace', hint: '管理文件' },
+  { icon: Settings, label: '设置', hint: '外观、同步与帮助' },
+  { icon: CirclePlay, label: '重播', hint: '再次打开动态导览' },
+];
+
+const HelpSection: React.FC<{ onStartTour: () => void }> = ({ onStartTour }) => (
+  <div className="flex min-w-0 flex-col gap-5">
+    <section className="min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-1)]">
+      <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+              <Sparkles size={21} strokeWidth={2} />
+            </span>
+            <div className="min-w-0">
+              <h2 className="t-title-m">动态指引手册</h2>
+              <p className="mt-1 text-[13px] leading-5 text-[var(--fg-3)]">
+                用分步动画快速复习 Lawver 的主要区域、按钮和常见操作。
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onStartTour}
+            className="md3-btn-filled lawver-pressable min-h-10 shrink-0 whitespace-nowrap px-4 py-2.5 text-sm"
+          >
+            <CirclePlay size={17} strokeWidth={2} />
+            重播动态指引
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+        {HELP_TOPICS.map(topic => {
+          const Icon = topic.icon;
+          return (
+            <div
+              key={topic.title}
+              className="min-w-0 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                  <Icon size={17} strokeWidth={2} />
+                </span>
+                <h3 className="text-[14px] font-semibold leading-5 text-[var(--fg-1)]">{topic.title}</h3>
+              </div>
+              <p className="text-[12px] leading-5 text-[var(--fg-3)]">{topic.description}</p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+          <BookOpen size={20} strokeWidth={2} />
+        </span>
+        <div className="min-w-0">
+          <h2 className="t-title-m">常用按钮速查</h2>
+          <p className="mt-1 text-[13px] text-[var(--fg-3)]">遇到不熟悉的入口，可以先从这些图标判断作用。</p>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {QUICK_ACTIONS.map(action => {
+          const Icon = action.icon;
+          return (
+            <div
+              key={action.label}
+              className="flex min-w-0 items-center gap-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-3"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent-quiet)] text-[var(--accent)]">
+                <Icon size={17} strokeWidth={2} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-semibold text-[var(--fg-1)]">{action.label}</span>
+                <span className="mt-0.5 block truncate text-[12px] text-[var(--fg-3)]">{action.hint}</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  </div>
+);
+
 const AboutMetaRow: React.FC<{
   icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
   label: string;
@@ -417,12 +573,18 @@ export const SettingsPage: React.FC = () => {
   const seedValid = isHexColor(seedDraft);
   const normalizedPath = location.pathname.replace(/\/+$/, '');
   const isWebDavRoute = normalizedPath === '/settings/webdav';
-  const pageTitle = isWebDavRoute ? 'WebDAV 同步' : '设置';
-  const pageSubtitle = isWebDavRoute ? '备份与恢复' : '外观、同步与应用信息';
-  const statusLabel = isWebDavRoute ? '数据同步' : `${resolvedTheme === 'dark' ? '深色' : '浅色'} · ${COLOR_SOURCE_LABEL[colorSource]}`;
+  const isHelpRoute = normalizedPath === '/settings/help';
+  const isSecondaryRoute = isWebDavRoute || isHelpRoute;
+  const pageTitle = isWebDavRoute ? 'WebDAV 同步' : isHelpRoute ? '帮助与指引' : '设置';
+  const pageSubtitle = isWebDavRoute ? '备份与恢复' : isHelpRoute ? '功能手册与首次使用指引' : '外观、同步与应用信息';
+  const statusLabel = isWebDavRoute
+    ? '数据同步'
+    : isHelpRoute
+    ? '使用手册'
+    : `${resolvedTheme === 'dark' ? '深色' : '浅色'} · ${COLOR_SOURCE_LABEL[colorSource]}`;
   const handleBack = () => {
-    if (isWebDavRoute) {
-      navigate(-1);
+    if (isSecondaryRoute) {
+      navigate('/settings');
       return;
     }
     navigate(-1);
@@ -493,6 +655,8 @@ export const SettingsPage: React.FC = () => {
         <div className={`mx-auto flex min-w-0 w-full flex-col gap-5 ${isWebDavRoute ? 'max-w-2xl' : 'max-w-3xl'}`}>
           {isWebDavRoute ? (
             <WebDavSection />
+          ) : isHelpRoute ? (
+            <HelpSection onStartTour={requestGuidedTour} />
           ) : (
             <>
           <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
@@ -658,6 +822,14 @@ export const SettingsPage: React.FC = () => {
                 />
               </div>
             </div>
+          </section>
+
+          <section className="min-w-0">
+            <div className="mb-3 px-1">
+              <h2 className="t-title-m">帮助</h2>
+              <p className="mt-1 text-[13px] text-[var(--fg-3)]">查看按钮手册，或重新打开首次使用导览。</p>
+            </div>
+            <HelpEntry onOpen={() => navigate('/settings/help')} />
           </section>
 
           <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">

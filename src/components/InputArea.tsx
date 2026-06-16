@@ -9,7 +9,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { HoverInfo } from './HoverInfo';
 import { UserChoicePrompt } from './UserChoicePrompt';
-import type { ContextUsage, UserChoiceRequest } from '../types';
+import type { ContextUsage, PendingUpload, UserChoiceRequest } from '../types';
 
 const DEFAULT_CONTEXT_THRESHOLD_TOKENS = 500000;
 
@@ -94,7 +94,8 @@ interface InputAreaProps {
   isLoading: boolean;
   composerStatus?: string | null;
   contextUsage?: ContextUsage | null;
-  pendingUploads: { name: string, path: string }[];
+  pendingUploads: PendingUpload[];
+  isUploadingFiles?: boolean;
   removeUploadedFile: (index: number) => void;
   handleFileUpload: (file: File) => void;
   isInputExpanded: boolean;
@@ -119,6 +120,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   composerStatus,
   contextUsage,
   pendingUploads,
+  isUploadingFiles = false,
   removeUploadedFile,
   handleFileUpload,
   isInputExpanded,
@@ -233,8 +235,10 @@ export const InputArea: React.FC<InputAreaProps> = ({
     }
   }, [activeChoicePrompt, isInputExpanded, setIsInputExpanded]);
 
+  const canSendMessage = !hasActiveChoicePrompt && !isUploadingFiles && (input.trim().length > 0 || pendingUploads.length > 0);
+
   const onSendWrapper = () => {
-    if (hasActiveChoicePrompt) return;
+    if (!canSendMessage) return;
     handleSend();
     if (isInputExpanded) {
       setIsInputExpanded(false);
@@ -436,15 +440,15 @@ export const InputArea: React.FC<InputAreaProps> = ({
             />
             <button
               onClick={isLoading ? handleStop : onSendWrapper}
-              disabled={!isLoading && (hasActiveChoicePrompt || (!input.trim() && pendingUploads.length === 0))}
+              disabled={!isLoading && !canSendMessage}
               className={`lawver-composer-action lawver-pressable shadow-[var(--shadow-1)] transition-colors ${
                 isLoading
                   ? 'bg-[var(--color-danger-500)] text-white hover:opacity-90'
-                  : input.trim() || pendingUploads.length > 0
+                  : canSendMessage
                   ? 'bg-[var(--accent)] text-[var(--accent-on)] hover:bg-[var(--accent-hover)]'
                   : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] shadow-none dark:bg-white/[0.08]'
               }`}
-              aria-label={isLoading ? '停止生成' : 'Send message'}
+              aria-label={isLoading ? '停止生成' : isUploadingFiles ? '文件上传完成前暂不能发送' : 'Send message'}
             >
               {isLoading ? <Square size={18} strokeWidth={2.4} fill="currentColor" /> : <Send size={20} strokeWidth={2} />}
             </button>
