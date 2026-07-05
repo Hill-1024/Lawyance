@@ -364,16 +364,15 @@ const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate text-[15px] font-semibold text-[var(--fg-1)]">WebDAV 数据同步</span>
-          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-            configured
-              ? 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
-              : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
-          }`}>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${configured
+            ? 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
+            : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
+            }`}>
             {configured ? '已配置' : '未配置'}
           </span>
         </span>
         <span className="mt-1 block truncate text-[12px] leading-5 text-[var(--fg-3)]">
-          {configured ? `${getWebDavHostLabel(cfg)} · ${cfg.directory || '/Lawver/'}` : '把备份、恢复和账号信息放进独立页面'}
+          {configured ? `${getWebDavHostLabel(cfg)} · ${cfg.directory || '/Lawver/'}` : ''}
         </span>
       </span>
       <ChevronRight size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-4)]" />
@@ -410,50 +409,50 @@ const HELP_TOPICS: Array<{
   title: string;
   description: string;
 }> = [
-  {
-    icon: MessageSquareText,
-    title: '对话与追问',
-    description: '围绕案件事实、法条检索、文书草拟继续追问；对回答可重新生成、编辑或创建分叉。',
-  },
-  {
-    icon: Paperclip,
-    title: '上传材料',
-    description: '在输入区上传 PDF、Word、Markdown 或文本，当前会话会带着材料上下文工作。',
-  },
-  {
-    icon: Folder,
-    title: '工作区',
-    description: '右上角文件夹集中查看上传文件和生成文件，便于下载、清理和继续使用。',
-  },
-  {
-    icon: Gavel,
-    title: '模拟法庭',
-    description: '从侧栏进入庭审推演，将公开案卷和用户私有作战笔记分开组织。',
-  },
-  {
-    icon: Settings2,
-    title: '输入区设置',
-    description: '切换流式输出、OCP 检查流程和 Agent Mode，适配不同回答风格。',
-  },
-  {
-    icon: Cloud,
-    title: '数据同步',
-    description: '在 WebDAV 二级页配置自己的云端备份，恢复前建议先保留当前快照。',
-  },
-];
+    {
+      icon: MessageSquareText,
+      title: '对话与追问',
+      description: '围绕案件事实、法条检索、文书草拟继续追问；对回答可重新生成、编辑或创建分叉。',
+    },
+    {
+      icon: Paperclip,
+      title: '上传材料',
+      description: '在输入区上传 PDF、Word、Markdown 或文本，当前会话会带着材料上下文工作。',
+    },
+    {
+      icon: Folder,
+      title: '工作区',
+      description: '右上角文件夹集中查看上传文件和生成文件，便于下载、清理和继续使用。',
+    },
+    {
+      icon: Gavel,
+      title: '模拟法庭',
+      description: '从侧栏进入庭审推演，将公开案卷和用户私有作战笔记分开组织。',
+    },
+    {
+      icon: Settings2,
+      title: '输入区设置',
+      description: '切换流式输出、OCP 检查流程和 Agent Mode，适配不同回答风格。',
+    },
+    {
+      icon: Cloud,
+      title: '数据同步',
+      description: '在 WebDAV 二级页配置自己的云端备份，恢复前建议先保留当前快照。',
+    },
+  ];
 
 const QUICK_ACTIONS: Array<{
   icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
   label: string;
   hint: string;
 }> = [
-  { icon: PanelLeftOpen, label: '菜单', hint: '展开会话侧栏' },
-  { icon: Send, label: '发送', hint: '提交问题或停止生成' },
-  { icon: Paperclip, label: '上传', hint: '添加案件材料' },
-  { icon: Folder, label: 'Workspace', hint: '管理文件' },
-  { icon: Settings, label: '设置', hint: '外观、同步与帮助' },
-  { icon: CirclePlay, label: '重播', hint: '再次打开动态导览' },
-];
+    { icon: PanelLeftOpen, label: '菜单', hint: '展开会话侧栏' },
+    { icon: Send, label: '发送', hint: '提交问题或停止生成' },
+    { icon: Paperclip, label: '上传', hint: '添加案件材料' },
+    { icon: Folder, label: 'Workspace', hint: '管理文件' },
+    { icon: Settings, label: '设置', hint: '外观、同步与帮助' },
+    { icon: CirclePlay, label: '重播', hint: '再次打开动态导览' },
+  ];
 
 const HelpSection: React.FC<{ onStartTour: () => void }> = ({ onStartTour }) => (
   <div className="flex min-w-0 flex-col gap-5">
@@ -580,8 +579,8 @@ export const SettingsPage: React.FC = () => {
   const statusLabel = isWebDavRoute
     ? '数据同步'
     : isHelpRoute
-    ? '使用手册'
-    : `${resolvedTheme === 'dark' ? '深色' : '浅色'} · ${COLOR_SOURCE_LABEL[colorSource]}`;
+      ? '使用手册'
+      : `${resolvedTheme === 'dark' ? '深色' : '浅色'} · ${COLOR_SOURCE_LABEL[colorSource]}`;
   const handleBack = () => {
     if (isSecondaryRoute) {
       navigate('/settings');
@@ -659,210 +658,208 @@ export const SettingsPage: React.FC = () => {
             <HelpSection onStartTour={requestGuidedTour} />
           ) : (
             <>
-          <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-                <Sun size={20} strokeWidth={2} />
-              </span>
-              <div>
-                <h2 className="t-title-m">外观模式</h2>
-                <p className="text-[13px] text-[var(--fg-3)]">浅色、深色或跟随系统。</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 rounded-[var(--radius-lg)] bg-[var(--bg-inset)] p-1.5">
-              {MODE_OPTIONS.map(option => {
-                const Icon = option.icon;
-                const active = mode === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    onClick={() => setMode(option.value)}
-                    className={`lawver-pressable flex h-12 items-center justify-center gap-2 rounded-[var(--radius-md)] text-sm font-medium transition-colors ${
-                      active
-                        ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)]'
-                        : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'
-                    }`}
-                  >
-                    <Icon size={17} strokeWidth={2} />
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-                <Palette size={20} strokeWidth={2} />
-              </span>
-              <div>
-                <h2 className="t-title-m">配色来源</h2>
-                <p className="text-[13px] text-[var(--fg-3)]">默认品牌、自定义种子色或 Android 动态色。</p>
-              </div>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-3">
-              <button onClick={resetColors} className={sourceButtonClass('default')}>
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-medium">默认</span>
-                  {colorSource === 'default' && <Check size={17} strokeWidth={2} className="text-[var(--accent)]" />}
-                </span>
-                <span className="text-[12px] text-[var(--fg-3)]">Lawver 司法蓝</span>
-              </button>
-
-              <button onClick={() => setColorSource('custom')} className={sourceButtonClass('custom')}>
-                <span className="flex items-center justify-between gap-2">
-                  <span className="font-medium">自定义</span>
-                  {colorSource === 'custom' && <Check size={17} strokeWidth={2} className="text-[var(--accent)]" />}
-                </span>
-                <span className="text-[12px] text-[var(--fg-3)]">使用种子色生成全套色板</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  if (!isMonetAvailableOnPlatform) return;
-                  setColorSource('monet');
-                  refreshMonet();
-                }}
-                className={sourceButtonClass('monet', !isMonetAvailableOnPlatform)}
-                disabled={!isMonetAvailableOnPlatform}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-2 font-medium">
-                    <Smartphone size={16} strokeWidth={2} />
-                    Material You
+              <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                    <Sun size={20} strokeWidth={2} />
                   </span>
-                  {colorSource === 'monet' && <Check size={17} strokeWidth={2} className="text-[var(--accent)]" />}
-                </span>
-                <span className="text-[12px] text-[var(--fg-3)]">{monetDescription}</span>
-              </button>
-            </div>
-
-            {colorSource === 'custom' && (
-              <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <label className="flex items-center gap-3">
-                    <input
-                      type="color"
-                      value={seedValid ? seedDraft : DEFAULT_SEED}
-                      onChange={event => {
-                        setSeedDraft(event.target.value);
-                        setCustomSeed(event.target.value);
-                      }}
-                      className="h-11 w-14 cursor-pointer rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-transparent p-1"
-                      aria-label="自定义种子色"
-                    />
-                    <input
-                      value={seedDraft}
-                      onChange={event => setSeedDraft(event.target.value)}
-                      onBlur={applySeedDraft}
-                      onKeyDown={event => {
-                        if (event.key === 'Enter') applySeedDraft();
-                      }}
-                      className={`h-11 w-36 rounded-[var(--radius-md)] border bg-[var(--bg-surface)] px-3 font-mono text-sm outline-none transition-colors ${
-                        seedValid ? 'border-[var(--border-default)] focus:border-[var(--accent)]' : 'border-[var(--color-danger-500)]'
-                      }`}
-                      aria-label="十六进制颜色"
-                    />
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {COLOR_PRESETS.map(color => (
-                      <button
-                        key={color}
-                        onClick={() => {
-                          setSeedDraft(color);
-                          setCustomSeed(color);
-                        }}
-                        className="lawver-pressable h-8 w-8 rounded-full border border-[var(--border-default)] shadow-[var(--shadow-1)]"
-                        style={{ backgroundColor: color }}
-                        aria-label={`选择 ${color}`}
-                      />
-                    ))}
+                  <div>
+                    <h2 className="t-title-m">外观模式</h2>
+                    <p className="text-[13px] text-[var(--fg-3)]">浅色、深色或跟随系统。</p>
                   </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 rounded-[var(--radius-lg)] bg-[var(--bg-inset)] p-1.5">
+                  {MODE_OPTIONS.map(option => {
+                    const Icon = option.icon;
+                    const active = mode === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        onClick={() => setMode(option.value)}
+                        className={`lawver-pressable flex h-12 items-center justify-center gap-2 rounded-[var(--radius-md)] text-sm font-medium transition-colors ${active
+                          ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)]'
+                          : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'
+                          }`}
+                      >
+                        <Icon size={17} strokeWidth={2} />
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                    <Palette size={20} strokeWidth={2} />
+                  </span>
+                  <div>
+                    <h2 className="t-title-m">配色来源</h2>
+                    <p className="text-[13px] text-[var(--fg-3)]">默认品牌、自定义种子色或 Android 动态色。</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <button onClick={resetColors} className={sourceButtonClass('default')}>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="font-medium">默认</span>
+                      {colorSource === 'default' && <Check size={17} strokeWidth={2} className="text-[var(--accent)]" />}
+                    </span>
+                    <span className="text-[12px] text-[var(--fg-3)]">Lawver 司法蓝</span>
+                  </button>
+
+                  <button onClick={() => setColorSource('custom')} className={sourceButtonClass('custom')}>
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="font-medium">自定义</span>
+                      {colorSource === 'custom' && <Check size={17} strokeWidth={2} className="text-[var(--accent)]" />}
+                    </span>
+                    <span className="text-[12px] text-[var(--fg-3)]">使用种子色生成全套色板</span>
+                  </button>
+
                   <button
                     onClick={() => {
-                      setSeedDraft(DEFAULT_SEED);
-                      setCustomSeed(DEFAULT_SEED);
+                      if (!isMonetAvailableOnPlatform) return;
+                      setColorSource('monet');
+                      refreshMonet();
                     }}
-                    className="lawver-pressable inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[var(--fg-3)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--fg-1)]"
+                    className={sourceButtonClass('monet', !isMonetAvailableOnPlatform)}
+                    disabled={!isMonetAvailableOnPlatform}
                   >
-                    <RotateCcw size={15} strokeWidth={2} />
-                    重置
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-2 font-medium">
+                        <Smartphone size={16} strokeWidth={2} />
+                        Material You
+                      </span>
+                      {colorSource === 'monet' && <Check size={17} strokeWidth={2} className="text-[var(--accent)]" />}
+                    </span>
+                    <span className="text-[12px] text-[var(--fg-3)]">{monetDescription}</span>
                   </button>
                 </div>
-              </div>
-            )}
 
-          </section>
+                {colorSource === 'custom' && (
+                  <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <label className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={seedValid ? seedDraft : DEFAULT_SEED}
+                          onChange={event => {
+                            setSeedDraft(event.target.value);
+                            setCustomSeed(event.target.value);
+                          }}
+                          className="h-11 w-14 cursor-pointer rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-transparent p-1"
+                          aria-label="自定义种子色"
+                        />
+                        <input
+                          value={seedDraft}
+                          onChange={event => setSeedDraft(event.target.value)}
+                          onBlur={applySeedDraft}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter') applySeedDraft();
+                          }}
+                          className={`h-11 w-36 rounded-[var(--radius-md)] border bg-[var(--bg-surface)] px-3 font-mono text-sm outline-none transition-colors ${seedValid ? 'border-[var(--border-default)] focus:border-[var(--accent)]' : 'border-[var(--color-danger-500)]'
+                            }`}
+                          aria-label="十六进制颜色"
+                        />
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        {COLOR_PRESETS.map(color => (
+                          <button
+                            key={color}
+                            onClick={() => {
+                              setSeedDraft(color);
+                              setCustomSeed(color);
+                            }}
+                            className="lawver-pressable h-8 w-8 rounded-full border border-[var(--border-default)] shadow-[var(--shadow-1)]"
+                            style={{ backgroundColor: color }}
+                            aria-label={`选择 ${color}`}
+                          />
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSeedDraft(DEFAULT_SEED);
+                          setCustomSeed(DEFAULT_SEED);
+                        }}
+                        className="lawver-pressable inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[var(--fg-3)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--fg-1)]"
+                      >
+                        <RotateCcw size={15} strokeWidth={2} />
+                        重置
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-          <section className="min-w-0">
-            <div className="mb-3 px-1">
-              <h2 className="t-title-m">数据与同步</h2>
-              <p className="mt-1 text-[13px] text-[var(--fg-3)]">把低频配置折叠到二级页面，主界面只保留状态和入口。</p>
-            </div>
-            <div className="flex flex-col gap-3">
-              <WebDavEntry onOpen={() => navigate('/settings/webdav')} />
-              <div className="flex min-w-0 items-start justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-4 shadow-[var(--shadow-1)]">
-                <div className="flex min-w-0 gap-3">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-                    <RotateCcw size={20} strokeWidth={2} />
-                  </span>
-                  <div className="min-w-0">
-                    <h3 className="text-[15px] font-semibold text-[var(--fg-1)]">断线续传</h3>
-                    <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">
-                      回答中断时临时使用服务器内存缓存，最多 45 分钟，设备确认接收后删除。
-                    </p>
+              </section>
+
+              <section className="min-w-0">
+                <div className="mb-3 px-1">
+                  <h2 className="t-title-m">数据与同步</h2>
+                  <p className="mt-1 text-[13px] text-[var(--fg-3)]"></p>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <WebDavEntry onOpen={() => navigate('/settings/webdav')} />
+                  <div className="flex min-w-0 items-start justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-4 shadow-[var(--shadow-1)]">
+                    <div className="flex min-w-0 gap-3">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                        <RotateCcw size={20} strokeWidth={2} />
+                      </span>
+                      <div className="min-w-0">
+                        <h3 className="text-[15px] font-semibold text-[var(--fg-1)]">断线续传</h3>
+                        <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">
+                          回答中断时临时使用服务器内存缓存，最多 45 分钟，设备确认接收后删除。
+                        </p>
+                      </div>
+                    </div>
+                    <AnimatedSwitch
+                      checked={resumeEnabled}
+                      onCheckedChange={updateResumeEnabled}
+                      ariaLabel="切换断线续传"
+                    />
                   </div>
                 </div>
-                <AnimatedSwitch
-                  checked={resumeEnabled}
-                  onCheckedChange={updateResumeEnabled}
-                  ariaLabel="切换断线续传"
-                />
-              </div>
-            </div>
-          </section>
+              </section>
 
-          <section className="min-w-0">
-            <div className="mb-3 px-1">
-              <h2 className="t-title-m">帮助</h2>
-              <p className="mt-1 text-[13px] text-[var(--fg-3)]">查看按钮手册，或重新打开首次使用导览。</p>
-            </div>
-            <HelpEntry onOpen={() => navigate('/settings/help')} />
-          </section>
+              <section className="min-w-0">
+                <div className="mb-3 px-1">
+                  <h2 className="t-title-m">帮助</h2>
+                  <p className="mt-1 text-[13px] text-[var(--fg-3)]">查看按钮手册，或重新打开首次使用导览。</p>
+                </div>
+                <HelpEntry onOpen={() => navigate('/settings/help')} />
+              </section>
 
-          <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
-            <div className="mb-4 flex items-center gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-                <BrandMark className="h-5 w-5 [--brand-logo-ink:var(--accent)]" />
-              </span>
-              <div className="min-w-0">
-                <h2 className="t-title-m truncate">{BUILD_INFO.appName}</h2>
-                <p className="truncate text-[13px] text-[var(--fg-3)]">{BUILD_INFO.description}</p>
-              </div>
-            </div>
-            <AboutMetaRow icon={PackageCheck} label="版本">
-              <span className="font-medium">{BUILD_INFO.version}</span>
-            </AboutMetaRow>
-            <AboutMetaRow icon={Server} label="构建环境">
-              <span className="font-medium">{BUILD_INFO.environment}</span>
-            </AboutMetaRow>
-            <AboutMetaRow icon={Clock3} label="构建时间">
-              <span className="break-words font-mono text-[13px]">{BUILD_INFO.buildTime}</span>
-            </AboutMetaRow>
-            <AboutMetaRow icon={Link2} label="项目地址">
-              <a
-                href={BUILD_INFO.projectUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex min-w-0 max-w-full items-center gap-1.5 break-all font-mono text-[13px] transition-opacity hover:opacity-80 hover:underline"
-              >
-                <span className="min-w-0 break-all">{BUILD_INFO.projectUrl}</span>
-                <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
-              </a>
-            </AboutMetaRow>
-          </section>
+              <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                    <BrandMark className="h-5 w-5 [--brand-logo-ink:var(--accent)]" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="t-title-m truncate">{BUILD_INFO.appName}</h2>
+                    <p className="truncate text-[13px] text-[var(--fg-3)]">{BUILD_INFO.description}</p>
+                  </div>
+                </div>
+                <AboutMetaRow icon={PackageCheck} label="版本">
+                  <span className="font-medium">{BUILD_INFO.version}</span>
+                </AboutMetaRow>
+                <AboutMetaRow icon={Server} label="构建环境">
+                  <span className="font-medium">{BUILD_INFO.environment}</span>
+                </AboutMetaRow>
+                <AboutMetaRow icon={Clock3} label="构建时间">
+                  <span className="break-words font-mono text-[13px]">{BUILD_INFO.buildTime}</span>
+                </AboutMetaRow>
+                <AboutMetaRow icon={Link2} label="项目地址">
+                  <a
+                    href={BUILD_INFO.projectUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-w-0 max-w-full items-center gap-1.5 break-all font-mono text-[13px] transition-opacity hover:opacity-80 hover:underline"
+                  >
+                    <span className="min-w-0 break-all">{BUILD_INFO.projectUrl}</span>
+                    <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
+                  </a>
+                </AboutMetaRow>
+              </section>
             </>
           )}
         </div>
