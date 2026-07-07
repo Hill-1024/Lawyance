@@ -457,7 +457,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
     <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
       <div className="mb-4 flex items-center gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-          {PROVIDER_ICONS[providerKey] ? <PROVIDER_ICONS[providerKey] size={20} strokeWidth={2} /> : <Server size={20} strokeWidth={2} />}
+          {(() => { const Icon = PROVIDER_ICONS[providerKey] || Server; return <Icon size={20} strokeWidth={2} />; })()}
         </span>
         <div>
           <h2 className="t-title-m">{label}</h2>
@@ -1142,7 +1142,7 @@ export const SettingsPage: React.FC = () => {
                         className="lawver-pressable flex min-w-0 items-center gap-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-3 text-left transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-inset)]"
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-                          {PROVIDER_ICONS[key] ? <PROVIDER_ICONS[key] size={17} strokeWidth={2} /> : <Server size={17} strokeWidth={2} />}
+                          {(() => { const Icon = PROVIDER_ICONS[key] || Server; return <Icon size={17} strokeWidth={2} />; })()}
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-semibold text-[var(--fg-1)]">{PROVIDER_LABELS[key] || key}</span>
