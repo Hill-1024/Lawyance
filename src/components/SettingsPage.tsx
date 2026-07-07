@@ -389,18 +389,26 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
   const [secretDrafts, setSecretDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
-  const [userRole, setUserRole] = useState('user');
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [llmModels, setLlmModels] = useState<{ id: string; owned_by: string }[]>([]);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
   useEffect(() => {
-    verifyAuth().then(auth => setUserRole(auth?.role || 'user')).catch(() => {});
+    verifyAuth().then(auth => setUserRole(auth?.role || 'user')).catch(() => setUserRole('user'));
     Promise.all([
       getSettings().catch(() => null),
       getProviderStatus().catch(() => [] as ProviderStatus[]),
     ]).then(([s, st]) => { setSettings(s); setStatuses(st); });
     fetchLlmModels().then(setLlmModels).catch(() => {});
   }, [providerKey]);
+
+  if (userRole === null) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-[var(--fg-3)]">
+        <Loader2 size={20} strokeWidth={2} className="animate-spin" />
+      </div>
+    );
+  }
 
   if (userRole !== 'admin') {
     return (
@@ -853,7 +861,6 @@ export const SettingsPage: React.FC = () => {
   const isWebDavRoute = normalizedPath === '/settings/webdav';
   const isHelpRoute = normalizedPath === '/settings/help';
   const isRuntimeRoute = normalizedPath === '/settings/runtime';
-  const isSecondaryRoute = isWebDavRoute || isHelpRoute || isProviderRoute || isRuntimeRoute;
   const pageTitle = isWebDavRoute
     ? 'WebDAV 同步'
     : isHelpRoute
@@ -878,10 +885,6 @@ export const SettingsPage: React.FC = () => {
       ? '使用手册'
       : `${resolvedTheme === 'dark' ? '深色' : '浅色'} · ${COLOR_SOURCE_LABEL[colorSource]}`;
   const handleBack = () => {
-    if (isSecondaryRoute) {
-      navigate('/settings');
-      return;
-    }
     navigate(-1);
   };
 
