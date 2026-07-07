@@ -3,10 +3,11 @@
 """
 
 import os
+import asyncio
 import unittest
 
 from prompt_loader import build_system_prompt
-from services.prompt_focus import current_focus
+from services.prompt_focus import current_focus, resolve_intent
 
 
 class AgentDynamicPromptTests(unittest.TestCase):
@@ -46,15 +47,62 @@ class AgentDynamicPromptTests(unittest.TestCase):
         for forbidden in ("Action:", "Finish[", "# 可用工具", "# 完整计划", "```python"):
             self.assertNotIn(forbidden, prompt)
 
-    def test_prompt_focus_is_constant_and_prompt_sections_self_gate(self):
+    def test_prompt_focus_routes_by_current_task(self):
         focus = current_focus("我要起诉一个上传的合同", [{"role": "user", "content": "合同.pdf"}])
         prompt = build_system_prompt(focus=focus)
 
-        self.assertEqual(focus, ["general_gate", "file_processing", "legal_retrieval"])
+        self.assertEqual(focus, ["general_gate", "legal_retrieval", "file_processing"])
         self.assertIn('name="general_gate"', prompt)
         self.assertIn('name="file_processing"', prompt)
         self.assertIn('name="legal_retrieval"', prompt)
-        self.assertIn("视本节为非激活指引", prompt)
+
+        general_focus = current_focus("我们继续升级记忆系统架构", [])
+        general_prompt = build_system_prompt(focus=general_focus)
+        self.assertEqual(general_focus, ["general_gate"])
+        self.assertIn('name="general_gate"', general_prompt)
+        self.assertNotIn('name="file_processing"', general_prompt)
+        self.assertNotIn('name="legal_retrieval"', general_prompt)
+
+    def test_hybrid_router_uses_llm_for_low_confidence_and_fallbacks(self):
+        import services.prompt_focus as prompt_focus
+
+        original_classifier = prompt_focus.classify_intent_with_llm
+        original_mode = os.environ.get("CONTEXT_ROUTER_MODE")
+        try:
+            os.environ["CONTEXT_ROUTER_MODE"] = "hybrid"
+
+            async def fake_classifier(_content, _history):
+                return {
+                    "task_type": "legal_retrieval",
+                    "confidence": 0.83,
+                    "focus": ["general_gate", "legal_retrieval"],
+                    "reasons": ["fake_llm"],
+                    "source": "llm",
+                    "requires_legal_evidence": True,
+                    "requires_file_read": False,
+                    "requires_workspace_listing": False,
+                    "requires_memory_deep_search": False,
+                }
+
+            prompt_focus.classify_intent_with_llm = fake_classifier
+            intent = asyncio.run(resolve_intent("帮我看看这个问题", []))
+            self.assertEqual(intent["task_type"], "legal_retrieval")
+            self.assertIn("legal_retrieval", intent["focus"])
+            self.assertTrue(intent["requires_legal_evidence"])
+
+            async def failing_classifier(_content, _history):
+                raise RuntimeError("router unavailable")
+
+            prompt_focus.classify_intent_with_llm = failing_classifier
+            fallback = asyncio.run(resolve_intent("帮我看看这个问题", []))
+            self.assertEqual(fallback["source"], "rules_fallback")
+            self.assertEqual(fallback["focus"], ["general_gate"])
+        finally:
+            prompt_focus.classify_intent_with_llm = original_classifier
+            if original_mode is None:
+                os.environ.pop("CONTEXT_ROUTER_MODE", None)
+            else:
+                os.environ["CONTEXT_ROUTER_MODE"] = original_mode
 
     def test_build_agent_react_falls_back_to_default_configuration(self):
         from services.agent_builder import build_agent

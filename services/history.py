@@ -2,6 +2,7 @@
 模块描述：聊天历史压缩服务，保护 assistant tool_calls 与 tool response 配对。
 """
 
+import json
 from typing import Any, List, Optional
 import re
 
@@ -118,8 +119,10 @@ def _summary_block(message: dict[str, Any]) -> str:
 
 def build_summary_prompt(messages: List[dict], token_budget: int = HISTORY_SUMMARY_INPUT_TOKEN_BUDGET) -> str:
     prompt = (
-        "请总结以下较早对话的关键事实、用户意图、已经完成的工具调用结果、仍需遵守的约束和未解决问题，"
-        "以便作为后续对话的上下文参考。只输出纯文本总结，不要包含任何标签（如 <final_answer> 或 <think>）。\n\n"
+        "请把以下较早对话压缩为后续 agent 可执行的结构化状态。只输出 JSON 对象，不要包含 Markdown、标签"
+        "（如 <final_answer> 或 <think>）或解释文字。JSON 字段固定为："
+        "stable_facts、completed_steps、tool_evidence、active_files、open_questions、must_keep_constraints、next_likely_action。"
+        "前六个字段是字符串数组，next_likely_action 是字符串。只保留对后续执行有用的信息。\n\n"
     )
     remaining = max(token_budget - estimate_text_tokens(prompt), 0)
     transcript_parts: list[str] = []
@@ -143,6 +146,59 @@ def build_summary_prompt(messages: List[dict], token_budget: int = HISTORY_SUMMA
     if transcript_parts:
         return prompt + "".join(transcript_parts)
     return prompt + "[较早对话过长，已无法在摘要输入预算内展开原文。请基于后续保留消息继续。]\n"
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    raw = re.sub(r"^```(?:json)?|```$", "", str(text or "").strip(), flags=re.IGNORECASE | re.MULTILINE).strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _summary_items(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()][:8]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def format_history_summary(content: str) -> str:
+    payload = _extract_json_object(content)
+    if not payload:
+        return f"[前情提要]: {content}"
+
+    sections = [
+        ("稳定事实", "stable_facts"),
+        ("已完成步骤", "completed_steps"),
+        ("工具证据", "tool_evidence"),
+        ("活跃文件", "active_files"),
+        ("未决问题", "open_questions"),
+        ("必须保留约束", "must_keep_constraints"),
+    ]
+    lines = ["[前情提要]:"]
+    for title, key in sections:
+        items = _summary_items(payload.get(key))
+        if not items:
+            continue
+        lines.append(f"{title}:")
+        lines.extend(f"- {item}" for item in items)
+
+    next_action = str(payload.get("next_likely_action") or "").strip()
+    if next_action:
+        lines.append(f"下一步: {next_action}")
+
+    if len(lines) == 1:
+        return f"[前情提要]: {content}"
+    return "\n".join(lines)
 
 
 def split_by_recent_token_budget(
@@ -228,7 +284,7 @@ async def compress_history(
         summary_res = await call(summary_messages, stream=False, include_tools=False)
         content = summary_res.content or ""
         content = re.sub(r"</?(final_answer|think)[^>]*>", "", content, flags=re.IGNORECASE | re.DOTALL).strip()
-        summary_text = f"[前情提要]: {content}"
+        summary_text = format_history_summary(content)
         print("[历史压缩] 摘要生成成功")
 
         new_history = build_system_memory(

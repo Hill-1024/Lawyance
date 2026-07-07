@@ -134,7 +134,7 @@ class ContextUsageTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_call(context, stream=False, include_tools=True):
             captured_summary["content"] = context[-1]["content"]
-            return types.SimpleNamespace(content="摘要")
+            return types.SimpleNamespace(content='{"stable_facts":["甲公司已付款"],"completed_steps":["已读取合同"],"tool_evidence":["search_article 返回民法典第五百七十七条"],"active_files":["合同.pdf"],"open_questions":["付款日期待核实"],"must_keep_constraints":["引用依据"],"next_likely_action":"补充案例检索"}')
 
         large_messages = [
             {"role": "user" if index % 2 == 0 else "assistant", "content": f"消息{index} " + ("旧" * 30000)}
@@ -149,7 +149,11 @@ class ContextUsageTests(unittest.IsolatedAsyncioTestCase):
             history_service.call = original_call
 
         self.assertLess(len(compressed), len(history) + 3)
-        self.assertIn("[前情提要]", "\n".join(str(msg.get("content", "")) for msg in compressed))
+        compressed_text = "\n".join(str(msg.get("content", "")) for msg in compressed)
+        self.assertIn("[前情提要]", compressed_text)
+        self.assertIn("稳定事实", compressed_text)
+        self.assertIn("甲公司已付款", compressed_text)
+        self.assertIn("下一步: 补充案例检索", compressed_text)
         self.assertIn("旧" * 300, captured_summary["content"])
 
         unchanged = await history_service.compress_history(
@@ -157,6 +161,27 @@ class ContextUsageTests(unittest.IsolatedAsyncioTestCase):
             last_context_tokens=500000,
         )
         self.assertEqual(len(unchanged), 2)
+
+    async def test_history_summary_invalid_json_falls_back_to_plain_summary(self):
+        history_service = importlib.import_module("services.history")
+        original_call = history_service.call
+
+        async def fake_call(context, stream=False, include_tools=True):
+            return types.SimpleNamespace(content="普通摘要")
+
+        history = [{"role": "system", "content": "system"}] + [
+            {"role": "user", "content": "长" * 60000}
+            for _ in range(10)
+        ]
+
+        try:
+            history_service.call = fake_call
+            compressed = await history_service.compress_history(history)
+        finally:
+            history_service.call = original_call
+
+        compressed_text = "\n".join(str(msg.get("content", "")) for msg in compressed)
+        self.assertIn("[前情提要]: 普通摘要", compressed_text)
 
     async def test_missing_last_context_tokens_uses_local_estimate_fallback(self):
         history_service = importlib.import_module("services.history")

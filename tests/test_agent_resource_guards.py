@@ -187,6 +187,127 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(choice_events[0]["content"]["ignore_label"], "忽略此问题")
         self.assertFalse(any(event.get("type") == "content" for event in events))
 
+    async def test_execution_policy_repairs_missing_legal_evidence_once(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        memory = [{"role": "user", "content": "乙公司违约怎么起诉？"}]
+        responses = [
+            types.SimpleNamespace(content="<final_answer>可以起诉。</final_answer>", tool_calls=None),
+            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="match_legal_case", arguments='{"keywords":["违约责任"]}')]),
+            types.SimpleNamespace(content="<final_answer>已根据案例补充。</final_answer>", tool_calls=None),
+        ]
+
+        async def fake_call(context, stream=False, **kwargs):
+            return responses.pop(0)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=memory,
+                use_ocp=False,
+                execute_tool=lambda name, args: "工具结果",
+                execution_policy={"requires_legal_evidence": True, "soft_repair_enabled": True},
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(events[-1], {"type": "content", "content": "已根据案例补充。"})
+        self.assertTrue(any(msg.get("role") == "system" and "execution_policy_repair" in msg.get("content", "") for msg in memory))
+        self.assertFalse(responses)
+
+    async def test_execution_policy_does_not_repair_when_legal_tool_was_used(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        memory = [{"role": "user", "content": "找法条"}]
+        responses = [
+            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="get_article", arguments='{"query":"违约责任"}')]),
+            types.SimpleNamespace(content="<final_answer>完成</final_answer>", tool_calls=None),
+        ]
+
+        async def fake_call(context, stream=False, **kwargs):
+            return responses.pop(0)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=memory,
+                use_ocp=False,
+                execute_tool=lambda name, args: "法条结果",
+                execution_policy={"requires_legal_evidence": True, "soft_repair_enabled": True},
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(events[-1], {"type": "content", "content": "完成"})
+        self.assertFalse(any(msg.get("role") == "system" and "execution_policy_repair" in msg.get("content", "") for msg in memory))
+
+    async def test_execution_policy_repairs_missing_file_read_once(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        responses = [
+            types.SimpleNamespace(content="<final_answer>文件看完了。</final_answer>", tool_calls=None),
+            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="list_workspace_files", arguments="{}")]),
+            types.SimpleNamespace(content="<final_answer>已确认文件列表。</final_answer>", tool_calls=None),
+        ]
+
+        async def fake_call(context, stream=False, **kwargs):
+            return responses.pop(0)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[{"role": "user", "content": "分析上传的合同"}],
+                use_ocp=False,
+                execute_tool=lambda name, args: "文件列表",
+                execution_policy={"requires_file_read": True, "requires_workspace_listing": True, "soft_repair_enabled": True},
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(events[-1], {"type": "content", "content": "已确认文件列表。"})
+        self.assertFalse(responses)
+
+    async def test_plan_and_solve_repairs_plan_steps_without_business_tool(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent, plan_and_solve_tool_choice_policy
+
+        original_call = tool_loop_module.call
+        responses = [
+            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="submit_plan", arguments='{"steps":["检索相关法条"]}', call_id="call_plan")]),
+            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="submit_final_answer", arguments='{"answer":"直接回答"}', call_id="call_final_1")]),
+            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="search_article", arguments='{"query":"违约责任"}', call_id="call_search")]),
+            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="submit_final_answer", arguments='{"answer":"补证后回答"}', call_id="call_final_2")]),
+        ]
+
+        async def fake_call(context, stream=False, **kwargs):
+            return responses.pop(0)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[{"role": "user", "content": "违约怎么处理？"}],
+                use_ocp=False,
+                execute_tool=lambda name, args: {"ok": True, "tool": name},
+                mode="plan_and_solve",
+                final_answer_source="tool_arg",
+                tool_choice_policy=plan_and_solve_tool_choice_policy,
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(events[-1], {"type": "content", "content": "补证后回答"})
+        self.assertFalse(responses)
+
 
 if __name__ == "__main__":
     unittest.main()
