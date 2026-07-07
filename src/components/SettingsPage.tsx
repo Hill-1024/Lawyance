@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, CirclePlay, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Folder, Gavel, Globe, Link2, Loader2, MessageSquareText, Monitor, Moon, PackageCheck, Palette, PanelLeftOpen, Paperclip, RotateCcw, Send, Server, Settings, Settings2, Smartphone, Sparkles, Sun, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, CirclePlay, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Folder, Gavel, Globe, KeyRound, Link2, Loader2, MessageSquareText, Monitor, Moon, PackageCheck, Palette, PanelLeftOpen, Paperclip, PlugZap, RotateCcw, Send, Server, Settings, Settings2, Smartphone, Sparkles, Sun, Trash2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
@@ -17,7 +17,7 @@ import { buildBackupSnapshot, restoreBackupSnapshot } from '../services/storageS
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
 import { requestGuidedTour } from '../lib/guided-tour';
-import { verifyAuth, getProviderStatus, type ProviderStatus } from '../services/api';
+import { verifyAuth, getProviderStatus, getSettings, updateSettings, testProvider, type ProviderStatus } from '../services/api';
 
 const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -416,34 +416,104 @@ const PROVIDER_ICONS: Record<string, React.ComponentType<{ size?: number; stroke
 const PROVIDER_LABELS: Record<string, string> = {
   llm: '大模型 (LLM)',
   deli: '得理法搜',
-  searxng: '网页检索',
-  qcc: '企业信息',
-  embedding: '嵌入模型',
+  searxng: '网页检索 (SearXNG)',
+  qcc: '企业信息 (企查查)',
+  embedding: '嵌入模型 (Embedding)',
+};
+
+const PROVIDER_DESCS: Record<string, string> = {
+  llm: 'OpenAI-compatible 聊天模型，主聊天、标题生成和代理流程都通过这里。',
+  deli: '案例检索和类案匹配。',
+  searxng: '自托管联网检索。',
+  qcc: '企业画像、工商登记和联系方式查询。',
+  embedding: '文本转向量，用于 RAG 召回。',
+};
+
+const PROVIDER_FIELDS: Record<string, { key: string; label: string; placeholder?: string }[]> = {
+  llm: [
+    { key: 'base_url', label: 'Base URL', placeholder: 'https://api.openai.com/v1' },
+    { key: 'model', label: '模型', placeholder: 'gpt-4o / qwen-plus' },
+  ],
+  deli: [
+    { key: 'endpoint', label: 'Endpoint', placeholder: 'https://openapi.delilegal.com/api/qa/v3/search/queryListCase' },
+  ],
+  searxng: [
+    { key: 'base_url', label: 'Base URL', placeholder: 'https://searx.example.com' },
+    { key: 'engines', label: '引擎', placeholder: 'google,bing,duckduckgo' },
+  ],
+  qcc: [
+    { key: 'endpoint', label: 'Endpoint', placeholder: 'https://agent.qcc.com/mcp/company/stream' },
+  ],
+  embedding: [
+    { key: 'base_url', label: 'Base URL', placeholder: 'https://api.siliconflow.cn/v1' },
+    { key: 'model', label: '模型', placeholder: 'Qwen/Qwen3-Embedding-8B' },
+  ],
 };
 
 const PROVIDER_ORDER = ['llm', 'deli', 'searxng', 'qcc', 'embedding'];
 
-const ProviderOverviewSection: React.FC = () => {
+const providerInputClass = 'h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm outline-none transition-colors focus:border-[var(--accent)] placeholder:text-[var(--fg-4)] disabled:opacity-60';
+
+const ProviderConfigSection: React.FC = () => {
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
   const [userRole, setUserRole] = useState('user');
+  const [settings, setSettings] = useState<Record<string, any> | null>(null);
+  const [busy, setBusy] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    getProviderStatus()
-      .then(setStatuses)
-      .catch(() => setStatuses([]));
-    verifyAuth()
-      .then(auth => setUserRole(auth?.role || 'user'))
-      .catch(() => setUserRole('user'));
+    Promise.all([
+      getProviderStatus().catch(() => [] as ProviderStatus[]),
+      getSettings().catch(() => null),
+      verifyAuth().catch(() => null),
+    ]).then(([statusesResult, settingsResult, auth]) => {
+      setStatuses(statusesResult);
+      setSettings(settingsResult);
+      setUserRole(auth?.role || 'user');
+      setLoaded(true);
+    });
   }, []);
 
+  const updateProvider = (key: string, patch: Record<string, any>) => {
+    setSettings(prev => prev ? {
+      ...prev,
+      providers: {
+        ...prev.providers,
+        [key]: { ...(prev.providers?.[key] || {}), ...patch },
+      },
+    } : prev);
+  };
+
+  const saveSettings = async () => {
+    if (!settings) return;
+    setBusy('save');
+    try {
+      const result = await updateSettings({ providers: settings.providers });
+      setSettings(result);
+      setStatuses(await getProviderStatus().catch(() => []));
+    } catch (e) {
+      console.error('Save failed:', e);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const testConnection = async (key: string) => {
+    setBusy(`${key}.test`);
+    try {
+      await testProvider(key);
+      setStatuses(await getProviderStatus().catch(() => []));
+    } catch {
+      setBusy('');
+    }
+      setBusy('');
+    }
+  };
+
+  if (!loaded) return null;
   if (userRole !== 'admin') return null;
 
   const statusMap = new Map(statuses.map(s => [s.provider, s]));
-  const entries = PROVIDER_ORDER
-    .map(key => ({ key, status: statusMap.get(key) }))
-    .filter(entry => entry.status);
-
-  if (entries.length === 0) return null;
 
   return (
     <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
@@ -453,44 +523,87 @@ const ProviderOverviewSection: React.FC = () => {
         </span>
         <div>
           <h2 className="t-title-m">服务端能力</h2>
-          <p className="text-[13px] text-[var(--fg-3)]">远端 Python/FastAPI 服务端的模型、法源和检索服务状态。</p>
+          <p className="text-[13px] text-[var(--fg-3)]">远端 Python/FastAPI 服务端的模型、法源和检索服务配置。修改后需保存生效。</p>
         </div>
       </div>
-      <div className="grid gap-2">
-        {entries.map(({ key, status }) => {
-          const Icon = PROVIDER_ICONS[key] || Server;
-          const ok = status?.ok ?? false;
-          const configured = status?.configured ?? false;
+
+      <div className="grid gap-3">
+        {PROVIDER_ORDER.map(key => {
+          const provider = settings?.providers?.[key] || {};
+          const status = statusMap.get(key);
+          const statusOk = Boolean(status?.ok && provider.enabled);
+          const isBusy = busy.startsWith(key);
+
           return (
-            <div
-              key={key}
-              className="flex min-w-0 items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-4 py-3"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-                  <Icon size={17} strokeWidth={2} />
-                </span>
+            <div key={key} className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <span className="block truncate text-[14px] font-semibold text-[var(--fg-1)]">
-                    {PROVIDER_LABELS[key] || key}
-                  </span>
-                  <span className="mt-0.5 block truncate text-[12px] text-[var(--fg-3)]">
-                    {status?.message || '读取中'}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-sm font-semibold text-[var(--fg-1)]">{PROVIDER_LABELS[key] || key}</h3>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] ${
+                      statusOk
+                        ? 'bg-[rgba(22,163,74,0.12)] text-[var(--color-success-500)]'
+                        : provider.enabled
+                          ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]'
+                          : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
+                    }`}>
+                      {statusOk ? '已就绪' : provider.enabled ? '已启用，等待状态刷新' : '未配置'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">{PROVIDER_DESCS[key] || ''}</p>
                 </div>
+                <label className="inline-flex shrink-0 items-center gap-2 text-sm text-[var(--fg-2)]">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(provider.enabled)}
+                    onChange={e => updateProvider(key, { enabled: e.target.checked })}
+                  />
+                  启用
+                </label>
               </div>
-              <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                ok
-                  ? 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
-                  : configured
-                    ? 'bg-[rgba(184,132,42,0.12)] text-[#5C3F0E] dark:text-[#FBEBC8]'
-                    : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
-              }`}>
-                {ok ? '就绪' : configured ? '部分配置' : '未配置'}
-              </span>
+
+              {(PROVIDER_FIELDS[key] || []).length > 0 && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(PROVIDER_FIELDS[key] || []).map(field => (
+                    <label key={field.key} className="min-w-0">
+                      <span className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">{field.label}</span>
+                      <input
+                        className={providerInputClass}
+                        value={String(provider[field.key] || '')}
+                        placeholder={field.placeholder}
+                        onChange={e => updateProvider(key, { [field.key]: e.target.value })}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => testConnection(key)}
+                  disabled={isBusy}
+                  className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50"
+                >
+                  {busy === `${key}.test` ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
+                  测试连接
+                </button>
+              </div>
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={saveSettings}
+          disabled={busy === 'save'}
+          className="lawver-pressable inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy === 'save' ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+          保存配置
+        </button>
       </div>
     </section>
   );
@@ -913,7 +1026,7 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </section>
 
-              <ProviderOverviewSection />
+              <ProviderConfigSection />
 
               <section className="min-w-0">
                 <div className="mb-3 px-1">
