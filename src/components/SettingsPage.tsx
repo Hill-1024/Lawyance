@@ -381,6 +381,128 @@ const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
   );
 };
 
+const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => {
+  const label = PROVIDER_LABELS[providerKey] || providerKey;
+  const fields = PROVIDER_FIELDS[providerKey] || [];
+  const [settings, setSettings] = useState<Record<string, any> | null>(null);
+  const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
+  const [busy, setBusy] = useState('');
+  const [userRole, setUserRole] = useState('user');
+
+  useEffect(() => {
+    verifyAuth().then(auth => setUserRole(auth?.role || 'user')).catch(() => {});
+    Promise.all([
+      getSettings().catch(() => null),
+      getProviderStatus().catch(() => [] as ProviderStatus[]),
+    ]).then(([s, st]) => { setSettings(s); setStatuses(st); });
+  }, [providerKey]);
+
+  if (userRole !== 'admin') {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-[var(--color-danger-500)] text-sm">
+        需要管理员权限才能访问此配置。
+      </div>
+    );
+  }
+
+  const provider = settings?.providers?.[providerKey] || {};
+  const status = statuses.find(s => s.provider === providerKey);
+  const statusOk = Boolean(status?.ok && provider.enabled);
+  const isBusy = busy.startsWith(providerKey);
+
+  const updateField = (key: string, value: any) => {
+    setSettings(prev => prev ? {
+      ...prev,
+      providers: { ...prev.providers, [providerKey]: { ...(prev.providers?.[providerKey] || {}), [key]: value } },
+    } : prev);
+  };
+
+  const save = async () => {
+    if (!settings) return;
+    setBusy('save');
+    try {
+      const result = await updateSettings({ providers: settings.providers });
+      setSettings(result);
+      setStatuses(await getProviderStatus().catch(() => []));
+    } finally { setBusy(''); }
+  };
+
+  const testConn = async () => {
+    setBusy(`${providerKey}.test`);
+    try { await testProvider(providerKey); setStatuses(await getProviderStatus().catch(() => [])); }
+    catch {} finally { setBusy(''); }
+  };
+
+  return (
+    <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+          {PROVIDER_ICONS[providerKey] ? <PROVIDER_ICONS[providerKey] size={20} strokeWidth={2} /> : <Server size={20} strokeWidth={2} />}
+        </span>
+        <div>
+          <h2 className="t-title-m">{label}</h2>
+          <p className="text-[13px] text-[var(--fg-3)]">{PROVIDER_DESCS[providerKey] || ''}</p>
+        </div>
+      </div>
+      <div className="mb-4 flex items-center gap-4">
+        <label className="inline-flex items-center gap-2 text-sm text-[var(--fg-2)]">
+          <input type="checkbox" checked={Boolean(provider.enabled)} onChange={e => updateField('enabled', e.target.checked)} /> 启用
+        </label>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] ${
+          statusOk ? 'bg-[rgba(22,163,74,0.12)] text-[var(--color-success-500)]'
+            : provider.enabled ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]'
+              : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
+        }`}>
+          {statusOk ? '已就绪' : provider.enabled ? '已启用，等待状态刷新' : '未配置'}
+        </span>
+      </div>
+      {fields.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 mb-4">
+          {fields.map(field => (
+            <label key={field.key} className="min-w-0">
+              <span className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">{field.label}</span>
+              <input className={providerInputClass} value={String(provider[field.key] || '')} placeholder={field.placeholder}
+                onChange={e => updateField(field.key, e.target.value)} />
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={testConn} disabled={isBusy}
+          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50">
+          {busy === `${providerKey}.test` ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
+          测试连接
+        </button>
+        <button type="button" onClick={save} disabled={busy === 'save'}
+          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50">
+          {busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+          保存配置
+        </button>
+      </div>
+    </section>
+  );
+};
+
+const RuntimeSubPage: React.FC = () => (
+  <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+    <div className="mb-4 flex items-center gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+        <Server size={20} strokeWidth={2} />
+      </span>
+      <div>
+        <h2 className="t-title-m">运行模式</h2>
+        <p className="text-[13px] text-[var(--fg-3)]">服务端模式 — 所有聊天、检索和工作区请求交由远端 Python/FastAPI 处理。</p>
+      </div>
+    </div>
+    <div className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-4">
+      <p className="text-[14px] leading-6 text-[var(--fg-2)]">
+        当前 Lawver 服务端架构下，模型与法源 provider 配置由服务端环境变量或管理员在「连接与能力」中管理。
+        服务端部署完毕后，前端请求统一通过 <code className="rounded bg-[var(--bg-inset)] px-1.5 py-0.5 text-[12px]">/api/*</code> 转发，无需在本页额外配置运行模式。
+      </p>
+    </div>
+  </section>
+);
+
 const HelpEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => (
   <button
     type="button"
@@ -453,159 +575,6 @@ const PROVIDER_FIELDS: Record<string, { key: string; label: string; placeholder?
 const PROVIDER_ORDER = ['llm', 'deli', 'searxng', 'qcc', 'embedding'];
 
 const providerInputClass = 'h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm outline-none transition-colors focus:border-[var(--accent)] placeholder:text-[var(--fg-4)] disabled:opacity-60';
-
-const ProviderConfigSection: React.FC = () => {
-  const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
-  const [userRole, setUserRole] = useState('user');
-  const [settings, setSettings] = useState<Record<string, any> | null>(null);
-  const [busy, setBusy] = useState('');
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    Promise.all([
-      getProviderStatus().catch(() => [] as ProviderStatus[]),
-      getSettings().catch(() => null),
-      verifyAuth().catch(() => null),
-    ]).then(([statusesResult, settingsResult, auth]) => {
-      setStatuses(statusesResult);
-      setSettings(settingsResult);
-      setUserRole(auth?.role || 'user');
-      setLoaded(true);
-    });
-  }, []);
-
-  const updateProvider = (key: string, patch: Record<string, any>) => {
-    setSettings(prev => prev ? {
-      ...prev,
-      providers: {
-        ...prev.providers,
-        [key]: { ...(prev.providers?.[key] || {}), ...patch },
-      },
-    } : prev);
-  };
-
-  const saveSettings = async () => {
-    if (!settings) return;
-    setBusy('save');
-    try {
-      const result = await updateSettings({ providers: settings.providers });
-      setSettings(result);
-      setStatuses(await getProviderStatus().catch(() => []));
-    } catch (e) {
-      console.error('Save failed:', e);
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const testConnection = async (key: string) => {
-    setBusy(`${key}.test`);
-    try {
-      await testProvider(key);
-      setStatuses(await getProviderStatus().catch(() => []));
-    } catch {
-      setBusy('');
-    }
-  };
-
-  if (!loaded) return null;
-  if (userRole !== 'admin') return null;
-
-  const statusMap = new Map(statuses.map(s => [s.provider, s]));
-
-  return (
-    <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
-          <Server size={20} strokeWidth={2} />
-        </span>
-        <div>
-          <h2 className="t-title-m">服务端能力</h2>
-          <p className="text-[13px] text-[var(--fg-3)]">远端 Python/FastAPI 服务端的模型、法源和检索服务配置。修改后需保存生效。</p>
-        </div>
-      </div>
-
-      <div className="grid gap-3">
-        {PROVIDER_ORDER.map(key => {
-          const provider = settings?.providers?.[key] || {};
-          const status = statusMap.get(key);
-          const statusOk = Boolean(status?.ok && provider.enabled);
-          const isBusy = busy.startsWith(key);
-
-          return (
-            <div key={key} className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-sm font-semibold text-[var(--fg-1)]">{PROVIDER_LABELS[key] || key}</h3>
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] ${
-                      statusOk
-                        ? 'bg-[rgba(22,163,74,0.12)] text-[var(--color-success-500)]'
-                        : provider.enabled
-                          ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]'
-                          : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
-                    }`}>
-                      {statusOk ? '已就绪' : provider.enabled ? '已启用，等待状态刷新' : '未配置'}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">{PROVIDER_DESCS[key] || ''}</p>
-                </div>
-                <label className="inline-flex shrink-0 items-center gap-2 text-sm text-[var(--fg-2)]">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(provider.enabled)}
-                    onChange={e => updateProvider(key, { enabled: e.target.checked })}
-                  />
-                  启用
-                </label>
-              </div>
-
-              {(PROVIDER_FIELDS[key] || []).length > 0 && (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {(PROVIDER_FIELDS[key] || []).map(field => (
-                    <label key={field.key} className="min-w-0">
-                      <span className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">{field.label}</span>
-                      <input
-                        className={providerInputClass}
-                        value={String(provider[field.key] || '')}
-                        placeholder={field.placeholder}
-                        onChange={e => updateProvider(key, { [field.key]: e.target.value })}
-                      />
-                    </label>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => testConnection(key)}
-                  disabled={isBusy}
-                  className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50"
-                >
-                  {busy === `${key}.test` ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
-                  测试连接
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mt-4 flex justify-end">
-        <button
-          type="button"
-          onClick={saveSettings}
-          disabled={busy === 'save'}
-          className="lawver-pressable inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {busy === 'save' ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
-          保存配置
-        </button>
-      </div>
-    </section>
-  );
-};
 
 const HELP_TOPICS: Array<{
   icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -772,13 +741,34 @@ export const SettingsPage: React.FC = () => {
   } = useThemeContext();
   const [seedDraft, setSeedDraft] = useState(customSeed);
   const [resumeEnabled, setResumeEnabledState] = useState(false);
+  const [userRole, setUserRole] = useState('user');
   const seedValid = isHexColor(seedDraft);
   const normalizedPath = location.pathname.replace(/\/+$/, '');
+  const providerMatch = normalizedPath.match(/^\/settings\/providers\/(.+)$/);
+  const isProviderRoute = !!providerMatch;
+  const providerKey = providerMatch ? providerMatch[1] : '';
   const isWebDavRoute = normalizedPath === '/settings/webdav';
   const isHelpRoute = normalizedPath === '/settings/help';
-  const isSecondaryRoute = isWebDavRoute || isHelpRoute;
-  const pageTitle = isWebDavRoute ? 'WebDAV 同步' : isHelpRoute ? '帮助与指引' : '设置';
-  const pageSubtitle = isWebDavRoute ? '备份与恢复' : isHelpRoute ? '功能手册与首次使用指引' : '外观、同步与应用信息';
+  const isRuntimeRoute = normalizedPath === '/settings/runtime';
+  const isSecondaryRoute = isWebDavRoute || isHelpRoute || isProviderRoute || isRuntimeRoute;
+  const pageTitle = isWebDavRoute
+    ? 'WebDAV 同步'
+    : isHelpRoute
+      ? '帮助与指引'
+      : isProviderRoute
+        ? (PROVIDER_LABELS[providerKey] || providerKey)
+        : isRuntimeRoute
+          ? '运行模式'
+          : '设置';
+  const pageSubtitle = isWebDavRoute
+    ? '备份与恢复'
+    : isHelpRoute
+      ? '功能手册与首次使用指引'
+      : isProviderRoute
+        ? '服务端配置'
+        : isRuntimeRoute
+          ? '本机 / 服务器连接'
+          : '外观、同步与应用信息';
   const statusLabel = isWebDavRoute
     ? '数据同步'
     : isHelpRoute
@@ -798,6 +788,7 @@ export const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     getResumeEnabled().then(setResumeEnabledState).catch(() => setResumeEnabledState(false));
+    verifyAuth().then(auth => setUserRole(auth?.role || 'user')).catch(() => {});
   }, []);
 
   const updateResumeEnabled = async (enabled: boolean) => {
@@ -859,6 +850,10 @@ export const SettingsPage: React.FC = () => {
             <WebDavSection />
           ) : isHelpRoute ? (
             <HelpSection onStartTour={requestGuidedTour} />
+          ) : isProviderRoute ? (
+            <ProviderSubPage providerKey={providerKey} />
+          ) : isRuntimeRoute ? (
+            <RuntimeSubPage />
           ) : (
             <>
               <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
@@ -1024,7 +1019,38 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </section>
 
-              <ProviderConfigSection />
+              {userRole === 'admin' && (
+                <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+                  <div className="mb-4 flex items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                      <Server size={20} strokeWidth={2} />
+                    </span>
+                    <div>
+                      <h2 className="t-title-m">连接与能力</h2>
+                      <p className="text-[13px] text-[var(--fg-3)]">管理远端 Python/FastAPI 服务端的模型、法源和检索服务。</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    {PROVIDER_ORDER.map(key => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => navigate(`/settings/providers/${key}`)}
+                        className="lawver-pressable flex min-w-0 items-center gap-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-3 text-left transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-inset)]"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                          {PROVIDER_ICONS[key] ? <PROVIDER_ICONS[key] size={17} strokeWidth={2} /> : <Server size={17} strokeWidth={2} />}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-[var(--fg-1)]">{PROVIDER_LABELS[key] || key}</span>
+                          <span className="mt-0.5 block truncate text-[12px] text-[var(--fg-3)]">{PROVIDER_DESCS[key] || ''}</span>
+                        </span>
+                        <ChevronRight size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-4)]" />
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               <section className="min-w-0">
                 <div className="mb-3 px-1">
