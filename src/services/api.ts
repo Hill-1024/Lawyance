@@ -565,3 +565,31 @@ export const testProvider = async (provider: string): Promise<ProviderStatus> =>
   if (!response.ok) throw await response.json().then(data => new Error((data as any)?.detail || '测试失败'));
   return response.json();
 };
+
+export const setSecret = async (provider: string, key: string, value: string): Promise<void> => {
+  await apiFetch('/api/settings/secret', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, key, value }),
+  });
+};
+
+export const clearSecret = async (provider: string, key?: string): Promise<void> => {
+  await apiFetch('/api/settings/secret/clear', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, key }),
+  });
+};
+
+export type LlmModel = { id: string; owned_by: string };
+
+export const fetchLlmModels = async (): Promise<LlmModel[]> => {
+  try {
+    const response = await apiFetch('/api/llm/models');
+    if (!response.ok) return [];
+    return response.json();
+  } catch {
+    return [];
+  }
+};

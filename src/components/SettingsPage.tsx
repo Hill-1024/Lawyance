@@ -17,7 +17,7 @@ import { buildBackupSnapshot, restoreBackupSnapshot } from '../services/storageS
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
 import { requestGuidedTour } from '../lib/guided-tour';
-import { verifyAuth, getProviderStatus, getSettings, updateSettings, testProvider, type ProviderStatus } from '../services/api';
+import { verifyAuth, getProviderStatus, getSettings, updateSettings, testProvider, setSecret, clearSecret, fetchLlmModels, type ProviderStatus } from '../services/api';
 
 const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -384,10 +384,14 @@ const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
 const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => {
   const label = PROVIDER_LABELS[providerKey] || providerKey;
   const fields = PROVIDER_FIELDS[providerKey] || [];
+  const secrets = PROVIDER_SECRETS[providerKey] || [];
   const [settings, setSettings] = useState<Record<string, any> | null>(null);
   const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
+  const [secretDrafts, setSecretDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
   const [userRole, setUserRole] = useState('user');
+  const [llmModels, setLlmModels] = useState<{ id: string; owned_by: string }[]>([]);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
   useEffect(() => {
     verifyAuth().then(auth => setUserRole(auth?.role || 'user')).catch(() => {});
@@ -395,6 +399,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
       getSettings().catch(() => null),
       getProviderStatus().catch(() => [] as ProviderStatus[]),
     ]).then(([s, st]) => { setSettings(s); setStatuses(st); });
+    fetchLlmModels().then(setLlmModels).catch(() => {});
   }, [providerKey]);
 
   if (userRole !== 'admin') {
@@ -410,14 +415,14 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
   const statusOk = Boolean(status?.ok && provider.enabled);
   const isBusy = busy.startsWith(providerKey);
 
-  const updateField = (key: string, value: any) => {
+  const updateField = (k: string, v: any) => {
     setSettings(prev => prev ? {
       ...prev,
-      providers: { ...prev.providers, [providerKey]: { ...(prev.providers?.[providerKey] || {}), [key]: value } },
+      providers: { ...prev.providers, [providerKey]: { ...(prev.providers?.[providerKey] || {}), [k]: v } },
     } : prev);
   };
 
-  const save = async () => {
+  const saveSettings = async () => {
     if (!settings) return;
     setBusy('save');
     try {
@@ -425,6 +430,21 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
       setSettings(result);
       setStatuses(await getProviderStatus().catch(() => []));
     } finally { setBusy(''); }
+  };
+
+  const saveSecrets = async () => {
+    const entries = secrets.map(s => ({ ...s, value: (secretDrafts[s.key] || '').trim() })).filter(s => s.value);
+    if (!entries.length) return;
+    setBusy(`${providerKey}.secrets`);
+    try {
+      await Promise.all(entries.map(e => setSecret(providerKey, e.key, e.value)));
+      setSecretDrafts(prev => { const n = { ...prev }; entries.forEach(e => delete n[e.key]); return n; });
+    } finally { setBusy(''); }
+  };
+
+  const clearSecrets = async () => {
+    setBusy(`${providerKey}.clear`);
+    try { await clearSecret(providerKey); } finally { setBusy(''); }
   };
 
   const testConn = async () => {
@@ -444,39 +464,105 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
           <p className="text-[13px] text-[var(--fg-3)]">{PROVIDER_DESCS[providerKey] || ''}</p>
         </div>
       </div>
-      <div className="mb-4 flex items-center gap-4">
-        <label className="inline-flex items-center gap-2 text-sm text-[var(--fg-2)]">
-          <input type="checkbox" checked={Boolean(provider.enabled)} onChange={e => updateField('enabled', e.target.checked)} /> 启用
-        </label>
-        <span className={`rounded-full px-2 py-0.5 text-[11px] ${
-          statusOk ? 'bg-[rgba(22,163,74,0.12)] text-[var(--color-success-500)]'
-            : provider.enabled ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]'
-              : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
-        }`}>
-          {statusOk ? '已就绪' : provider.enabled ? '已启用，等待状态刷新' : '未配置'}
-        </span>
-      </div>
-      {fields.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 mb-4">
-          {fields.map(field => (
-            <label key={field.key} className="min-w-0">
-              <span className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">{field.label}</span>
-              <input className={providerInputClass} value={String(provider[field.key] || '')} placeholder={field.placeholder}
-                onChange={e => updateField(field.key, e.target.value)} />
-            </label>
-          ))}
+
+      <div className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-[var(--fg-1)]">{label}</h3>
+              <span className={`rounded-full px-2 py-0.5 text-[11px] ${
+                statusOk ? 'bg-[rgba(22,163,74,0.12)] text-[var(--color-success-500)]'
+                  : provider.enabled ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]'
+                    : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
+              }`}>
+                {statusOk ? '已就绪' : provider.enabled ? '已启用，等待状态刷新' : '未配置'}
+              </span>
+            </div>
+            <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">{PROVIDER_DESCS[providerKey] || ''}</p>
+          </div>
+          <label className="inline-flex shrink-0 items-center gap-2 text-sm text-[var(--fg-2)]">
+            <input type="checkbox" checked={Boolean(provider.enabled)} onChange={e => updateField('enabled', e.target.checked)} />
+            启用
+          </label>
         </div>
-      )}
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={testConn} disabled={isBusy}
-          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50">
-          {busy === `${providerKey}.test` ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
-          测试连接
-        </button>
-        <button type="button" onClick={save} disabled={busy === 'save'}
-          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50">
-          {busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-          保存配置
+
+        {fields.length > 0 && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {fields.map(field => {
+              const isModel = field.key === 'model' && llmModels.length > 0;
+              return (
+                <label key={field.key} className="min-w-0">
+                  <span className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">{field.label}</span>
+                  {isModel ? (
+                    <div className="relative">
+                      <div className="flex gap-1">
+                        <input className={`${providerInputClass} flex-1`} value={String(provider[field.key] || '')}
+                          placeholder={field.placeholder} onChange={e => updateField(field.key, e.target.value)} />
+                        <button type="button" onClick={() => setModelDropdownOpen(o => !o)}
+                          className="lawver-pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--fg-3)] hover:text-[var(--fg-1)]">
+                          <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${modelDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      </div>
+                      {modelDropdownOpen && (
+                        <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-3)]">
+                          {llmModels.map(m => (
+                            <button key={m.id} type="button"
+                              onClick={() => { updateField('model', m.id); setModelDropdownOpen(false); }}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--fg-1)] transition-colors hover:bg-[var(--accent-quiet)]">
+                              <span className="flex-1 truncate">{m.id}</span>
+                              {m.owned_by && <span className="shrink-0 text-[11px] text-[var(--fg-4)]">{m.owned_by}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <input className={providerInputClass} value={String(provider[field.key] || '')}
+                      placeholder={field.placeholder} onChange={e => updateField(field.key, e.target.value)} />
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {secrets.length > 0 && (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {secrets.map(s => (
+              <label key={s.key} className="min-w-0">
+                <span className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">{s.label}</span>
+                <input className={providerInputClass} type="password"
+                  value={secretDrafts[s.key] || ''} placeholder={s.placeholder || '留空则不覆盖已保存凭据'}
+                  onChange={e => setSecretDrafts(prev => ({ ...prev, [s.key]: e.target.value }))} />
+              </label>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" onClick={saveSecrets} disabled={isBusy || secrets.length === 0}
+            className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50">
+            {busy === `${providerKey}.secrets` ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+            保存凭据
+          </button>
+          <button type="button" onClick={testConn} disabled={isBusy}
+            className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50">
+            {busy === `${providerKey}.test` ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
+            测试连接
+          </button>
+          <button type="button" onClick={clearSecrets} disabled={isBusy || secrets.length === 0}
+            className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[var(--color-danger-500)] transition-colors hover:bg-[rgba(184,42,42,0.08)] disabled:opacity-50">
+            {busy === `${providerKey}.clear` ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+            清除凭据
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button type="button" onClick={saveSettings} disabled={busy === 'save'}
+          className="lawver-pressable inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50">
+          {busy === 'save' ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+          保存非敏感配置
         </button>
       </div>
     </section>
@@ -557,11 +643,14 @@ const PROVIDER_FIELDS: Record<string, { key: string; label: string; placeholder?
     { key: 'model', label: '模型', placeholder: 'gpt-4o / qwen-plus' },
   ],
   deli: [
-    { key: 'endpoint', label: 'Endpoint', placeholder: 'https://openapi.delilegal.com/api/qa/v3/search/queryListCase' },
+    { key: 'endpoint', label: 'Endpoint', placeholder: 'https://openapi.delilegal.com/...' },
   ],
   searxng: [
     { key: 'base_url', label: 'Base URL', placeholder: 'https://searx.example.com' },
-    { key: 'engines', label: '引擎', placeholder: 'google,bing,duckduckgo' },
+    { key: 'language', label: '语言', placeholder: 'all / zh-CN' },
+    { key: 'safe_search', label: '安全搜索', placeholder: '0 / 1 / 2' },
+    { key: 'engines', label: '搜索引擎', placeholder: 'bing,duckduckgo' },
+    { key: 'categories', label: '分类', placeholder: 'general / news' },
   ],
   qcc: [
     { key: 'endpoint', label: 'Endpoint', placeholder: 'https://agent.qcc.com/mcp/company/stream' },
@@ -570,6 +659,20 @@ const PROVIDER_FIELDS: Record<string, { key: string; label: string; placeholder?
     { key: 'base_url', label: 'Base URL', placeholder: 'https://api.siliconflow.cn/v1' },
     { key: 'model', label: '模型', placeholder: 'Qwen/Qwen3-Embedding-8B' },
   ],
+};
+
+const PROVIDER_SECRETS: Record<string, { key: string; label: string; placeholder?: string }[]> = {
+  llm: [{ key: 'api_key', label: 'API Key', placeholder: 'sk-...' }],
+  deli: [
+    { key: 'appid', label: 'App ID' },
+    { key: 'secret', label: 'Secret' },
+  ],
+  searxng: [
+    { key: 'cf_client_id', label: 'CF Client ID', placeholder: '可选' },
+    { key: 'cf_client_secret', label: 'CF Client Secret', placeholder: '可选' },
+  ],
+  qcc: [{ key: 'access_token', label: 'Access Token' }],
+  embedding: [{ key: 'api_key', label: 'API Key' }],
 };
 
 const PROVIDER_ORDER = ['llm', 'deli', 'searxng', 'qcc', 'embedding'];
