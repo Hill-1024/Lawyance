@@ -382,6 +382,7 @@ const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
 };
 
 const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => {
+  const { showAlert } = useAppDialog();
   const label = PROVIDER_LABELS[providerKey] || providerKey;
   const fields = PROVIDER_FIELDS[providerKey] || [];
   const secrets = PROVIDER_SECRETS[providerKey] || [];
@@ -394,12 +395,34 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
 
   useEffect(() => {
-    verifyAuth().then(auth => setUserRole(auth?.role || 'user')).catch(() => setUserRole('user'));
-    Promise.all([
-      getSettings().catch(() => null),
-      getProviderStatus().catch(() => [] as ProviderStatus[]),
-    ]).then(([s, st]) => { setSettings(s); setStatuses(st); });
-    fetchLlmModels().then(setLlmModels).catch(() => {});
+    let cancelled = false;
+
+    const loadProviderPage = async () => {
+      try {
+        const auth = await verifyAuth();
+        const role = auth?.role || 'user';
+        if (cancelled) return;
+        setUserRole(role);
+        if (role !== 'admin') return;
+
+        const [nextSettings, nextStatuses, nextModels] = await Promise.all([
+          getSettings().catch(() => null),
+          getProviderStatus().catch(() => [] as ProviderStatus[]),
+          fetchLlmModels().catch(() => [] as { id: string; owned_by: string }[]),
+        ]);
+        if (cancelled) return;
+        setSettings(nextSettings);
+        setStatuses(nextStatuses);
+        setLlmModels(nextModels);
+      } catch {
+        if (!cancelled) setUserRole('user');
+      }
+    };
+
+    loadProviderPage();
+    return () => {
+      cancelled = true;
+    };
   }, [providerKey]);
 
   if (userRole === null) {
@@ -421,7 +444,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
   const provider = settings?.providers?.[providerKey] || {};
   const status = statuses.find(s => s.provider === providerKey);
   const statusOk = Boolean(status?.ok && provider.enabled);
-  const isBusy = busy.startsWith(providerKey);
+  const isBusy = busy !== '';
 
   const updateField = (k: string, v: any) => {
     setSettings(prev => prev ? {
@@ -437,6 +460,17 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
       const result = await updateSettings({ providers: settings.providers });
       setSettings(result);
       setStatuses(await getProviderStatus().catch(() => []));
+      await showAlert({
+        title: '保存成功',
+        message: `${label} 的非敏感配置已保存。`,
+        tone: 'success',
+      });
+    } catch (error) {
+      await showAlert({
+        title: '保存失败',
+        message: (error as Error).message || '保存配置时发生未知错误。',
+        tone: 'danger',
+      });
     } finally { setBusy(''); }
   };
 
@@ -447,18 +481,57 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
     try {
       await Promise.all(entries.map(e => setSecret(providerKey, e.key, e.value)));
       setSecretDrafts(prev => { const n = { ...prev }; entries.forEach(e => delete n[e.key]); return n; });
+      setStatuses(await getProviderStatus().catch(() => []));
+      await showAlert({
+        title: '保存成功',
+        message: `${label} 的凭据已更新。`,
+        tone: 'success',
+      });
+    } catch (error) {
+      await showAlert({
+        title: '保存失败',
+        message: (error as Error).message || '保存凭据时发生未知错误。',
+        tone: 'danger',
+      });
     } finally { setBusy(''); }
   };
 
   const clearSecrets = async () => {
     setBusy(`${providerKey}.clear`);
-    try { await clearSecret(providerKey); } finally { setBusy(''); }
+    try {
+      await clearSecret(providerKey);
+      setStatuses(await getProviderStatus().catch(() => []));
+      await showAlert({
+        title: '清除成功',
+        message: `${label} 的已保存凭据已清除。`,
+        tone: 'success',
+      });
+    } catch (error) {
+      await showAlert({
+        title: '清除失败',
+        message: (error as Error).message || '清除凭据时发生未知错误。',
+        tone: 'danger',
+      });
+    } finally { setBusy(''); }
   };
 
   const testConn = async () => {
     setBusy(`${providerKey}.test`);
-    try { await testProvider(providerKey); setStatuses(await getProviderStatus().catch(() => [])); }
-    catch {} finally { setBusy(''); }
+    try {
+      const result = await testProvider(providerKey);
+      setStatuses(await getProviderStatus().catch(() => []));
+      await showAlert({
+        title: '检测通过',
+        message: result.message || `${label} 配置完整。`,
+        tone: 'success',
+      });
+    } catch (error) {
+      await showAlert({
+        title: '检测失败',
+        message: (error as Error).message || '连接检测失败。',
+        tone: 'danger',
+      });
+    } finally { setBusy(''); }
   };
 
   return (

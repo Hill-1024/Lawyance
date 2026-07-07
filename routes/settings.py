@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from schemas import SettingsPayload
-from services.auth_dependencies import get_current_user, require_admin
+from services.auth_dependencies import require_admin
 from services.settings_service import (
     clear_secret,
     fetch_llm_models,
@@ -31,7 +31,7 @@ class SecretClearRequest(BaseModel):
 
 
 @router.get("/api/settings")
-async def get_settings_endpoint(current_user: str = Depends(get_current_user)):
+async def get_settings_endpoint(admin_user: str = Depends(require_admin)):
     return get_settings()
 
 
@@ -67,7 +67,7 @@ async def clear_secret_endpoint(
 
 
 @router.get("/api/providers/status")
-async def provider_status_endpoint(_current_user: str = Depends(get_current_user)):
+async def provider_status_endpoint(admin_user: str = Depends(require_admin)):
     return get_provider_statuses()
 
 
@@ -83,5 +83,5 @@ async def test_provider_endpoint(
 
 
 @router.get("/api/llm/models")
-async def llm_models_endpoint(current_user: str = Depends(get_current_user)):
+async def llm_models_endpoint(admin_user: str = Depends(require_admin)):
     return fetch_llm_models()
