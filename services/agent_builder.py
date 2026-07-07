@@ -16,7 +16,14 @@ def build_tool_executor(workspace_scope: str):
     return execute_tool
 
 
-def build_agent(mode: str, memory: list, session_id: str, workspace_scope: str, use_ocp: bool = True):
+def build_agent(
+    mode: str,
+    memory: list,
+    session_id: str,
+    workspace_scope: str,
+    use_ocp: bool = True,
+    execution_policy: dict | None = None,
+):
     execute_tool = build_tool_executor(workspace_scope)
     if mode == "react":
         print("[agent_builder] 收到已废弃模式 react，自动降级为 default")
@@ -33,6 +40,7 @@ def build_agent(mode: str, memory: list, session_id: str, workspace_scope: str, 
             tools=plan_and_solve_tools,
             final_answer_source="tool_arg",
             tool_choice_policy=plan_and_solve_tool_choice_policy,
+            execution_policy=execution_policy,
         )
 
     return ToolLoopAgent(
@@ -44,4 +52,5 @@ def build_agent(mode: str, memory: list, session_id: str, workspace_scope: str, 
         mode="default",
         tools=default_tools,
         final_answer_source="tagged_text",
+        execution_policy=execution_policy,
     )

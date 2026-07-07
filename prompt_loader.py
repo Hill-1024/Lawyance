@@ -39,6 +39,7 @@ FOCUS_SECTIONS = {
 
 TASK_ONLY_SECTIONS = {
     "history_summary": ("tasks/history_summary.md",),
+    "intent_router": ("tasks/intent_router.md",),
 }
 
 OPTIONAL_SECTIONS = {

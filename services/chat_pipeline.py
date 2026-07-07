@@ -20,6 +20,7 @@ from prompt_loader import build_system_memory
 from schemas import ChatRequest
 from services.agent_builder import build_agent
 from services.conversation_state import active_conversations
+from services.context_compiler import CompiledContext, compile_context
 from services.context_usage import (
     reset_current_context_usage_accumulator,
     set_current_context_usage_accumulator,
@@ -31,7 +32,6 @@ from services.memory_coordinator import (
     retrieve_memory_context,
     sync_memory_cache,
 )
-from services.prompt_focus import current_focus
 from services.workspace_service import get_workspace_scope
 
 
@@ -44,6 +44,8 @@ class PreparedChatTurn:
     workspace_scope: str
     turn_id: str
     agent: object
+    execution_policy: dict | None = None
+    attention_trace: dict | None = None
 
 
 def sanitize_history(history: list[dict]) -> list[dict]:
@@ -78,12 +80,12 @@ def select_memory_sync_mode(request: ChatRequest) -> str:
     return "rebuild" if is_empty_reset_memory_snapshot(request.memory_snapshot) else "merge"
 
 
-def load_memory_context(
+async def load_memory_context(
     workspace_scope: str,
     content: str,
     sanitized_history: list[dict],
     request: ChatRequest,
-) -> tuple[str, list[str]]:
+) -> CompiledContext:
     memory_sync_mode = select_memory_sync_mode(request)
     sync_memory_cache(
         workspace_scope,
@@ -93,8 +95,19 @@ def load_memory_context(
         expected_revision=request.expected_revision,
         memory_conflict_strategy=request.memory_conflict_strategy,
     )
-    memory_context, _payload = retrieve_memory_context(workspace_scope, content)
-    return memory_context, current_focus(content, sanitized_history)
+    memory_context, payload = retrieve_memory_context(workspace_scope, content)
+    compiled = await compile_context(
+        content=content,
+        history=sanitized_history,
+        memory_context=memory_context,
+        memory_payload=payload,
+    )
+    print(
+        "[上下文编译] "
+        f"task={compiled.intent.get('task_type')} focus={','.join(compiled.intent.get('focus', []))} "
+        f"policy={compiled.execution_policy}"
+    )
+    return compiled
 
 
 async def prepare_history(
@@ -102,25 +115,53 @@ async def prepare_history(
     agent_mode: str,
     sanitized_history: list[dict],
     prompt_focus: list[str],
-    memory_context: str,
+    working_context_text: str,
     last_context_tokens: Optional[int] = None,
 ) -> list[dict]:
     full_history = build_system_memory(
         agent_mode=agent_mode,
         focus=prompt_focus,
-        memory_context=memory_context,
+        memory_context=working_context_text,
     )
     full_history.extend(sanitized_history)
     processed_history = await compress_history(
         full_history,
         agent_mode=agent_mode,
         focus=prompt_focus,
-        memory_context=memory_context,
+        memory_context=working_context_text,
         current_user_content=content,
         last_context_tokens=last_context_tokens,
     )
     processed_history.append({"role": "user", "content": content})
     return processed_history
+
+
+def _build_agent_with_optional_policy(
+    mode: str,
+    memory: list[dict],
+    session_id: str,
+    workspace_scope: str,
+    *,
+    use_ocp: bool,
+    execution_policy: dict | None,
+):
+    sig = inspect.signature(build_agent)
+    if "execution_policy" in sig.parameters:
+        return build_agent(
+            mode,
+            memory,
+            session_id,
+            workspace_scope,
+            use_ocp=use_ocp,
+            execution_policy=execution_policy,
+        )
+    return build_agent(
+        mode,
+        memory,
+        session_id,
+        workspace_scope,
+        use_ocp=use_ocp,
+    )
 
 
 async def prepare_chat_turn(request: ChatRequest, current_user: str) -> PreparedChatTurn:
@@ -133,16 +174,24 @@ async def prepare_chat_turn(request: ChatRequest, current_user: str) -> Prepared
     sanitized_history = sanitize_history(request.history)
     print(f"\n[收到请求] 会话ID: {session_id}, 模式: {request.agent_mode}, 流式: {request.stream}")
 
-    memory_context, prompt_focus = load_memory_context(workspace_scope, content, sanitized_history, request)
+    compiled_context = await load_memory_context(workspace_scope, content, sanitized_history, request)
+    prompt_focus = list(compiled_context.intent.get("focus") or [])
     processed_history = await prepare_history(
         content,
         request.agent_mode,
         sanitized_history,
         prompt_focus,
-        memory_context,
+        compiled_context.working_context_text,
         request.last_context_tokens,
     )
-    agent = build_agent(request.agent_mode, processed_history, session_id, workspace_scope, use_ocp=request.use_ocp)
+    agent = _build_agent_with_optional_policy(
+        request.agent_mode,
+        processed_history,
+        session_id,
+        workspace_scope,
+        use_ocp=request.use_ocp,
+        execution_policy=compiled_context.execution_policy,
+    )
     return PreparedChatTurn(
         content=content,
         session_id=session_id,
@@ -151,6 +200,8 @@ async def prepare_chat_turn(request: ChatRequest, current_user: str) -> Prepared
         workspace_scope=workspace_scope,
         turn_id=turn_id,
         agent=agent,
+        execution_policy=compiled_context.execution_policy,
+        attention_trace=compiled_context.attention_trace,
     )
 
 

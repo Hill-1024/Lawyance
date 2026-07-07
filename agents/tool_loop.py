@@ -26,6 +26,24 @@ _TRANSIENT_STREAM_ERROR_MARKERS = (
     "timed out",
 )
 ASK_USER_TOOL_NAME = "ask_user"
+CONTROL_PLANE_TOOLS = {"submit_plan", "submit_final_answer", ASK_USER_TOOL_NAME}
+LEGAL_EVIDENCE_TOOLS = {"match_legal_case", "get_article", "search_article", "get_linked_content"}
+FILE_CONTEXT_TOOLS = {"list_workspace_files", "pdf_text_reader", "word_reader", "txt_md_reader"}
+PLAN_TOOL_WORK_MARKERS = (
+    "检索",
+    "查询",
+    "搜索",
+    "读取",
+    "文件",
+    "附件",
+    "法条",
+    "案例",
+    "法规",
+    "企业",
+    "文书",
+    "合同",
+    "生成",
+)
 
 
 def _optional_positive_int_env(name: str, default: int | None = None):
@@ -93,6 +111,7 @@ class ToolLoopAgent:
         max_rounds: int | None | object = _DEFAULT_MAX_ROUNDS,
         final_answer_source: str = "tagged_text",
         tool_choice_policy: Callable[[dict[str, Any]], str | dict] | None = None,
+        execution_policy: dict[str, Any] | None = None,
     ):
         self.memory = memory or []
         self.session_id = session_id
@@ -103,6 +122,7 @@ class ToolLoopAgent:
         self.tools = tools
         self.final_answer_source = final_answer_source
         self.tool_choice_policy = tool_choice_policy
+        self.execution_policy = execution_policy or {}
         self._memory_candidate_emitted = False
 
         if max_rounds is _DEFAULT_MAX_ROUNDS:
@@ -259,7 +279,66 @@ class ToolLoopAgent:
             "force_final": self.final_answer_source == "tool_arg" and self.mode == "plan_and_solve",
             "final_answer_submitted": False,
             "awaiting_user": False,
+            "tool_history": [],
+            "submitted_plan_steps": [],
+            "policy_repair_attempted": False,
         }
+
+    @staticmethod
+    def _plan_steps_need_tools(steps: list[str]) -> bool:
+        return any(
+            marker in step
+            for step in steps
+            for marker in PLAN_TOOL_WORK_MARKERS
+        )
+
+    @staticmethod
+    def _has_any_tool(state: dict[str, Any], names: set[str]) -> bool:
+        return any(name in names for name in state.get("tool_history", []))
+
+    @staticmethod
+    def _has_business_tool_after_plan(state: dict[str, Any]) -> bool:
+        return any(name not in CONTROL_PLANE_TOOLS for name in state.get("tool_history", []))
+
+    def _policy_repair_message(self, state: dict[str, Any]) -> str | None:
+        policy = self.execution_policy or {}
+        if not policy.get("soft_repair_enabled", True):
+            return None
+        if state.get("policy_repair_attempted"):
+            return None
+
+        missing: list[str] = []
+        if policy.get("requires_legal_evidence") and not self._has_any_tool(state, LEGAL_EVIDENCE_TOOLS):
+            missing.append(
+                "本轮涉及法律依据或法律结论，但尚未调用法条/案例检索工具。请先调用 match_legal_case、get_article、search_article 或 get_linked_content 获取可核验依据。"
+            )
+        if (policy.get("requires_file_read") or policy.get("requires_workspace_listing")) and not self._has_any_tool(state, FILE_CONTEXT_TOOLS):
+            missing.append(
+                "本轮涉及文件或工作区材料，但尚未列出或读取文件。请先调用 list_workspace_files 或对应 reader 工具确认文件内容。"
+            )
+
+        plan_steps = state.get("submitted_plan_steps") or []
+        if (
+            self.mode == "plan_and_solve"
+            and plan_steps
+            and self._plan_steps_need_tools(plan_steps)
+            and not self._has_business_tool_after_plan(state)
+        ):
+            missing.append("已提交的计划包含检索、查询、读取或生成等工具性步骤，但尚未执行任何业务工具。请先补齐计划中的工具步骤。")
+
+        if not missing:
+            return None
+        state["policy_repair_attempted"] = True
+        state["force_final"] = False
+        state["final_answer_submitted"] = False
+        return "\n".join(
+            [
+                "<execution_policy_repair>",
+                "最终回答前发现执行缺口。不要向用户解释内部策略；请继续调用必要工具或明确补齐依据后再提交最终回答。",
+                *[f"- {item}" for item in missing],
+                "</execution_policy_repair>",
+            ]
+        )
 
     def _process_tool_calls(
         self,
@@ -288,12 +367,14 @@ class ToolLoopAgent:
             func_name = function.get("name") or ""
             args_str = function.get("arguments") or ""
             args, parse_error_content = self._parse_arguments(func_name, args_str)
+            state.setdefault("tool_history", []).append(func_name)
 
             if parse_error_content is not None:
                 result_content = parse_error_content
             elif func_name == "submit_plan":
                 result_content = _json_content(self.execute_tool(func_name, args))
                 steps = [str(step).strip() for step in args.get("steps", []) if str(step).strip()]
+                state["submitted_plan_steps"] = steps
                 state["plan_submitted"] = True
                 state["force_final"] = False
                 events.append({
@@ -495,6 +576,17 @@ class ToolLoopAgent:
                         yield {"type": "thought_signature", "content": thought_signature_str}
                     return
                 if final_answer is not None:
+                    repair_message = self._policy_repair_message(state)
+                    if repair_message:
+                        current_mem.append({"role": "system", "content": repair_message})
+                        yield {
+                            "type": "thought",
+                            "content": "发现执行缺口，正在补充必要工具步骤\n",
+                            "thought_type": "tool",
+                            "mode": "new",
+                        }
+                        accumulated_content = ""
+                        continue
                     async for event in self._final_answer_events(final_answer, stream=True):
                         yield event
                     if thought_signature_str:
@@ -521,6 +613,18 @@ class ToolLoopAgent:
 
             if thought_signature_str:
                 yield {"type": "thought_signature", "content": thought_signature_str}
+            repair_message = self._policy_repair_message(state)
+            if repair_message:
+                current_mem.append(create_assistant_message(content=assistant_content, reasoning_content=reasoning_str, thought_signature=thought_signature_str))
+                current_mem.append({"role": "system", "content": repair_message})
+                yield {
+                    "type": "thought",
+                    "content": "发现执行缺口，正在补充必要工具步骤\n",
+                    "thought_type": "tool",
+                    "mode": "new",
+                }
+                accumulated_content = ""
+                continue
             async for event in self._final_answer_events(accumulated_content, stream=True):
                 yield event
             return
@@ -566,6 +670,14 @@ class ToolLoopAgent:
                         yield {"type": "thought_signature", "content": thought_signature}
                     return
                 if final_answer is not None:
+                    repair_message = self._policy_repair_message(state)
+                    if repair_message:
+                        current_mem.append({"role": "system", "content": repair_message})
+                        yield {
+                            "type": "history_trace",
+                            "content": [self._history_context_message({"role": "system", "content": repair_message})],
+                        }
+                        continue
                     async for event in self._final_answer_events(final_answer, stream=False):
                         yield event
                     if thought_signature:
@@ -591,6 +703,19 @@ class ToolLoopAgent:
                 state["force_final"] = True
                 continue
 
+            repair_message = self._policy_repair_message(state)
+            if repair_message:
+                current_mem.append(create_assistant_message(
+                    content=content_output,
+                    reasoning_content=reasoning_content,
+                    thought_signature=thought_signature,
+                ))
+                current_mem.append({"role": "system", "content": repair_message})
+                yield {
+                    "type": "history_trace",
+                    "content": [self._history_context_message({"role": "system", "content": repair_message})],
+                }
+                continue
             async for event in self._final_answer_events(content_output, stream=False):
                 yield event
             if thought_signature:
