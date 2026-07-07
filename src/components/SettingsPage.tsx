@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, CirclePlay, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Folder, Gavel, Link2, Loader2, MessageSquareText, Monitor, Moon, PackageCheck, Palette, PanelLeftOpen, Paperclip, RotateCcw, Send, Server, Settings, Settings2, Smartphone, Sparkles, Sun, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, CirclePlay, Clock3, Cloud, CloudDownload, CloudUpload, ExternalLink, Folder, Gavel, Globe, Link2, Loader2, MessageSquareText, Monitor, Moon, PackageCheck, Palette, PanelLeftOpen, Paperclip, RotateCcw, Send, Server, Settings, Settings2, Smartphone, Sparkles, Sun, Trash2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
@@ -17,6 +17,7 @@ import { buildBackupSnapshot, restoreBackupSnapshot } from '../services/storageS
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
 import { requestGuidedTour } from '../lib/guided-tour';
+import { verifyAuth, getProviderStatus, type ProviderStatus } from '../services/api';
 
 const MODE_OPTIONS: Array<{ value: ThemeMode; label: string; icon: React.ComponentType<{ size?: number; strokeWidth?: number }> }> = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -403,6 +404,97 @@ const HelpEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => (
     <ChevronRight size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-4)]" />
   </button>
 );
+
+const PROVIDER_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
+  llm: Sparkles,
+  deli: Gavel,
+  searxng: Globe,
+  qcc: Server,
+  embedding: Link2,
+};
+
+const PROVIDER_LABELS: Record<string, string> = {
+  llm: '大模型 (LLM)',
+  deli: '得理法搜',
+  searxng: '网页检索',
+  qcc: '企业信息',
+  embedding: '嵌入模型',
+};
+
+const PROVIDER_ORDER = ['llm', 'deli', 'searxng', 'qcc', 'embedding'];
+
+const ProviderOverviewSection: React.FC = () => {
+  const [statuses, setStatuses] = useState<ProviderStatus[]>([]);
+  const [userRole, setUserRole] = useState('user');
+
+  useEffect(() => {
+    getProviderStatus()
+      .then(setStatuses)
+      .catch(() => setStatuses([]));
+    verifyAuth()
+      .then(auth => setUserRole(auth?.role || 'user'))
+      .catch(() => setUserRole('user'));
+  }, []);
+
+  if (userRole !== 'admin') return null;
+
+  const statusMap = new Map(statuses.map(s => [s.provider, s]));
+  const entries = PROVIDER_ORDER
+    .map(key => ({ key, status: statusMap.get(key) }))
+    .filter(entry => entry.status);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+          <Server size={20} strokeWidth={2} />
+        </span>
+        <div>
+          <h2 className="t-title-m">服务端能力</h2>
+          <p className="text-[13px] text-[var(--fg-3)]">远端 Python/FastAPI 服务端的模型、法源和检索服务状态。</p>
+        </div>
+      </div>
+      <div className="grid gap-2">
+        {entries.map(({ key, status }) => {
+          const Icon = PROVIDER_ICONS[key] || Server;
+          const ok = status?.ok ?? false;
+          const configured = status?.configured ?? false;
+          return (
+            <div
+              key={key}
+              className="flex min-w-0 items-center justify-between gap-4 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-4 py-3"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
+                  <Icon size={17} strokeWidth={2} />
+                </span>
+                <div className="min-w-0">
+                  <span className="block truncate text-[14px] font-semibold text-[var(--fg-1)]">
+                    {PROVIDER_LABELS[key] || key}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[12px] text-[var(--fg-3)]">
+                    {status?.message || '读取中'}
+                  </span>
+                </div>
+              </div>
+              <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                ok
+                  ? 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
+                  : configured
+                    ? 'bg-[rgba(184,132,42,0.12)] text-[#5C3F0E] dark:text-[#FBEBC8]'
+                    : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
+              }`}>
+                {ok ? '就绪' : configured ? '部分配置' : '未配置'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
 
 const HELP_TOPICS: Array<{
   icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -820,6 +912,8 @@ export const SettingsPage: React.FC = () => {
                   </div>
                 </div>
               </section>
+
+              <ProviderOverviewSection />
 
               <section className="min-w-0">
                 <div className="mb-3 px-1">

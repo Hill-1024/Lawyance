@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import admin, auth, chat, court, releases, spa, webdav, workspace
+from routes import admin, auth, chat, court, releases, settings, spa, webdav, workspace
 from services import law_cache, release_sync, stream_buffer, workspace_cleanup
 from services.app_security import ALLOWED_ORIGINS, LOCAL_ORIGIN_RE, security_and_logging_middleware
 
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(chat.router)
     app.include_router(court.router)
     app.include_router(releases.router)
+    app.include_router(settings.router)
     app.include_router(webdav.router)
     app.include_router(workspace.router)
 

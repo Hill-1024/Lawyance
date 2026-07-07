@@ -511,3 +511,57 @@ export const summarizeTitle = async (titleSource: string) => {
   if (!response.ok) throw new Error('Summarize failed');
   return response.json();
 };
+
+export interface ProviderStatus {
+  provider: string;
+  label: string;
+  enabled: boolean;
+  configured: boolean;
+  ok: boolean;
+  message: string;
+}
+
+export interface AppSettings {
+  version: number;
+  providers: Record<string, {
+    enabled: boolean;
+    base_url?: string;
+    model?: string;
+    endpoint?: string;
+    language?: string;
+    safe_search?: string;
+    engines?: string;
+    categories?: string;
+  }>;
+}
+
+export const getSettings = async (): Promise<AppSettings> => {
+  const response = await apiFetch('/api/settings');
+  return response.json();
+};
+
+export const updateSettings = async (payload: Partial<AppSettings>): Promise<AppSettings> => {
+  const response = await apiFetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await response.json().then(data => new Error((data as any)?.detail || '保存失败'));
+  return response.json();
+};
+
+export const getProviderStatus = async (): Promise<ProviderStatus[]> => {
+  try {
+    const response = await apiFetch('/api/providers/status');
+    if (!response.ok) return [];
+    return response.json();
+  } catch {
+    return [];
+  }
+};
+
+export const testProvider = async (provider: string): Promise<ProviderStatus> => {
+  const response = await apiFetch(`/api/providers/test/${provider}`);
+  if (!response.ok) throw await response.json().then(data => new Error((data as any)?.detail || '测试失败'));
+  return response.json();
+};
