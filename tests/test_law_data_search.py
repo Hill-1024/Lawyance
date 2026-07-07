@@ -4,6 +4,7 @@
 
 import contextlib
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -97,6 +98,14 @@ class LawDataSearchHardeningTests(unittest.TestCase):
         self.assertNotEqual(first["content_sha256"], second["content_sha256"])
         self.assertNotEqual(first, second)
 
+    def test_source_manifest_skips_category_index_files(self):
+        with isolated_law_corpus() as data_dir:
+            (data_dir / "法律" / "index.json").write_text("{}", encoding="utf-8")
+            manifest = law_search.build_source_manifest()
+
+        self.assertIn("法律/中华人民共和国测试法.json", manifest["files"])
+        self.assertNotIn("法律/index.json", manifest["files"])
+
     def test_incremental_rebuild_adds_changed_and_removed_json_sources(self):
         with isolated_law_corpus() as data_dir:
             first_status = law_search.ensure_law_database_ready(force_rebuild=True)
@@ -144,6 +153,61 @@ class LawDataSearchHardeningTests(unittest.TestCase):
         self.assertEqual(law_search.normalize_limit(999), law_search.MAX_SEARCH_LIMIT)
         self.assertEqual(law_search.normalize_limit(-10), 1)
         self.assertEqual(law_search.normalize_limit("bad"), 5)
+
+
+class LawDataStorageLayoutTests(unittest.TestCase):
+    HASHED_JSON_NAME_RE = re.compile(r"^[0-9a-f]{32}\.json$")
+    MAX_RELATIVE_PATH_BYTES = 180
+
+    @classmethod
+    def setUpClass(cls):
+        cls.data_dir = Path(law_search.__file__).resolve().parent / "data"
+        cls.law_files = sorted(
+            path for path in cls.data_dir.rglob("*.json") if path.name != "index.json"
+        )
+
+    def test_law_source_files_use_fixed_hash_names_with_original_filename_metadata(self):
+        self.assertGreater(len(self.law_files), 0)
+        bad_names = []
+        missing_metadata = []
+        long_paths = []
+
+        for path in self.law_files:
+            if not self.HASHED_JSON_NAME_RE.match(path.name):
+                bad_names.append(path)
+
+            relative_path = path.relative_to(self.data_dir.parent).as_posix()
+            if len(relative_path.encode("utf-8")) > self.MAX_RELATIVE_PATH_BYTES:
+                long_paths.append(path)
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                payload.get("source_id") != path.stem
+                or not payload.get("original_filename")
+                or not payload.get("law_name")
+            ):
+                missing_metadata.append(path)
+
+        self.assertEqual([], bad_names[:10])
+        self.assertEqual([], long_paths[:10])
+        self.assertEqual([], missing_metadata[:10])
+
+    def test_category_indexes_point_to_existing_hash_files(self):
+        missing_targets = []
+
+        for index_path in sorted(self.data_dir.rglob("index.json")):
+            payload = json.loads(index_path.read_text(encoding="utf-8"))
+            for title, value in payload.items():
+                if not isinstance(value, dict):
+                    continue
+                file_name = str(value.get("file") or "")
+                if not file_name:
+                    continue
+                target = index_path.parent / file_name
+                if not target.exists() or not self.HASHED_JSON_NAME_RE.match(file_name):
+                    missing_targets.append((index_path, title, file_name))
+
+        self.assertEqual([], missing_targets[:10])
 
 
 if __name__ == "__main__":

@@ -556,7 +556,9 @@ def iter_source_files() -> List[Path]:
     return sorted(
         path
         for path in RAW_DATA_DIR.rglob("*")
-        if path.is_file() and path.suffix.lower() in {".json", ".txt", ".md"}
+        if path.is_file()
+        and path.name != "index.json"
+        and path.suffix.lower() in {".json", ".txt", ".md"}
     )
 
 
