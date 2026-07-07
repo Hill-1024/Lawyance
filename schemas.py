@@ -109,3 +109,20 @@ class WebDavDownloadRequest(BaseModel):
 class WebDavDeleteRequest(BaseModel):
     config: WebDavConfig
     filename: str
+
+
+class ProviderSettings(BaseModel):
+    enabled: bool = False
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+    endpoint: Optional[str] = None
+    language: Optional[str] = None
+    safe_search: Optional[str] = None
+    engines: Optional[str] = None
+    categories: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+class SettingsPayload(BaseModel):
+    version: Optional[int] = 1
+    providers: dict[str, ProviderSettings] = Field(default_factory=dict)
