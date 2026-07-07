@@ -6,9 +6,12 @@ import os
 import threading
 from pathlib import Path
 
+import requests
+
 DATA_DIR = os.environ.get("LAWVER_DATA_DIR") or os.path.join(os.getcwd(), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 SETTINGS_FILE = Path(DATA_DIR) / "settings.json"
+SECRETS_FILE = Path(DATA_DIR) / "secrets.json"
 _SETTINGS_LOCK = threading.RLock()
 
 PROVIDER_KEYS = {
@@ -145,3 +148,69 @@ def test_provider_connection(key: str) -> dict:
         "ok": True,
         "message": f"{info['label']} 已配置",
     }
+
+
+def _read_secrets() -> dict:
+    if SECRETS_FILE.exists():
+        try:
+            with open(SECRETS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def set_secret(provider: str, key: str, value: str):
+    with _SETTINGS_LOCK:
+        secrets = _read_secrets()
+        secrets.setdefault(provider, {})[key] = value
+        tmp = str(SECRETS_FILE) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(secrets, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, SECRETS_FILE)
+
+
+def clear_secret(provider: str, key: str | None = None):
+    with _SETTINGS_LOCK:
+        secrets = _read_secrets()
+        if key:
+            secrets.get(provider, {}).pop(key, None)
+            if not secrets.get(provider):
+                secrets.pop(provider, None)
+        else:
+            secrets.pop(provider, None)
+        tmp = str(SECRETS_FILE) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(secrets, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, SECRETS_FILE)
+
+
+def get_secret(provider: str, key: str) -> str | None:
+    secrets = _read_secrets()
+    return secrets.get(provider, {}).get(key)
+
+
+def fetch_llm_models() -> list[dict]:
+    settings = get_settings()
+    llm = settings.get("providers", {}).get("llm", {})
+    base_url = (llm.get("base_url") or os.environ.get("BASE_URL") or "").rstrip("/")
+    api_key = get_secret("llm", "api_key") or os.environ.get("API_KEY") or ""
+    if not base_url:
+        return []
+    try:
+        response = requests.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+            timeout=10,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            models = data if isinstance(data, list) else data.get("data", [])
+            return [{"id": m.get("id", ""), "owned_by": m.get("owned_by", "")} for m in models]
+    except Exception:
+        pass
+    return []
