@@ -14,44 +14,88 @@ SETTINGS_FILE = Path(DATA_DIR) / "settings.json"
 SECRETS_FILE = Path(DATA_DIR) / "secrets.json"
 _SETTINGS_LOCK = threading.RLock()
 
-PROVIDER_KEYS = {
+PROVIDER_SPECS = {
     "llm": {
         "label": "大模型 (LLM)",
-        "env": {"base_url": "BASE_URL", "model": "LLM_MODEL", "api_key": "API_KEY"},
+        "config_env": {
+            "base_url": ("BASE_URL",),
+            "model": ("LLM_MODEL",),
+        },
+        "secret_env": {
+            "api_key": ("API_KEY",),
+        },
         "defaults": {"base_url": "https://api.openai.com/v1", "model": ""},
+        "required": ("base_url", "model", "api_key"),
     },
     "deli": {
         "label": "得理法搜",
-        "env": {"endpoint": "DELI_ENDPOINT"},
-        "defaults": {"endpoint": ""},
+        "config_env": {
+            "endpoint": ("DELI_ENDPOINT",),
+        },
+        "secret_env": {
+            "appid": ("DELI_APPID",),
+            "secret": ("DELI_SECRET",),
+        },
+        "defaults": {"endpoint": "https://openapi.delilegal.com/api/qa/v3/search/queryListCase"},
+        "required": ("appid", "secret"),
     },
     "searxng": {
         "label": "网页检索 (SearXNG)",
-        "env": {"base_url": "SEARXNG_BASE_URL", "engines": "SEARXNG_ENGINES"},
-        "defaults": {"base_url": "", "language": "all", "safe_search": "0", "engines": "", "categories": ""},
+        "config_env": {
+            "base_url": ("SEARXNG_BASE_URL",),
+            "language": ("SEARXNG_LANGUAGE",),
+            "safe_search": ("SEARXNG_SAFE_SEARCH",),
+            "engines": ("SEARXNG_ENGINES",),
+            "categories": ("SEARXNG_CATEGORIES",),
+        },
+        "secret_env": {
+            "cf_client_id": ("SEARXNG_CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_ID"),
+            "cf_client_secret": ("SEARXNG_CF_ACCESS_CLIENT_SECRET", "CF_ACCESS_CLIENT_SECRET"),
+        },
+        "defaults": {
+            "base_url": "https://serp.mutsumi.moe/",
+            "language": "all",
+            "safe_search": "0",
+            "engines": "",
+            "categories": "",
+        },
+        "required": ("cf_client_id", "cf_client_secret"),
     },
     "qcc": {
         "label": "企业信息 (企查查)",
-        "env": {"endpoint": "QCC_ENDPOINT"},
-        "defaults": {"endpoint": ""},
+        "config_env": {
+            "endpoint": ("QCC_ENDPOINT",),
+        },
+        "secret_env": {
+            "access_token": ("QCC_ACCESS_TOKEN",),
+        },
+        "defaults": {"endpoint": "https://agent.qcc.com/mcp/company/stream"},
+        "required": ("access_token",),
     },
     "embedding": {
         "label": "嵌入模型 (Embedding)",
-        "env": {"base_url": "EMBEDDING_BASE_URL", "model": "EMBEDDING_MODEL"},
-        "defaults": {"base_url": "", "model": ""},
+        "config_env": {
+            "base_url": ("EMBEDDING_BASE_URL", "MEMORY_EMBEDDING_BASE_URL"),
+            "model": ("EMBEDDING_MODEL", "MEMORY_EMBEDDING_MODEL"),
+        },
+        "secret_env": {
+            "api_key": ("EMBEDDING_API_KEY", "MEMORY_EMBEDDING_API_KEY", "SILICONFLOW_API_KEY"),
+        },
+        "defaults": {
+            "base_url": "https://api.siliconflow.cn/v1",
+            "model": "Qwen/Qwen3-Embedding-8B",
+        },
+        "required": ("api_key",),
     },
 }
 
-DEFAULT_SETTINGS = {
-    "version": 1,
-    "providers": {
-        key: {
-            "enabled": any(os.environ.get(e) for e in info["env"].values()),
-            **info["defaults"],
-        }
-        for key, info in PROVIDER_KEYS.items()
-    },
-}
+
+def _env_value(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
 
 
 def _read_settings() -> dict:
@@ -61,38 +105,113 @@ def _read_settings() -> dict:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
             pass
-    return DEFAULT_SETTINGS
+    return {}
+
+
+def _normalized_saved_settings() -> dict:
+    saved = _read_settings()
+    if not isinstance(saved, dict):
+        saved = {}
+    providers = saved.get("providers")
+    if not isinstance(providers, dict):
+        providers = {}
+    return {
+        "version": saved.get("version", 1),
+        "providers": providers,
+    }
+
+
+def _provider_saved_settings(provider_key: str) -> dict:
+    saved = _normalized_saved_settings()
+    provider = saved["providers"].get(provider_key)
+    return provider if isinstance(provider, dict) else {}
+
+
+def _merge_saved_and_env_fields(
+    provider_key: str,
+    *,
+    include_secrets: bool,
+) -> dict:
+    spec = PROVIDER_SPECS[provider_key]
+    saved_provider = _provider_saved_settings(provider_key)
+
+    merged = {
+        "enabled": bool(saved_provider.get("enabled", False)),
+    }
+    for field in spec["config_env"]:
+        if field in saved_provider and saved_provider[field] is not None:
+            merged[field] = saved_provider[field]
+
+    for field, env_names in spec["config_env"].items():
+        if merged.get(field) in (None, ""):
+            env_value = _env_value(*env_names)
+            if env_value:
+                merged[field] = env_value
+
+    for field, default_value in spec["defaults"].items():
+        if merged.get(field) in (None, ""):
+            merged[field] = default_value
+
+    if include_secrets:
+        saved_secrets = _read_secrets().get(provider_key, {})
+        if isinstance(saved_secrets, dict):
+            for field in spec["secret_env"]:
+                if field in saved_secrets and saved_secrets[field] is not None:
+                    merged[field] = saved_secrets[field]
+        for field, env_names in spec["secret_env"].items():
+            if merged.get(field) in (None, ""):
+                env_value = _env_value(*env_names)
+                if env_value:
+                    merged[field] = env_value
+
+    if "enabled" not in saved_provider:
+        merged["enabled"] = any(
+            merged.get(field)
+            for field in (*spec["config_env"], *spec["secret_env"])
+        )
+
+    return merged
 
 
 def get_settings() -> dict:
-    """返回当前持久化设置，未持久化的 provider 用环境变量兜底。"""
+    """返回当前设置快照，仅暴露非敏感字段。"""
     with _SETTINGS_LOCK:
-        saved = _read_settings()
-    merged = dict(saved)
-    merged.setdefault("providers", {})
-    for key, info in PROVIDER_KEYS.items():
-        provider = merged["providers"].setdefault(key, {"enabled": False})
-        for field, env_var in info["env"].items():
-            env_value = os.environ.get(env_var)
-            if env_value:
-                provider[field] = env_value
-        provider.setdefault("enabled", False)
-    return merged
+        saved = _normalized_saved_settings()
+    return {
+        "version": saved.get("version", 1),
+        "providers": {
+            key: _merge_saved_and_env_fields(key, include_secrets=False)
+            for key in PROVIDER_SPECS
+        },
+    }
+
+
+def get_provider_runtime_config(provider_key: str) -> dict:
+    """返回供运行时使用的 provider 配置，包含敏感字段。"""
+    if provider_key not in PROVIDER_SPECS:
+        return {}
+    with _SETTINGS_LOCK:
+        return _merge_saved_and_env_fields(provider_key, include_secrets=True)
 
 
 def update_settings(payload: dict) -> dict:
     """管理员保存 provider 配置。只接受 providers 子项。"""
     with _SETTINGS_LOCK:
-        current = _read_settings()
+        current = _normalized_saved_settings()
     new_providers = payload.get("providers", {})
     if not isinstance(new_providers, dict):
         raise ValueError("providers 必须是对象")
     current_providers = current.setdefault("providers", {})
     for key, value in new_providers.items():
-        if key not in PROVIDER_KEYS:
+        if key not in PROVIDER_SPECS:
             continue
+        if not isinstance(value, dict):
+            raise ValueError(f"{key} 配置必须是对象")
+        allowed_fields = {"enabled", *PROVIDER_SPECS[key]["config_env"].keys()}
         merged = dict(current_providers.get(key, {}))
-        merged.update(value)
+        for field in allowed_fields:
+            if field in value:
+                merged[field] = value[field]
         current_providers[key] = merged
     with _SETTINGS_LOCK:
         os.makedirs(SETTINGS_FILE.parent, exist_ok=True)
@@ -107,36 +226,36 @@ def update_settings(payload: dict) -> dict:
 
 def get_provider_statuses() -> list[dict]:
     """返回各 provider 的启用状态与配置摘要。"""
-    settings = get_settings()
     result = []
-    for key, info in PROVIDER_KEYS.items():
-        provider = settings.get("providers", {}).get(key, {})
-        configured = any(
-            provider.get(field) or os.environ.get(env_var)
-            for field, env_var in info["env"].items()
-        )
+    for key, info in PROVIDER_SPECS.items():
+        provider = get_provider_runtime_config(key)
+        missing = _missing_required_fields(key, provider)
+        configured = not missing
+        enabled = bool(provider.get("enabled", False))
+        if missing:
+            message = f"缺少配置: {', '.join(missing)}"
+        elif enabled:
+            message = "已就绪"
+        else:
+            message = "已配置，未启用"
         result.append({
             "provider": key,
             "label": info["label"],
-            "enabled": bool(provider.get("enabled", False)),
+            "enabled": enabled,
             "configured": configured,
-            "ok": configured and bool(provider.get("enabled", False)),
-            "message": "已配置" if configured else "未配置环境变量",
+            "ok": configured,
+            "message": message,
         })
     return result
 
 
 def test_provider_connection(key: str) -> dict:
-    """对指定 provider 做连通性探测。目前仅验证配置是否存在。"""
-    if key not in PROVIDER_KEYS:
+    """对指定 provider 做配置完整性探测。"""
+    if key not in PROVIDER_SPECS:
         return {"provider": key, "ok": False, "message": f"未知的 provider: {key}"}
-    settings = get_settings()
-    provider = settings.get("providers", {}).get(key, {})
-    info = PROVIDER_KEYS[key]
-    missing = [
-        field for field, env_var in info["env"].items()
-        if not provider.get(field) and not os.environ.get(env_var)
-    ]
+    provider = get_provider_runtime_config(key)
+    info = PROVIDER_SPECS[key]
+    missing = _missing_required_fields(key, provider)
     if missing:
         return {
             "provider": key,
@@ -195,12 +314,12 @@ def get_secret(provider: str, key: str) -> str | None:
 
 
 def fetch_llm_models() -> list[dict]:
-    settings = get_settings()
-    llm = settings.get("providers", {}).get("llm", {})
-    base_url = (llm.get("base_url") or os.environ.get("BASE_URL") or "").rstrip("/")
-    api_key = get_secret("llm", "api_key") or os.environ.get("API_KEY") or ""
-    if not base_url:
+    llm = get_provider_runtime_config("llm")
+    missing = _missing_required_fields("llm", llm)
+    if "base_url" in missing or "api_key" in missing:
         return []
+    base_url = str(llm.get("base_url") or "").rstrip("/")
+    api_key = str(llm.get("api_key") or "")
     try:
         response = requests.get(
             f"{base_url}/models",
@@ -214,3 +333,13 @@ def fetch_llm_models() -> list[dict]:
     except Exception:
         pass
     return []
+
+
+def _missing_required_fields(provider_key: str, provider: dict) -> list[str]:
+    spec = PROVIDER_SPECS[provider_key]
+    missing = []
+    for field in spec["required"]:
+        value = provider.get(field)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(field)
+    return missing

@@ -537,6 +537,9 @@ export interface AppSettings {
 
 export const getSettings = async (): Promise<AppSettings> => {
   const response = await apiFetch('/api/settings');
+  if (!response.ok) {
+    throw await response.json().then(data => new Error((data as any)?.detail || '读取设置失败'));
+  }
   return response.json();
 };
 
@@ -567,19 +570,25 @@ export const testProvider = async (provider: string): Promise<ProviderStatus> =>
 };
 
 export const setSecret = async (provider: string, key: string, value: string): Promise<void> => {
-  await apiFetch('/api/settings/secret', {
+  const response = await apiFetch('/api/settings/secret', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider, key, value }),
   });
+  if (!response.ok) {
+    throw await response.json().then(data => new Error((data as any)?.detail || '保存凭据失败'));
+  }
 };
 
 export const clearSecret = async (provider: string, key?: string): Promise<void> => {
-  await apiFetch('/api/settings/secret/clear', {
+  const response = await apiFetch('/api/settings/secret/clear', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider, key }),
   });
+  if (!response.ok) {
+    throw await response.json().then(data => new Error((data as any)?.detail || '清除凭据失败'));
+  }
 };
 
 export type LlmModel = { id: string; owned_by: string };
