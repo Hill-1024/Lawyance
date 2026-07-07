@@ -506,8 +506,6 @@ const ProviderConfigSection: React.FC = () => {
     } catch {
       setBusy('');
     }
-      setBusy('');
-    }
   };
 
   if (!loaded) return null;
