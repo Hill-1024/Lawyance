@@ -6,7 +6,10 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 type SwitchSize = 'sm' | 'md';
 
-interface AnimatedSwitchProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onChange' | 'role'> {
+interface AnimatedSwitchProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  'aria-checked' | 'aria-label' | 'onChange' | 'role' | 'type'
+> {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   label?: ReactNode;
@@ -49,6 +52,7 @@ export function AnimatedSwitch({
 
   return (
     <button
+      {...props}
       type="button"
       role="switch"
       aria-checked={checked}
@@ -60,8 +64,7 @@ export function AnimatedSwitch({
           onCheckedChange(!checked);
         }
       }}
-      className={`group/switch inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-full outline-none disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
-      {...props}
+      className={`group/switch inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full outline-none disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
     >
       {labelPosition === 'left' && labelNode}
       <span

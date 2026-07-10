@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { HoverInfo } from './HoverInfo';
 import { isNative } from '../lib/platform';
 import { useAppDialog } from '../contexts/DialogContext';
+import { backupPassphraseMinLength } from '../lib/backup-crypto';
 
 interface StorageIndicatorProps {
   compact?: boolean;
@@ -21,7 +22,11 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
+  const [backupPassphrase, setBackupPassphrase] = useState('');
+  const [backupPassphraseConfirm, setBackupPassphraseConfirm] = useState('');
   const showPersistenceControls = !isNative();
+  const canExportBackup = backupPassphrase.length >= backupPassphraseMinLength
+    && backupPassphrase === backupPassphraseConfirm;
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -81,8 +86,9 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
   if (compact) {
     return (
       <HoverInfo label="查看存储状态" placement="top">
-        <div
-          className={`flex cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-3 py-1.5 transition-colors ${
+        <button
+          type="button"
+          className={`lawver-pressable flex min-h-11 min-w-11 cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-3 py-1.5 transition-colors ${
             isLowStorage ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.06)] dark:hover:bg-white/[0.06]'
           }`}
           onClick={() => setIsModalOpen(true)}
@@ -93,7 +99,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
             {Math.round(usageRatio * 100)}%
           </span>
           {isLowStorage && <AlertTriangle size={14} strokeWidth={2} className="animate-pulse" />}
-        </div>
+        </button>
       </HoverInfo>
     );
   }
@@ -108,7 +114,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
           </div>
           <button 
             onClick={() => setIsModalOpen(true)}
-            className="t-label-m text-[var(--accent)] hover:underline"
+            className="lawver-pressable t-label-m inline-flex min-h-11 min-w-11 items-center justify-center rounded-full px-2 text-[var(--accent)] hover:underline"
           >
             管理
           </button>
@@ -139,7 +145,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
         {showPersistenceControls && !isPersistent && (
           <button 
             onClick={handleRequestPersistence}
-            className="t-label-m mt-3 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-3 py-1.5 text-[var(--brand-primary-700)] transition-colors hover:bg-[rgba(59,98,184,0.16)] dark:text-[var(--accent)]"
+            className="lawver-pressable t-label-m mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-3 py-1.5 text-[var(--brand-primary-700)] transition-colors hover:bg-[rgba(59,98,184,0.16)] dark:text-[var(--accent)]"
           >
             <ShieldAlert size={14} strokeWidth={2} />
             开启永久保护模式
@@ -241,11 +247,38 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                       <div className="flex gap-3">
                         <AlertTriangle className="shrink-0 text-[var(--accent)]" size={18} strokeWidth={2} />
                         <p className="t-body-s leading-relaxed text-[var(--brand-primary-800)] dark:text-[var(--accent)]">
-                          导出为经过安全混淆的单文件（.lawver）。
+                          新备份使用口令派生密钥与 AES-GCM 加密，并校验文件完整性（.lawver）。口令不会保存，遗忘后无法恢复；旧版备份仍可只读导入。
                           <br />
                           <strong className="text-[var(--accent)]">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话与庭审记录，不包含臃肿的附件，附件需在新设备重新上传。
                         </p>
                       </div>
+                    </div>
+
+                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2" id="backup-passphrase-help">
+                      <label className="flex min-w-0 flex-col gap-1.5">
+                        <span className="t-label-s text-[var(--fg-2)]">备份口令</span>
+                        <input
+                          type="password"
+                          value={backupPassphrase}
+                          onChange={event => setBackupPassphrase(event.target.value)}
+                          autoComplete="new-password"
+                          className="md3-input min-h-11 w-full"
+                          placeholder={`至少 ${backupPassphraseMinLength} 个字符`}
+                          aria-describedby="backup-passphrase-help"
+                        />
+                      </label>
+                      <label className="flex min-w-0 flex-col gap-1.5">
+                        <span className="t-label-s text-[var(--fg-2)]">确认口令（导出时）</span>
+                        <input
+                          type="password"
+                          value={backupPassphraseConfirm}
+                          onChange={event => setBackupPassphraseConfirm(event.target.value)}
+                          autoComplete="new-password"
+                          className="md3-input min-h-11 w-full"
+                          placeholder="再次输入口令"
+                          aria-describedby="backup-passphrase-help"
+                        />
+                      </label>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -253,7 +286,9 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                         onClick={async () => {
                           setIsExporting(true);
                           try {
-                            await storageService.exportConversationsText();
+                            await storageService.exportConversationsText(backupPassphrase);
+                            setBackupPassphrase('');
+                            setBackupPassphraseConfirm('');
                           } catch (err) {
                             console.error(err);
                             await showAlert({
@@ -265,7 +300,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             setIsExporting(false);
                           }
                         }}
-                        disabled={isExporting}
+                        disabled={isExporting || !canExportBackup}
                         className="group flex flex-col items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 transition-all hover:bg-[var(--accent-quiet)]"
                       >
                         <div className="rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] p-2 text-[var(--accent)] transition-transform group-hover:scale-105">
@@ -286,18 +321,20 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             
                             setIsExporting(true);
                             try {
-                              const count = await storageService.importConversationsFromFile(file);
+                              const count = await storageService.importConversationsFromFile(file, backupPassphrase);
                               await showAlert({
                                 title: '导入完成',
                                 message: `成功导入 ${count} 条记录。\n列表已自动刷新，可直接切换查看。`,
                                 tone: 'success',
                               });
+                              setBackupPassphrase('');
+                              setBackupPassphraseConfirm('');
                               updateEstimate();
                             } catch (err) {
                               console.error(err);
                               await showAlert({
                                 title: '导入失败',
-                                message: '请确保文件格式正确且未损坏。',
+                                message: (err as Error).message || '请确保口令正确，且文件格式有效、未被篡改。',
                                 tone: 'danger',
                               });
                             } finally {

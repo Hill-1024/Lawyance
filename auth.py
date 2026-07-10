@@ -8,6 +8,8 @@ import time
 import hmac
 import hashlib
 import base64
+import logging
+import re
 import threading
 from contextlib import contextmanager
 from typing import Optional
@@ -27,6 +29,33 @@ PASSWORD_MIN_LENGTH = 6
 LOCKOUT_FAIL_LIMIT = 3
 LOCKOUT_SECONDS = 2 * 3600
 LOCKOUT_WINDOW_SECONDS = 15 * 60
+# The aggregate account bucket starts later and applies short exponential
+# backoff. A single source hits its own hard bucket first, so one client cannot
+# cheaply keep an account globally locked, while rotating sources still share a
+# common budget.
+ACCOUNT_LOCKOUT_PROGRESSIVE_START = 6
+ACCOUNT_LOCKOUT_BASE_SECONDS = 5
+ACCOUNT_LOCKOUT_MAX_SECONDS = 15 * 60
+ACCOUNT_LOCKOUT_FAIL_CAP = 32
+AUTH_USERNAME_MAX_LENGTH = 128
+AUTH_PASSWORD_MAX_LENGTH = 1024
+CLIENT_IDENTITY_MAX_LENGTH = 128
+PRIVATE_DIR_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
+_LOCKOUT_KEY_RE = re.compile(r"^v2:[0-9a-f]{64}$")
+_logger = logging.getLogger(__name__)
+
+
+def _bounded_lockout_limit() -> int:
+    try:
+        configured = int(os.getenv("LAWVER_LOCKOUT_MAX_RECORDS", "4096") or 4096)
+    except ValueError:
+        configured = 4096
+    return min(max(configured, 64), 100_000)
+
+
+LOCKOUT_MAX_RECORDS = _bounded_lockout_limit()
+LOCKOUT_FILE_MAX_BYTES = max(64 * 1024, LOCKOUT_MAX_RECORDS * 512)
 INSECURE_DEFAULT_ADMIN_HASH = (
     "cf632ecdd2c9b4e67cd76de4db6b785d$"
     "12b8bd1ec5414d7a46abf6b92a4bc0319ca7b9662bba71bc9776dcbefc4c0177"
@@ -45,12 +74,26 @@ def _get_required_secret_key() -> str:
 SECRET_KEY = _get_required_secret_key()
 
 DATA_DIR = os.environ.get("LAWVER_DATA_DIR") or os.path.join(os.getcwd(), "data")
-os.makedirs(DATA_DIR, exist_ok=True)
 ACCOUNT_FILE = os.path.join(DATA_DIR, "account.json")
 LOCKOUT_FILE = os.path.join(DATA_DIR, "lockout.json")
 AUTH_STATE_LOCK_FILE = os.path.join(DATA_DIR, ".auth_state.lock")
 _AUTH_STATE_LOCK = threading.RLock()
 _AUTH_STATE_LOCK_DEPTH = threading.local()
+
+
+def _ensure_private_dir(path: str) -> None:
+    os.makedirs(path, mode=PRIVATE_DIR_MODE, exist_ok=True)
+    os.chmod(path, PRIVATE_DIR_MODE)
+
+
+def _harden_private_file(path: str) -> None:
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except FileNotFoundError:
+        return
+
+
+_ensure_private_dir(DATA_DIR)
 
 
 def hash_password(password: str) -> str:
@@ -64,9 +107,14 @@ def hash_password(password: str) -> str:
     return f"{salt}${actual_hash}"
 
 
+# Unknown and locked accounts still perform one password KDF, keeping the public
+# failure path materially similar without persisting attacker-controlled names.
+_DUMMY_PASSWORD_HASH = hash_password("lawver-dummy-login-password")
+
+
 @contextmanager
 def _auth_state_lock():
-    os.makedirs(DATA_DIR, exist_ok=True)
+    _ensure_private_dir(DATA_DIR)
     with _AUTH_STATE_LOCK:
         depth = getattr(_AUTH_STATE_LOCK_DEPTH, "value", 0)
         if depth:
@@ -77,7 +125,13 @@ def _auth_state_lock():
                 _AUTH_STATE_LOCK_DEPTH.value = depth
             return
 
-        with open(AUTH_STATE_LOCK_FILE, "a", encoding="utf-8") as lock_file:
+        lock_fd = os.open(
+            AUTH_STATE_LOCK_FILE,
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+            PRIVATE_FILE_MODE,
+        )
+        os.fchmod(lock_fd, PRIVATE_FILE_MODE)
+        with os.fdopen(lock_fd, "a", encoding="utf-8") as lock_file:
             if fcntl is not None:
                 fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             _AUTH_STATE_LOCK_DEPTH.value = 1
@@ -90,14 +144,18 @@ def _auth_state_lock():
 
 
 def _write_json(path: str, payload: dict):
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    parent = os.path.dirname(path) or "."
+    _ensure_private_dir(parent)
     tmp_path = f"{path}.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}.tmp"
     try:
-        with open(tmp_path, "w", encoding="utf-8") as f:
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, PRIVATE_FILE_MODE)
+        os.fchmod(fd, PRIVATE_FILE_MODE)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=4, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
+        _harden_private_file(path)
     finally:
         try:
             if os.path.exists(tmp_path):
@@ -109,6 +167,7 @@ def _write_json(path: str, payload: dict):
 def _ensure_account_file():
     with _auth_state_lock():
         if os.path.exists(ACCOUNT_FILE):
+            _harden_private_file(ACCOUNT_FILE)
             try:
                 with open(ACCOUNT_FILE, "r", encoding="utf-8") as f:
                     accounts = json.load(f)
@@ -130,6 +189,10 @@ def _ensure_account_file():
             )
         if len(initial_password) < PASSWORD_MIN_LENGTH:
             raise RuntimeError(f"INITIAL_ADMIN_PASSWORD must be at least {PASSWORD_MIN_LENGTH} characters long.")
+        if len(initial_password) > AUTH_PASSWORD_MAX_LENGTH:
+            raise RuntimeError(
+                f"INITIAL_ADMIN_PASSWORD must be at most {AUTH_PASSWORD_MAX_LENGTH} characters long."
+            )
         if initial_password == "password":
             raise RuntimeError("INITIAL_ADMIN_PASSWORD cannot use the old insecure default password.")
 
@@ -150,6 +213,7 @@ _ensure_account_file()
 def get_accounts_data():
     with _auth_state_lock():
         try:
+            _harden_private_file(ACCOUNT_FILE)
             with open(ACCOUNT_FILE, "r", encoding="utf-8") as f:
                 accounts = json.load(f)
         except Exception:
@@ -193,6 +257,10 @@ def list_accounts() -> list:
 def add_or_update_account(username: str, password: str, role: str = "user") -> tuple[bool, str]:
     normalized_role = role if role in {"admin", "user"} else "user"
 
+    if not isinstance(username, str) or not username or len(username) > AUTH_USERNAME_MAX_LENGTH:
+        return False, f"用户名长度必须为 1-{AUTH_USERNAME_MAX_LENGTH} 个字符"
+    if not isinstance(password, str) or len(password) > AUTH_PASSWORD_MAX_LENGTH:
+        return False, f"密码长度不能超过 {AUTH_PASSWORD_MAX_LENGTH} 位"
     if len(password) < PASSWORD_MIN_LENGTH:
         return False, "密码长度不能小于6位"
 
@@ -212,11 +280,14 @@ def add_or_update_account(username: str, password: str, role: str = "user") -> t
         try:
             _write_json(ACCOUNT_FILE, accounts)
             return True, "操作成功"
-        except Exception as e:
-            return False, f"保存失败: {str(e)}"
+        except Exception:
+            _logger.exception("Failed to persist account update")
+            return False, "保存账号失败，请稍后重试"
 
 
 def delete_account(username: str) -> tuple[bool, str]:
+    if not isinstance(username, str) or not username or len(username) > AUTH_USERNAME_MAX_LENGTH:
+        return False, "账号不存在"
     if username == "admin":
         return False, "不能删除系统管理员账号"
 
@@ -229,8 +300,9 @@ def delete_account(username: str) -> tuple[bool, str]:
             del accounts[username]
             _write_json(ACCOUNT_FILE, accounts)
             return True, "账号已删除"
-        except Exception as e:
-            return False, f"删除失败: {str(e)}"
+        except Exception:
+            _logger.exception("Failed to persist account deletion")
+            return False, "删除账号失败，请稍后重试"
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
@@ -293,13 +365,86 @@ def verify_token(token: str) -> Optional[str]:
         return None
 
 
+def _lockout_digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _account_lockout_key(username: str) -> str:
+    username_value = username[:AUTH_USERNAME_MAX_LENGTH]
+    return f"v2:{_lockout_digest(f'account\0{username_value}')}"
+
+
+def _client_lockout_key(username: str, client_identity: str) -> str:
+    username_value = username[:AUTH_USERNAME_MAX_LENGTH]
+    client_value = str(client_identity or "unknown")[:CLIENT_IDENTITY_MAX_LENGTH]
+    return f"v2:{_lockout_digest(f'client\0{username_value}\0{client_value}')}"
+
+
+def _lockout_key(username: str, client_identity: str) -> str:
+    """Compatibility alias for the username/client bucket key."""
+    return _client_lockout_key(username, client_identity)
+
+
+def _sanitize_lockouts(raw: object, now: float) -> tuple[dict, bool]:
+    if not isinstance(raw, dict):
+        return {}, True
+
+    candidates: list[tuple[float, str, dict]] = []
+    dirty = False
+    for key, record in raw.items():
+        if not isinstance(key, str) or not _LOCKOUT_KEY_RE.fullmatch(key) or not isinstance(record, dict):
+            dirty = True
+            continue
+        try:
+            fails = min(max(int(record.get("fails", 0)), 0), ACCOUNT_LOCKOUT_FAIL_CAP)
+            first_failed_at = float(record.get("first_failed_at", 0))
+            last_failed_at = float(record.get("last_failed_at", first_failed_at))
+            locked_until = float(record.get("locked_until", 0))
+        except (TypeError, ValueError, OverflowError):
+            dirty = True
+            continue
+
+        first_failed_at = min(max(first_failed_at, 0), now)
+        last_failed_at = min(max(last_failed_at, first_failed_at), now)
+        locked_until = min(max(locked_until, 0), now + LOCKOUT_SECONDS)
+        is_locked = locked_until > now
+        is_recent_failure = last_failed_at > 0 and now - last_failed_at <= LOCKOUT_WINDOW_SECONDS
+        if not is_locked and not is_recent_failure:
+            dirty = True
+            continue
+
+        clean_record = {
+            "fails": fails,
+            "first_failed_at": first_failed_at,
+            "last_failed_at": last_failed_at,
+            "locked_until": locked_until,
+        }
+        if clean_record != record:
+            dirty = True
+        candidates.append((max(last_failed_at, locked_until), key, clean_record))
+
+    if len(candidates) > LOCKOUT_MAX_RECORDS:
+        dirty = True
+        candidates.sort(reverse=True)
+        candidates = candidates[:LOCKOUT_MAX_RECORDS]
+
+    return {key: record for _, key, record in candidates}, dirty
+
+
 def _read_lockouts() -> dict:
     with _auth_state_lock():
         if not os.path.exists(LOCKOUT_FILE):
             return {}
         try:
+            _harden_private_file(LOCKOUT_FILE)
+            if os.path.getsize(LOCKOUT_FILE) > LOCKOUT_FILE_MAX_BYTES:
+                return {}
             with open(LOCKOUT_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                raw = json.load(f)
+            lockouts, dirty = _sanitize_lockouts(raw, time.time())
+            if dirty:
+                _write_json(LOCKOUT_FILE, lockouts)
+            return lockouts
         except Exception:
             return {}
 
@@ -309,61 +454,143 @@ def _write_lockouts(lockouts: dict):
         _write_json(LOCKOUT_FILE, lockouts)
 
 
-def check_lockout(username: str) -> Optional[str]:
-    with _auth_state_lock():
-        record = _read_lockouts().get(username)
-    if not record:
+def check_lockout(username: str, client_identity: str = "unknown") -> Optional[str]:
+    if not isinstance(username, str) or not username or len(username) > AUTH_USERNAME_MAX_LENGTH:
         return None
+    keys = (
+        _account_lockout_key(username),
+        _client_lockout_key(username, client_identity),
+    )
+    with _auth_state_lock():
+        lockouts = _read_lockouts()
 
     now = time.time()
-    if record.get("locked_until", 0) > now:
-        remain = int((record["locked_until"] - now) / 60) + 1
+    locked_until = max(
+        (float(lockouts.get(key, {}).get("locked_until", 0)) for key in keys),
+        default=0,
+    )
+    if locked_until > now:
+        remain = int((locked_until - now) / 60) + 1
         return f"账户已被锁定，请 {remain} 分钟后再试。"
     return None
 
 
-def record_login_attempt(username: str, success: bool):
+def _new_lockout_record(now: float) -> dict:
+    return {
+        "fails": 0,
+        "locked_until": 0,
+        "first_failed_at": now,
+        "last_failed_at": now,
+    }
+
+
+def _record_bucket_failure(record: object, now: float, *, progressive: bool) -> dict:
+    if not isinstance(record, dict):
+        record = _new_lockout_record(now)
+    else:
+        record = dict(record)
+
+    first_failed_at = float(record.get("first_failed_at", now))
+    last_failed_at = float(record.get("last_failed_at", first_failed_at))
+    locked_until = float(record.get("locked_until", 0))
+    if locked_until > now:
+        return record
+    if now - last_failed_at > LOCKOUT_WINDOW_SECONDS or (
+        not progressive and locked_until > 0 and locked_until <= now
+    ):
+        record = _new_lockout_record(now)
+
+    record["fails"] = min(int(record.get("fails", 0)) + 1, ACCOUNT_LOCKOUT_FAIL_CAP)
+    record["last_failed_at"] = now
+    record.setdefault("first_failed_at", now)
+
+    if progressive:
+        if record["fails"] >= ACCOUNT_LOCKOUT_PROGRESSIVE_START:
+            step = min(record["fails"] - ACCOUNT_LOCKOUT_PROGRESSIVE_START, 20)
+            delay = min(ACCOUNT_LOCKOUT_BASE_SECONDS * (2 ** step), ACCOUNT_LOCKOUT_MAX_SECONDS)
+            record["locked_until"] = int(now + delay)
+        else:
+            record["locked_until"] = 0
+    elif record["fails"] >= LOCKOUT_FAIL_LIMIT:
+        record["locked_until"] = int(now + LOCKOUT_SECONDS)
+
+    return record
+
+
+def record_login_attempt(
+    username: str,
+    success: bool,
+    client_identity: str = "unknown",
+    *,
+    account_exists: Optional[bool] = None,
+):
+    if not isinstance(username, str) or not username or len(username) > AUTH_USERNAME_MAX_LENGTH:
+        return
     try:
         with _auth_state_lock():
+            if account_exists is None:
+                account_exists = username in get_accounts_data()
+            if not account_exists:
+                return
+
             now = time.time()
             lockouts = _read_lockouts()
+            account_key = _account_lockout_key(username)
+            client_key = _client_lockout_key(username, client_identity)
 
             if success:
-                lockouts.pop(username, None)
+                if account_key not in lockouts and client_key not in lockouts:
+                    return
+                lockouts.pop(account_key, None)
+                lockouts.pop(client_key, None)
             else:
-                record = lockouts.get(username, {"fails": 0, "locked_until": 0, "first_failed_at": now})
-                if record.get("locked_until", 0) <= now:
-                    first_failed_at = record.get("first_failed_at", now)
-                    if record.get("locked_until", 0) > 0 or now - first_failed_at > LOCKOUT_WINDOW_SECONDS:
-                        record = {"fails": 0, "locked_until": 0, "first_failed_at": now}
-                    record["fails"] = int(record.get("fails", 0)) + 1
-                    if record["fails"] >= LOCKOUT_FAIL_LIMIT:
-                        record["locked_until"] = int(now + LOCKOUT_SECONDS)
-                    lockouts[username] = record
+                lockouts[account_key] = _record_bucket_failure(
+                    lockouts.get(account_key),
+                    now,
+                    progressive=True,
+                )
+                lockouts[client_key] = _record_bucket_failure(
+                    lockouts.get(client_key),
+                    now,
+                    progressive=False,
+                )
+
+            lockouts, _ = _sanitize_lockouts(lockouts, now)
 
             _write_lockouts(lockouts)
-    except Exception as e:
-        print(f"Error recording login attempt: {e}")
+    except Exception:
+        _logger.exception("Failed to record login attempt")
 
 
-def authenticate_user(username, password):
-    lock_msg = check_lockout(username)
-    if lock_msg:
-        return False, lock_msg
-
+def authenticate_user(username, password, client_identity: str = "unknown"):
     accounts = get_accounts_data()
     if not accounts:
         return False, "账号系统配置错误，请联系管理员"
 
+    if (
+        not isinstance(username, str)
+        or not username
+        or len(username) > AUTH_USERNAME_MAX_LENGTH
+        or not isinstance(password, str)
+        or len(password) > AUTH_PASSWORD_MAX_LENGTH
+    ):
+        verify_password("", _DUMMY_PASSWORD_HASH)
+        return False, "用户名或密码错误"
+
     user_data = accounts.get(username)
-    if not user_data:
-        record_login_attempt(username, False)
+    if not isinstance(user_data, dict):
+        verify_password(password, _DUMMY_PASSWORD_HASH)
+        return False, "用户名或密码错误"
+
+    lock_msg = check_lockout(username, client_identity)
+    if lock_msg:
+        verify_password(password, _DUMMY_PASSWORD_HASH)
         return False, "用户名或密码错误"
 
     hashed = user_data.get("hash")
     if verify_password(password, hashed):
-        record_login_attempt(username, True)
+        record_login_attempt(username, True, client_identity, account_exists=True)
         return True, "登录成功"
 
-    record_login_attempt(username, False)
+    record_login_attempt(username, False, client_identity, account_exists=True)
     return False, "用户名或密码错误"

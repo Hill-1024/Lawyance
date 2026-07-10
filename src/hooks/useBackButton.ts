@@ -10,16 +10,34 @@ type BackHandler = () => boolean | void;
 
 const handlers: BackHandler[] = [];
 let removeNativeListener: (() => Promise<void>) | null = null;
+let nativeListenerRegistration: Promise<void> | null = null;
+
+const dispatchBackButton = () => {
+  for (let index = handlers.length - 1; index >= 0; index -= 1) {
+    const handler = handlers[index];
+    if (!handler) continue;
+
+    try {
+      if (handler()) return;
+    } catch (error) {
+      // One broken overlay must not prevent older handlers from receiving Back.
+      console.error('Native back-button handler failed:', error);
+    }
+  }
+};
 
 const ensureListener = () => {
-  if (!isNativeAndroid() || removeNativeListener) return;
-  CapacitorApp.addListener('backButton', () => {
-    for (let index = handlers.length - 1; index >= 0; index -= 1) {
-      if (handlers[index]()) return;
-    }
-  }).then(handle => {
-    removeNativeListener = () => handle.remove();
-  }).catch(console.error);
+  if (!isNativeAndroid() || removeNativeListener || nativeListenerRegistration) return;
+
+  nativeListenerRegistration = CapacitorApp.addListener('backButton', dispatchBackButton)
+    .then(handle => {
+      removeNativeListener = () => handle.remove();
+    })
+    .catch(error => {
+      // Allow a later mounted consumer to retry a failed native registration.
+      nativeListenerRegistration = null;
+      console.error('Failed to register native back-button listener:', error);
+    });
 };
 
 export const useBackButton = (handler: BackHandler, enabled = true) => {

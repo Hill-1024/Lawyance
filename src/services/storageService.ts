@@ -9,23 +9,10 @@ import { isNative } from '../lib/platform';
 import { notifyLocalStorageDataChanged } from './storageEvents';
 import type { Conversation, CourtAgentStates, CourtPublicEvent, CourtSession } from '../types';
 import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
+import { decryptBackupData, encryptBackupData } from '../lib/backup-crypto';
 
-const EXPORT_SECURITY_KEY = "Lawver-Security-Migration-Key-2024";
 const decodeCodes = (codes: number[]) => codes.map(code => String.fromCharCode(code)).join('');
-const PREVIOUS_EXPORT_SECURITY_KEYS = [
-  decodeCodes([76, 97, 119, 118, 101, 114, 45, 83, 101, 99, 117, 114, 105, 116, 121, 45, 77, 105, 103, 114, 97, 116, 105, 111, 110, 45, 75, 101, 121, 45, 50, 48, 50, 52]),
-  decodeCodes([71, 68, 85, 84, 45, 76, 97, 119, 121, 101, 114, 45, 83, 101, 99, 117, 114, 105, 116, 121, 45, 77, 105, 103, 114, 97, 116, 105, 111, 110, 45, 75, 101, 121, 45, 50, 48, 50, 52])
-];
 const LEGACY_EXPORT_EXTENSION = decodeCodes([46, 108, 97, 119, 118, 101, 114]);
-
-const encryptDataToBytes = (data: string): Uint8Array => {
-  const key = EXPORT_SECURITY_KEY;
-  const encoded = new TextEncoder().encode(data);
-  for (let i = 0; i < encoded.length; i++) {
-    encoded[i] = encoded[i] ^ key.charCodeAt(i % key.length);
-  }
-  return encoded;
-};
 
 const bytesToBase64 = (bytes: Uint8Array): string => {
   let binary = '';
@@ -36,13 +23,6 @@ const bytesToBase64 = (bytes: Uint8Array): string => {
   return btoa(binary);
 };
 
-const decodeExportBytes = (source: Uint8Array, key: string): string => {
-  const bytes = new Uint8Array(source);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = bytes[i] ^ key.charCodeAt(i % key.length);
-  }
-  return new TextDecoder().decode(bytes);
-};
 
 const generateUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -348,42 +328,29 @@ export const storageService = {
 
   // --- Dialogue Migration (Text Only) ---
 
-  async encryptDataToBlob(data: string): Promise<Blob> {
-    // 使用简单的异或加密（混淆）来防止明文泄露，并避免因为 IP 访问（非 HTTPS 环境）导致 crypto.subtle 无法使用的问题。
-    // 同时使用 Blob 直接生成文件，避免超大文本使用 String.fromCharCode 导致栈溢出。
-    return new Blob([encryptDataToBytes(data)], { type: 'application/octet-stream' });
+  async encryptDataToBlob(data: string, passphrase: string): Promise<Blob> {
+    const encrypted = await encryptBackupData(data, passphrase);
+    return new Blob([encrypted], { type: 'application/octet-stream' });
   },
 
-  async decryptDataFromFile(file: File): Promise<string> {
+  async decryptDataFromFile(file: File, passphrase: string): Promise<string> {
     const arrayBuffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    const keys = [EXPORT_SECURITY_KEY, ...PREVIOUS_EXPORT_SECURITY_KEYS];
-    let lastDecoded = '';
-
-    for (const key of keys) {
-      const decoded = decodeExportBytes(bytes, key);
-      try {
-        JSON.parse(decoded);
-        return decoded;
-      } catch {
-        lastDecoded = decoded;
-      }
-    }
-
-    return lastDecoded;
+    const result = await decryptBackupData(new Uint8Array(arrayBuffer), passphrase);
+    return result.data;
   },
 
-  async exportConversationsText() {
+  async exportConversationsText(passphrase: string) {
     const snapshot = await buildBackupSnapshot();
     const data = JSON.stringify(snapshot);
     const fileName = `lawver_dialogues_${new Date().toISOString().split('T')[0]}.lawver`;
+    const encrypted = await encryptBackupData(data, passphrase);
 
     if (isNative()) {
       const targetPath = `exports/${fileName}`;
       await Filesystem.writeFile({
         directory: Directory.Cache,
         path: targetPath,
-        data: bytesToBase64(encryptDataToBytes(data)),
+        data: bytesToBase64(encrypted),
         recursive: true
       });
 
@@ -400,7 +367,7 @@ export const storageService = {
       return;
     }
 
-    const blob = await this.encryptDataToBlob(data);
+    const blob = new Blob([encrypted], { type: 'application/octet-stream' });
     
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -412,8 +379,8 @@ export const storageService = {
     URL.revokeObjectURL(url);
   },
 
-  async importConversationsFromFile(file: File) {
-    const decrypted = await this.decryptDataFromFile(file);
+  async importConversationsFromFile(file: File, passphrase: string) {
+    const decrypted = await this.decryptDataFromFile(file, passphrase);
     const parsed = JSON.parse(decrypted);
     return applyBackupSnapshot(parsed);
   }

@@ -170,6 +170,33 @@ class SettingsRouteTests(unittest.TestCase):
         self.assertEqual(test_after.status_code, 200)
         self.assertTrue(test_after.json()["ok"])
 
+    def test_secret_routes_reject_unknown_fields_and_provider_keys(self):
+        extra = self.client.post(
+            "/api/settings/secret",
+            json={"provider": "llm", "key": "api_key", "value": "x", "unexpected": True},
+            headers={"origin": LOCAL_ORIGIN},
+        )
+        self.assertEqual(extra.status_code, 422)
+
+        unknown_provider = self.client.post(
+            "/api/settings/secret",
+            json={"provider": "unknown", "key": "api_key", "value": "x"},
+            headers={"origin": LOCAL_ORIGIN},
+        )
+        self.assertEqual(unknown_provider.status_code, 422)
+
+        unsupported_key = self.client.post(
+            "/api/settings/secret",
+            json={"provider": "llm", "key": "not_a_real_secret", "value": "x"},
+            headers={"origin": LOCAL_ORIGIN},
+        )
+        self.assertEqual(unsupported_key.status_code, 400)
+        self.assertIn("不支持", unsupported_key.json()["detail"])
+
+    def test_provider_path_is_an_enumerated_value(self):
+        response = self.client.get("/api/providers/test/not-a-provider")
+        self.assertEqual(response.status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()

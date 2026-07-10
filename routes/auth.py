@@ -3,10 +3,16 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from auth import authenticate_user, create_token, get_user_role
 from schemas import LoginRequest
-from services.app_security import NATIVE_CLIENT_ORIGINS, is_trusted_origin, secure_cookie_for_request
+from services.app_security import (
+    NATIVE_CLIENT_ORIGINS,
+    client_ip_for_request,
+    is_trusted_origin,
+    secure_cookie_for_request,
+)
 from services.auth_dependencies import get_current_user
 
 
@@ -21,11 +27,16 @@ def is_native_client_request(request: Request) -> bool:
 
 @router.post("/api/login")
 async def login(req: LoginRequest, response: Response, request: Request):
-    success, msg = authenticate_user(req.username, req.password)
+    success, msg = await run_in_threadpool(
+        authenticate_user,
+        req.username,
+        req.password,
+        client_ip_for_request(request),
+    )
     if not success:
         raise HTTPException(status_code=401, detail=msg)
 
-    token = create_token(req.username)
+    token = await run_in_threadpool(create_token, req.username)
     response.set_cookie(
         key="auth_token",
         value=token,
@@ -38,7 +49,7 @@ async def login(req: LoginRequest, response: Response, request: Request):
         "status": "success",
         "message": "登录成功",
         "username": req.username,
-        "role": get_user_role(req.username),
+        "role": await run_in_threadpool(get_user_role, req.username),
     }
     if is_native_client_request(request):
         payload["token"] = token

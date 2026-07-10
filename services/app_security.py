@@ -13,6 +13,8 @@ import re
 import time
 
 from fastapi import Request, Response
+from fastapi.responses import JSONResponse
+from starlette.requests import ClientDisconnect
 
 from auth import verify_token
 
@@ -23,6 +25,41 @@ SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$")
 RATE_LIMIT = 100
 DEFAULT_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8", "::1/128")
+
+
+def _configured_json_body_limit() -> int:
+    try:
+        configured = int(os.getenv("LAWVER_MAX_JSON_BODY_BYTES", str(40 * 1024 * 1024)))
+    except ValueError:
+        configured = 40 * 1024 * 1024
+    return min(max(configured, 64 * 1024), 256 * 1024 * 1024)
+
+
+MAX_JSON_BODY_BYTES = _configured_json_body_limit()
+LOGIN_JSON_BODY_BYTES = 16 * 1024
+SMALL_CONTROL_JSON_BODY_BYTES = 64 * 1024
+CHAT_JSON_BODY_BYTES = 12 * 1024 * 1024
+
+
+def _json_body_limit_for_path(path: str) -> int:
+    if path == "/api/login":
+        route_limit = LOGIN_JSON_BODY_BYTES
+    elif path in {
+        "/api/admin/accounts",
+        "/api/settings/secret",
+        "/api/settings/secret/clear",
+        "/api/chat/ack",
+        "/api/chat/cancel",
+        "/api/court/memory/clear",
+    }:
+        route_limit = SMALL_CONTROL_JSON_BODY_BYTES
+    elif path in {"/api/chat", "/api/memory/sync", "/api/court/turn"}:
+        route_limit = CHAT_JSON_BODY_BYTES
+    elif path == "/api/summarize":
+        route_limit = 4 * 1024 * 1024
+    else:
+        route_limit = MAX_JSON_BODY_BYTES
+    return min(MAX_JSON_BODY_BYTES, route_limit)
 
 
 def _configured_usage_log_path() -> Path:
@@ -211,6 +248,50 @@ def secure_cookie_for_request(request: Request) -> bool:
     return not is_local_host(request.url.hostname)
 
 
+def _has_json_content_type(request: Request) -> bool:
+    media_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or media_type.endswith("+json")
+
+
+async def _buffer_json_body_with_limit(request: Request, limit: int | None = None) -> Response | None:
+    """Read JSON incrementally so chunked requests cannot bypass the global cap."""
+    limit = MAX_JSON_BODY_BYTES if limit is None else max(int(limit), 0)
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            declared_length = int(content_length)
+        except ValueError:
+            declared_length = -1
+        if declared_length > limit:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": "JSON request body too large", "code": "json_body_too_large"},
+            )
+
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > limit:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "JSON request body too large", "code": "json_body_too_large"},
+                )
+            if chunk:
+                chunks.append(chunk)
+    except ClientDisconnect:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Invalid request body", "code": "invalid_request_body"},
+        )
+
+    # BaseHTTPMiddleware's cached request will replay this bounded body to the
+    # downstream FastAPI parser after the original receive channel is consumed.
+    request._body = b"".join(chunks)
+    return None
+
+
 async def security_and_logging_middleware(request: Request, call_next):
     global last_rate_limit_prune
     client_ip = client_ip_for_request(request)
@@ -229,6 +310,11 @@ async def security_and_logging_middleware(request: Request, call_next):
             return Response(content="Forbidden referer", status_code=403)
         if not origin_trusted and not referer_trusted:
             return Response(content="Missing origin", status_code=403)
+
+    if _has_json_content_type(request):
+        body_error = await _buffer_json_body_with_limit(request, _json_body_limit_for_path(path))
+        if body_error is not None:
+            return body_error
 
     now = time.time()
     if path.startswith("/api") and method != "OPTIONS":

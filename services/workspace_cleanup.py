@@ -12,28 +12,38 @@ from fastapi import FastAPI
 from memory_system import prune_conversation_memory
 from services.conversation_state import active_conversations
 from services.memory_coordinator import call_memory_tool
+from workspace import is_within_directory
 
 
 def safe_listdir(path: str) -> list[str]:
     try:
         return os.listdir(path)
-    except (FileNotFoundError, NotADirectoryError):
+    except OSError:
         return []
 
 
 def cleanup_expired_workspace_dirs(one_hour_ago: float, active_scopes: set[str]):
     for folder in ["TEMP", "Result"]:
-        if not os.path.isdir(folder):
+        root_dir = os.path.abspath(folder)
+        if os.path.islink(root_dir) or not os.path.isdir(root_dir):
             continue
 
-        for user_dir_name in safe_listdir(folder):
-            user_dir = os.path.join(folder, user_dir_name)
-            if not os.path.isdir(user_dir):
+        for user_dir_name in safe_listdir(root_dir):
+            user_dir = os.path.join(root_dir, user_dir_name)
+            if (
+                os.path.islink(user_dir)
+                or not os.path.isdir(user_dir)
+                or not is_within_directory(user_dir, root_dir)
+            ):
                 continue
 
             for conv_id in safe_listdir(user_dir):
                 conv_dir = os.path.join(user_dir, conv_id)
-                if not os.path.isdir(conv_dir):
+                if (
+                    os.path.islink(conv_dir)
+                    or not os.path.isdir(conv_dir)
+                    or not is_within_directory(conv_dir, user_dir)
+                ):
                     continue
 
                 scope = f"{user_dir_name}/{conv_id}"
@@ -43,7 +53,7 @@ def cleanup_expired_workspace_dirs(one_hour_ago: float, active_scopes: set[str])
                 try:
                     mtime = os.path.getmtime(conv_dir)
                     if mtime < one_hour_ago:
-                        shutil.rmtree(conv_dir, ignore_errors=True)
+                        shutil.rmtree(conv_dir)
                         print(f"[清理] 已彻底删除过期会话缓存: {conv_dir}")
                 except Exception as e:
                     print(f"[清理] 删除会话缓存失败 {conv_dir}: {e}")

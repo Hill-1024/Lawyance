@@ -61,8 +61,15 @@ class ToolSchemaCompatibilityTests(unittest.TestCase):
         )
         agent_names = set(registry.names("agent"))
         self.assertFalse(agent_names & set(registry.names("internal")))
-        result = mcps.use_tools("clear_conversation_memory", {}, conv_id="tester/conv")
-        self.assertNotIn("工具不存在", str(result))
+        public_result = mcps.use_tools("clear_conversation_memory", {}, conv_id="tester/conv")
+        internal_result = mcps.use_tools(
+            "clear_conversation_memory",
+            {},
+            conv_id="tester/conv",
+            capability="internal",
+        )
+        self.assertEqual(public_result["error"], "tool_not_authorized")
+        self.assertNotIn("工具不存在", str(internal_result))
 
     def test_ocp_reviewer_tools_are_law_source_subset(self):
         self.assertEqual(

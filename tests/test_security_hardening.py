@@ -102,6 +102,15 @@ class AuthStateConcurrencyTests(unittest.TestCase):
                 auth = importlib.import_module("auth")
                 captured_errors = []
 
+                # Lockout records are only created for real accounts. Reuse the
+                # bootstrap hash so this concurrency test stays focused on the
+                # atomic lockout update rather than password hashing setup.
+                accounts = auth.get_accounts_data()
+                bootstrap_hash = accounts["admin"]["hash"]
+                for index in range(8):
+                    accounts[f"user{index}"] = {"hash": bootstrap_hash, "role": "user"}
+                auth._write_json(auth.ACCOUNT_FILE, accounts)
+
                 def capture_print(*args, **_kwargs):
                     captured_errors.append(" ".join(str(arg) for arg in args))
 
@@ -120,9 +129,21 @@ class AuthStateConcurrencyTests(unittest.TestCase):
                 with open(os.path.join(tmp, "lockout.json"), "r", encoding="utf-8") as f:
                     lockouts = json.load(f)
 
-                self.assertEqual(set(lockouts), {f"user{i}" for i in range(8)})
-                self.assertTrue(all(item["fails"] == 3 for item in lockouts.values()))
-                self.assertTrue(all(item["locked_until"] > 0 for item in lockouts.values()))
+                # Each real account has an aggregate account bucket and a
+                # username/client bucket.
+                self.assertEqual(len(lockouts), 16)
+                self.assertTrue(all(key.startswith("v2:") and len(key) == 67 for key in lockouts))
+                for index in range(8):
+                    username = f"user{index}"
+                    client_record = lockouts[auth._client_lockout_key(username, "unknown")]
+                    account_record = lockouts[auth._account_lockout_key(username)]
+                    self.assertEqual(client_record["fails"], auth.LOCKOUT_FAIL_LIMIT)
+                    self.assertGreater(client_record["locked_until"], 0)
+                    self.assertGreaterEqual(account_record["fails"], auth.LOCKOUT_FAIL_LIMIT)
+                    self.assertLessEqual(
+                        account_record["fails"],
+                        auth.ACCOUNT_LOCKOUT_PROGRESSIVE_START,
+                    )
             finally:
                 sys.modules.pop("auth", None)
                 for key, value in old_env.items():

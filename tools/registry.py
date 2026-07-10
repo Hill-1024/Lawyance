@@ -11,6 +11,8 @@ import json
 
 ToolHandler = Callable[[dict[str, Any], str | None], Any]
 ToolCoercer = Callable[[str], dict[str, Any]]
+TRUSTED_INTERNAL_CAPABILITY = "internal"
+AUTHORIZATION_ERROR = "tool_not_authorized"
 
 
 @dataclass(frozen=True)
@@ -74,10 +76,24 @@ class ToolRegistry:
             return {}
         return arguments
 
-    def dispatch(self, function_name: str, arguments: Any, workspace_scope: str | None = None) -> Any:
+    def dispatch(
+        self,
+        function_name: str,
+        arguments: Any,
+        workspace_scope: str | None = None,
+        *,
+        capability: str | None = None,
+    ) -> Any:
         entry = self._by_name.get(function_name)
         if not entry:
             return function_name + "工具不存在,请重新检查"
+        if capability != TRUSTED_INTERNAL_CAPABILITY and capability not in entry.exposure:
+            return {
+                "ok": False,
+                "error": AUTHORIZATION_ERROR,
+                "tool": function_name,
+                "capability": capability or "missing",
+            }
         normalized_arguments = self.coerce_arguments(function_name, arguments)
         return entry.handler(normalized_arguments, workspace_scope)
 

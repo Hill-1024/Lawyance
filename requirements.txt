@@ -1,4 +1,4 @@
-fastapi
+fastapi>=0.139.0
 uvicorn[standard]
 pydantic
 openai
@@ -9,5 +9,5 @@ dateparser
 tldextract
 PyMuPDF
 python-docx
-python-multipart
+python-multipart>=0.0.31
 docxtpl>=0.18.0

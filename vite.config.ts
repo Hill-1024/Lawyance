@@ -10,6 +10,7 @@ import { readFileSync } from 'fs'
 
 const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const devServerPort = Number(process.env.LAWVER_VITE_PORT || 5173)
+const devServerHost = process.env.LAWVER_VITE_HOST || '127.0.0.1'
 const apiProxyTarget = process.env.LAWVER_API_PROXY_TARGET || 'http://localhost:8080'
 const buildEnvironment = process.env.LAWVER_BUILD_ENV
   || packageJson.appConfig?.environment
@@ -37,7 +38,7 @@ export default defineConfig({
   server: {
     port: devServerPort,
     strictPort: true,
-    host: '0.0.0.0',
+    host: devServerHost,
     watch: {
       ignored: ['**/sessions.json', '**/titles.json'],
     },

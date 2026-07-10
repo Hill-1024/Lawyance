@@ -7,13 +7,13 @@ requires-python = ">=3.13"
 dependencies = [
     "dateparser>=1.4.0",
     "docxtpl>=0.18.0",
-    "fastapi>=0.135.2",
+    "fastapi>=0.139.0",
     "openai>=2.29.0",
     "pydantic>=2.12.5",
     "PyMuPDF>=1.27.2",
     "python-docx>=1.2.0",
     "python-dotenv>=1.2.2",
-    "python-multipart>=0.0.24",
+    "python-multipart>=0.0.31",
     "requests>=2.34.2",
     "tldextract>=5.3.1",
     "trafilatura>=2.0.0",
@@ -34,4 +34,3 @@ extraPaths = ["."]
 [tool.pyrefly]
 search-path = ["."]
 disable-search-path-heuristics = true
-

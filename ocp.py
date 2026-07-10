@@ -124,7 +124,13 @@ def _remaining_seconds(deadline: float) -> float:
 async def _run_ocp_tool(function_name: str, arguments: dict, session_id: str):
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(use_tools, function_name, arguments, conv_id=session_id),
+            asyncio.to_thread(
+                use_tools,
+                function_name,
+                arguments,
+                conv_id=session_id,
+                capability="ocp_reviewer",
+            ),
             timeout=OCP_TOOL_TIMEOUT,
         )
     except asyncio.TimeoutError:

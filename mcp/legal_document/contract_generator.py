@@ -27,6 +27,7 @@ from .logger import (
     log_generation_complete,
     log_generation_error,
     log_generation_start,
+    log_unexpected_error,
 )
 from .validator import evaluate_soft_constraints, validate_blocks
 from workspace import WorkspacePathError, validate_workspace_scope
@@ -149,6 +150,7 @@ _CONTRACT_GUIDE = {
 }
 
 _OUTPUT_NAME_SAFE = re.compile(r"[^\w一-龥\-]+")
+_MAX_OUTPUT_NAME_CHARS = 120
 
 # 合同不宜内容检测正则：(pattern, 告警描述)
 _CONTRACT_PROHIBITED_PATTERNS = [
@@ -223,7 +225,7 @@ def _make_error_response(error: LegalDocumentError, meta: dict | None = None) ->
 
 
 def _sanitize_output_name(name: str) -> str:
-    name = name.strip()
+    name = name.strip()[:_MAX_OUTPUT_NAME_CHARS]
     name = _OUTPUT_NAME_SAFE.sub("_", name)
     return name.strip("_") or "定制合同"
 
@@ -276,6 +278,12 @@ def compose_contract(
     """根据 blocks 数组渲染定制化合同 DOCX。"""
     start_time = time.time()
 
+    if output_name is not None and (
+        not isinstance(output_name, str) or len(output_name) > _MAX_OUTPUT_NAME_CHARS
+    ):
+        error = FieldValidationError("定制合同", ["output_name 必须是长度不超过 120 的字符串"])
+        return _make_error_response(error)
+
     try:
         normalized_blocks = validate_blocks(blocks, "定制合同")
     except FieldValidationError as e:
@@ -301,9 +309,10 @@ def compose_contract(
 
     try:
         compose_stats = compose_docx(normalized_blocks, output_path)
-    except Exception as e:
+    except Exception as exc:
         duration_ms = (time.time() - start_time) * 1000
-        error = DocumentGenerationError("定制合同", "DOCX 渲染失败: {}".format(e))
+        log_unexpected_error("render_contract", exc, generation_id)
+        error = DocumentGenerationError("定制合同", "DOCX 渲染失败，请稍后重试。")
         log_generation_error(generation_id, error, duration_ms)
         return _make_error_response(error, meta={
             "generation_id": generation_id, "duration_ms": round(duration_ms, 1),

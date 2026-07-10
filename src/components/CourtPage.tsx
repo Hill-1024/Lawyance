@@ -108,7 +108,7 @@ const CourtSidebar: React.FC<{
             {!isDesktopLayout && (
               <button
                 onClick={() => setIsOpen(false)}
-                className="lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-10 sm:w-10"
+                className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
                 aria-label="关闭庭审列表"
               >
                 <X size={20} strokeWidth={2} className="sm:size-[22px]" />
@@ -176,7 +176,7 @@ const CourtSidebar: React.FC<{
                       <HoverInfo label="删除庭审" placement="top">
                         <button
                           onClick={() => onDelete(session.id)}
-                          className="lawver-pressable mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:opacity-0 lg:group-hover:opacity-100"
+                          className="lawver-pressable mr-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:h-8 lg:w-8 lg:opacity-0 lg:group-hover:opacity-100"
                           aria-label="删除庭审"
                         >
                           <Trash2 size={15} strokeWidth={2} />
@@ -272,7 +272,7 @@ const CourtCasePanel: React.FC<{
             </h3>
             <button
               onClick={() => setIsOpen(false)}
-              className="lawver-pressable rounded-full p-1.5 text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
+              className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
               aria-label="关闭案件面板"
             >
               <X size={18} strokeWidth={2} />
@@ -365,7 +365,7 @@ const CourtCasePanel: React.FC<{
                 <h4 className="t-label-s t-weak">共享文件</h4>
                 <button
                   onClick={onRequestUpload}
-                  className="lawver-pressable inline-flex items-center gap-1 rounded-full px-2 py-1 text-[12px] font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent-quiet)]"
+                  className="lawver-pressable inline-flex min-h-11 items-center gap-1 rounded-full px-3 py-1 text-[12px] font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent-quiet)]"
                 >
                   <Upload size={13} strokeWidth={2} />
                   上传
@@ -390,7 +390,7 @@ const CourtCasePanel: React.FC<{
                           <HoverInfo label="下载" placement="top">
                             <button
                               onClick={() => handleDownload(file)}
-                              className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
+                              className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)] lg:h-8 lg:w-8"
                               aria-label="下载文件"
                             >
                               <Download size={14} strokeWidth={2} />
@@ -399,7 +399,7 @@ const CourtCasePanel: React.FC<{
                           <HoverInfo label="删除" placement="top">
                             <button
                               onClick={() => onDeleteFile(file.path)}
-                              className="lawver-pressable inline-flex h-7 w-7 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+                              className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:h-8 lg:w-8"
                               aria-label="删除文件"
                             >
                               <Trash2 size={14} strokeWidth={2} />
@@ -484,11 +484,11 @@ const CourtComposerDock: React.FC<{
   const canSend = value.trim().length > 0 && !trialOver && !isUploadingFiles;
 
   return (
-    <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-[calc(0.75rem+var(--safe-bottom))] pt-2.5 sm:px-5">
-      <div className="mx-auto w-full max-w-3xl">
+    <div className="lawver-court-composer shrink-0 overflow-x-hidden border-t border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-[calc(0.75rem+var(--safe-bottom))] pt-2.5 sm:px-5">
+      <div className="mx-auto w-full min-w-0 max-w-3xl">
         {/* 阶段控制条 */}
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="mb-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-3">
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1">
             <span className="md3-chip md3-chip-primary shrink-0">{phaseLabel(state.phase)}</span>
             {pendingCount > 0 && (
               <HoverInfo label="插话已排队，当前发言结束后会进入公开记录并由法官优先处理" placement="top">
@@ -507,7 +507,7 @@ const CourtComposerDock: React.FC<{
           </div>
 
           {!trialOver && (
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center sm:justify-end sm:gap-1.5">
               <HoverInfo
                 label={
                   userAgentEnabled
@@ -517,8 +517,9 @@ const CourtComposerDock: React.FC<{
                 placement="top"
               >
                 <button
+                  type="button"
                   onClick={() => onSetUserAgentMode(!userAgentEnabled)}
-                  className={`lawver-pressable inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+                  className={`lawver-pressable inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium transition-colors sm:min-h-10 sm:w-auto ${
                     userAgentEnabled
                       ? 'bg-[rgba(44,118,112,0.14)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
                       : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
@@ -531,24 +532,27 @@ const CourtComposerDock: React.FC<{
 
               <HoverInfo label="跳过当前阶段，请法庭推进" placement="top">
                 <button
+                  type="button"
                   onClick={onForceAdvance}
                   disabled={isRunning}
-                  className="lawver-pressable inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-40 dark:hover:bg-white/[0.06]"
+                  className="lawver-pressable inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-40 dark:hover:bg-white/[0.06] sm:min-h-10 sm:w-auto"
                 >
                   <ChevronsRight size={15} strokeWidth={2} />
                   推进阶段
                 </button>
               </HoverInfo>
 
-              <div className="flex rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-0.5">
+              <div className="col-span-2 grid w-full grid-cols-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-0.5 sm:flex sm:w-auto">
                 {(['manual', 'auto'] as const).map(mode => {
                   const isAuto = mode === 'auto';
                   const active = session.auto_mode === isAuto;
                   return (
                     <button
                       key={mode}
+                      type="button"
                       onClick={() => onSetAutoMode(isAuto)}
-                      className={`lawver-pressable rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                      aria-pressed={active}
+                      className={`lawver-pressable min-h-11 rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors sm:min-h-9 ${
                         active ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'
                       }`}
                     >
@@ -560,9 +564,10 @@ const CourtComposerDock: React.FC<{
 
               {!session.auto_mode && (
                 <button
+                  type="button"
                   onClick={onRunNext}
                   disabled={isRunning || (awaitingUser && !userAgentEnabled)}
-                  className="md3-btn-tonal lawver-pressable !px-3.5 !py-1.5 text-[13px]"
+                  className="md3-btn-tonal lawver-pressable min-h-11 w-full !px-3.5 !py-1.5 text-[13px] sm:min-h-10 sm:w-auto"
                 >
                   <Play size={15} strokeWidth={2} />
                   继续
@@ -576,6 +581,7 @@ const CourtComposerDock: React.FC<{
         <div className="lawver-composer-shell">
           <HoverInfo label="上传共享文件" placement="top">
             <button
+              type="button"
               onClick={onRequestUpload}
               disabled={trialOver}
               className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-40 dark:hover:bg-white/[0.06]"
@@ -595,6 +601,7 @@ const CourtComposerDock: React.FC<{
             className="composer-textarea lawver-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:outline-none disabled:opacity-60"
           />
           <button
+            type="button"
             onClick={onSend}
             disabled={!canSend}
             className={`lawver-composer-action lawver-pressable transition-colors ${
@@ -642,6 +649,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
   } = useCourtSession(true);
 
   const workspace = useWorkspace(currentCourtId, Boolean(currentCourtId));
+  const { showAlert } = useAppDialog();
   const isDesktopLayout = windowWidth >= 1024;
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => windowWidth >= 1024);
@@ -706,12 +714,32 @@ export const CourtPage: React.FC<CourtPageProps> = ({
   const openFilePicker = () => fileInputRef.current?.click();
 
   const handleUploadFiles = async (files: FileList | null) => {
-    if (!files || !currentCourtId) return;
-    for (const file of Array.from(files)) {
-      await workspace.handleFileUpload(file);
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    try {
+      const selectedFiles = Array.from(files || []);
+      if (selectedFiles.length === 0 || !currentCourtId) return;
+
+      const results = await Promise.allSettled(
+        selectedFiles.map(file => workspace.handleFileUpload(file))
+      );
+      const rejected = results.flatMap((result, index) => {
+        if (result.status === 'fulfilled') return [];
+        const reason = result.reason instanceof Error
+          ? result.reason.message
+          : String(result.reason || '未知错误');
+        return [`${selectedFiles[index]?.name || '未命名文件'}：${reason}`];
+      });
+
+      if (rejected.length > 0) {
+        await showAlert({
+          title: rejected.length === selectedFiles.length ? '文件上传未完成' : '部分文件上传未完成',
+          message: `已处理 ${selectedFiles.length - rejected.length} 个，未完成 ${rejected.length} 个。\n${rejected.join('\n')}`,
+          tone: 'danger',
+        });
+      }
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -747,7 +775,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
           <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+              className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
               aria-label="庭审列表"
             >
               <Menu size={20} strokeWidth={2} className="sm:size-[22px]" />
@@ -766,7 +794,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
               <HoverInfo label="案件面板" placement="bottom">
                 <button
                   onClick={() => setIsCasePanelOpen(!isCasePanelOpen)}
-                  className={`lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${
+                  className={`lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
                     isCasePanelOpen
                       ? 'bg-[var(--accent-quiet)] text-[var(--accent)]'
                       : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
@@ -785,7 +813,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
             <HoverInfo label="设置" placement="bottom">
               <button
                 onClick={onSettingsClick}
-                className="lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+                className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
                 aria-label="设置"
               >
                 <Settings size={18} strokeWidth={2} className="sm:size-5" />

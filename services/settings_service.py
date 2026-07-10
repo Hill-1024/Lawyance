@@ -4,15 +4,58 @@
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 import requests
 
 DATA_DIR = os.environ.get("LAWVER_DATA_DIR") or os.path.join(os.getcwd(), "data")
-os.makedirs(DATA_DIR, exist_ok=True)
 SETTINGS_FILE = Path(DATA_DIR) / "settings.json"
 SECRETS_FILE = Path(DATA_DIR) / "secrets.json"
 _SETTINGS_LOCK = threading.RLock()
+PRIVATE_DIR_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
+
+
+def _ensure_private_data_dir() -> None:
+    SETTINGS_FILE.parent.mkdir(parents=True, mode=PRIVATE_DIR_MODE, exist_ok=True)
+    os.chmod(SETTINGS_FILE.parent, PRIVATE_DIR_MODE)
+
+
+def _harden_private_file(path: Path) -> None:
+    try:
+        os.chmod(path, PRIVATE_FILE_MODE)
+    except FileNotFoundError:
+        return
+
+
+def _atomic_write_private_json(path: Path, payload: dict) -> None:
+    _ensure_private_data_dir()
+    tmp_path = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}.tmp"
+    )
+    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, PRIVATE_FILE_MODE)
+    try:
+        os.fchmod(fd, PRIVATE_FILE_MODE)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            fd = -1
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+        _harden_private_file(path)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+_ensure_private_data_dir()
+_harden_private_file(SETTINGS_FILE)
+_harden_private_file(SECRETS_FILE)
 
 PROVIDER_SPECS = {
     "llm": {
@@ -100,6 +143,7 @@ def _env_value(*names: str) -> str:
 
 def _read_settings() -> dict:
     if SETTINGS_FILE.exists():
+        _harden_private_file(SETTINGS_FILE)
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -177,13 +221,13 @@ def get_settings() -> dict:
     """返回当前设置快照，仅暴露非敏感字段。"""
     with _SETTINGS_LOCK:
         saved = _normalized_saved_settings()
-    return {
-        "version": saved.get("version", 1),
-        "providers": {
-            key: _merge_saved_and_env_fields(key, include_secrets=False)
-            for key in PROVIDER_SPECS
-        },
-    }
+        return {
+            "version": saved.get("version", 1),
+            "providers": {
+                key: _merge_saved_and_env_fields(key, include_secrets=False)
+                for key in PROVIDER_SPECS
+            },
+        }
 
 
 def get_provider_runtime_config(provider_key: str) -> dict:
@@ -198,30 +242,23 @@ def update_settings(payload: dict) -> dict:
     """管理员保存 provider 配置。只接受 providers 子项。"""
     with _SETTINGS_LOCK:
         current = _normalized_saved_settings()
-    new_providers = payload.get("providers", {})
-    if not isinstance(new_providers, dict):
-        raise ValueError("providers 必须是对象")
-    current_providers = current.setdefault("providers", {})
-    for key, value in new_providers.items():
-        if key not in PROVIDER_SPECS:
-            continue
-        if not isinstance(value, dict):
-            raise ValueError(f"{key} 配置必须是对象")
-        allowed_fields = {"enabled", *PROVIDER_SPECS[key]["config_env"].keys()}
-        merged = dict(current_providers.get(key, {}))
-        for field in allowed_fields:
-            if field in value:
-                merged[field] = value[field]
-        current_providers[key] = merged
-    with _SETTINGS_LOCK:
-        os.makedirs(SETTINGS_FILE.parent, exist_ok=True)
-        tmp = str(SETTINGS_FILE) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(current, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, SETTINGS_FILE)
-    return get_settings()
+        new_providers = payload.get("providers", {})
+        if not isinstance(new_providers, dict):
+            raise ValueError("providers 必须是对象")
+        current_providers = current.setdefault("providers", {})
+        for key, value in new_providers.items():
+            if key not in PROVIDER_SPECS:
+                continue
+            if not isinstance(value, dict):
+                raise ValueError(f"{key} 配置必须是对象")
+            allowed_fields = {"enabled", *PROVIDER_SPECS[key]["config_env"].keys()}
+            merged = dict(current_providers.get(key, {}))
+            for field in allowed_fields:
+                if field in value:
+                    merged[field] = value[field]
+            current_providers[key] = merged
+        _atomic_write_private_json(SETTINGS_FILE, current)
+        return get_settings()
 
 
 def get_provider_statuses() -> list[dict]:
@@ -271,6 +308,7 @@ def test_provider_connection(key: str) -> dict:
 
 def _read_secrets() -> dict:
     if SECRETS_FILE.exists():
+        _harden_private_file(SECRETS_FILE)
         try:
             with open(SECRETS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -280,18 +318,18 @@ def _read_secrets() -> dict:
 
 
 def set_secret(provider: str, key: str, value: str):
+    _validate_secret_target(provider, key)
     with _SETTINGS_LOCK:
         secrets = _read_secrets()
         secrets.setdefault(provider, {})[key] = value
-        tmp = str(SECRETS_FILE) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(secrets, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, SECRETS_FILE)
+        _atomic_write_private_json(SECRETS_FILE, secrets)
 
 
 def clear_secret(provider: str, key: str | None = None):
+    if provider not in PROVIDER_SPECS:
+        raise ValueError("未知的 provider")
+    if key is not None:
+        _validate_secret_target(provider, key)
     with _SETTINGS_LOCK:
         secrets = _read_secrets()
         if key:
@@ -300,17 +338,20 @@ def clear_secret(provider: str, key: str | None = None):
                 secrets.pop(provider, None)
         else:
             secrets.pop(provider, None)
-        tmp = str(SECRETS_FILE) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(secrets, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, SECRETS_FILE)
+        _atomic_write_private_json(SECRETS_FILE, secrets)
 
 
 def get_secret(provider: str, key: str) -> str | None:
     secrets = _read_secrets()
     return secrets.get(provider, {}).get(key)
+
+
+def _validate_secret_target(provider: str, key: str) -> None:
+    spec = PROVIDER_SPECS.get(provider)
+    if not spec:
+        raise ValueError("未知的 provider")
+    if key not in spec["secret_env"]:
+        raise ValueError("该 provider 不支持此密钥字段")
 
 
 def fetch_llm_models() -> list[dict]:

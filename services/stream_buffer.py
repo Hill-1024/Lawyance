@@ -29,11 +29,57 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-MAX_STREAMS_PER_USER = _env_int("LAWVER_RESUME_MAX_STREAMS_PER_USER", 3)
-MAX_BYTES_PER_STREAM = _env_int("LAWVER_RESUME_MAX_BYTES_PER_STREAM", 2 * 1024 * 1024)
-MAX_BYTES_GLOBAL = _env_int("LAWVER_RESUME_MAX_BYTES_GLOBAL", 128 * 1024 * 1024)
-TTL_SECONDS = _env_int("LAWVER_RESUME_TTL_SECONDS", 45 * 60)
-SWEEP_SECONDS = _env_int("LAWVER_RESUME_SWEEP_SECONDS", 60)
+HARD_MAX_STREAMS_PER_USER = 32
+HARD_MAX_BYTES_PER_STREAM = 8 * 1024 * 1024
+HARD_MAX_BYTES_GLOBAL = 512 * 1024 * 1024
+HARD_MAX_TTL_SECONDS = 24 * 60 * 60
+HARD_MAX_READERS_PER_STREAM = 16
+HARD_MAX_READER_QUEUE_EVENTS = 256
+HARD_MAX_READER_QUEUE_BYTES = 4 * 1024 * 1024
+HARD_MAX_EVENTS_PER_STREAM = 8192
+MAX_STREAMS_PER_USER = min(
+    max(_env_int("LAWVER_RESUME_MAX_STREAMS_PER_USER", 3), 1),
+    HARD_MAX_STREAMS_PER_USER,
+)
+MAX_BYTES_PER_STREAM = min(
+    max(_env_int("LAWVER_RESUME_MAX_BYTES_PER_STREAM", 2 * 1024 * 1024), 64 * 1024),
+    HARD_MAX_BYTES_PER_STREAM,
+)
+MAX_BYTES_GLOBAL = min(
+    max(_env_int("LAWVER_RESUME_MAX_BYTES_GLOBAL", 128 * 1024 * 1024), 1024 * 1024),
+    HARD_MAX_BYTES_GLOBAL,
+)
+TTL_SECONDS = min(
+    max(_env_int("LAWVER_RESUME_TTL_SECONDS", 45 * 60), 60),
+    HARD_MAX_TTL_SECONDS,
+)
+SWEEP_SECONDS = min(max(_env_int("LAWVER_RESUME_SWEEP_SECONDS", 60), 1), 60 * 60)
+MAX_READERS_PER_STREAM = min(
+    max(_env_int("LAWVER_RESUME_MAX_READERS_PER_STREAM", 4), 1),
+    HARD_MAX_READERS_PER_STREAM,
+)
+MAX_READER_QUEUE_EVENTS = min(
+    max(_env_int("LAWVER_RESUME_MAX_READER_QUEUE_EVENTS", 64), 1),
+    HARD_MAX_READER_QUEUE_EVENTS,
+)
+MAX_READER_QUEUE_BYTES = min(
+    max(_env_int("LAWVER_RESUME_MAX_READER_QUEUE_BYTES", 1024 * 1024), 64 * 1024),
+    HARD_MAX_READER_QUEUE_BYTES,
+)
+MAX_EVENTS_PER_STREAM = min(
+    max(_env_int("LAWVER_RESUME_MAX_EVENTS_PER_STREAM", 2048), 1),
+    HARD_MAX_EVENTS_PER_STREAM,
+)
+
+
+@dataclass
+class ReaderState:
+    # 额外预留一个终止槽，保证 finish/delete 不会因数据槽已满而 QueueFull。
+    queue: asyncio.Queue[Optional[dict[str, Any]]] = field(
+        default_factory=lambda: asyncio.Queue(maxsize=MAX_READER_QUEUE_EVENTS + 1)
+    )
+    closed: bool = False
+    byte_count: int = 0
 
 
 @dataclass
@@ -50,7 +96,7 @@ class StreamState:
     byte_count: int = 0
     task: Optional[asyncio.Task] = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    readers: dict[int, asyncio.Queue[Optional[dict[str, Any]]]] = field(default_factory=dict)
+    readers: dict[int, ReaderState] = field(default_factory=dict)
     truncated: bool = False
     truncated_at_seq: Optional[int] = None
 
@@ -71,6 +117,47 @@ def _user_stream_count(user: str) -> int:
     return len(_USER_STREAMS.get(user, set()))
 
 
+def _drain_reader_queue(reader: ReaderState) -> None:
+    while True:
+        try:
+            reader.queue.get_nowait()
+        except asyncio.QueueEmpty:
+            reader.byte_count = 0
+            return
+
+
+def _close_reader(reader: ReaderState) -> None:
+    if reader.closed:
+        return
+    reader.closed = True
+    try:
+        reader.queue.put_nowait(None)
+    except asyncio.QueueFull:
+        # 正常情况下终止槽始终保留；这里仍采用 fail-closed 清空，确保清理路径
+        # 永不因 QueueFull 泄漏状态或打断 sweep/shutdown。
+        _drain_reader_queue(reader)
+        reader.queue.put_nowait(None)
+
+
+def _disconnect_slow_reader(
+    state: StreamState,
+    reader_id: int,
+    reader: ReaderState,
+    event_seq: int,
+) -> None:
+    reader.closed = True
+    _drain_reader_queue(reader)
+    unavailable = {
+        "type": "resume_unavailable",
+        "seq": max(event_seq, 0),
+        "reason": "slow_reader",
+        "stream_id": state.stream_id,
+    }
+    reader.queue.put_nowait(unavailable)
+    reader.byte_count = _payload_size(unavailable)
+    state.readers.pop(reader_id, None)
+
+
 def _remove_state(stream_id: str) -> Optional[StreamState]:
     global _GLOBAL_BYTES
     state = _REGISTRY.pop(stream_id, None)
@@ -83,8 +170,8 @@ def _remove_state(stream_id: str) -> Optional[StreamState]:
             _USER_STREAMS.pop(state.user, None)
     _GLOBAL_BYTES = max(0, _GLOBAL_BYTES - state.byte_count)
     state.byte_count = 0
-    for queue in list(state.readers.values()):
-        queue.put_nowait(None)
+    for reader in list(state.readers.values()):
+        _close_reader(reader)
     state.readers.clear()
     return state
 
@@ -139,6 +226,10 @@ async def append(stream_id: str, payload: dict[str, Any]) -> int:
 
         size = _payload_size(event)
         should_store = not state.truncated
+        if should_store and len(state.events) >= MAX_EVENTS_PER_STREAM:
+            should_store = False
+            state.truncated = True
+            state.truncated_at_seq = seq
         if MAX_BYTES_PER_STREAM and state.byte_count + size > MAX_BYTES_PER_STREAM:
             should_store = False
             state.truncated = True
@@ -156,8 +247,20 @@ async def append(stream_id: str, payload: dict[str, Any]) -> int:
                 state.byte_count += size
                 _GLOBAL_BYTES += size
 
-        for queue in list(state.readers.values()):
-            queue.put_nowait(event)
+        for reader_id, reader in list(state.readers.items()):
+            if reader.closed:
+                continue
+            if (
+                reader.queue.qsize() >= MAX_READER_QUEUE_EVENTS
+                or reader.byte_count + size > MAX_READER_QUEUE_BYTES
+            ):
+                _disconnect_slow_reader(state, reader_id, reader, seq)
+                continue
+            try:
+                reader.queue.put_nowait(event)
+                reader.byte_count += size
+            except asyncio.QueueFull:
+                _disconnect_slow_reader(state, reader_id, reader, seq)
         return seq
 
 
@@ -170,8 +273,8 @@ async def finish(stream_id: str, error: Optional[str] = None) -> None:
         state.error = error
         if state.final_seq is None:
             state.final_seq = max(state.next_seq - 1, -1)
-        for queue in list(state.readers.values()):
-            queue.put_nowait(None)
+        for reader in list(state.readers.values()):
+            _close_reader(reader)
 
 
 async def get(stream_id: str, user: str) -> Optional[StreamState]:
@@ -187,7 +290,7 @@ async def reader(stream_id: str, from_seq: int) -> AsyncIterator[dict[str, Any]]
     if state is None:
         return
 
-    queue: asyncio.Queue[Optional[dict[str, Any]]] = asyncio.Queue()
+    reader_state = ReaderState()
     reader_id: Optional[int] = None
     async with state.lock:
         truncated_upper_bound = state.final_seq if state.final_seq is not None else state.next_seq - 1
@@ -200,6 +303,14 @@ async def reader(stream_id: str, from_seq: int) -> AsyncIterator[dict[str, Any]]
             }
             replay: list[dict[str, Any]] = [unavailable]
             is_done = True
+        elif len(state.readers) >= MAX_READERS_PER_STREAM:
+            replay = [{
+                "type": "resume_unavailable",
+                "seq": max(from_seq + 1, 0),
+                "reason": "reader_limit",
+                "stream_id": stream_id,
+            }]
+            is_done = True
         else:
             replay = [dict(payload) for seq, payload in state.events if seq > from_seq]
             is_done = state.done
@@ -207,7 +318,7 @@ async def reader(stream_id: str, from_seq: int) -> AsyncIterator[dict[str, Any]]
         if not is_done:
             _READER_ID += 1
             reader_id = _READER_ID
-            state.readers[reader_id] = queue
+            state.readers[reader_id] = reader_state
 
     for payload in replay:
         seq = int(payload.get("seq", -1))
@@ -220,12 +331,15 @@ async def reader(stream_id: str, from_seq: int) -> AsyncIterator[dict[str, Any]]
 
     try:
         while True:
-            event = await queue.get()
+            event = await reader_state.queue.get()
             if event is None:
                 break
+            reader_state.byte_count = max(0, reader_state.byte_count - _payload_size(event))
             if int(event.get("seq", -1)) > from_seq:
                 from_seq = int(event["seq"])
                 yield dict(event)
+            if event.get("type") == "resume_unavailable" and event.get("reason") == "slow_reader":
+                break
     finally:
         if reader_id is not None:
             async with state.lock:
@@ -290,11 +404,15 @@ async def produce(stream_id: str, prepared: PreparedChatTurn) -> None:
     except asyncio.CancelledError:
         await finish(stream_id, error="cancelled")
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("Buffered chat stream failed for %s", stream_id)
-        await append(stream_id, {"type": "error", "content": str(exc)})
+        await append(stream_id, {
+            "type": "error",
+            "code": "chat_generation_failed",
+            "content": "聊天处理失败，请稍后重试。",
+        })
         await append(stream_id, {"type": "done"})
-        await finish(stream_id, error=str(exc))
+        await finish(stream_id, error="chat_generation_failed")
 
 
 async def sweep_once(now: Optional[float] = None) -> int:
