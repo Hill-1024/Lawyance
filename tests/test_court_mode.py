@@ -215,22 +215,22 @@ class CourtModeTests(unittest.IsolatedAsyncioTestCase):
         court_pipeline = importlib.import_module("services.court_pipeline")
         calls = []
 
-        def fake_use_tools(name, args, conv_id=None):
-            calls.append((name, conv_id))
+        def fake_dispatch(name, args, workspace_scope=None, *, capability=None):
+            calls.append((name, workspace_scope, capability))
             return "ok"
 
-        original_use_tools = court_pipeline.use_tools
+        original_dispatch = court_pipeline.registry.dispatch
         try:
-            court_pipeline.use_tools = fake_use_tools
+            court_pipeline.registry.dispatch = fake_dispatch
             executor = court_pipeline.build_court_tool_executor("user/court", "user/court:judge")
             executor("retrieve_conversation_memory", {"query": "争点"})
             executor("pdf_text_reader", {"pdf_path": "TEMP/user/court/a.pdf"})
         finally:
-            court_pipeline.use_tools = original_use_tools
+            court_pipeline.registry.dispatch = original_dispatch
 
         self.assertEqual(calls, [
-            ("retrieve_conversation_memory", "user/court:judge"),
-            ("pdf_text_reader", "user/court"),
+            ("retrieve_conversation_memory", "user/court:judge", "court"),
+            ("pdf_text_reader", "user/court", "court"),
         ])
 
     async def test_role_scopes_are_derived_from_user_workspace_scope(self):

@@ -63,3 +63,14 @@ def log_generation_error(generation_id: str, error: LegalDocumentError, duration
     _logger.error(
         "Generation ERROR | generation_id=%s | duration_ms=%.1f | error_code=%s | error_message=%s",
         generation_id, duration_ms, error.code, error.message)
+
+
+def log_unexpected_error(operation: str, error: Exception, generation_id: str | None = None) -> None:
+    """Keep diagnostics server-side while callers receive a stable error."""
+    _logger.error(
+        "Unexpected failure | operation=%s | generation_id=%s | error_type=%s",
+        operation,
+        generation_id or "-",
+        type(error).__name__,
+        exc_info=(type(error), error, error.__traceback__),
+    )

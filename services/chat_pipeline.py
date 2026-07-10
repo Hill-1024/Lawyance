@@ -6,9 +6,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
+import asyncio
 import copy
 import inspect
 import json
+import logging
 import re
 import time
 import uuid
@@ -33,6 +35,10 @@ from services.memory_coordinator import (
     sync_memory_cache,
 )
 from services.workspace_service import get_workspace_scope
+
+
+logger = logging.getLogger(__name__)
+CHAT_FAILURE_MESSAGE = "聊天处理失败，请稍后重试。"
 
 
 @dataclass
@@ -87,7 +93,8 @@ async def load_memory_context(
     request: ChatRequest,
 ) -> CompiledContext:
     memory_sync_mode = select_memory_sync_mode(request)
-    sync_memory_cache(
+    await asyncio.to_thread(
+        sync_memory_cache,
         workspace_scope,
         request.memory_snapshot,
         messages=sanitized_history if memory_sync_mode == "rebuild" else None,
@@ -95,7 +102,7 @@ async def load_memory_context(
         expected_revision=request.expected_revision,
         memory_conflict_strategy=request.memory_conflict_strategy,
     )
-    memory_context, payload = retrieve_memory_context(workspace_scope, content)
+    memory_context, payload = await asyncio.to_thread(retrieve_memory_context, workspace_scope, content)
     compiled = await compile_context(
         content=content,
         history=sanitized_history,
@@ -237,7 +244,8 @@ async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
                     elif chunk_type == "memory_candidate":
                         if not memory_written:
                             yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "正在整理记忆"}
-                            memory_payload = persist_turn(
+                            memory_payload = await asyncio.to_thread(
+                                persist_turn,
                                 prepared.workspace_scope,
                                 prepared.content,
                                 str(chunk.get("content") or full_result),
@@ -266,16 +274,22 @@ async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
 
         if not awaiting_user_choice and not memory_written:
             yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "正在整理记忆"}
-            memory_payload = persist_turn(prepared.workspace_scope, prepared.content, full_result, prepared.turn_id)
+            memory_payload = await asyncio.to_thread(
+                persist_turn,
+                prepared.workspace_scope,
+                prepared.content,
+                full_result,
+                prepared.turn_id,
+            )
             if memory_payload.get("memory"):
                 yield {"type": "memory_sync", "content": memory_payload["memory"]}
             yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "记忆整理完成"}
         usage_payload = usage_accumulator.payload()
         if usage_payload:
             yield {"type": "context_usage", "content": usage_payload}
-    except Exception as e:
-        print(f"[聊天流生成失败]: {type(e).__name__}: {e}")
-        yield {"type": "error", "content": str(e)}
+    except Exception:
+        logger.exception("Chat stream generation failed")
+        yield {"type": "error", "code": "chat_generation_failed", "content": CHAT_FAILURE_MESSAGE}
     finally:
         reset_current_memory_turn_id(turn_token)
 
@@ -312,7 +326,8 @@ async def run_agent_once(prepared: PreparedChatTurn) -> dict:
                         if isinstance(messages, list):
                             context_messages.extend(messages)
                     elif chunk.get("type") == "memory_candidate" and not memory_written:
-                        memory_payload = persist_turn(
+                        memory_payload = await asyncio.to_thread(
+                            persist_turn,
                             prepared.workspace_scope,
                             prepared.content,
                             str(chunk.get("content") or full_result),
@@ -331,7 +346,13 @@ async def run_agent_once(prepared: PreparedChatTurn) -> dict:
             reset_current_context_usage_accumulator(usage_token)
 
         if user_choice_request is None and not memory_written:
-            memory_payload = persist_turn(prepared.workspace_scope, prepared.content, full_result, prepared.turn_id)
+            memory_payload = await asyncio.to_thread(
+                persist_turn,
+                prepared.workspace_scope,
+                prepared.content,
+                full_result,
+                prepared.turn_id,
+            )
         result = {
             "reply": full_result,
             "download_path": None,

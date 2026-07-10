@@ -15,6 +15,7 @@ class FileDB {
   private courtStoreName = 'court_sessions';
   private version = 3; // Incremented version to add court session store
   private migrationPromise: Promise<void> | null = null;
+  private dbPromise: Promise<IDBDatabase> | null = null;
 
   private buildFileId(convId: string, fileName: string, path?: string) {
     return `${convId}::${path || fileName}`;
@@ -51,11 +52,20 @@ class FileDB {
   }
 
   private async getDB(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
+    if (this.dbPromise) return this.dbPromise;
+
+    this.dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, this.version);
-      request.onerror = () => reject(request.error);
+      request.onerror = () => {
+        this.dbPromise = null;
+        reject(request.error);
+      };
       request.onsuccess = async () => {
         const db = request.result;
+        db.onversionchange = () => {
+          db.close();
+          this.dbPromise = null;
+        };
         try {
           await this.ensurePreviousDataMigrated(db);
         } catch (error) {
@@ -76,6 +86,7 @@ class FileDB {
         }
       };
     });
+    return this.dbPromise;
   }
 
   private async ensurePreviousDataMigrated(db: IDBDatabase): Promise<void> {

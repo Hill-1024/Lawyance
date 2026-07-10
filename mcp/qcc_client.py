@@ -2,22 +2,25 @@
 模块描述：企查查企业信息客户端，封装企业画像、登记、股东、高管、联系方式等查询工具。
 """
 
-import os
-from dotenv import load_dotenv
-load_dotenv(".env")
-
-QCC_ACCESS_TOKEN = os.getenv("QCC_ACCESS_TOKEN")
-# 异常检测
-if not QCC_ACCESS_TOKEN:
-    raise ValueError("QCC_ACCESS_TOKEN is not set in the environment variables.")
-
-
-
-import requests
+import io
 import json
+import logging
+import os
 import time
 import gzip
 from typing import Dict, Any, Optional
+from urllib.parse import urlparse
+
+import requests
+from dotenv import load_dotenv
+load_dotenv(".env")
+
+logger = logging.getLogger(__name__)
+_DEFAULT_ENDPOINT = "https://agent.qcc.com/mcp/company/stream"
+_MAX_COMPANY_CHARS = 256
+_MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+_MAX_DECODED_BYTES = 8 * 1024 * 1024
+_MAX_SSE_EVENTS = 128
 
 # 工具配置列表
 TOOLS_CONFIG = [
@@ -57,6 +60,11 @@ TOOLS_CONFIG = [
         "description": "查询企业股东构成信息，包括投资人姓名、持股比例等。"
     }
 ]
+_ALLOWED_TOOL_NAMES = frozenset(item["name"] for item in TOOLS_CONFIG)
+
+
+class QCCClientError(RuntimeError):
+    pass
 
 
 class QichachaSimpleClient:
@@ -64,8 +72,21 @@ class QichachaSimpleClient:
 
     def __init__(self):
         """初始化客户端"""
-        self.api_key = QCC_ACCESS_TOKEN
-        self.endpoint = "https://agent.qcc.com/mcp/company/stream"
+        self.api_key = (os.getenv("QCC_ACCESS_TOKEN") or "").strip()
+        if not self.api_key:
+            raise QCCClientError("企查查服务尚未配置访问令牌")
+
+        self.endpoint = (os.getenv("QCC_ENDPOINT") or _DEFAULT_ENDPOINT).strip()
+        parsed_endpoint = urlparse(self.endpoint)
+        if (
+            parsed_endpoint.scheme != "https"
+            or parsed_endpoint.hostname != "agent.qcc.com"
+            or parsed_endpoint.username
+            or parsed_endpoint.password
+            or parsed_endpoint.query
+            or parsed_endpoint.fragment
+        ):
+            raise QCCClientError("企查查服务地址配置非法")
 
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -77,11 +98,29 @@ class QichachaSimpleClient:
     def _decode_response(self, response_content: bytes) -> str:
         """解码响应内容（处理gzip压缩）"""
         try:
-            return gzip.decompress(response_content).decode('utf-8')
+            with gzip.GzipFile(fileobj=io.BytesIO(response_content)) as stream:
+                decoded = stream.read(_MAX_DECODED_BYTES + 1)
+            if len(decoded) > _MAX_DECODED_BYTES:
+                raise QCCClientError("企查查响应解压后过大")
+            return decoded.decode("utf-8")
         except gzip.BadGzipFile:
-            return response_content.decode('utf-8')
-        except Exception as e:
-            raise Exception(f"解码失败: {str(e)}")
+            try:
+                return response_content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise QCCClientError("企查查响应编码异常") from exc
+
+    @staticmethod
+    def _read_bounded_response(response: requests.Response) -> bytes:
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in response.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > _MAX_RESPONSE_BYTES:
+                raise QCCClientError("企查查响应过大")
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     def _parse_sse_response(self, sse_content: str) -> list:
         """解析SSE响应格式"""
@@ -106,13 +145,15 @@ class QichachaSimpleClient:
                         current_event['data'] = {"raw_data": data_str}
                 events.append(current_event.copy())
                 current_event = {}
+                if len(events) >= _MAX_SSE_EVENTS:
+                    break
 
         return events
 
     def _extract_content_from_response(self, response_data: dict) -> Optional[Dict[str, Any]]:
         """从响应数据中提取content字段"""
         if "error" in response_data:
-            raise Exception(f"API错误: {response_data['error']}")
+            raise QCCClientError("企查查服务返回错误")
 
         # 查找content字段
         if "result" in response_data and isinstance(response_data["result"], dict):
@@ -137,8 +178,13 @@ class QichachaSimpleClient:
         返回:
             content字段的JSON数据
         """
+        if tool_name not in _ALLOWED_TOOL_NAMES:
+            raise QCCClientError("不支持的企查查工具")
+        if not isinstance(search_key, str) or not search_key.strip() or len(search_key) > _MAX_COMPANY_CHARS:
+            raise QCCClientError("企业名称必须是长度为 1-256 的字符串")
+
         # 构建参数
-        arguments = {"searchKey": search_key}
+        arguments = {"searchKey": search_key.strip()}
         arguments.update(kwargs)
 
         # 构建请求
@@ -154,29 +200,29 @@ class QichachaSimpleClient:
 
         # 发送请求
         try:
-            print(f"调用工具: {tool_name}")
-            print(f"参数: {json.dumps(arguments, ensure_ascii=False)}")
-
             response = requests.post(
                 self.endpoint,
                 headers=self.headers,
                 json=payload,
-                timeout=30
+                timeout=30,
+                allow_redirects=False,
+                stream=True,
             )
-
-            print(f"响应状态: {response.status_code}")
-
-            if response.status_code != 200:
-                raise Exception(f"HTTP错误: {response.status_code}")
+            try:
+                if response.status_code != 200:
+                    raise QCCClientError("企查查服务返回异常状态")
+                response_content = self._read_bounded_response(response)
+            finally:
+                response.close()
 
             # 解码响应
-            decoded_content = self._decode_response(response.content)
+            decoded_content = self._decode_response(response_content)
 
             # 解析SSE事件
             events = self._parse_sse_response(decoded_content)
 
             if not events:
-                raise Exception("未收到有效响应事件")
+                raise QCCClientError("企查查响应格式异常")
 
             # 处理第一个事件的data
             if events and "data" in events[0] and isinstance(events[0]["data"], dict):
@@ -185,15 +231,14 @@ class QichachaSimpleClient:
                 # 提取content字段
                 content = self._extract_content_from_response(data)
 
-                print(f"✅ 调用成功")
                 return content
             else:
-                raise Exception("响应格式异常")
+                raise QCCClientError("企查查响应格式异常")
 
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"网络请求异常: {str(e)}")
-        except Exception as e:
-            raise Exception(f"调用工具失败: {str(e)}")
+        except requests.exceptions.RequestException as exc:
+            raise QCCClientError("企查查网络请求失败") from exc
+
+
 def run_tool(tool_name: str, company: str) -> Dict[str, Any]:
     try:
         # 初始化客户端
@@ -204,41 +249,44 @@ def run_tool(tool_name: str, company: str) -> Dict[str, Any]:
 
         return result
 
-    except Exception as e:
-        print(f"❌ QCC:{tool_name}调用失败: {e}")
-        return {"error": str(e)}
-def get_company_profile(company:str):
+    except Exception:
+        logger.exception("QCC tool call failed | tool=%s", tool_name)
+        return {"error": "企业信息服务调用失败，请稍后重试。"}
+
+
+def get_company_profile(company: str):
     """查询企业的简介信息，包括企业名称、简介"""
-    data = run_tool("get_company_profile",company)
-    return data
-def get_company_registration_info(company:str):
+    return run_tool("get_company_profile", company)
+
+
+def get_company_registration_info(company: str):
     """查询企业的核心登记信息，包括法定代表人、注册资本、成立时间等。"""
-    data = run_tool("get_company_registration_info",company)
-    return data
-def get_contact_info(company:str):
+    return run_tool("get_company_registration_info", company)
+
+
+def get_contact_info(company: str):
     """查询企业的联系方式信息，包括电话号码、邮箱、企业网站等。"""
-    data = run_tool("get_contact_info",company)
-    return data
-def get_external_investments(company:str):
+    return run_tool("get_contact_info", company)
+
+
+def get_external_investments(company: str):
     """查询企业对外投资信息，包括被投资企业名称、持股比例等"""
-    data = run_tool("get_external_investments",company)
-    return data
-def get_key_personnel(company:str):
+    return run_tool("get_external_investments", company)
+
+
+def get_key_personnel(company: str):
     """查询企业主要管理人员信息，包括姓名、职务等"""
-    data = run_tool("get_key_personnel",company)
-    return data
-def get_listing_info(company:str):
+    return run_tool("get_key_personnel", company)
+
+
+def get_listing_info(company: str):
     """查询企业的上市信息，包括股票代码、上市交易所、总市值等"""
-    data = run_tool("get_listing_info",company)
-    return data
-def get_shareholder_info(company:str):
+    return run_tool("get_listing_info", company)
+
+
+def get_shareholder_info(company: str):
     """查询企业股东构成信息，包括投资人姓名、持股比例等"""
-    data = run_tool("get_shareholder_info",company)
-    return data
-
-
-
-
+    return run_tool("get_shareholder_info", company)
 
 def run_single_tool_test(tool_name: str, company: str = "华为技术有限公司") -> Dict[str, Any]:
     """
@@ -271,9 +319,9 @@ def run_single_tool_test(tool_name: str, company: str = "华为技术有限公�
 
         return result
 
-    except Exception as e:
-        print(f"❌ 调用失败: {e}")
-        return {"error": str(e)}
+    except Exception:
+        logger.exception("QCC test tool call failed | tool=%s", tool_name)
+        return {"error": "企业信息服务调用失败，请稍后重试。"}
 
 
 def get_tool_by_name(tool_name: str) -> Optional[Dict[str, Any]]:

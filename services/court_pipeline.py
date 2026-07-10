@@ -6,13 +6,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
+import asyncio
 import json
+import logging
 import time
 import uuid
 
 from agents import ToolLoopAgent
 from mcp.memory_client import reset_current_memory_turn_id, set_current_memory_turn_id
-from mcps import use_tools
 from memory_system import MemoryRevisionConflict
 from schemas import CourtTurnRequest
 from services.context_usage import (
@@ -31,6 +32,9 @@ from services.memory_coordinator import (
 )
 from services.workspace_service import get_workspace_scope
 from tools import registry
+
+
+logger = logging.getLogger(__name__)
 
 
 MEMORY_TOOL_NAMES = {
@@ -71,7 +75,7 @@ def build_court_tool_executor(base_scope: str, role_scope: str):
     # 这里只负责按工具名挑选记忆 scope 后转发。
     def execute_tool(tool_name: str, arguments):
         scope = role_scope if tool_name in MEMORY_TOOL_NAMES else base_scope
-        return use_tools(tool_name, arguments, conv_id=scope)
+        return registry.dispatch(tool_name, arguments, scope, capability="court")
 
     return execute_tool
 
@@ -98,8 +102,9 @@ def _cross_role_memory_context(base_scope: str, request: CourtTurnRequest) -> st
         try:
             sync_memory_cache(scope, snapshot, messages=None, mode="merge")
             memory_context, _payload = retrieve_memory_context(scope, "庭审争点、风险、已暴露漏洞")
-        except Exception as exc:
-            memory_context = f"读取失败: {exc}"
+        except Exception:
+            logger.exception("Failed to load cross-role memory for %s", speaker)
+            memory_context = "读取失败"
         if memory_context.strip():
             label = "用户方代理" if speaker == "user" else speaker_label(speaker)
             lines.append(f"【{label}】\n{memory_context.strip()}")
@@ -161,8 +166,14 @@ async def prepare_court_turn(request: CourtTurnRequest, current_user: str) -> Pr
     speaker = decision.speaker
     role_scope = role_memory_scope(base_scope, speaker)
     query = render_public_context(public_summary, recent_events)
-    memory_context = _sync_and_retrieve_role_memory(request, role_scope, speaker, query)
-    cross_role_memory = _cross_role_memory_context(base_scope, request) if speaker == "reviewer" else ""
+    memory_context = await asyncio.to_thread(
+        _sync_and_retrieve_role_memory,
+        request,
+        role_scope,
+        speaker,
+        query,
+    )
+    cross_role_memory = await asyncio.to_thread(_cross_role_memory_context, base_scope, request) if speaker == "reviewer" else ""
     messages = build_court_messages(
         speaker=speaker,
         case_type=normalise_case_type(decision.court_state.get("case_type")),
@@ -253,7 +264,8 @@ async def run_court_turn_stream(prepared: PreparedCourtTurn) -> AsyncIterator[di
         reset_current_memory_turn_id(turn_token)
 
     if prepared.role_scope:
-        memory_payload = remember_memory_turn(
+        memory_payload = await asyncio.to_thread(
+            remember_memory_turn,
             prepared.role_scope,
             _memory_user_payload(prepared),
             full_result,

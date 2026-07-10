@@ -2,25 +2,28 @@
 模块描述：聊天、标题摘要和记忆同步 API。
 """
 
-import json
-import traceback
 import asyncio
+import json
+import logging
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from function_calling import call
 from memory_system import MemoryRevisionConflict
 from output_sanitizer import strip_think_blocks, strip_wrapper_tags
 from schemas import ChatRequest, MemorySyncRequest, ResumeAckRequest, StreamCancelRequest, SummarizeRequest
 from services.auth_dependencies import get_current_user
-from services.chat_pipeline import prepare_chat_turn, run_agent_once, run_agent_stream
+from services.chat_pipeline import CHAT_FAILURE_MESSAGE, prepare_chat_turn, run_agent_once, run_agent_stream
 from services.memory_coordinator import memory_conflict_detail, sync_memory_cache
 from services import stream_buffer
 from services.workspace_service import get_workspace_scope
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
@@ -51,9 +54,14 @@ async def _direct_stream(prepared, buffered: bool = False, unavailable_reason: s
             payload["seq"] = seq
             seq += 1
             yield _sse_event(payload)
-    except Exception as e:
-        traceback.print_exc()
-        yield _sse_event({"type": "error", "seq": seq, "content": str(e)})
+    except Exception:
+        logger.exception("Direct chat stream failed")
+        yield _sse_event({
+            "type": "error",
+            "code": "chat_generation_failed",
+            "seq": seq,
+            "content": CHAT_FAILURE_MESSAGE,
+        })
         seq += 1
     yield _sse_event({"type": "done", "seq": seq, "final_seq": seq})
     yield "data: [DONE]\n\n"
@@ -70,6 +78,9 @@ async def _buffered_stream(stream_id: str, from_seq: int):
 # 不污染内容；但能让 TCP 持续有字节流动，使原生端的有限读超时只在连接真正死亡时触发。
 HEARTBEAT_INTERVAL = 15.0
 HEARTBEAT_COMMENT = ": ping\n\n"
+# 单槽背压：下游暂停读取时，pump 最多只允许领先一个块，避免把完整上游响应
+# 预先搬进进程内存。该值是安全上限，不通过环境变量开放“无限”配置。
+HEARTBEAT_QUEUE_MAX_CHUNKS = 1
 
 
 async def _with_heartbeat(source):
@@ -77,18 +88,25 @@ async def _with_heartbeat(source):
     # 心跳循环只从队列取值并按超时插入 ": ping"。
     # 不可用 ensure_future(__anext__()) 逐次取值——那会让每个 __anext__ 运行在各自复制的 Context 中，
     # 导致 run_agent_stream 的 contextvar token “created in a different Context”。
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=HEARTBEAT_QUEUE_MAX_CHUNKS)
     done_marker = object()
     error_box: list[Exception] = []
 
     async def _pump():
+        cancelled = False
         try:
             async for chunk in source:
                 await queue.put(chunk)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
         except Exception as exc:  # 转发给消费侧统一抛出，保持原有异常语义
             error_box.append(exc)
         finally:
-            await queue.put(done_marker)
+            # 消费侧取消时不再需要终止标记；若队列已满还阻塞写标记，
+            # aclose() 会与 pump 互相等待。
+            if not cancelled:
+                await queue.put(done_marker)
 
     pump_task = asyncio.create_task(_pump())
     try:
@@ -166,15 +184,15 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
 
     try:
         return await run_agent_once(prepared)
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Non-stream chat request failed")
+        raise HTTPException(status_code=500, detail=CHAT_FAILURE_MESSAGE)
 
 
 @router.get("/api/chat/resume/{stream_id}")
 async def resume_chat_stream(
-    stream_id: str,
-    from_seq: int = Query(-1),
+    stream_id: Annotated[str, Path(min_length=1, max_length=128)],
+    from_seq: Annotated[int, Query(ge=-1, le=2**63 - 1)] = -1,
     current_user: str = Depends(get_current_user),
 ):
     state = await stream_buffer.get(stream_id, current_user)
@@ -235,7 +253,8 @@ async def sync_memory_endpoint(request: MemorySyncRequest, current_user: str = D
 
     active_conversations[workspace_scope] = time.time()
     try:
-        return sync_memory_cache(
+        return await run_in_threadpool(
+            sync_memory_cache,
             workspace_scope,
             request.memory_snapshot,
             request.history,

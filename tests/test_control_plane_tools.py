@@ -21,6 +21,7 @@ class ControlPlaneToolTests(unittest.TestCase):
                 ],
             },
             "tester/conv",
+            capability="agent",
         )
 
         self.assertEqual(result["question"], "下一步按哪个方向处理？")
@@ -42,6 +43,7 @@ class ControlPlaneToolTests(unittest.TestCase):
             "submit_plan",
             {"steps": [" 检索法律依据 ", "", "整理结论"]},
             "tester/conv",
+            capability="plan_and_solve",
         )
 
         self.assertEqual(result, {"acknowledged": True, "steps": ["检索法律依据", "整理结论"]})
@@ -51,6 +53,7 @@ class ControlPlaneToolTests(unittest.TestCase):
             "submit_final_answer",
             {"answer": "最终正文"},
             "tester/conv",
+            capability="plan_and_solve",
         )
 
         self.assertEqual(result, {"acknowledged": True})

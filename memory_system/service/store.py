@@ -12,6 +12,36 @@ from .utils import *
 from .errors import MemoryRevisionConflict
 from .schema import _blank_snapshot, _sanitize_snapshot, _prune_snapshot, _public_snapshot
 
+PRIVATE_DIR_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
+
+
+def _uses_filesystem_memory_db() -> bool:
+    return _MEMORY_DB_PATH != ":memory:"
+
+
+def _memory_db_paths() -> tuple[str, str, str]:
+    return (_MEMORY_DB_PATH, f"{_MEMORY_DB_PATH}-wal", f"{_MEMORY_DB_PATH}-shm")
+
+
+def _harden_memory_storage(*, create_database: bool = False) -> None:
+    if not _uses_filesystem_memory_db():
+        return
+    parent = os.path.dirname(_MEMORY_DB_PATH) or "."
+    os.makedirs(parent, mode=PRIVATE_DIR_MODE, exist_ok=True)
+    os.chmod(parent, PRIVATE_DIR_MODE)
+    if create_database:
+        fd = os.open(_MEMORY_DB_PATH, os.O_RDWR | os.O_CREAT, PRIVATE_FILE_MODE)
+        try:
+            os.fchmod(fd, PRIVATE_FILE_MODE)
+        finally:
+            os.close(fd)
+    for path in _memory_db_paths():
+        try:
+            os.chmod(path, PRIVATE_FILE_MODE)
+        except FileNotFoundError:
+            continue
+
 def _scope_lock(scope: str) -> threading.RLock:
     with _SCOPE_LOCKS_LOCK:
         lock = _SCOPE_LOCKS.get(scope)
@@ -41,9 +71,10 @@ def _ensure_memory_db() -> None:
     with _DB_READY_LOCK:
         if _DB_READY.is_set():
             return
-        os.makedirs(os.path.dirname(_MEMORY_DB_PATH) or ".", exist_ok=True)
+        _harden_memory_storage(create_database=True)
         with closing(sqlite3.connect(_MEMORY_DB_PATH, timeout=5)) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
+            _harden_memory_storage()
             conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
                 """
@@ -83,12 +114,15 @@ def _ensure_memory_db() -> None:
             if config and config.get("model"):
                 conn.execute("DELETE FROM embedding_cache WHERE model != ?", (config["model"],))
             conn.commit()
+            _harden_memory_storage()
         _DB_READY.set()
 
 def _connect_memory_db() -> sqlite3.Connection:
+    _harden_memory_storage(create_database=True)
     _ensure_memory_db()
     conn = sqlite3.connect(_MEMORY_DB_PATH, timeout=5, isolation_level=None)
     conn.execute("PRAGMA busy_timeout=5000")
+    _harden_memory_storage()
     return conn
 
 def _snapshot_from_store_json(raw_json: str | None) -> dict[str, Any]:

@@ -10,9 +10,15 @@ class WorkspacePathError(ValueError):
 
 
 def is_within_directory(path: str, directory: str) -> bool:
-    abs_path = os.path.abspath(path)
-    abs_dir = os.path.abspath(directory)
-    return abs_path == abs_dir or abs_path.startswith(abs_dir + os.sep)
+    # realpath 同时解析已有父目录中的符号链接；仅用 abspath 会把
+    # `TEMP/user/conv/link/secret` 错判为仍在工作区内。
+    real_path = os.path.realpath(os.path.abspath(path))
+    real_dir = os.path.realpath(os.path.abspath(directory))
+    try:
+        return os.path.commonpath((real_path, real_dir)) == real_dir
+    except ValueError:
+        # Windows 跨盘符路径没有共同根。
+        return False
 
 
 def validate_workspace_scope(workspace_scope: str | None) -> str:

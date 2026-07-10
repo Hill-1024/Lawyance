@@ -25,6 +25,12 @@ import {
 } from '../services/api';
 import { addLocalStorageDataChangeListener } from '../services/storageEvents';
 import { useAppDialog } from '../contexts/DialogContext';
+import {
+  ChatStreamResponseError,
+  isSuccessfulChatStream,
+  reduceChatStreamOutcome,
+  throwIfChatStreamFailed
+} from '../lib/stream-run-guards';
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -328,6 +334,7 @@ export function useChat() {
   const activeNativeStreamRef = useRef<{ streamId: string; nextIndex: number } | null>(null);
   const drainNativeStreamRef = useRef<(() => Promise<void>) | null>(null);
   const conversationsRef = useRef<Conversation[]>([]);
+  const currentIdRef = useRef(currentId);
   const resumeEnabledRef = useRef(false);
   const ackStateRef = useRef<Record<string, { seq: number; at: number }>>({});
   const resumingStreamsRef = useRef<Set<string>>(new Set());
@@ -344,6 +351,10 @@ export function useChat() {
   useEffect(() => {
     conversationsRef.current = conversations;
   }, [conversations]);
+
+  useEffect(() => {
+    currentIdRef.current = currentId;
+  }, [currentId]);
 
   useEffect(() => {
     getResumeEnabled().then(enabled => {
@@ -542,6 +553,9 @@ export function useChat() {
 
   const deleteConversation = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (currentIdRef.current === id) {
+      await stopActiveGeneration();
+    }
     const filtered = conversationsRef.current.filter(c => c.id !== id);
     let nextConversations = filtered;
     if (filtered.length === 0) {
@@ -556,7 +570,7 @@ export function useChat() {
         created_at: now,
         updated_at: now
       }];
-    } else if (currentId === id) {
+    } else if (currentIdRef.current === id) {
       setCurrentId(filtered[0].id);
     }
     conversationsRef.current = nextConversations;
@@ -578,6 +592,25 @@ export function useChat() {
       }
       return conv;
     });
+    conversationsRef.current = nextConversations;
+    setConversations(nextConversations);
+  };
+
+  const restoreConversationSnapshot = (
+    convId: string,
+    snapshot: Pick<Conversation, 'messages' | 'memory' | 'context_usage'>,
+  ) => {
+    const nextConversations = conversationsRef.current.map(conv => (
+      conv.id === convId
+        ? {
+          ...conv,
+          messages: snapshot.messages,
+          memory: snapshot.memory,
+          context_usage: snapshot.context_usage,
+          updated_at: nowIso(),
+        }
+        : conv
+    ));
     conversationsRef.current = nextConversations;
     setConversations(nextConversations);
   };
@@ -789,8 +822,9 @@ export function useChat() {
       streamId?: string;
       buffered: boolean;
       seenDone: boolean;
+      errorMessage?: string;
       finalSeq?: number;
-      status: Message['stream_status'];
+      status: NonNullable<Message['stream_status']>;
     },
     onFileGenerated?: (name: string, path: string) => void
   ) => {
@@ -848,14 +882,26 @@ export function useChat() {
     } else if (data.type === 'content_replace') {
       state.bodyText = data.content || '';
     } else if (data.type === 'resume_unavailable') {
-      state.status = 'error';
-      state.bodyText += '\n\n**续传不可用：** 本次回答的临时缓存已不可用，请重新生成。';
+      const message = '本次回答的临时缓存已不可用，请重新生成。';
+      const outcome = reduceChatStreamOutcome(state, { type: 'error', message });
+      state.status = outcome.status;
+      state.seenDone = outcome.seenDone;
+      state.errorMessage = outcome.errorMessage;
+      state.bodyText += `\n\n**续传不可用：** ${message}`;
     } else if (data.type === 'error') {
-      state.status = 'error';
-      state.bodyText += `\n\n**Error:** ${data.content}`;
+      const message = typeof data.content === 'string' && data.content.trim()
+        ? data.content.trim()
+        : '服务端处理失败。';
+      const outcome = reduceChatStreamOutcome(state, { type: 'error', message });
+      state.status = outcome.status;
+      state.seenDone = outcome.seenDone;
+      state.errorMessage = outcome.errorMessage;
+      state.bodyText += `\n\n**Error:** ${message}`;
     } else if (data.type === 'done') {
-      state.seenDone = true;
-      state.status = 'done';
+      const outcome = reduceChatStreamOutcome(state, { type: 'done' });
+      state.status = outcome.status;
+      state.seenDone = outcome.seenDone;
+      state.errorMessage = outcome.errorMessage;
       state.finalSeq = Number.isInteger(data.final_seq) ? Number(data.final_seq) : incomingSeq;
     }
     return true;
@@ -944,8 +990,9 @@ export function useChat() {
       streamId: existing?.stream_id,
       buffered: existing?.stream_buffered === true,
       seenDone: false,
+      errorMessage: undefined as string | undefined,
       finalSeq: undefined as number | undefined,
-      status: (existing?.stream_status || 'streaming') as Message['stream_status'],
+      status: (existing?.stream_status || 'streaming') as NonNullable<Message['stream_status']>,
     };
     const decoder = new TextDecoder();
     let streamBuffer = '';
@@ -1040,6 +1087,8 @@ export function useChat() {
         handleLine(streamBuffer.trim());
       }
       scheduleAssistantStateCommit(true);
+      if (!isStreamActive()) return false;
+      throwIfChatStreamFailed(streamState);
       if (!streamState.seenDone && !streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
       } else if (!streamState.seenDone && streamState.buffered && streamState.streamId) {
@@ -1047,8 +1096,9 @@ export function useChat() {
           resumePendingStreams().catch(console.error);
         }, 0);
       }
-      return isStreamActive() && streamState.seenDone;
+      return isStreamActive() && isSuccessfulChatStream(streamState);
     } catch (err) {
+      if (err instanceof ChatStreamResponseError) throw err;
       if (isAbortError(err) || !isStreamActive()) return false;
       console.error('Stream read error:', err);
       scheduleAssistantStateCommit(true);
@@ -1070,7 +1120,7 @@ export function useChat() {
         setIsLoading(false);
         setActiveAssistantMessageId(current => current === agentMessageId ? null : current);
         setComposerStatus(null);
-        if (streamState.status === 'done') {
+        if (streamState.seenDone) {
           activeServerStreamRef.current = null;
         }
         onFileGenerated?.('sync', '');
@@ -1293,9 +1343,13 @@ export function useChat() {
     }));
 
     try {
-      const completed = await processStream(response, agentMessageId, convId, onFileGenerated, signal, nativeStreamId);
-      await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
-      forgetNativeStreamSession(nativeStreamId);
+      let completed: boolean;
+      try {
+        completed = await processStream(response, agentMessageId, convId, onFileGenerated, signal, nativeStreamId);
+      } finally {
+        await NativeStream.stop({ streamId: nativeStreamId }).catch(console.error);
+        forgetNativeStreamSession(nativeStreamId);
+      }
       if (!completed && !signal?.aborted) {
         setTimeout(() => {
           resumePendingStreams().catch(console.error);
@@ -1478,6 +1532,11 @@ export function useChat() {
 
     const choiceMessage = conv.messages.find(message => message.id === messageId);
     if (!choiceMessage?.pending_choice || choiceMessage.pending_choice.answered) return;
+    const conversationSnapshot = {
+      messages: conv.messages,
+      memory: conv.memory,
+      context_usage: conv.context_usage,
+    };
 
     const history = formatHistoryForBackend(conv.messages);
     const memorySnapshot = conv.memory || createEmptyConversationMemory(convId);
@@ -1558,10 +1617,18 @@ export function useChat() {
         }
       }
     } catch (error) {
-      if (!isAbortError(error) && !abortController.signal.aborted) {
+      const isCurrentOperation = activeAbortRef.current === abortController;
+      if (!isAbortError(error) && !abortController.signal.aborted && isCurrentOperation) {
         console.error('Failed to send user choice:', error);
+        restoreConversationSnapshot(convId, conversationSnapshot);
+        setIsLoading(false);
+        await showAlert({
+          title: '提交失败',
+          message: (error as Error)?.message || '选项未提交，请重试。',
+          tone: 'danger',
+        });
       }
-      if (!abortController.signal.aborted) setIsLoading(false);
+      if (!abortController.signal.aborted && isCurrentOperation) setIsLoading(false);
     } finally {
       if (activeAbortRef.current === abortController) {
         activeAbortRef.current = null;
@@ -1592,6 +1659,13 @@ export function useChat() {
     let convId = currentId;
     const conv = conversations.find(c => c.id === convId);
     if (!conv) return;
+    const conversationSnapshot = {
+      messages: conv.messages,
+      memory: conv.memory,
+      context_usage: conv.context_usage,
+    };
+    const inputSnapshot = input;
+    const pendingUploadsSnapshot = [...pendingUploads];
 
     const isFirstUserMessage = conv.messages.filter(m => m.role === 'user').length === 0;
     const history = formatHistoryForBackend(conv.messages);
@@ -1679,10 +1753,22 @@ export function useChat() {
         }, 5000);
       }
     } catch (error) {
-      if (!isAbortError(error) && !abortController.signal.aborted) {
+      const isCurrentOperation = activeAbortRef.current === abortController;
+      if (!isAbortError(error) && !abortController.signal.aborted && isCurrentOperation) {
         console.error('Failed to send message:', error);
+        restoreConversationSnapshot(convId, conversationSnapshot);
+        if (currentIdRef.current === convId) {
+          setInput(inputSnapshot);
+          setPendingUploads(pendingUploadsSnapshot);
+        }
+        setIsLoading(false);
+        await showAlert({
+          title: '发送失败',
+          message: (error as Error)?.message || '消息未发送，请检查网络后重试。',
+          tone: 'danger',
+        });
       }
-      if (!abortController.signal.aborted) setIsLoading(false);
+      if (!abortController.signal.aborted && isCurrentOperation) setIsLoading(false);
     } finally {
       if (activeAbortRef.current === abortController) {
         activeAbortRef.current = null;
@@ -1700,6 +1786,11 @@ export function useChat() {
 
     const msg = conv.messages[msgIndex];
     if (msg.role !== 'user') return;
+    const conversationSnapshot = {
+      messages: conv.messages,
+      memory: conv.memory,
+      context_usage: conv.context_usage,
+    };
 
     const content = msg.content;
     const isFirstUserMessage = conv.messages.slice(0, msgIndex).filter(m => m.role === 'user').length === 0;
@@ -1792,10 +1883,18 @@ export function useChat() {
         }, 5000);
       }
     } catch (error) {
-      if (!isAbortError(error) && !abortController.signal.aborted) {
+      const isCurrentOperation = activeAbortRef.current === abortController;
+      if (!isAbortError(error) && !abortController.signal.aborted && isCurrentOperation) {
         console.error('Failed to regenerate message:', error);
+        restoreConversationSnapshot(convId, conversationSnapshot);
+        setIsLoading(false);
+        await showAlert({
+          title: '重新生成失败',
+          message: (error as Error)?.message || '原对话内容已恢复，请重试。',
+          tone: 'danger',
+        });
       }
-      if (!abortController.signal.aborted) setIsLoading(false);
+      if (!abortController.signal.aborted && isCurrentOperation) setIsLoading(false);
     } finally {
       if (activeAbortRef.current === abortController) {
         activeAbortRef.current = null;
@@ -1816,7 +1915,7 @@ export function useChat() {
     const msg = conv.messages[msgIndex];
     if (msg.role !== 'user') return;
 
-    abortActiveRequest();
+    await stopActiveGeneration();
 
     let textContent = msg.content;
     let filesToRestore: PendingUpload[] = [];

@@ -25,7 +25,14 @@ def read_tool_json(tool_result: Any) -> dict:
 
 
 def call_memory_tool(tool_name: str, arguments: dict, workspace_scope: str) -> dict:
-    return read_tool_json(use_tools(tool_name, arguments, conv_id=workspace_scope))
+    return read_tool_json(
+        use_tools(
+            tool_name,
+            arguments,
+            conv_id=workspace_scope,
+            capability="internal",
+        )
+    )
 
 
 def sync_memory_cache(

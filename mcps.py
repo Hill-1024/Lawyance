@@ -21,9 +21,10 @@ def _coerce_arguments(function_name, arguments):
     return registry.coerce_arguments(function_name, arguments)
 
 
-def use_tools(function_name, arguments, conv_id=None):
+def use_tools(function_name, arguments, conv_id=None, *, capability="agent"):
     # conv_id 在这里实际承载的是工作区作用域，保持参数名兼容既有调用方。
-    return registry.dispatch(function_name, arguments, conv_id)
+    # 公开转发默认只具有 agent 能力；内部控制工具必须由受信代码显式授权。
+    return registry.dispatch(function_name, arguments, conv_id, capability=capability)
 
 
 if __name__ == "__main__":

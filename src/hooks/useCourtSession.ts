@@ -9,6 +9,15 @@ import { fileDB } from '../lib/db';
 import { isNative } from '../lib/platform';
 import { clearCourtMemory, courtTurn, deleteWorkspace, sendHeartbeat } from '../services/api';
 import { addLocalStorageDataChangeListener } from '../services/storageEvents';
+import { SessionRunBarrier } from '../lib/stream-run-guards';
+
+type ActiveCourtRun = {
+  sessionId: string;
+  token: number;
+  controller: AbortController;
+  completion: Promise<void>;
+  complete: () => void;
+};
 
 const generateUUID = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -208,20 +217,51 @@ const deriveStateAtCutoff = (
 
 export function useCourtSession(enabled = true) {
   const [courtSessions, setCourtSessions] = useState<CourtSession[]>([]);
-  const [currentCourtId, setCurrentCourtId] = useState('');
+  const [currentCourtId, setCurrentCourtIdState] = useState('');
   const [isInitialized, setIsInitialized] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [composerText, setComposerText] = useState('');
   const sessionsRef = useRef<CourtSession[]>([]);
   const currentCourtIdRef = useRef('');
-  const isRunningRef = useRef(false);
-  const consecutiveErrorsRef = useRef(0);
-  const activeAbortRef = useRef<AbortController | null>(null);
+  const consecutiveErrorsRef = useRef<Record<string, number>>({});
+  const runSequenceRef = useRef(0);
+  const activeRunRef = useRef<ActiveCourtRun | null>(null);
+  const closingRunBarrierRef = useRef(new SessionRunBarrier());
+
+  const beginRunClosing = useCallback((activeRun: ActiveCourtRun) => {
+    activeRun.controller.abort();
+    closingRunBarrierRef.current.beginClosing(activeRun.sessionId, activeRun.completion);
+    if (activeRunRef.current === activeRun) {
+      activeRunRef.current = null;
+    }
+  }, []);
 
   const abortActiveTurn = useCallback(() => {
-    activeAbortRef.current?.abort();
-    activeAbortRef.current = null;
+    const activeRun = activeRunRef.current;
+    if (!activeRun) return;
+    beginRunClosing(activeRun);
+    if (currentCourtIdRef.current === activeRun.sessionId) {
+      setIsRunning(false);
+      setStatus('已停止当前庭审回合。');
+    }
+  }, [beginRunClosing]);
+
+  const selectCourtSession = useCallback((nextId: string) => {
+    const activeRun = activeRunRef.current;
+    if (activeRun && activeRun.sessionId !== nextId) {
+      beginRunClosing(activeRun);
+      setIsRunning(false);
+      setStatus(null);
+    }
+    currentCourtIdRef.current = nextId;
+    setCurrentCourtIdState(nextId);
+  }, [beginRunClosing]);
+
+  const setStatusForSession = useCallback((sessionId: string, nextStatus: string | null, runToken?: number) => {
+    if (currentCourtIdRef.current !== sessionId) return;
+    if (runToken !== undefined && activeRunRef.current?.token !== runToken) return;
+    setStatus(nextStatus);
   }, []);
 
   useEffect(() => () => abortActiveTurn(), [abortActiveTurn]);
@@ -276,18 +316,18 @@ export function useCourtSession(enabled = true) {
       sessionsRef.current = normalized;
       setCourtSessions(normalized);
       if (normalized.length > 0) {
-        setCurrentCourtId(normalized[0].id);
-        currentCourtIdRef.current = normalized[0].id;
+        selectCourtSession(normalized[0].id);
       }
       setIsInitialized(true);
     };
     initData();
-  }, []);
+  }, [selectCourtSession]);
 
   useEffect(() => {
     if (!isInitialized) return;
 
     return addLocalStorageDataChangeListener(async detail => {
+      abortActiveTurn();
       const savedCourtSessions = await fileDB.getCourtSessions();
       const normalized = savedCourtSessions.map(session => ({
         ...session,
@@ -299,13 +339,11 @@ export function useCourtSession(enabled = true) {
       const preferredId = detail.courtSessionIds?.find(id =>
         normalized.some(session => session.id === id)
       );
-      setCurrentCourtId(current => {
-        const nextId = preferredId || (normalized.some(session => session.id === current) ? current : normalized[0]?.id || '');
-        currentCourtIdRef.current = nextId;
-        return nextId;
-      });
+      const current = currentCourtIdRef.current;
+      const nextId = preferredId || (normalized.some(session => session.id === current) ? current : normalized[0]?.id || '');
+      selectCourtSession(nextId);
     });
-  }, [isInitialized]);
+  }, [abortActiveTurn, isInitialized, selectCourtSession]);
 
   // 同步 ref。
   useEffect(() => {
@@ -377,23 +415,25 @@ export function useCourtSession(enabled = true) {
     };
 
     commitSessions(prev => [session, ...prev]);
-    setCurrentCourtId(id);
-    currentCourtIdRef.current = id;
-    consecutiveErrorsRef.current = 0;
+    selectCourtSession(id);
+    consecutiveErrorsRef.current[id] = 0;
     setStatus('庭审已创建，可手动推进第一轮。');
     return id;
-  }, [commitSessions]);
+  }, [commitSessions, selectCourtSession]);
 
   const deleteCourtSession = useCallback(async (sessionId: string) => {
+    if (activeRunRef.current?.sessionId === sessionId) {
+      abortActiveTurn();
+    }
     commitSessions(prev => {
       const next = prev.filter(session => session.id !== sessionId);
       if (currentCourtIdRef.current === sessionId) {
         const nextId = next[0]?.id || '';
-        setCurrentCourtId(nextId);
-        currentCourtIdRef.current = nextId;
+        selectCourtSession(nextId);
       }
       return next;
     });
+    delete consecutiveErrorsRef.current[sessionId];
     await fileDB.deleteFilesByConvId(sessionId);
     await fileDB.deleteCourtSession(sessionId);
     try {
@@ -401,7 +441,7 @@ export function useCourtSession(enabled = true) {
     } catch (error) {
       console.error('Failed to delete court workspace on server:', error);
     }
-  }, [commitSessions]);
+  }, [abortActiveTurn, commitSessions, selectCourtSession]);
 
   const updateCourtSession = useCallback((sessionId: string, patch: Partial<CourtSession>) => {
     patchSession(sessionId, session => ({ ...session, ...patch }));
@@ -443,21 +483,21 @@ export function useCourtSession(enabled = true) {
     const content = (rawContent ?? composerText).trim();
     if (!session || !content) return;
 
-    if (isRunningRef.current) {
+    if (activeRunRef.current?.sessionId === session.id) {
       const event = createPublicEvent('user', session.court_state.phase, content, 'interjection');
       patchSession(session.id, prev => ({
         ...prev,
         pending_interjections: [...prev.pending_interjections, event]
       }));
-      setStatus('插话已排队，当前发言结束后进入公开记录。');
+      setStatusForSession(session.id, '插话已排队，当前发言结束后进入公开记录。');
     } else {
       const eventType = session.court_state.awaiting_user ? 'speech' : 'interjection';
       appendUserEvent(session.id, content, eventType);
-      setStatus(eventType === 'speech' ? '你的发言已记录。' : '插话已记录，下一轮由法庭处理。');
+      setStatusForSession(session.id, eventType === 'speech' ? '你的发言已记录。' : '插话已记录，下一轮由法庭处理。');
     }
 
     setComposerText('');
-  }, [appendUserEvent, composerText, getCurrentSession, patchSession]);
+  }, [appendUserEvent, composerText, getCurrentSession, patchSession, setStatusForSession]);
 
   const setAutoMode = useCallback((enabledAuto: boolean) => {
     const session = getCurrentSession();
@@ -467,7 +507,7 @@ export function useCourtSession(enabled = true) {
       auto_mode: enabledAuto
     }));
     if (enabledAuto) {
-      consecutiveErrorsRef.current = 0;
+      consecutiveErrorsRef.current[session.id] = 0;
     }
     setStatus(enabledAuto ? '自动推进已开启。' : '已切换为手动推进。');
   }, [getCurrentSession, patchSession]);
@@ -502,6 +542,10 @@ export function useCourtSession(enabled = true) {
 
   /** 撤回本场庭审到指定事件之后的状态被全部清除。同步清三角色后端 memory，避免 AI 幻觉记得被撤回的内容。 */
   const rewindToEvent = useCallback(async (sessionId: string, eventId: string) => {
+    if (activeRunRef.current?.sessionId === sessionId) {
+      setStatusForSession(sessionId, '请先停止当前庭审回合，再执行撤回。');
+      return;
+    }
     const session = sessionsRef.current.find(item => item.id === sessionId);
     if (!session) return;
     const derived = deriveStateAtCutoff(session, eventId);
@@ -516,15 +560,15 @@ export function useCourtSession(enabled = true) {
       court_state: derived.recomputedState,
       agent_states: createAgentStates()
     }));
-    consecutiveErrorsRef.current = 0;
-    setStatus(removedCount > 0 ? `已撤回到选中点，删除 ${removedCount} 条后续记录。` : '已撤回到选中点。');
+    consecutiveErrorsRef.current[sessionId] = 0;
+    setStatusForSession(sessionId, removedCount > 0 ? `已撤回到选中点，删除 ${removedCount} 条后续记录。` : '已撤回到选中点。');
 
     try {
       await clearCourtMemory(sessionId);
     } catch (error) {
       console.error('Failed to clear court memory after rewind:', error);
     }
-  }, [patchSession]);
+  }, [patchSession, setStatusForSession]);
 
   /** 从指定事件创建分支为新庭审。后端 memory scope 派生自 (user, court_session_id)，新 UUID 自然得到干净的 AI 状态。 */
   const branchFromEvent = useCallback((sessionId: string, eventId: string): string | null => {
@@ -555,12 +599,11 @@ export function useCourtSession(enabled = true) {
     };
 
     commitSessions(prev => [newSession, ...prev]);
-    setCurrentCourtId(newId);
-    currentCourtIdRef.current = newId;
-    consecutiveErrorsRef.current = 0;
+    selectCourtSession(newId);
+    consecutiveErrorsRef.current[newId] = 0;
     setStatus(`已从选中点创建分支「${baseTitle}」。`);
     return newId;
-  }, [commitSessions]);
+  }, [commitSessions, selectCourtSession]);
 
   const drainInterjections = useCallback((sessionId: string) => {
     let drained = false;
@@ -578,12 +621,12 @@ export function useCourtSession(enabled = true) {
         }
       };
     });
-    if (drained) setStatus('插话已进入公开记录，下一轮优先处理。');
+    if (drained) setStatusForSession(sessionId, '插话已进入公开记录，下一轮优先处理。');
     return drained;
-  }, [patchSession]);
+  }, [patchSession, setStatusForSession]);
 
   // 处理 SSE 流。返回是否发生 error。
-  const processCourtStream = useCallback(async (response: Response, sessionId: string): Promise<{ hadError: boolean; errorMessage?: string; failedSpeaker?: keyof CourtAgentStates }> => {
+  const processCourtStream = useCallback(async (response: Response, sessionId: string, runToken: number): Promise<{ hadError: boolean; errorMessage?: string; failedSpeaker?: keyof CourtAgentStates }> => {
     const reader = response.body?.getReader();
     if (!reader) return { hadError: false };
 
@@ -635,8 +678,9 @@ export function useCourtSession(enabled = true) {
     };
 
     const handleStreamData = (data: any) => {
+      if (activeRunRef.current?.token !== runToken) return;
       const speaker = (data.speaker || 'system') as CourtSpeaker;
-      const phase = data.phase || getCurrentSession()?.court_state.phase || 'opening';
+      const phase = data.phase || sessionsRef.current.find(item => item.id === sessionId)?.court_state.phase || 'opening';
 
       // 只在显式 court_state 事件里更新结构化状态，避免每个 content chunk 都重写一次。
       if (data.type === 'court_state') {
@@ -693,7 +737,7 @@ export function useCourtSession(enabled = true) {
       } else if (data.type === 'thought') {
         if (data.thought_type === 'tool') {
           const label = formatThoughtToolStatus(speaker, String(data.content || ''));
-          if (label) setStatus(label);
+          if (label) setStatusForSession(sessionId, label, runToken);
         }
       } else if (data.type === 'error') {
         hadError = true;
@@ -702,7 +746,7 @@ export function useCourtSession(enabled = true) {
           failedSpeaker = speaker;
         }
         updateAgentStatus(speaker, 'error');
-        setStatus(errorMessage);
+        setStatusForSession(sessionId, errorMessage, runToken);
       }
     };
 
@@ -742,18 +786,31 @@ export function useCourtSession(enabled = true) {
     }
 
     return { hadError, errorMessage, failedSpeaker };
-  }, [getCurrentSession, patchSession]);
+  }, [patchSession, setStatusForSession]);
 
   const runNextTurn = useCallback(async () => {
-    const session = getCurrentSession();
-    if (!session || isRunningRef.current || session.court_state.trial_over) return;
+    let session = getCurrentSession();
+    if (!session) return;
+
+    // 取消只发出 AbortSignal，并不代表旧 async 链已经完成回滚。对同一 session
+    // 等待旧回合的 finally 收尾后重新读取 sessionsRef，避免用半截流状态拍下一轮快照。
+    // barrier 按 session 隔离，因此切换到其他庭审仍可立即启动新回合。
+    const requestedSessionId = session.id;
+    const closingRun = closingRunBarrierRef.current.waitFor(requestedSessionId);
+    if (closingRun) {
+      await closingRun;
+      if (currentCourtIdRef.current !== requestedSessionId) return;
+      session = sessionsRef.current.find(item => item.id === requestedSessionId) || null;
+    }
+
+    if (!session || activeRunRef.current || session.court_state.trial_over) return;
     // 等用户发言时，除非用户已开启 "我方代理"（user_agent 接管），否则不进入下一轮。
     if (
       session.court_state.awaiting_user
       && !session.court_state.forced_advance_requested
       && !session.court_state.user_agent_enabled
     ) {
-      setStatus('当前等待用户方发言。');
+      setStatusForSession(session.id, '当前等待用户方发言。');
       return;
     }
 
@@ -765,19 +822,45 @@ export function useCourtSession(enabled = true) {
       agent_states: session.agent_states
     };
 
-    isRunningRef.current = true;
     setIsRunning(true);
-    setStatus('正在推进下一轮庭审。');
+    setStatusForSession(session.id, '正在推进下一轮庭审。');
     const abortController = new AbortController();
-    activeAbortRef.current?.abort();
-    activeAbortRef.current = abortController;
+    let completeRun!: () => void;
+    const completion = new Promise<void>(resolve => {
+      completeRun = resolve;
+    });
+    const activeRun: ActiveCourtRun = {
+      sessionId: session.id,
+      token: ++runSequenceRef.current,
+      controller: abortController,
+      completion,
+      complete: completeRun
+    };
+    activeRunRef.current = activeRun;
+
+    const isOwnRun = () => activeRunRef.current === activeRun;
+    const hasNewerRunForSession = () => (
+      activeRunRef.current !== null
+      && activeRunRef.current !== activeRun
+      && activeRunRef.current.sessionId === session.id
+    );
+
+    const restoreTurnSnapshot = () => {
+      patchSession(session.id, prev => ({
+        ...prev,
+        court_state: turnSnapshot.court_state,
+        public_events: turnSnapshot.public_events,
+        public_summary: turnSnapshot.public_summary,
+        agent_states: turnSnapshot.agent_states
+      }));
+    };
 
     const handleAutoFallback = () => {
-      if (consecutiveErrorsRef.current < AUTO_ERROR_THRESHOLD) return;
-      const failedSession = getCurrentSession();
+      if ((consecutiveErrorsRef.current[session.id] || 0) < AUTO_ERROR_THRESHOLD) return;
+      const failedSession = sessionsRef.current.find(item => item.id === session.id);
       if (failedSession?.auto_mode) {
-        patchSession(failedSession.id, prev => ({ ...prev, auto_mode: false }));
-        setStatus(`已连续 ${AUTO_ERROR_THRESHOLD} 次失败，自动推进已切换为手动。`);
+        patchSession(session.id, prev => ({ ...prev, auto_mode: false }));
+        setStatusForSession(session.id, `已连续 ${AUTO_ERROR_THRESHOLD} 次失败，自动推进已切换为手动。`, activeRun.token);
       }
     };
 
@@ -818,14 +901,19 @@ export function useCourtSession(enabled = true) {
 
     try {
       const response = await courtTurn(session, abortController.signal);
-      const { hadError, errorMessage, failedSpeaker } = await processCourtStream(response, session.id);
+      const { hadError, errorMessage, failedSpeaker } = await processCourtStream(response, session.id, activeRun.token);
+
+      if (!isOwnRun()) {
+        if (!hasNewerRunForSession()) restoreTurnSnapshot();
+        return;
+      }
 
       if (hadError) {
         rollbackFailedTurn(errorMessage || '庭审回合出错。', failedSpeaker);
-        consecutiveErrorsRef.current += 1;
+        consecutiveErrorsRef.current[session.id] = (consecutiveErrorsRef.current[session.id] || 0) + 1;
         handleAutoFallback();
       } else {
-        consecutiveErrorsRef.current = 0;
+        consecutiveErrorsRef.current[session.id] = 0;
       }
 
       const hadInterjections = drainInterjections(session.id);
@@ -834,42 +922,46 @@ export function useCourtSession(enabled = true) {
       if (hadError) {
         // status 已在 stream 里设置
       } else if (latest?.court_state.trial_over) {
-        setStatus('庭审已结束，复盘意见已写入记录。');
+        setStatusForSession(session.id, '庭审已结束，复盘意见已写入记录。', activeRun.token);
       } else if (latest?.court_state.awaiting_user) {
-        setStatus('等待用户方发言。');
+        setStatusForSession(session.id, '等待用户方发言。', activeRun.token);
       } else if (hadInterjections) {
-        setStatus('插话已进入公开记录，下一轮优先处理。');
+        setStatusForSession(session.id, '插话已进入公开记录，下一轮优先处理。', activeRun.token);
       } else if (!latest?.pending_interjections.length) {
-        setStatus('本轮已完成。');
+        setStatusForSession(session.id, '本轮已完成。', activeRun.token);
       }
     } catch (error: any) {
       if (isAbortError(error)) {
-        patchSession(session.id, prev => ({
-          ...prev,
-          court_state: turnSnapshot.court_state,
-          public_events: turnSnapshot.public_events,
-          public_summary: turnSnapshot.public_summary,
-          agent_states: turnSnapshot.agent_states
-        }));
-        setStatus('已停止当前庭审回合。');
+        if (!hasNewerRunForSession()) restoreTurnSnapshot();
+        if (isOwnRun()) {
+          setStatusForSession(session.id, '已停止当前庭审回合。', activeRun.token);
+        }
+        return;
+      }
+
+      if (hasNewerRunForSession()) return;
+      if (!isOwnRun()) {
+        restoreTurnSnapshot();
         return;
       }
 
       console.error('Court turn failed:', error);
       // 网络/认证类异常也回滚本回合产生的状态和半截发言。
-      consecutiveErrorsRef.current += 1;
+      consecutiveErrorsRef.current[session.id] = (consecutiveErrorsRef.current[session.id] || 0) + 1;
       const message = error?.message || '庭审回合失败';
       rollbackFailedTurn(message);
-      setStatus(message);
+      setStatusForSession(session.id, message, activeRun.token);
       handleAutoFallback();
     } finally {
-      if (activeAbortRef.current === abortController) {
-        activeAbortRef.current = null;
+      if (isOwnRun()) {
+        activeRunRef.current = null;
+        if (currentCourtIdRef.current === session.id) {
+          setIsRunning(false);
+        }
       }
-      isRunningRef.current = false;
-      setIsRunning(false);
+      activeRun.complete();
     }
-  }, [drainInterjections, getCurrentSession, patchSession, processCourtStream]);
+  }, [drainInterjections, getCurrentSession, patchSession, processCourtStream, setStatusForSession]);
 
   // 自动模式：监听结构变化触发下一轮。
   useEffect(() => {
@@ -889,6 +981,7 @@ export function useCourtSession(enabled = true) {
     }, 450);
     return () => clearTimeout(timer);
   }, [
+    currentCourtSession?.id,
     currentCourtSession?.auto_mode,
     currentCourtSession?.court_state.awaiting_user,
     currentCourtSession?.court_state.forced_advance_requested,
@@ -903,7 +996,7 @@ export function useCourtSession(enabled = true) {
   return {
     courtSessions,
     currentCourtId,
-    setCurrentCourtId,
+    setCurrentCourtId: selectCourtSession,
     currentCourtSession,
     isInitialized,
     isRunning,

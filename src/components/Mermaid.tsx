@@ -3,20 +3,30 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import mermaid from 'mermaid';
 import DOMPurify from 'dompurify';
 
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  securityLevel: 'strict',
-  flowchart: {
-    htmlLabels: false,
-  },
-  sequence: {
-    useMaxWidth: true,
-  },
-});
+const MAX_MERMAID_CHARS = 50_000;
+let mermaidPromise: Promise<typeof import('mermaid')['default']> | null = null;
+
+const loadMermaid = () => {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then(({ default: mermaid }) => {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'strict',
+        flowchart: {
+          htmlLabels: false,
+        },
+        sequence: {
+          useMaxWidth: true,
+        },
+      });
+      return mermaid;
+    });
+  }
+  return mermaidPromise;
+};
 
 interface MermaidProps {
   chart: string;
@@ -32,6 +42,10 @@ export const Mermaid: React.FC<MermaidProps> = ({ chart }) => {
 
     const renderChart = async () => {
       try {
+        if (chart.length > MAX_MERMAID_CHARS) {
+          throw new Error('Diagram source is too large to render safely.');
+        }
+        const mermaid = await loadMermaid();
         const { svg: renderedSvg } = await mermaid.render(id.current, chart);
         const sanitizedSvg = DOMPurify.sanitize(renderedSvg, {
           USE_PROFILES: { svg: true, svgFilters: true },

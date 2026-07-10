@@ -311,7 +311,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
               <select
                 value={agentMode}
                 onChange={(e) => setAgentMode(e.target.value)}
-                className="lawver-pressable h-9 w-32 shrink-0 cursor-pointer rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[rgba(255,255,255,0.5)] px-3 text-sm font-medium text-[var(--fg-1)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] dark:bg-white/[0.05]"
+                className="lawver-pressable h-11 w-32 shrink-0 cursor-pointer rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[rgba(255,255,255,0.5)] px-3 text-sm font-medium text-[var(--fg-1)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] dark:bg-white/[0.05]"
               >
                 <option value="default">Default</option>
                 <option value="plan_and_solve">Plan & Solve</option>

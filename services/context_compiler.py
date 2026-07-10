@@ -56,6 +56,19 @@ def _clip_text(value: Any, limit: int = 420) -> str:
     return text[:limit].rstrip() + "..."
 
 
+def _safe_context_text(value: Any, limit: int = 420) -> str:
+    """Render low-trust values as inert text inside the working-context envelope."""
+    return _clip_text(value, limit).replace("<", "‹").replace(">", "›")
+
+
+def _safe_confidence(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(confidence, 1.0))
+
+
 def _safe_memory_text(value: Any, trace: dict[str, Any], limit: int = 420) -> str:
     text = _clip_text(value, limit)
     if not text:
@@ -64,7 +77,7 @@ def _safe_memory_text(value: Any, trace: dict[str, Any], limit: int = 420) -> st
         trace.setdefault("stripped_memory_lines", 0)
         trace["stripped_memory_lines"] += 1
         return ""
-    return text.replace("<", "‹").replace(">", "›")
+    return _safe_context_text(text, limit)
 
 
 def _memory_lines_from_context(memory_context: str, trace: dict[str, Any]) -> list[str]:
@@ -143,10 +156,12 @@ def _context_lines(
     memory_lines: list[str],
     policy: dict[str, Any],
 ) -> list[str]:
+    task_type = _safe_context_text(intent.get("task_type", "general"), 80) or "general"
+    intent_source = _safe_context_text(intent.get("source", "rules"), 40) or "rules"
     lines = [
         "<turn_working_context>",
-        f"本轮任务: {intent.get('task_type', 'general')} (confidence={round(float(intent.get('confidence', 0)), 2)}, source={intent.get('source', 'rules')})",
-        f"当前用户请求: {_clip_text(content, 520)}",
+        f"本轮任务: {task_type} (confidence={round(_safe_confidence(intent.get('confidence', 0)), 2)}, source={intent_source})",
+        f"当前用户请求: {_safe_context_text(content, 520)}",
     ]
     if memory_lines:
         lines.append("已知上下文/记忆:")
@@ -191,8 +206,41 @@ def _trim_working_context(lines: list[str], trace: dict[str, Any]) -> str:
     if tokens <= budget:
         trace["trimmed"] = False
         return text
+
+    # The first line and fixed footer are policy structure, not truncatable data.
+    # Trim only the dynamic body so the model always receives a complete envelope
+    # and the final safety checks even under an unusually small configured budget.
+    footer_start = next(
+        (index for index, line in enumerate(lines) if line == "最终回答检查:"),
+        max(len(lines) - 5, 1),
+    )
+    opening = lines[0]
+    footer = lines[footer_start:]
+    fixed_text = "\n".join([opening, *footer])
+    fixed_tokens = estimate_text_tokens(fixed_text)
+    effective_budget = max(budget, fixed_tokens)
+    dynamic_budget = max(effective_budget - fixed_tokens, 0)
+    dynamic_text = "\n".join(lines[1:footer_start])
+    trimmed_dynamic = trim_text_to_token_budget(dynamic_text, dynamic_budget) if dynamic_budget else ""
+    parts = [opening]
+    if trimmed_dynamic:
+        parts.append(trimmed_dynamic)
+    parts.extend(footer)
+    result = "\n".join(parts)
+
+    # Token estimates are approximate around line boundaries. Tighten only the
+    # untrusted body if composition overshoots the effective budget.
+    while trimmed_dynamic and estimate_text_tokens(result) > effective_budget and dynamic_budget > 0:
+        dynamic_budget = max(dynamic_budget - 4, 0)
+        trimmed_dynamic = trim_text_to_token_budget(dynamic_text, dynamic_budget) if dynamic_budget else ""
+        result = "\n".join([opening, *([trimmed_dynamic] if trimmed_dynamic else []), *footer])
+
     trace["trimmed"] = True
-    return trim_text_to_token_budget(text, budget)
+    trace["working_context_fixed_tokens"] = fixed_tokens
+    trace["working_context_effective_budget"] = effective_budget
+    trace["working_context_dynamic_tokens"] = estimate_text_tokens(trimmed_dynamic)
+    trace["working_context_tokens_estimated"] = estimate_text_tokens(result)
+    return result
 
 
 async def compile_context(

@@ -22,19 +22,41 @@ export function useWorkspace(currentId: string, enabled = true) {
   const [uploadingFiles, setUploadingFiles] = useState<WorkspaceFile[]>([]);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const currentIdRef = useRef(currentId);
+  const syncGenerationRef = useRef(0);
+  const deletionTombstonesRef = useRef(new Set<string>());
+
+  const deletionKey = useCallback((conversationId: string, path: string) => (
+    `${conversationId}::${path}`
+  ), []);
 
   useEffect(() => {
     currentIdRef.current = currentId;
+    syncGenerationRef.current += 1;
+    setWorkspaceFiles([]);
     setPendingUploads([]);
     setUploadingFiles([]);
   }, [currentId]);
 
   const syncFiles = useCallback(async () => {
     if (!enabled || !currentId) return;
+    const syncConversationId = currentId;
+    const generation = ++syncGenerationRef.current;
+    const isCurrentSync = () => (
+      currentIdRef.current === syncConversationId
+      && syncGenerationRef.current === generation
+    );
     try {
-      const data = await getWorkspaceFiles(currentId);
-      const serverFiles = (data.files || []) as WorkspaceFile[];
-      const localFiles = await fileDB.getFilesByConvId(currentId);
+      const data = await getWorkspaceFiles(syncConversationId);
+      if (!isCurrentSync()) return;
+      const rawServerFiles = (data.files || []) as WorkspaceFile[];
+      const serverFiles = rawServerFiles.filter(file => (
+        !deletionTombstonesRef.current.has(deletionKey(syncConversationId, file.path))
+      ));
+      const rawLocalFiles = await fileDB.getFilesByConvId(syncConversationId);
+      const localFiles = rawLocalFiles.filter(file => (
+        !deletionTombstonesRef.current.has(deletionKey(syncConversationId, file.path))
+      ));
+      if (!isCurrentSync()) return;
       const localFilesByPath = new Map(localFiles.map(file => [file.path, file]));
       
       const serverPaths = new Set(serverFiles.map((f: any) => f.path));
@@ -55,7 +77,8 @@ export function useWorkspace(currentId: string, enabled = true) {
           if (local.blob && local.blob.size > 0) {
             console.log(`[Sync] Restoring missing file to server: ${local.fileName}`);
             try {
-              await restoreFile(local.blob, local.fileName, currentId, type);
+              await restoreFile(local.blob, local.fileName, syncConversationId, type);
+              if (!isCurrentSync()) return;
             } catch (err) {
               console.error(`[Sync] Failed to restore file ${local.fileName}:`, err);
             }
@@ -74,7 +97,8 @@ export function useWorkspace(currentId: string, enabled = true) {
             const res = await apiFetch(`/api/download?file_path=${encodeURIComponent(serverFile.path)}`);
             if (res.ok) {
               const blob = await res.blob();
-              await fileDB.saveFile(currentId, serverFile.name, blob, serverFile.path);
+              await fileDB.saveFile(syncConversationId, serverFile.name, blob, serverFile.path);
+              if (!isCurrentSync()) return;
             }
           } catch (err) {
             console.error(`[Sync] Failed to download server file to local: ${serverFile.name}`, err);
@@ -82,18 +106,33 @@ export function useWorkspace(currentId: string, enabled = true) {
         }
       }
       
-      setWorkspaceFiles(mergedFiles);
+      if (isCurrentSync()) {
+        setWorkspaceFiles(mergedFiles);
+        const confirmedPaths = new Set([
+          ...rawServerFiles.map(file => file.path),
+          ...rawLocalFiles.map(file => file.path),
+        ]);
+        for (const key of deletionTombstonesRef.current) {
+          if (key.startsWith(`${syncConversationId}::`)) {
+            const path = key.slice(syncConversationId.length + 2);
+            if (!confirmedPaths.has(path)) deletionTombstonesRef.current.delete(key);
+          }
+        }
+      }
     } catch (error) {
       console.error('Failed to sync workspace files:', error);
       // Fallback to local DB if server fails
-      const files = await fileDB.getFilesByConvId(currentId);
-      setWorkspaceFiles(files.map(f => ({
+      const files = await fileDB.getFilesByConvId(syncConversationId);
+      if (!isCurrentSync()) return;
+      setWorkspaceFiles(files.filter(file => (
+        !deletionTombstonesRef.current.has(deletionKey(syncConversationId, file.path))
+      )).map(f => ({
         name: f.fileName,
         path: f.path || '',
         type: (f.path && f.path.startsWith('TEMP/')) ? 'upload' : 'generated'
       })));
     }
-  }, [currentId, enabled]);
+  }, [currentId, deletionKey, enabled]);
 
   useEffect(() => {
     syncFiles();
@@ -163,21 +202,24 @@ export function useWorkspace(currentId: string, enabled = true) {
   }, [currentId, showAlert, syncFiles]);
 
   const handleGeneratedFile = useCallback(async (name: string, path: string) => {
+    const generatedConversationId = currentId;
     if (path) {
       try {
         const res = await apiFetch(`/api/download?file_path=${encodeURIComponent(path)}`);
         if (res.ok) {
           const blob = await res.blob();
-          await fileDB.saveFile(currentId, name, blob, path);
+          await fileDB.saveFile(generatedConversationId, name, blob, path);
         } else {
-          await fileDB.saveFile(currentId, name, new Blob([]), path);
+          await fileDB.saveFile(generatedConversationId, name, new Blob([]), path);
         }
       } catch (e) {
         console.error("Failed to download generated file for cache:", e);
-        await fileDB.saveFile(currentId, name, new Blob([]), path);
+        await fileDB.saveFile(generatedConversationId, name, new Blob([]), path);
       }
     }
-    await syncFiles(); // Refresh from server to get the actual state
+    if (currentIdRef.current === generatedConversationId) {
+      await syncFiles(); // Refresh from server to get the actual state
+    }
   }, [currentId, syncFiles]);
 
   const removeUploadedFile = useCallback((index: number) => {
@@ -190,31 +232,53 @@ export function useWorkspace(currentId: string, enabled = true) {
   }, [pendingUploads]);
 
   const deleteFile = useCallback(async (filePath: string) => {
+    const deleteConversationId = currentId;
+    const tombstoneKey = deletionKey(deleteConversationId, filePath);
     try {
       const fileToDelete = workspaceFiles.find(f => f.path === filePath);
       if (!fileToDelete) {
         return;
       }
 
+      const localFiles = await fileDB.getFilesByConvId(deleteConversationId);
+      const localFile = localFiles.find(file => file.path === fileToDelete.path);
+      deletionTombstonesRef.current.add(tombstoneKey);
+
       try {
-        await deleteWorkspaceFile(currentId, fileToDelete.path);
+        // Delete the local cache first. If the authoritative server delete
+        // fails, restore the captured cache record so both sides stay aligned.
+        if (localFile) {
+          await fileDB.deleteFile(deleteConversationId, localFile.fileName, localFile.path);
+        }
+        await deleteWorkspaceFile(deleteConversationId, fileToDelete.path);
       } catch (err: any) {
+        if (localFile) {
+          try {
+            await fileDB.saveFile(deleteConversationId, localFile.fileName, localFile.blob, localFile.path);
+          } catch (rollbackError) {
+            console.error('Failed to roll back local file delete:', rollbackError);
+          }
+        }
+        deletionTombstonesRef.current.delete(tombstoneKey);
         console.error('Failed to delete file from server:', err);
         await showAlert({
           title: '删除失败',
-          message: err?.message || '删除服务端文件失败，本地文件已保留。',
+          message: err?.message || '文件删除未完成，本地缓存已恢复。',
           tone: 'danger',
         });
         return;
       }
 
-      await fileDB.deleteFile(currentId, fileToDelete.name, fileToDelete.path);
-      setWorkspaceFiles(prev => prev.filter(f => f.path !== filePath));
-      setPendingUploads(prev => prev.filter(f => f.path !== filePath));
+      if (currentIdRef.current === deleteConversationId) {
+        setWorkspaceFiles(prev => prev.filter(f => f.path !== filePath));
+        setPendingUploads(prev => prev.filter(f => f.path !== filePath));
+        await syncFiles();
+      }
     } catch (error) {
+      deletionTombstonesRef.current.delete(tombstoneKey);
       console.error('Failed to delete file:', error);
     }
-  }, [currentId, showAlert, workspaceFiles]);
+  }, [currentId, deletionKey, showAlert, syncFiles, workspaceFiles]);
 
   const visibleWorkspaceFiles = useMemo(() => {
     const uploadingKeys = new Set(uploadingFiles.map(file => file.path || file.tempId || file.name));

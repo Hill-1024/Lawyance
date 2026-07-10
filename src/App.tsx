@@ -18,17 +18,24 @@ import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { WorkspacePanel } from './components/WorkspacePanel';
 import { InputArea } from './components/InputArea';
-import { MessageList } from './components/MessageList';
 import { Login } from './components/Login';
-import { AdminDashboard } from './components/AdminDashboard';
 import { BrandMark } from './components/Brand';
-import { CourtPage } from './components/CourtPage';
-import { SettingsPage } from './components/SettingsPage';
 import { UpdateGate } from './components/UpdateGate';
 import { GuidedTour } from './components/GuidedTour';
 
+const AdminDashboard = React.lazy(() => import('./components/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
+const CourtPage = React.lazy(() => import('./components/CourtPage').then(module => ({ default: module.CourtPage })));
+const MessageList = React.lazy(() => import('./components/MessageList').then(module => ({ default: module.MessageList })));
+const SettingsPage = React.lazy(() => import('./components/SettingsPage').then(module => ({ default: module.SettingsPage })));
+
 const SECURE_DOMAIN = 'law.mutsumi.moe';
 const ROUTE_TRANSITION = { duration: 0.26, ease: [0.2, 0, 0, 1] } as const;
+
+const RouteLoadingFallback = () => (
+  <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--bg-app)] text-[var(--accent)]">
+    <div className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--accent-quiet)] border-t-[var(--accent)]" />
+  </div>
+);
 
 const isIpHostname = (hostname: string) => {
   if (!hostname) return false;
@@ -280,7 +287,7 @@ function App() {
         </div>
         <a
           href={secureAccessUrl}
-          className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-warning-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#9A6F22]"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-warning-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#9A6F22]"
         >
           前往安全地址
           <ExternalLink size={16} strokeWidth={2} />
@@ -345,18 +352,20 @@ function App() {
                 </div>
               </div>
             ) : (
-              <MessageList
-                conversationId={currentId}
-                messages={messages}
-                isLoading={isLoading}
-                activeAssistantMessageId={activeAssistantMessageId}
-                bottomInset={composerOverlayHeight}
-                onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
-                onAnswerChoice={(id, value) => handleUserChoice(id, value, handleGeneratedFile, syncFiles)}
-                onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}
-                onUndo={(id) => handleUndo(currentId, id, setPendingUploads)}
-                onBranch={(id) => branchConversation(currentId, id)}
-              />
+              <React.Suspense fallback={<div className="min-h-0 flex-1" aria-hidden="true" />}>
+                <MessageList
+                  conversationId={currentId}
+                  messages={messages}
+                  isLoading={isLoading}
+                  activeAssistantMessageId={activeAssistantMessageId}
+                  bottomInset={composerOverlayHeight}
+                  onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
+                  onAnswerChoice={(id, value) => handleUserChoice(id, value, handleGeneratedFile, syncFiles)}
+                  onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}
+                  onUndo={(id) => handleUndo(currentId, id, setPendingUploads)}
+                  onBranch={(id) => branchConversation(currentId, id)}
+                />
+              </React.Suspense>
             )}
 
             <InputArea
@@ -406,9 +415,9 @@ function App() {
         <React.Fragment key={location.pathname}>
           <Routes location={location}>
             <Route path="/" element={chatLayout} />
-            <Route path="/court" element={<CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} />} />
-            <Route path="/settings/*" element={<AnimatedRouteSurface><SettingsPage /></AnimatedRouteSurface>} />
-            <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'admin' ? <AdminDashboard /> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>} />
+            <Route path="/court" element={<React.Suspense fallback={<RouteLoadingFallback />}><CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} /></React.Suspense>} />
+            <Route path="/settings/*" element={<AnimatedRouteSurface><React.Suspense fallback={<RouteLoadingFallback />}><SettingsPage /></React.Suspense></AnimatedRouteSurface>} />
+            <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'admin' ? <React.Suspense fallback={<RouteLoadingFallback />}><AdminDashboard /></React.Suspense> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>} />
           </Routes>
         </React.Fragment>
       </AnimatePresence>

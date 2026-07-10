@@ -77,7 +77,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: TypeScript check
         run: pnpm run lint

@@ -31,7 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+          className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
           aria-label="Toggle conversations"
         >
           <Menu size={20} strokeWidth={2} className="sm:size-[22px]" />
@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
         <HoverInfo label="Workspace" placement="bottom" disabled={isWorkspaceOpen}>
           <button
             onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
-            className={`lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors sm:h-11 sm:w-11 ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+            className={`lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
             aria-label="Toggle workspace"
           >
             <div className="relative">
@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
         <HoverInfo label="设置" placement="bottom">
           <button
             onClick={onSettingsClick}
-            className="lawver-pressable inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+            className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
             aria-label="设置"
           >
             <Settings size={18} strokeWidth={2} className="sm:size-5" />

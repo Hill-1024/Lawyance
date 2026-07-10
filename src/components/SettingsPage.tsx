@@ -169,15 +169,15 @@ const WebDavSection: React.FC = () => {
     }
   };
 
-  const inputClass = 'h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm outline-none transition-colors focus:border-[var(--accent)] placeholder:text-[var(--fg-4)]';
+  const inputClass = 'h-11 min-w-0 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm outline-none transition-colors focus:border-[var(--accent)] placeholder:text-[var(--fg-4)]';
 
   return (
     <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex min-w-0 items-center gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
           <Cloud size={20} strokeWidth={2} />
         </span>
-        <div>
+        <div className="min-w-0">
           <h2 className="t-title-m">WebDAV 数据同步</h2>
           <p className="text-[13px] text-[var(--fg-3)]">备份至自己的 WebDAV 云（坚果云、Nextcloud 等）。</p>
         </div>
@@ -204,8 +204,8 @@ const WebDavSection: React.FC = () => {
             autoComplete="url"
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="min-w-0">
             <label className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">用户名</label>
             <input
               className={inputClass}
@@ -216,7 +216,7 @@ const WebDavSection: React.FC = () => {
               autoComplete="username"
             />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">密码</label>
             <div className="relative">
               <input
@@ -231,7 +231,7 @@ const WebDavSection: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowPassword(p => !p)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-[var(--fg-3)] hover:text-[var(--fg-1)]"
+                className="lawver-pressable absolute right-0 top-1/2 inline-flex h-11 min-w-11 -translate-y-1/2 items-center justify-center px-2 text-[11px] text-[var(--fg-3)] hover:text-[var(--fg-1)]"
               >
                 {showPassword ? '隐藏' : '显示'}
               </button>
@@ -255,7 +255,7 @@ const WebDavSection: React.FC = () => {
         <button
           onClick={handleTest}
           disabled={busy}
-          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface-2)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-inset)] disabled:opacity-50"
+          className="lawver-pressable inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface-2)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-inset)] disabled:opacity-50"
         >
           {syncState === 'testing' ? <Loader2 size={14} strokeWidth={2} className="animate-spin" /> : <Server size={14} strokeWidth={2} />}
           测试连接
@@ -264,7 +264,7 @@ const WebDavSection: React.FC = () => {
         <button
           onClick={handleUpload}
           disabled={busy}
-          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="lawver-pressable inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {syncState === 'uploading' ? <Loader2 size={14} strokeWidth={2} className="animate-spin" /> : <CloudUpload size={14} strokeWidth={2} />}
           立即备份
@@ -273,7 +273,7 @@ const WebDavSection: React.FC = () => {
         <button
           onClick={handleListBackups}
           disabled={busy}
-          className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface-2)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-inset)] disabled:opacity-50"
+          className="lawver-pressable inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface-2)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-inset)] disabled:opacity-50"
         >
           {syncState === 'listing' ? <Loader2 size={14} strokeWidth={2} className="animate-spin" /> : <CloudDownload size={14} strokeWidth={2} />}
           从云端恢复
@@ -289,7 +289,7 @@ const WebDavSection: React.FC = () => {
           ) : (
             <ul className="divide-y divide-[var(--border-subtle)]">
               {backups.map(file => (
-                <li key={file.filename} className="flex items-center justify-between gap-2 px-4 py-3">
+                <li key={file.filename} className="flex min-w-0 items-center justify-between gap-2 px-3 py-3 sm:px-4">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-[var(--fg-1)]">{file.filename}</p>
                     <p className="text-[11px] text-[var(--fg-3)]">
@@ -301,7 +301,7 @@ const WebDavSection: React.FC = () => {
                     <button
                       onClick={() => handleRestore(file.filename)}
                       disabled={busy}
-                      className="lawver-pressable inline-flex h-8 items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-2.5 text-[12px] font-medium text-[var(--accent)] transition-colors hover:bg-[rgba(59,98,184,0.16)] disabled:opacity-50"
+                      className="lawver-pressable inline-flex min-h-11 items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-2.5 text-[12px] font-medium text-[var(--accent)] transition-colors hover:bg-[rgba(59,98,184,0.16)] disabled:opacity-50"
                     >
                       {syncState === 'restoring' && activeFilename === file.filename ? (
                         <Loader2 size={12} className="animate-spin" />
@@ -313,7 +313,7 @@ const WebDavSection: React.FC = () => {
                     <button
                       onClick={() => handleDelete(file.filename)}
                       disabled={busy}
-                      className="lawver-pressable inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--fg-3)] transition-colors hover:bg-[rgba(184,42,42,0.08)] hover:text-[var(--color-danger-500)] disabled:opacity-50"
+                      className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--fg-3)] transition-colors hover:bg-[rgba(184,42,42,0.08)] hover:text-[var(--color-danger-500)] disabled:opacity-50"
                       title="删除此快照"
                     >
                       {syncState === 'deleting' && activeFilename === file.filename ? (
@@ -536,11 +536,11 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
 
   return (
     <section className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] sm:p-5">
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex min-w-0 items-center gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
           {(() => { const Icon = PROVIDER_ICONS[providerKey] || Server; return <Icon size={20} strokeWidth={2} />; })()}
         </span>
-        <div>
+        <div className="min-w-0">
           <h2 className="t-title-m">{label}</h2>
           <p className="text-[13px] text-[var(--fg-3)]">{PROVIDER_DESCS[providerKey] || ''}</p>
         </div>
@@ -561,7 +561,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
             </div>
             <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">{PROVIDER_DESCS[providerKey] || ''}</p>
           </div>
-          <label className="inline-flex shrink-0 items-center gap-2 text-sm text-[var(--fg-2)]">
+          <label className="inline-flex min-h-11 shrink-0 items-center gap-2 text-sm text-[var(--fg-2)]">
             <input type="checkbox" checked={Boolean(provider.enabled)} onChange={e => updateField('enabled', e.target.checked)} />
             启用
           </label>
@@ -575,12 +575,12 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
                 <label key={field.key} className="min-w-0">
                   <span className="mb-1 block text-[12px] font-medium text-[var(--fg-3)]">{field.label}</span>
                   {isModel ? (
-                    <div className="relative">
-                      <div className="flex gap-1">
+                    <div className="relative min-w-0">
+                      <div className="flex min-w-0 gap-1">
                         <input className={`${providerInputClass} flex-1`} value={String(provider[field.key] || '')}
                           placeholder={field.placeholder} onChange={e => updateField(field.key, e.target.value)} />
                         <button type="button" onClick={() => setModelDropdownOpen(o => !o)}
-                          className="lawver-pressable inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--fg-3)] hover:text-[var(--fg-1)]">
+                          className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--fg-3)] hover:text-[var(--fg-1)]">
                           <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${modelDropdownOpen ? 'rotate-180' : ''}`} />
                         </button>
                       </div>
@@ -589,7 +589,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
                           {llmModels.map(m => (
                             <button key={m.id} type="button"
                               onClick={() => { updateField('model', m.id); setModelDropdownOpen(false); }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--fg-1)] transition-colors hover:bg-[var(--accent-quiet)]">
+                              className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--fg-1)] transition-colors hover:bg-[var(--accent-quiet)]">
                               <span className="flex-1 truncate">{m.id}</span>
                               {m.owned_by && <span className="shrink-0 text-[11px] text-[var(--fg-4)]">{m.owned_by}</span>}
                             </button>
@@ -622,17 +622,17 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
 
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" onClick={saveSecrets} disabled={isBusy || secrets.length === 0}
-            className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50">
+            className="lawver-pressable inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50">
             {busy === `${providerKey}.secrets` ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
             保存凭据
           </button>
           <button type="button" onClick={testConn} disabled={isBusy}
-            className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50">
+            className="lawver-pressable inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm font-medium text-[var(--fg-2)] transition-colors hover:bg-[var(--bg-surface-2)] disabled:opacity-50">
             {busy === `${providerKey}.test` ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
             测试连接
           </button>
           <button type="button" onClick={clearSecrets} disabled={isBusy || secrets.length === 0}
-            className="lawver-pressable inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[var(--color-danger-500)] transition-colors hover:bg-[rgba(184,42,42,0.08)] disabled:opacity-50">
+            className="lawver-pressable inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[var(--color-danger-500)] transition-colors hover:bg-[rgba(184,42,42,0.08)] disabled:opacity-50">
             {busy === `${providerKey}.clear` ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
             清除凭据
           </button>
@@ -641,7 +641,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
 
       <div className="mt-4 flex justify-end">
         <button type="button" onClick={saveSettings} disabled={busy === 'save'}
-          className="lawver-pressable inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50">
+          className="lawver-pressable inline-flex min-h-11 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50">
           {busy === 'save' ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
           保存非敏感配置
         </button>
@@ -758,7 +758,7 @@ const PROVIDER_SECRETS: Record<string, { key: string; label: string; placeholder
 
 const PROVIDER_ORDER = ['llm', 'deli', 'searxng', 'qcc', 'embedding'];
 
-const providerInputClass = 'h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm outline-none transition-colors focus:border-[var(--accent)] placeholder:text-[var(--fg-4)] disabled:opacity-60';
+const providerInputClass = 'h-11 min-w-0 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-sm outline-none transition-colors focus:border-[var(--accent)] placeholder:text-[var(--fg-4)] disabled:opacity-60';
 
 const HELP_TOPICS: Array<{
   icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -829,7 +829,7 @@ const HelpSection: React.FC<{ onStartTour: () => void }> = ({ onStartTour }) => 
           <button
             type="button"
             onClick={onStartTour}
-            className="md3-btn-filled lawver-pressable min-h-10 shrink-0 whitespace-nowrap px-4 py-2.5 text-sm"
+            className="md3-btn-filled lawver-pressable min-h-11 shrink-0 whitespace-nowrap px-4 py-2.5 text-sm"
           >
             <CirclePlay size={17} strokeWidth={2} />
             重播动态指引
@@ -1006,7 +1006,7 @@ export const SettingsPage: React.FC = () => {
           <HoverInfo label="返回" placement="bottom">
             <button
               onClick={handleBack}
-              className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11"
+              className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
               aria-label="返回"
             >
               <ArrowLeft size={20} strokeWidth={2} />
@@ -1148,7 +1148,7 @@ export const SettingsPage: React.FC = () => {
                               setSeedDraft(color);
                               setCustomSeed(color);
                             }}
-                            className="lawver-pressable h-8 w-8 rounded-full border border-[var(--border-default)] shadow-[var(--shadow-1)]"
+                            className="lawver-pressable h-11 w-11 rounded-full border border-[var(--border-default)] shadow-[var(--shadow-1)] sm:h-10 sm:w-10"
                             style={{ backgroundColor: color }}
                             aria-label={`选择 ${color}`}
                           />
@@ -1159,7 +1159,7 @@ export const SettingsPage: React.FC = () => {
                           setSeedDraft(DEFAULT_SEED);
                           setCustomSeed(DEFAULT_SEED);
                         }}
-                        className="lawver-pressable inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[var(--fg-3)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--fg-1)]"
+                        className="lawver-pressable inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-md)] px-3 text-sm font-medium text-[var(--fg-3)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--fg-1)]"
                       >
                         <RotateCcw size={15} strokeWidth={2} />
                         重置

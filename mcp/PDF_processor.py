@@ -4,10 +4,145 @@
 
 import fitz  # PyMuPDF
 import json
+import math
+import multiprocessing as mp
 import re
 import os
+import shutil
 import sys
+import tempfile
+import threading
+import time
+from bisect import bisect_left
 from pathlib import Path
+
+
+MAX_PDF_PAGES = 100
+MAX_PDF_EXTRACTED_CHARS = 400_000
+MAX_PDF_OBJECTS = 50_000
+MAX_PDF_OUTPUT_BYTES = 2 * 1024 * 1024
+MAX_PDF_WALL_SECONDS = 10.0
+MIN_PDF_OUTPUT_BYTES = 128
+MAX_PDF_INPUT_BYTES = 25 * 1024 * 1024
+MAX_PDF_ANNOTATED_BYTES = 50 * 1024 * 1024
+MAX_PDF_WORKER_MEMORY_BYTES = 768 * 1024 * 1024
+MAX_PDF_NOTE_CHARS = 10_000
+PDF_WORKER_STARTUP_GRACE_SECONDS = 0.75
+PDF_WORKER_SHUTDOWN_GRACE_SECONDS = 0.5
+_PDF_WORKER_SLOTS = threading.BoundedSemaphore(2)
+
+
+def _apply_pdf_worker_limits(timeout_seconds: float) -> None:
+    """Best-effort OS limits for the disposable PDF worker process."""
+    try:
+        import resource
+    except ImportError:  # pragma: no cover - parent wall timeout remains portable
+        return
+
+    limits = (
+        (getattr(resource, "RLIMIT_CPU", None), max(1, math.ceil(timeout_seconds)), max(2, math.ceil(timeout_seconds) + 1)),
+        (getattr(resource, "RLIMIT_FSIZE", None), MAX_PDF_ANNOTATED_BYTES, MAX_PDF_ANNOTATED_BYTES),
+        (getattr(resource, "RLIMIT_NOFILE", None), 64, 64),
+        (getattr(resource, "RLIMIT_AS", None), MAX_PDF_WORKER_MEMORY_BYTES, MAX_PDF_WORKER_MEMORY_BYTES),
+    )
+    for resource_id, soft_limit, hard_limit in limits:
+        if resource_id is None:
+            continue
+        try:
+            current_soft, current_hard = resource.getrlimit(resource_id)
+            if current_hard != resource.RLIM_INFINITY:
+                hard_limit = min(hard_limit, current_hard)
+            soft_limit = min(soft_limit, hard_limit)
+            resource.setrlimit(resource_id, (soft_limit, hard_limit))
+        except (OSError, ValueError):
+            # Some macOS/Python builds reject individual limits. The parent
+            # process still enforces a hard wall timeout and concurrency cap.
+            continue
+
+
+def _pdf_isolated_entry(send_conn, target, args, kwargs, timeout_seconds: float) -> None:
+    _apply_pdf_worker_limits(timeout_seconds)
+    try:
+        payload = target(*args, **kwargs)
+        message = ("ok", payload)
+    except BaseException:
+        # Never serialize parser/native-library exception details back to the
+        # application process. They may contain local paths or library state.
+        message = ("error", None)
+    try:
+        send_conn.send(message)
+    except (BrokenPipeError, EOFError, OSError):
+        pass
+    finally:
+        send_conn.close()
+
+
+def _stop_pdf_process(process) -> None:
+    if process is None or not process.is_alive():
+        return
+    process.terminate()
+    process.join(PDF_WORKER_SHUTDOWN_GRACE_SECONDS)
+    if process.is_alive():
+        kill = getattr(process, "kill", None)
+        if callable(kill):
+            kill()
+        process.join(PDF_WORKER_SHUTDOWN_GRACE_SECONDS)
+
+
+def _run_pdf_isolated(target, args: tuple, kwargs: dict, timeout_seconds: float) -> tuple[str, object | None]:
+    """Run native PDF parsing in a disposable process with a hard deadline."""
+    timeout_seconds = min(max(float(timeout_seconds), 0.01), MAX_PDF_WALL_SECONDS + PDF_WORKER_STARTUP_GRACE_SECONDS)
+    if not _PDF_WORKER_SLOTS.acquire(timeout=0.1):
+        return "busy", None
+
+    process = None
+    recv_conn = None
+    send_conn = None
+    try:
+        context = mp.get_context("spawn")
+        recv_conn, send_conn = context.Pipe(duplex=False)
+        process = context.Process(
+            target=_pdf_isolated_entry,
+            args=(send_conn, target, args, kwargs, timeout_seconds),
+            daemon=True,
+        )
+        process.start()
+        send_conn.close()
+        send_conn = None
+
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return "timeout", None
+            if recv_conn.poll(min(remaining, 0.05)):
+                try:
+                    status, payload = recv_conn.recv()
+                except (EOFError, OSError, ValueError):
+                    return "error", None
+                process.join(PDF_WORKER_SHUTDOWN_GRACE_SECONDS)
+                if process.is_alive():
+                    _stop_pdf_process(process)
+                return status, payload
+            if not process.is_alive():
+                return "error", None
+    except (OSError, RuntimeError, ValueError):
+        return "error", None
+    finally:
+        _stop_pdf_process(process)
+        if recv_conn is not None:
+            recv_conn.close()
+        if send_conn is not None:
+            send_conn.close()
+        _PDF_WORKER_SLOTS.release()
+
+
+def _pdf_input_is_allowed(pdf_path) -> bool:
+    try:
+        path = Path(pdf_path)
+        return path.is_file() and not path.is_symlink() and path.stat().st_size <= MAX_PDF_INPUT_BYTES
+    except (OSError, TypeError, ValueError):
+        return False
 
 
 class PDFTextExtractor:
@@ -16,7 +151,15 @@ class PDFTextExtractor:
     从PDF中提取文本，按页分割，并根据标点分句，记录每个句子的末尾坐标
     """
 
-    def __init__(self, pdf_path=None):
+    def __init__(
+        self,
+        pdf_path=None,
+        *,
+        max_pages=MAX_PDF_PAGES,
+        max_extracted_chars=MAX_PDF_EXTRACTED_CHARS,
+        max_objects=MAX_PDF_OBJECTS,
+        max_wall_seconds=MAX_PDF_WALL_SECONDS,
+    ):
         """
         初始化PDF文本提取器
 
@@ -26,6 +169,36 @@ class PDFTextExtractor:
         self.pdf_path = pdf_path
         self.doc = None
         self.extracted_data = None
+        self.max_pages = min(max(int(max_pages), 1), MAX_PDF_PAGES)
+        self.max_extracted_chars = min(max(int(max_extracted_chars), 1), MAX_PDF_EXTRACTED_CHARS)
+        self.max_objects = min(max(int(max_objects), 1), MAX_PDF_OBJECTS)
+        self.max_wall_seconds = min(max(float(max_wall_seconds), 0.01), MAX_PDF_WALL_SECONDS)
+        self.deadline = 0.0
+        self.truncated_reasons: list[str] = []
+        self.total_pages = 0
+        self.document_objects = 0
+        self.processed_objects = 0
+        self.extracted_chars = 0
+
+    def mark_truncated(self, reason: str) -> None:
+        if reason not in self.truncated_reasons:
+            self.truncated_reasons.append(reason)
+
+    def wall_budget_exhausted(self) -> bool:
+        if self.deadline and time.monotonic() >= self.deadline:
+            self.mark_truncated("max_wall_seconds")
+            return True
+        return False
+
+    def extraction_stats(self) -> dict:
+        pages = self.extracted_data if isinstance(self.extracted_data, list) else []
+        return {
+            "document_pages": self.total_pages,
+            "document_objects": self.document_objects,
+            "pages_returned_before_output_limit": len(pages),
+            "objects_processed": self.processed_objects,
+            "extracted_chars": self.extracted_chars,
+        }
 
     def load_pdf(self, pdf_path=None):
         """
@@ -74,13 +247,45 @@ class PDFTextExtractor:
                 return None
 
         result = []
+        self.deadline = time.monotonic() + self.max_wall_seconds
+        self.truncated_reasons = []
+        self.extracted_chars = 0
+        self.total_pages = len(self.doc)
+        try:
+            self.document_objects = int(self.doc.xref_length())
+        except (AttributeError, TypeError, ValueError):
+            self.document_objects = 0
+        self.processed_objects = self.document_objects
 
-        for page_num in range(len(self.doc)):
+        if self.document_objects > self.max_objects:
+            self.mark_truncated("max_objects")
+            self.extracted_data = result
+            return result
+        if self.total_pages > self.max_pages:
+            self.mark_truncated("max_pages")
+
+        stop_after_page = False
+        for page_num in range(min(self.total_pages, self.max_pages)):
+            if self.wall_budget_exhausted():
+                break
+            if self.processed_objects >= self.max_objects:
+                self.mark_truncated("max_objects")
+                break
+            self.processed_objects += 1  # page result object
             page = self.doc[page_num]
 
             # 使用get_text("words")获取每个单词及其坐标
             # 格式: [(x0, y0, x1, y1, "word", block_no, line_no, word_no), ...]
             words = page.get_text("words")
+            if self.wall_budget_exhausted():
+                break
+
+            remaining_objects = max(self.max_objects - self.processed_objects, 0)
+            if len(words) > remaining_objects:
+                words = words[:remaining_objects]
+                self.mark_truncated("max_objects")
+                stop_after_page = True
+            self.processed_objects += len(words)
 
             if not words:
                 result.append({
@@ -94,26 +299,56 @@ class PDFTextExtractor:
             words.sort(key=lambda w: (w[1], w[0]))
 
             # 构建页面的完整文本和坐标映射
-            page_text = ""
+            page_text_parts = []
+            page_text_length = 0
             word_coords = []  # 存储每个单词的坐标信息
 
             for word in words:
-                word_text = word[4]
+                if self.wall_budget_exhausted():
+                    stop_after_page = True
+                    break
+                word_text = str(word[4])
                 # 单词的结束坐标（使用右下角坐标x1, y1）
                 end_coord = (word[2], word[3])
 
+                remaining_chars = self.max_extracted_chars - self.extracted_chars
+                if remaining_chars <= 0:
+                    self.mark_truncated("max_extracted_chars")
+                    stop_after_page = True
+                    break
+
+                stored_word = word_text[:remaining_chars]
+                if len(stored_word) < len(word_text):
+                    self.mark_truncated("max_extracted_chars")
+                    stop_after_page = True
+                if not stored_word:
+                    break
+
                 # 将单词文本添加到页面文本
-                page_text += word_text
+                page_text_parts.append(stored_word)
+                page_text_length += len(stored_word)
+                self.extracted_chars += len(stored_word)
                 # 记录单词结束坐标
                 word_coords.append({
-                    "text": word_text,
-                    "end_index": len(page_text) - 1,  # 单词结束的字符索引
+                    "text": stored_word,
+                    "end_index": page_text_length - 1,  # 单词结束的字符索引
                     "end_coord": end_coord
                 })
 
                 # 在单词后添加空格（除非是中文标点）
-                if not self._is_chinese_punctuation(word_text[-1] if word_text else ''):
-                    page_text += " "
+                if (
+                    len(stored_word) == len(word_text)
+                    and not self._is_chinese_punctuation(word_text[-1] if word_text else '')
+                    and self.extracted_chars < self.max_extracted_chars
+                ):
+                    page_text_parts.append(" ")
+                    page_text_length += 1
+                    self.extracted_chars += 1
+
+                if stop_after_page:
+                    break
+
+            page_text = "".join(page_text_parts)
 
             if not page_text.strip():
                 result.append({
@@ -136,6 +371,10 @@ class PDFTextExtractor:
                 sentence_text = page_text[sentence_start:sentence_end].strip()
 
                 if sentence_text:
+                    if self.processed_objects >= self.max_objects:
+                        self.mark_truncated("max_objects")
+                        stop_after_page = True
+                        break
                     # 查找句子结束位置的坐标
                     # 找到句子中最后一个字符对应的单词坐标
                     sentence_end_char_index = sentence_end - 1
@@ -147,6 +386,7 @@ class PDFTextExtractor:
                         "end_coord": sentence_end_coord,
                         "index": index
                     })
+                    self.processed_objects += 1
                     index += 1
                 sentence_start = sentence_end
 
@@ -154,20 +394,28 @@ class PDFTextExtractor:
             if sentence_start < len(page_text):
                 sentence_text = page_text[sentence_start:].strip()
                 if sentence_text:
-                    sentence_end_char_index = len(page_text) - 1
-                    sentence_end_coord = self._find_coord_for_char_index(
-                        sentence_end_char_index, word_coords)
+                    if self.processed_objects >= self.max_objects:
+                        self.mark_truncated("max_objects")
+                        stop_after_page = True
+                    else:
+                        sentence_end_char_index = len(page_text) - 1
+                        sentence_end_coord = self._find_coord_for_char_index(
+                            sentence_end_char_index, word_coords)
 
-                    sentences.append({
-                        "text": sentence_text,
-                        "end_coord": sentence_end_coord,
-                        "index": index
-                    })
+                        sentences.append({
+                            "text": sentence_text,
+                            "end_coord": sentence_end_coord,
+                            "index": index
+                        })
+                        self.processed_objects += 1
 
             result.append({
                 "page": page_num + 1,
                 "sentences": sentences
             })
+
+            if stop_after_page:
+                break
 
         self.extracted_data = result
         return result
@@ -209,9 +457,9 @@ class PDFTextExtractor:
         Returns:
             tuple: 坐标 (x, y)
         """
-        for word_info in word_coords:
-            if char_index <= word_info["end_index"]:
-                return word_info["end_coord"]
+        coord_index = bisect_left(word_coords, char_index, key=lambda item: item["end_index"])
+        if coord_index < len(word_coords):
+            return word_coords[coord_index]["end_coord"]
 
         # 如果没有找到，返回最后一个单词的坐标
         if word_coords:
@@ -295,7 +543,9 @@ class PDFTextExtractor:
         关闭PDF文档
         """
         if self.doc:
-            self.doc.close()
+            close = getattr(self.doc, "close", None)
+            if callable(close):
+                close()
             self.doc = None
 
     def __del__(self):
@@ -504,8 +754,117 @@ class PDFCommitor:
         self.close()
 
 
+def _pdf_payload(pages, extractor: PDFTextExtractor) -> dict:
+    returned_sentences = sum(len(page.get("sentences", [])) for page in pages)
+    returned_chars = sum(
+        len(str(sentence.get("text") or ""))
+        for page in pages
+        for sentence in page.get("sentences", [])
+    )
+    stats = extractor.extraction_stats()
+    stats.update({
+        "pages_returned": len(pages),
+        "sentences_returned": returned_sentences,
+        "chars_returned": returned_chars,
+    })
+    return {
+        "pages": pages,
+        "truncated": bool(extractor.truncated_reasons),
+        "truncated_reasons": list(extractor.truncated_reasons),
+        "limits": {
+            "max_pages": extractor.max_pages,
+            "max_extracted_chars": extractor.max_extracted_chars,
+            "max_objects": extractor.max_objects,
+            "max_output_bytes": getattr(extractor, "max_output_bytes", MAX_PDF_OUTPUT_BYTES),
+            "max_wall_seconds": extractor.max_wall_seconds,
+        },
+        "stats": stats,
+    }
+
+
+def _encode_pdf_payload(pages, extractor: PDFTextExtractor) -> bytes:
+    return json.dumps(
+        _pdf_payload(pages, extractor),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+
+
+def _bounded_pdf_json(data, extractor: PDFTextExtractor, max_output_bytes: int) -> str:
+    max_output_bytes = min(max(int(max_output_bytes), MIN_PDF_OUTPUT_BYTES), MAX_PDF_OUTPUT_BYTES)
+    extractor.max_output_bytes = max_output_bytes
+    encoded = _encode_pdf_payload(data, extractor)
+    if len(encoded) <= max_output_bytes:
+        return encoded.decode("utf-8")
+
+    extractor.mark_truncated("max_output_bytes")
+    original_pages = data
+
+    # 先二分保留最多的完整前缀页，避免反复序列化大型结果。
+    low, high = 0, len(original_pages)
+    while low < high:
+        mid = (low + high + 1) // 2
+        if len(_encode_pdf_payload(original_pages[:mid], extractor)) <= max_output_bytes:
+            low = mid
+        else:
+            high = mid - 1
+    selected_pages = original_pages[:low]
+
+    # 若连第一页都放不下，再二分保留第一页的句子前缀；最后对首句文本二分。
+    if not selected_pages and original_pages:
+        first_page = dict(original_pages[0])
+        original_sentences = list(first_page.get("sentences", []))
+        sentence_low, sentence_high = 0, len(original_sentences)
+        while sentence_low < sentence_high:
+            mid = (sentence_low + sentence_high + 1) // 2
+            first_page["sentences"] = original_sentences[:mid]
+            if len(_encode_pdf_payload([first_page], extractor)) <= max_output_bytes:
+                sentence_low = mid
+            else:
+                sentence_high = mid - 1
+        first_page["sentences"] = original_sentences[:sentence_low]
+        if sentence_low:
+            selected_pages = [first_page]
+        elif original_sentences:
+            sentence = dict(original_sentences[0])
+            original_text = str(sentence.get("text") or "")
+            text_low, text_high = 0, len(original_text)
+            while text_low < text_high:
+                mid = (text_low + text_high + 1) // 2
+                sentence["text"] = original_text[:mid]
+                first_page["sentences"] = [sentence]
+                if len(_encode_pdf_payload([first_page], extractor)) <= max_output_bytes:
+                    text_low = mid
+                else:
+                    text_high = mid - 1
+            if text_low:
+                sentence["text"] = original_text[:text_low]
+                first_page["sentences"] = [sentence]
+                selected_pages = [first_page]
+
+    encoded = _encode_pdf_payload(selected_pages, extractor)
+    if len(encoded) <= max_output_bytes:
+        return encoded.decode("utf-8")
+
+    minimal = json.dumps(
+        {"pages": [], "truncated": True, "truncated_reasons": ["max_output_bytes"]},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return minimal[:max_output_bytes].decode("utf-8", errors="ignore")
+
+
 # Tools
-def pdf_text_reader(pdf_path):
+def _pdf_text_reader_direct(
+    pdf_path,
+    *,
+    max_pages=MAX_PDF_PAGES,
+    max_extracted_chars=MAX_PDF_EXTRACTED_CHARS,
+    max_objects=MAX_PDF_OBJECTS,
+    max_output_bytes=MAX_PDF_OUTPUT_BYTES,
+    max_wall_seconds=MAX_PDF_WALL_SECONDS,
+):
     """
     读取PDF文本并返回JSON格式字符串
 
@@ -515,7 +874,13 @@ def pdf_text_reader(pdf_path):
     Returns:
         str: JSON格式的文本数据
     """
-    extractor = PDFTextExtractor(pdf_path)
+    extractor = PDFTextExtractor(
+        pdf_path,
+        max_pages=max_pages,
+        max_extracted_chars=max_extracted_chars,
+        max_objects=max_objects,
+        max_wall_seconds=max_wall_seconds,
+    )
     try:
         data = extractor.extract_sentences_with_coords()
     finally:
@@ -524,7 +889,77 @@ def pdf_text_reader(pdf_path):
     if data is None:
         return json.dumps({"error": "无法提取PDF文本"}, ensure_ascii=False, indent=2)
 
-    return json.dumps(data, ensure_ascii=False, indent=2, default=str)
+    return _bounded_pdf_json(data, extractor, max_output_bytes)
+
+
+def _pdf_timeout_payload(
+    pdf_path,
+    *,
+    max_pages,
+    max_extracted_chars,
+    max_objects,
+    max_output_bytes,
+    max_wall_seconds,
+) -> str:
+    extractor = PDFTextExtractor(
+        pdf_path,
+        max_pages=max_pages,
+        max_extracted_chars=max_extracted_chars,
+        max_objects=max_objects,
+        max_wall_seconds=max_wall_seconds,
+    )
+    extractor.mark_truncated("max_wall_seconds")
+    return _bounded_pdf_json([], extractor, max_output_bytes)
+
+
+def pdf_text_reader(
+    pdf_path,
+    *,
+    max_pages=MAX_PDF_PAGES,
+    max_extracted_chars=MAX_PDF_EXTRACTED_CHARS,
+    max_objects=MAX_PDF_OBJECTS,
+    max_output_bytes=MAX_PDF_OUTPUT_BYTES,
+    max_wall_seconds=MAX_PDF_WALL_SECONDS,
+):
+    """Read a bounded PDF in a disposable, resource-limited process."""
+    if not _pdf_input_is_allowed(pdf_path):
+        return json.dumps({"error": "PDF文件不存在、不是普通文件或超过大小限制"}, ensure_ascii=False)
+
+    try:
+        max_pages = min(max(int(max_pages), 1), MAX_PDF_PAGES)
+        max_extracted_chars = min(max(int(max_extracted_chars), 1), MAX_PDF_EXTRACTED_CHARS)
+        max_objects = min(max(int(max_objects), 1), MAX_PDF_OBJECTS)
+        max_output_bytes = min(max(int(max_output_bytes), MIN_PDF_OUTPUT_BYTES), MAX_PDF_OUTPUT_BYTES)
+        clipped_wall_seconds = float(max_wall_seconds)
+        if not math.isfinite(clipped_wall_seconds):
+            raise ValueError("non-finite wall limit")
+        clipped_wall_seconds = min(max(clipped_wall_seconds, 0.01), MAX_PDF_WALL_SECONDS)
+    except (TypeError, ValueError, OverflowError):
+        return json.dumps({"error": "PDF处理限制参数无效"}, ensure_ascii=False)
+    worker_timeout = min(
+        clipped_wall_seconds + PDF_WORKER_STARTUP_GRACE_SECONDS,
+        MAX_PDF_WALL_SECONDS + PDF_WORKER_STARTUP_GRACE_SECONDS,
+    )
+    kwargs = {
+        "max_pages": max_pages,
+        "max_extracted_chars": max_extracted_chars,
+        "max_objects": max_objects,
+        "max_output_bytes": max_output_bytes,
+        "max_wall_seconds": clipped_wall_seconds,
+    }
+    status, payload = _run_pdf_isolated(
+        _pdf_text_reader_direct,
+        (str(pdf_path),),
+        kwargs,
+        worker_timeout,
+    )
+    if status == "ok" and isinstance(payload, str):
+        return payload
+    if status == "timeout":
+        return _pdf_timeout_payload(str(pdf_path), **kwargs)
+    if status == "busy":
+        return json.dumps({"error": "PDF处理繁忙，请稍后重试"}, ensure_ascii=False)
+    return json.dumps({"error": "无法安全提取PDF文本"}, ensure_ascii=False)
 
 def pdf_commit(pdf_path, note_text, position=(100, 100), page_num=0, icon='Note', output_path=None):
     """
@@ -565,7 +1000,7 @@ def pdf_commit(pdf_path, note_text, position=(100, 100), page_num=0, icon='Note'
         return False, None
 
 
-def pdf_commit_by_sentence(pdf_path, note_text, page_index=0, sentence_index=0, icon='Note', output_path=None):
+def _pdf_commit_by_sentence_direct(pdf_path, note_text, page_index=0, sentence_index=0, icon='Note', output_path=None):
     """
     在指定句子位置添加批注
 
@@ -634,6 +1069,76 @@ def pdf_commit_by_sentence(pdf_path, note_text, page_index=0, sentence_index=0, 
         return False, None
     finally:
         extractor.close()
+
+
+def pdf_commit_by_sentence(pdf_path, note_text, page_index=0, sentence_index=0, icon='Note', output_path=None):
+    """Add a PDF annotation through an isolated worker and atomically publish it."""
+    if not _pdf_input_is_allowed(pdf_path):
+        return False, None
+
+    note_text = str(note_text or "")
+    if not note_text or len(note_text) > MAX_PDF_NOTE_CHARS:
+        return False, None
+    try:
+        page_index = int(page_index)
+        sentence_index = int(sentence_index)
+    except (TypeError, ValueError):
+        return False, None
+    if page_index < 0 or page_index >= MAX_PDF_PAGES or sentence_index < 0 or sentence_index >= MAX_PDF_OBJECTS:
+        return False, None
+
+    input_path = Path(pdf_path)
+    if output_path is None:
+        base_name, extension = os.path.splitext(str(input_path))
+        if not base_name.endswith("_lawver"):
+            base_name = f"{base_name}_lawver"
+        final_path = Path(f"{base_name}{extension}")
+    else:
+        final_path = Path(output_path)
+
+    try:
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".lawver-pdf-",
+            suffix=".pdf",
+            dir=final_path.parent,
+        )
+        os.close(descriptor)
+        temporary_path = Path(temporary_name)
+        if final_path.exists():
+            if not final_path.is_file() or final_path.is_symlink() or final_path.stat().st_size > MAX_PDF_ANNOTATED_BYTES:
+                temporary_path.unlink(missing_ok=True)
+                return False, None
+            # Preserve existing annotations while keeping the published file
+            # untouched until the worker has completed successfully.
+            shutil.copyfile(final_path, temporary_path)
+        else:
+            temporary_path.unlink(missing_ok=True)
+    except OSError:
+        return False, None
+
+    try:
+        status, payload = _run_pdf_isolated(
+            _pdf_commit_by_sentence_direct,
+            (str(input_path), note_text, page_index, sentence_index, icon, str(temporary_path)),
+            {},
+            MAX_PDF_WALL_SECONDS + PDF_WORKER_STARTUP_GRACE_SECONDS,
+        )
+        if status != "ok" or not isinstance(payload, tuple) or not payload[0]:
+            return False, None
+        if (
+            not temporary_path.is_file()
+            or temporary_path.is_symlink()
+            or temporary_path.stat().st_size > MAX_PDF_ANNOTATED_BYTES
+        ):
+            return False, None
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, final_path)
+        return True, str(final_path)
+    except OSError:
+        return False, None
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 # 最简测试用例
 if __name__ == "__main__":

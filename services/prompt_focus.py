@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from typing import Any
@@ -15,6 +16,14 @@ FILE_FOCUS = "file_processing"
 LEGAL_FOCUS = "legal_retrieval"
 DEFAULT_PROMPT_FOCUS = (GENERAL_FOCUS,)
 SAFE_PROMPT_FOCUS = (GENERAL_FOCUS, FILE_FOCUS, LEGAL_FOCUS)
+SAFE_TASK_TYPES = {
+    "general",
+    "legal_retrieval",
+    "file_processing",
+    "legal_file_review",
+    "architecture",
+    "memory_context",
+}
 
 ROUTER_MODE_ENV = "CONTEXT_ROUTER_MODE"
 ROUTER_THRESHOLD_ENV = "CONTEXT_ROUTER_CONFIDENCE_THRESHOLD"
@@ -67,7 +76,11 @@ def _ordered_focus(*items: str) -> list[str]:
 
 def route_intent_rules(content: str, history: list[dict] | None = None) -> dict[str, Any]:
     text = str(content or "")
-    recent_history = "\n".join(str((msg or {}).get("content") or "") for msg in (history or [])[-4:])
+    recent_history = "\n".join(
+        str(msg.get("content") or "")
+        for msg in (history or [])[-4:]
+        if isinstance(msg, dict)
+    )
     combined = f"{recent_history}\n{text}"
     legal_score = _score_patterns(combined, LEGAL_PATTERNS)
     file_score = _score_patterns(combined, FILE_PATTERNS)
@@ -143,20 +156,29 @@ def _coerce_llm_intent(raw: str) -> dict[str, Any] | None:
         confidence = float(payload.get("confidence", 0.65))
     except (TypeError, ValueError):
         confidence = 0.65
+    if not math.isfinite(confidence):
+        confidence = 0.65
     reasons = payload.get("reasons")
     if not isinstance(reasons, list):
         reasons = ["llm_classifier"]
 
+    task_type = str(payload.get("task_type") or "general")
+    if task_type not in SAFE_TASK_TYPES:
+        task_type = "general"
+
+    def strict_bool(key: str) -> bool:
+        return payload.get(key) is True
+
     return {
-        "task_type": str(payload.get("task_type") or "general"),
+        "task_type": task_type,
         "confidence": max(0.0, min(confidence, 1.0)),
         "focus": _ordered_focus(*focus),
         "reasons": [str(item)[:80] for item in reasons[:6]],
         "source": "llm",
-        "requires_legal_evidence": bool(payload.get("requires_legal_evidence")),
-        "requires_file_read": bool(payload.get("requires_file_read")),
-        "requires_workspace_listing": bool(payload.get("requires_workspace_listing")),
-        "requires_memory_deep_search": bool(payload.get("requires_memory_deep_search")),
+        "requires_legal_evidence": strict_bool("requires_legal_evidence"),
+        "requires_file_read": strict_bool("requires_file_read"),
+        "requires_workspace_listing": strict_bool("requires_workspace_listing"),
+        "requires_memory_deep_search": strict_bool("requires_memory_deep_search"),
     }
 
 

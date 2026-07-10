@@ -423,23 +423,61 @@ textarea.composer-textarea:focus-visible {
 
 @media (max-width: 480px) {
   .lawver-composer-shell {
-    height: 48px;
-    min-height: 48px;
+    height: 54px;
+    min-height: 54px;
     gap: 3px;
     padding: 4px;
   }
 
   .lawver-composer-action {
-    width: 36px;
-    height: 36px;
-    flex-basis: 36px;
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
   }
 
   .lawver-composer-textarea {
-    height: 36px;
-    min-height: 36px;
-    padding: 6px 4px;
+    height: 44px;
+    min-height: 44px;
+    padding: 10px 3px;
     font-size: 14px;
+  }
+}
+
+/* Court controls retain a 44px touch target without squeezing the textarea. */
+.lawver-court-composer .lawver-composer-shell {
+  height: 56px;
+  min-height: 56px;
+}
+
+.lawver-court-composer .lawver-composer-action {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+}
+
+.lawver-court-composer .lawver-composer-textarea {
+  height: 44px;
+  min-height: 44px;
+  padding: 9px 4px;
+}
+
+@media (max-height: 720px) {
+  .lawver-guided-tour-preview {
+    min-height: 210px;
+  }
+
+  .lawver-guided-tour-preview-body {
+    min-height: 126px;
+    padding-block: 8px;
+  }
+
+  .lawver-guided-tour-preview-pane,
+  .lawver-guided-tour-copy {
+    padding-block: 12px;
+  }
+
+  .lawver-guided-tour-copy .lawver-guided-tour-step {
+    min-height: 0;
   }
 }
 
@@ -704,6 +742,7 @@ textarea.composer-textarea:focus-visible {
   font-size: 14px;
   line-height: 20px;
   font-weight: 500;
+  min-height: 44px;
   letter-spacing: 0;
   transition:
     transform var(--dur-fast) var(--ease-standard),

@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import os
 import time
@@ -15,6 +17,8 @@ from services.context_usage import record_openai_usage
 
 
 _DEFAULT_MAX_ROUNDS = object()
+TOOL_ROUND_LIMIT_ERROR = "tool_round_limit"
+TOOL_AUTHORIZATION_ERROR = "tool_not_authorized"
 _TRANSIENT_STREAM_ERROR_MARKERS = (
     "peer closed connection",
     "incomplete chunked read",
@@ -92,6 +96,8 @@ def _is_transient_stream_error(exc: Exception) -> bool:
 
 
 class ToolLoopAgent:
+    # 无论环境变量或构造参数如何配置，单次运行都不能越过此上限。
+    HARD_MAX_ROUNDS = 32
     DEFAULT_MAX_ROUNDS = _optional_positive_int_env("LAWVER_MAX_TOOL_ROUNDS")
     DEFAULT_NON_STREAM_MAX_ROUNDS = _optional_positive_int_env(
         "LAWVER_MAX_NON_STREAM_TOOL_ROUNDS",
@@ -124,13 +130,16 @@ class ToolLoopAgent:
         self.tool_choice_policy = tool_choice_policy
         self.execution_policy = execution_policy or {}
         self._memory_candidate_emitted = False
+        self._allowed_tool_names = self._tool_names(tools) if tools is not None else None
 
         if max_rounds is _DEFAULT_MAX_ROUNDS:
-            self.max_rounds = self.DEFAULT_MAX_ROUNDS
-            self.non_stream_max_rounds = self.DEFAULT_NON_STREAM_MAX_ROUNDS
+            configured_stream_limit = self.DEFAULT_MAX_ROUNDS
+            configured_non_stream_limit = self.DEFAULT_NON_STREAM_MAX_ROUNDS
         else:
-            self.max_rounds = max_rounds
-            self.non_stream_max_rounds = max_rounds
+            configured_stream_limit = max_rounds
+            configured_non_stream_limit = max_rounds
+        self.max_rounds = self._effective_round_limit(configured_stream_limit)
+        self.non_stream_max_rounds = self._effective_round_limit(configured_non_stream_limit)
 
     @staticmethod
     def _missing_tool_executor(function_name: str, arguments: Any) -> str:
@@ -172,6 +181,52 @@ class ToolLoopAgent:
     @staticmethod
     def _message_thought_signature(message: Any) -> str:
         return getattr(message, "thought_signature", None) or ""
+
+    @staticmethod
+    def _tool_names(tools: list | None) -> frozenset[str]:
+        names: set[str] = set()
+        for tool in tools or []:
+            if not isinstance(tool, dict):
+                continue
+            function = tool.get("function")
+            if isinstance(function, dict) and function.get("name"):
+                names.add(str(function["name"]))
+        return frozenset(names)
+
+    @classmethod
+    def _effective_round_limit(cls, configured: Any) -> int:
+        if isinstance(configured, int) and configured >= 0:
+            return min(configured, cls.HARD_MAX_ROUNDS)
+        return cls.HARD_MAX_ROUNDS
+
+    def _tool_is_exposed(self, function_name: str) -> bool:
+        if function_name in {"submit_plan", "submit_final_answer"} and self.mode != "plan_and_solve":
+            return False
+        if self._allowed_tool_names is None:
+            return True
+        return function_name in self._allowed_tool_names
+
+    @staticmethod
+    def _authorization_error(function_name: str, capability: str) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "error": TOOL_AUTHORIZATION_ERROR,
+            "tool": function_name,
+            "capability": capability,
+        }
+
+    @staticmethod
+    def _is_authorization_error(result: Any) -> bool:
+        return isinstance(result, dict) and result.get("error") == TOOL_AUTHORIZATION_ERROR
+
+    @staticmethod
+    def _round_limit_event(limit: int, *, stream: bool) -> dict[str, Any]:
+        return {
+            "type": "error" if stream else "content",
+            "code": TOOL_ROUND_LIMIT_ERROR,
+            "content": f"工具调用超过最大轮次 ({limit})，已停止。",
+            "max_rounds": limit,
+        }
 
     @staticmethod
     def _has_reached_round_limit(limit, round_num: int) -> bool:
@@ -340,7 +395,7 @@ class ToolLoopAgent:
             ]
         )
 
-    def _process_tool_calls(
+    async def _process_tool_calls(
         self,
         current_mem: list[dict],
         tool_calls: list[dict[str, Any]],
@@ -367,34 +422,49 @@ class ToolLoopAgent:
             func_name = function.get("name") or ""
             args_str = function.get("arguments") or ""
             args, parse_error_content = self._parse_arguments(func_name, args_str)
-            state.setdefault("tool_history", []).append(func_name)
-
             if parse_error_content is not None:
                 result_content = parse_error_content
-            elif func_name == "submit_plan":
-                result_content = _json_content(self.execute_tool(func_name, args))
-                steps = [str(step).strip() for step in args.get("steps", []) if str(step).strip()]
-                state["submitted_plan_steps"] = steps
-                state["plan_submitted"] = True
-                state["force_final"] = False
-                events.append({
-                    "type": "thought",
-                    "thought_type": "plan",
-                    "mode": "new",
-                    "content": self._format_plan_steps(steps),
-                })
-            elif func_name == "submit_final_answer":
-                result_content = _json_content(self.execute_tool(func_name, args))
-                final_answer = str(args.get("answer") or "")
-                state["final_answer_submitted"] = True
-            elif func_name == ASK_USER_TOOL_NAME:
-                events.append({"type": "thought", "content": "等待用户确认下一步\n", "thought_type": "tool", "mode": "new"})
-                result_content = _json_content(self.execute_tool(func_name, args))
-                state["awaiting_user"] = True
-                awaiting_user = True
             else:
-                events.append({"type": "thought", "content": f"执行: `{func_name}`\n", "thought_type": "tool", "mode": "new"})
-                result_content = _json_content(self.execute_tool(func_name, args))
+                if self._tool_is_exposed(func_name):
+                    # PDF/DOCX parsing、HTTP 检索和 SQLite 记忆工具均为同步
+                    # 实现；在事件循环内直接调用会冻结所有 SSE/心跳连接。
+                    result = await asyncio.to_thread(self.execute_tool, func_name, args)
+                    if inspect.isawaitable(result):
+                        result = await result
+                else:
+                    result = self._authorization_error(func_name, self.mode)
+                result_content = _json_content(result)
+
+                if self._is_authorization_error(result):
+                    events.append({
+                        "type": "thought",
+                        "content": f"工具 `{func_name}` 未获当前模式授权，已拒绝执行。\n",
+                        "thought_type": "tool",
+                        "mode": "new",
+                    })
+                else:
+                    state.setdefault("tool_history", []).append(func_name)
+                    # 控制面分支只能在 executor/registry 已确认授权后改变状态。
+                    if func_name == "submit_plan":
+                        steps = [str(step).strip() for step in args.get("steps", []) if str(step).strip()]
+                        state["submitted_plan_steps"] = steps
+                        state["plan_submitted"] = True
+                        state["force_final"] = False
+                        events.append({
+                            "type": "thought",
+                            "thought_type": "plan",
+                            "mode": "new",
+                            "content": self._format_plan_steps(steps),
+                        })
+                    elif func_name == "submit_final_answer":
+                        final_answer = str(args.get("answer") or "")
+                        state["final_answer_submitted"] = True
+                    elif func_name == ASK_USER_TOOL_NAME:
+                        events.append({"type": "thought", "content": "等待用户确认下一步\n", "thought_type": "tool", "mode": "new"})
+                        state["awaiting_user"] = True
+                        awaiting_user = True
+                    else:
+                        events.append({"type": "thought", "content": f"执行: `{func_name}`\n", "thought_type": "tool", "mode": "new"})
 
             tool_msg = {
                 "role": "tool",
@@ -461,9 +531,9 @@ class ToolLoopAgent:
         round_num = 0
         while True:
             if self._has_reached_round_limit(self.max_rounds, round_num):
-                msg = f"工具调用超过最大轮次 ({self.max_rounds})，已停止。"
-                print(f"[ToolLoopAgent 流式] {msg}")
-                yield {"type": "error", "content": msg}
+                event = self._round_limit_event(self.max_rounds, stream=True)
+                print(f"[ToolLoopAgent 流式] {event['content']}")
+                yield event
                 return
 
             round_num += 1
@@ -561,7 +631,7 @@ class ToolLoopAgent:
 
             if tool_calls:
                 yield {"type": "thought", "content": "**正在调用工具处理中...**\n", "thought_type": "tool", "mode": "new"}
-                events, final_answer, awaiting_user = self._process_tool_calls(
+                events, final_answer, awaiting_user = await self._process_tool_calls(
                     current_mem,
                     tool_calls,
                     assistant_content=assistant_content,
@@ -635,9 +705,9 @@ class ToolLoopAgent:
         round_num = 0
         while True:
             if self._has_reached_round_limit(self.non_stream_max_rounds, round_num):
-                msg = f"工具调用超过最大轮次 ({self.non_stream_max_rounds})，已停止。"
-                print(f"[ToolLoopAgent 非流式] {msg}")
-                yield {"type": "content", "content": msg}
+                event = self._round_limit_event(self.non_stream_max_rounds, stream=False)
+                print(f"[ToolLoopAgent 非流式] {event['content']}")
+                yield event
                 return
 
             round_num += 1
@@ -655,7 +725,7 @@ class ToolLoopAgent:
 
             if raw_tool_calls:
                 tool_calls = [self._tool_call_dict(tool_call) for tool_call in raw_tool_calls]
-                events, final_answer, awaiting_user = self._process_tool_calls(
+                events, final_answer, awaiting_user = await self._process_tool_calls(
                     current_mem,
                     tool_calls,
                     assistant_content=content_output,

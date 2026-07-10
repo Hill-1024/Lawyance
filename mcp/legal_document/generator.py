@@ -25,6 +25,7 @@ from .logger import (
     log_generation_complete,
     log_generation_error,
     log_generation_start,
+    log_unexpected_error,
 )
 from .validator import evaluate_soft_constraints, validate_blocks
 from workspace import WorkspacePathError, validate_workspace_scope
@@ -62,6 +63,8 @@ _GLOBAL_HARD_CONSTRAINTS = """## 文书写作硬约束（最高优先级，违�
 
 
 _OUTPUT_NAME_SAFE = re.compile(r"[^\w一-龥\-]+")
+_MAX_LABEL_CHARS = 128
+_MAX_OUTPUT_NAME_CHARS = 120
 
 
 def _make_response(success: bool, data: dict | None = None, meta: dict | None = None) -> str:
@@ -81,7 +84,7 @@ def _make_error_response(error: LegalDocumentError, meta: dict | None = None) ->
 
 
 def _sanitize_output_name(name: str) -> str:
-    name = name.strip()
+    name = name.strip()[:_MAX_OUTPUT_NAME_CHARS]
     name = _OUTPUT_NAME_SAFE.sub("_", name)
     return name.strip("_") or "document"
 
@@ -101,12 +104,17 @@ def list_legal_document_types(category: str | None = None) -> str:
     """列出所有可用的法律文书文种。"""
     try:
         index = guide_cache.get_index()
-    except Exception as e:
-        return _make_response(False, data={"error": str(e)})
+    except Exception as exc:
+        log_unexpected_error("list_document_types", exc)
+        return _make_response(False, data={"error": "文书模板列表暂时不可用，请稍后重试。"})
 
-    if category:
+    if category is not None:
+        if not isinstance(category, str) or len(category) > _MAX_LABEL_CHARS:
+            error = FieldValidationError("法律文书", ["category 必须是长度不超过 128 的字符串"])
+            return _make_error_response(error)
         category = category.strip()
-        index = [e for e in index if e.category == category]
+        if category:
+            index = [e for e in index if e.category == category]
 
     items = [
         {
@@ -123,12 +131,16 @@ def list_legal_document_types(category: str | None = None) -> str:
 
 def get_legal_document_guide(doc_type: str) -> str:
     """获取指定文种的写作守则（markdown）与结构性约束。"""
+    if not isinstance(doc_type, str) or not doc_type.strip() or len(doc_type) > _MAX_LABEL_CHARS:
+        error = FieldValidationError("法律文书", ["doc_type 必须是长度为 1-128 的字符串"])
+        return _make_error_response(error)
     try:
         guide = guide_cache.get(doc_type)
     except TemplateNotFoundError as e:
         return _make_error_response(e)
-    except Exception as e:
-        return _make_response(False, data={"error": str(e)})
+    except Exception as exc:
+        log_unexpected_error("get_document_guide", exc)
+        return _make_response(False, data={"error": "文书写作守则暂时不可用，请稍后重试。"})
 
     return _make_response(success=True, data={
         "doc_type": guide["doc_type"],
@@ -168,12 +180,22 @@ def compose_legal_document(
     """根据 blocks 数组渲染指定文种的法律文书。"""
     start_time = time.time()
 
+    if not isinstance(doc_type, str) or not doc_type.strip() or len(doc_type) > _MAX_LABEL_CHARS:
+        error = FieldValidationError("法律文书", ["doc_type 必须是长度为 1-128 的字符串"])
+        return _make_error_response(error)
+    if output_name is not None and (
+        not isinstance(output_name, str) or len(output_name) > _MAX_OUTPUT_NAME_CHARS
+    ):
+        error = FieldValidationError(doc_type, ["output_name 必须是长度不超过 120 的字符串"])
+        return _make_error_response(error)
+
     try:
         guide = guide_cache.get(doc_type)
     except TemplateNotFoundError as e:
         return _make_error_response(e)
-    except Exception as e:
-        return _make_response(False, data={"error": str(e)})
+    except Exception as exc:
+        log_unexpected_error("load_document_guide", exc)
+        return _make_response(False, data={"error": "文书模板暂时不可用，请稍后重试。"})
 
     try:
         normalized_blocks = validate_blocks(blocks, doc_type)
@@ -196,9 +218,10 @@ def compose_legal_document(
 
     try:
         compose_stats = compose_docx(normalized_blocks, output_path)
-    except Exception as e:
+    except Exception as exc:
         duration_ms = (time.time() - start_time) * 1000
-        error = DocumentGenerationError(doc_type, "DOCX 渲染失败: {}".format(e))
+        log_unexpected_error("render_legal_document", exc, generation_id)
+        error = DocumentGenerationError(doc_type, "DOCX 渲染失败，请稍后重试。")
         log_generation_error(generation_id, error, duration_ms)
         return _make_error_response(error, meta={
             "generation_id": generation_id, "duration_ms": round(duration_ms, 1),

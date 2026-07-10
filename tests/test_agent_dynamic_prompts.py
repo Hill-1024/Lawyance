@@ -104,6 +104,21 @@ class AgentDynamicPromptTests(unittest.TestCase):
             else:
                 os.environ["CONTEXT_ROUTER_MODE"] = original_mode
 
+    def test_llm_router_rejects_truthy_strings_and_unknown_task_types(self):
+        from services.prompt_focus import _coerce_llm_intent
+
+        intent = _coerce_llm_intent(
+            '{"task_type":"invented_privileged_mode","confidence":"NaN",'
+            '"focus":["general_gate"],"requires_file_read":"false",'
+            '"requires_legal_evidence":true}'
+        )
+
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent["task_type"], "general")
+        self.assertEqual(intent["confidence"], 0.65)
+        self.assertFalse(intent["requires_file_read"])
+        self.assertTrue(intent["requires_legal_evidence"])
+
     def test_build_agent_react_falls_back_to_default_configuration(self):
         from services.agent_builder import build_agent
         from mcps import default_tools

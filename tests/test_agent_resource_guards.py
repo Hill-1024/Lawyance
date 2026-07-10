@@ -3,6 +3,7 @@
 """
 
 import os
+import threading
 import types
 import unittest
 
@@ -54,7 +55,37 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["type"], "content")
         self.assertIn("最大轮次", events[-1]["content"])
 
-    async def test_tool_loop_round_limit_can_be_disabled_explicitly(self):
+    async def test_sync_tool_execution_is_offloaded_from_event_loop_thread(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        main_thread = threading.get_ident()
+        execution_threads: list[int] = []
+        responses = [
+            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall()]),
+            types.SimpleNamespace(content="<final_answer>完成</final_answer>", tool_calls=None),
+        ]
+
+        async def fake_call(context, stream=False, **kwargs):
+            return responses.pop(0)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[{"role": "user", "content": "x"}],
+                use_ocp=False,
+                execute_tool=lambda _name, _args: execution_threads.append(threading.get_ident()) or "ok",
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(events[-1], {"type": "content", "content": "完成"})
+        self.assertEqual(len(execution_threads), 1)
+        self.assertNotEqual(execution_threads[0], main_thread)
+
+    async def test_tool_loop_round_limit_cannot_be_disabled_explicitly(self):
         import agents.tool_loop as tool_loop_module
         from agents.tool_loop import ToolLoopAgent
 
@@ -63,9 +94,7 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_call(context, stream=False, **kwargs):
             calls["count"] += 1
-            if calls["count"] <= 12:
-                return types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall()])
-            return types.SimpleNamespace(content="<final_answer>完成</final_answer>", tool_calls=None)
+            return types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall()])
 
         try:
             tool_loop_module.call = fake_call
@@ -79,8 +108,10 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tool_loop_module.call = original_call
 
-        self.assertEqual(calls["count"], 13)
-        self.assertEqual(events[-1], {"type": "content", "content": "完成"})
+        self.assertEqual(calls["count"], ToolLoopAgent.HARD_MAX_ROUNDS)
+        self.assertEqual(events[-1]["type"], "content")
+        self.assertEqual(events[-1]["code"], "tool_round_limit")
+        self.assertEqual(events[-1]["max_rounds"], ToolLoopAgent.HARD_MAX_ROUNDS)
 
     async def test_tool_loop_does_not_limit_rounds_by_default(self):
         import agents.tool_loop as tool_loop_module
@@ -106,8 +137,95 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tool_loop_module.call = original_call
 
+        self.assertEqual(agent.max_rounds, ToolLoopAgent.HARD_MAX_ROUNDS)
         self.assertEqual(calls["count"], 13)
         self.assertEqual(events[-1], {"type": "content", "content": "完成"})
+
+    async def test_tool_loop_streaming_round_limit_has_stable_error_code(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        calls = {"count": 0}
+
+        async def fake_call(context, stream=False, **kwargs):
+            calls["count"] += 1
+
+            async def chunks():
+                tool_call = _NonStreamToolCall(call_id=f"call_stream_{calls['count']}")
+                tool_call.index = 0
+                delta = types.SimpleNamespace(
+                    reasoning_content=None,
+                    thought_signature=None,
+                    content=None,
+                    tool_calls=[tool_call],
+                )
+                yield types.SimpleNamespace(usage=None, choices=[types.SimpleNamespace(delta=delta)])
+
+            return chunks()
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[{"role": "user", "content": "x"}],
+                use_ocp=False,
+                execute_tool=lambda name, args: "ok",
+                max_rounds=2,
+            )
+            events = [event async for event in agent.run(stream=True)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(calls["count"], 2)
+        self.assertEqual(events[-1]["type"], "error")
+        self.assertEqual(events[-1]["code"], "tool_round_limit")
+        self.assertEqual(events[-1]["max_rounds"], 2)
+
+    async def test_hidden_control_tool_does_not_trigger_special_branch_before_authorization(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+        from tools import registry
+
+        original_call = tool_loop_module.call
+        executed = []
+        responses = [
+            types.SimpleNamespace(
+                content="",
+                tool_calls=[_NonStreamToolCall(
+                    name="submit_final_answer",
+                    arguments='{"answer":"越权答案"}',
+                    call_id="call_hidden_final",
+                )],
+            ),
+            types.SimpleNamespace(content="<final_answer>正常答案</final_answer>", tool_calls=None),
+        ]
+
+        async def fake_call(context, stream=False, **kwargs):
+            return responses.pop(0)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[{"role": "user", "content": "x"}],
+                use_ocp=False,
+                execute_tool=lambda name, args: executed.append(name) or {"acknowledged": True},
+                mode="default",
+                tools=registry.schemas("agent"),
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(executed, [])
+        self.assertEqual(events[-1], {"type": "content", "content": "正常答案"})
+        denied_messages = [
+            message
+            for event in events if event.get("type") == "history_trace"
+            for message in event.get("content", [])
+            if message.get("role") == "tool" and message.get("name") == "submit_final_answer"
+        ]
+        self.assertEqual(len(denied_messages), 1)
+        self.assertIn("tool_not_authorized", denied_messages[0]["content"])
 
     async def test_tool_loop_emits_hidden_tool_history_trace(self):
         import agents.tool_loop as tool_loop_module

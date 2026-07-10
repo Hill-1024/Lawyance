@@ -2,7 +2,7 @@
  * 模块描述：首次使用与帮助页复用的功能指引弹窗，展示 Lawver 主要按钮和工作流。
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -160,7 +160,7 @@ const MiniIconButton: React.FC<{
 const MiniAppPreview: React.FC<{ step: TourStep; reduceMotion: boolean }> = ({ step, reduceMotion }) => {
   const StepIcon = step.icon;
   return (
-  <div className="relative min-h-[260px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 shadow-[var(--shadow-2)] sm:min-h-[310px] sm:p-4">
+  <div className="lawver-guided-tour-preview relative min-h-[240px] overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3 shadow-[var(--shadow-2)] sm:min-h-[310px] sm:p-4">
     <div className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
       <div className="flex min-w-0 items-center gap-2">
         <MiniIconButton icon={Menu} label="菜单" active={isTargetActive(step, 'sidebar')} />
@@ -173,7 +173,7 @@ const MiniAppPreview: React.FC<{ step: TourStep; reduceMotion: boolean }> = ({ s
       </div>
     </div>
 
-    <div className="grid min-h-[160px] grid-cols-[78px_1fr] gap-3 py-3 sm:grid-cols-[104px_1fr]">
+    <div className="lawver-guided-tour-preview-body grid min-h-[150px] grid-cols-1 gap-3 py-3 sm:min-h-[160px] sm:grid-cols-[104px_minmax(0,1fr)]">
       <div className={`hidden min-w-0 flex-col gap-2 rounded-[var(--radius-lg)] border p-2 sm:flex ${getTargetClass(step, 'sidebar')}`}>
         <span className={`flex h-8 items-center justify-center gap-1.5 rounded-full border px-2 text-[11px] font-semibold ${getTargetClass(step, 'new-chat')}`}>
           <Plus size={13} strokeWidth={2} />
@@ -242,8 +242,13 @@ export const GuidedTour: React.FC = () => {
   const reduceMotion = Boolean(useReducedMotion());
   const [isOpen, setIsOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
-  const didCheckFirstRunRef = useRef(false);
+  const interactionVersionRef = useRef(0);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const keyboardActionsRef = useRef<{ close: () => void; next: () => void; back: () => void }>({
+    close: () => undefined,
+    next: () => undefined,
+    back: () => undefined,
+  });
   const currentStep = TOUR_STEPS[stepIndex] || TOUR_STEPS[0];
   const isFirstStep = stepIndex === 0;
   const isLastStep = stepIndex === TOUR_STEPS.length - 1;
@@ -254,6 +259,7 @@ export const GuidedTour: React.FC = () => {
   }, []);
 
   const closeTour = useCallback(() => {
+    interactionVersionRef.current += 1;
     setIsOpen(false);
     setStepIndex(0);
     setGuidedTourSeen(true).catch(() => undefined);
@@ -271,23 +277,31 @@ export const GuidedTour: React.FC = () => {
     setStepIndex(index => Math.max(index - 1, 0));
   }, []);
 
-  useEffect(() => subscribeGuidedTourRequest(openTour), [openTour]);
+  const openRequestedTour = useCallback(() => {
+    interactionVersionRef.current += 1;
+    openTour();
+  }, [openTour]);
+
+  useEffect(() => subscribeGuidedTourRequest(openRequestedTour), [openRequestedTour]);
 
   useEffect(() => {
-    if (didCheckFirstRunRef.current) return;
-    didCheckFirstRunRef.current = true;
     let cancelled = false;
+    const interactionVersion = interactionVersionRef.current;
     getGuidedTourSeen()
       .then(seen => {
-        if (!cancelled && !seen) openTour();
+        if (!cancelled && interactionVersionRef.current === interactionVersion && !seen) openTour();
       })
       .catch(() => {
-        if (!cancelled) openTour();
+        if (!cancelled && interactionVersionRef.current === interactionVersion) openTour();
       });
     return () => {
       cancelled = true;
     };
   }, [openTour]);
+
+  useEffect(() => {
+    keyboardActionsRef.current = { close: closeTour, next: goNext, back: goBack };
+  }, [closeTour, goBack, goNext]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -304,23 +318,23 @@ export const GuidedTour: React.FC = () => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        closeTour();
+        keyboardActionsRef.current.close();
       }
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        goNext();
+        keyboardActionsRef.current.next();
       }
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        goBack();
+        keyboardActionsRef.current.back();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeTour, goBack, goNext, isOpen]);
+  }, [isOpen]);
 
   const StepIcon = currentStep.icon;
-  const stepCountLabel = useMemo(() => `${stepIndex + 1} / ${TOUR_STEPS.length}`, [stepIndex]);
+  const stepCountLabel = `${stepIndex + 1} / ${TOUR_STEPS.length}`;
 
   return (
     <AnimatePresence>
@@ -346,8 +360,8 @@ export const GuidedTour: React.FC = () => {
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.96 }}
             transition={reduceMotion ? { duration: 0.01 } : { type: 'spring', damping: 26, stiffness: 300, mass: 0.8 }}
           >
-            <div className="custom-scrollbar grid max-h-[calc(100dvh-1.5rem)] min-h-0 overflow-y-auto lg:min-h-[min(560px,100dvh-2.5rem)] lg:grid-cols-[minmax(0,1.05fr)_minmax(24rem,0.95fr)]">
-              <section className="min-w-0 bg-[var(--bg-surface-2)] p-4 sm:p-5 lg:p-6 lg:pt-7">
+            <div className="lawver-guided-tour-layout custom-scrollbar grid max-h-[calc(100dvh-1.5rem)] min-h-0 grid-cols-1 overflow-y-auto overscroll-contain sm:max-h-[calc(100dvh-2.5rem)] lg:min-h-[min(560px,100dvh-2.5rem)] lg:grid-cols-[minmax(0,1.05fr)_minmax(24rem,0.95fr)]">
+              <section className="lawver-guided-tour-preview-pane min-w-0 bg-[var(--bg-surface-2)] p-4 sm:p-5 lg:p-6 lg:pt-7">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
@@ -361,7 +375,7 @@ export const GuidedTour: React.FC = () => {
                   <button
                     type="button"
                     onClick={closeTour}
-                    className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] lg:hidden"
+                    className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] lg:hidden"
                     aria-label="关闭指引"
                   >
                     <X size={18} strokeWidth={2} />
@@ -370,19 +384,19 @@ export const GuidedTour: React.FC = () => {
                 <MiniAppPreview step={currentStep} reduceMotion={reduceMotion} />
               </section>
 
-              <section className="flex min-w-0 flex-col p-4 sm:p-6 lg:p-7 lg:pt-6">
+              <section className="lawver-guided-tour-copy flex min-w-0 flex-col p-4 sm:p-6 lg:p-7 lg:pt-6">
                 <div className="hidden lg:flex justify-end mb-2 -mt-2 -mr-2">
                   <button
                     type="button"
                     onClick={closeTour}
-                    className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--bg-surface-2)] hover:text-[var(--fg-1)]"
+                    className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--bg-surface-2)] hover:text-[var(--fg-1)]"
                     aria-label="关闭指引"
                   >
                     <X size={18} strokeWidth={2} />
                   </button>
                 </div>
                 
-                <div className="min-h-[340px] sm:min-h-[360px] flex flex-col">
+                <div className="lawver-guided-tour-step flex min-h-0 flex-1 flex-col">
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.div
                       key={currentStep.id}
@@ -415,26 +429,32 @@ export const GuidedTour: React.FC = () => {
                 </AnimatePresence>
                 </div>
 
-                <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-4">
-                  <div className="flex items-center gap-1.5" aria-label={stepCountLabel}>
+                <div className="mt-auto flex flex-col items-stretch gap-3 border-t border-[var(--border-subtle)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center justify-center sm:justify-start" aria-label={stepCountLabel}>
                     {TOUR_STEPS.map((step, index) => (
                       <button
                         key={step.id}
                         type="button"
                         onClick={() => setStepIndex(index)}
-                        className={`lawver-pressable h-2.5 rounded-full transition-all ${
-                          index === stepIndex ? 'w-7 bg-[var(--accent)]' : 'w-2.5 bg-[var(--bg-inset)] hover:bg-[var(--border-strong)]'
-                        }`}
+                        className="group lawver-pressable flex h-11 min-w-11 items-center justify-center rounded-full sm:h-10 sm:min-w-10"
                         aria-label={`查看第 ${index + 1} 步`}
-                      />
+                        aria-current={index === stepIndex ? 'step' : undefined}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`block h-2.5 rounded-full transition-all ${
+                            index === stepIndex ? 'w-7 bg-[var(--accent)]' : 'w-2.5 bg-[var(--bg-inset)] group-hover:bg-[var(--border-strong)]'
+                          }`}
+                        />
+                      </button>
                     ))}
                   </div>
 
-                  <div className="flex min-w-0 flex-1 justify-end gap-2">
+                  <div className="grid w-full min-w-0 grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-1 sm:justify-end">
                     <button
                       type="button"
                       onClick={closeTour}
-                      className="md3-btn-text min-h-10 whitespace-nowrap px-4 py-2.5 !text-[13px] sm:!text-sm"
+                      className="md3-btn-text min-h-11 min-w-0 whitespace-nowrap !px-2 py-2.5 !text-[13px] sm:min-h-10 sm:!px-4 sm:!text-sm"
                     >
                       跳过
                     </button>
@@ -442,7 +462,7 @@ export const GuidedTour: React.FC = () => {
                       type="button"
                       onClick={goBack}
                       disabled={isFirstStep}
-                      className="md3-btn-tonal min-h-10 whitespace-nowrap px-4 py-2.5 !text-[13px] sm:!text-sm"
+                      className="md3-btn-tonal min-h-11 min-w-0 whitespace-nowrap !px-2 py-2.5 !text-[13px] sm:min-h-10 sm:!px-4 sm:!text-sm"
                     >
                       <ArrowLeft size={16} strokeWidth={2} />
                       上一步
@@ -450,7 +470,7 @@ export const GuidedTour: React.FC = () => {
                     <button
                       type="button"
                       onClick={goNext}
-                      className="md3-btn-filled min-h-10 whitespace-nowrap px-4 py-2.5 !text-[13px] sm:!text-sm"
+                      className="md3-btn-filled min-h-11 min-w-0 whitespace-nowrap !px-2 py-2.5 !text-[13px] sm:min-h-10 sm:!px-4 sm:!text-sm"
                     >
                       {isLastStep ? (
                         <>

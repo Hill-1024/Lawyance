@@ -2,7 +2,7 @@
  * 模块描述：管理员后台组件，展示访问日志、账号管理和管理员操作入口。
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchLogs, clearLogs, fetchAccounts, setAccount, logout as apiLogout, deleteAccount } from '../services/api';
 import { Search, ShieldAlert, Users, Activity, EyeOff, RefreshCw, ArrowLeft, LogOut, Plus, KeyRound, Globe, Clock, User, Trash2, MonitorSmartphone } from 'lucide-react';
@@ -87,10 +87,65 @@ export const AdminDashboard: React.FC = () => {
   const [modalError, setModalError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  const logsRequestIdRef = useRef(0);
+  const accountsRequestIdRef = useRef(0);
+  const modalGenerationRef = useRef(0);
+  const logsQueryRef = useRef({ ipFilter: '', ignoreHeartbeat: true });
+
   useEffect(() => {
-    if (activeTab === 'logs') loadLogs();
-    else loadAccounts();
-  }, [activeTab]);
+    logsQueryRef.current = { ipFilter, ignoreHeartbeat };
+  }, [ignoreHeartbeat, ipFilter]);
+
+  const loadLogs = useCallback(async () => {
+    const requestId = ++logsRequestIdRef.current;
+    const query = logsQueryRef.current;
+    setIsLogsLoading(true);
+    setLogsError('');
+    try {
+      const data = await fetchLogs(query.ipFilter, query.ignoreHeartbeat);
+      if (requestId !== logsRequestIdRef.current) return;
+      setLogs(data.logs || []);
+    } catch (error: any) {
+      if (requestId !== logsRequestIdRef.current) return;
+      setLogsError(error.message);
+    } finally {
+      if (requestId === logsRequestIdRef.current) {
+        setIsLogsLoading(false);
+      }
+    }
+  }, []);
+
+  const loadAccounts = useCallback(async () => {
+    const requestId = ++accountsRequestIdRef.current;
+    setIsAccountsLoading(true);
+    setAccountsError('');
+    try {
+      const data = await fetchAccounts();
+      if (requestId !== accountsRequestIdRef.current) return;
+      setAccounts(data.accounts || []);
+    } catch (error: any) {
+      if (requestId !== accountsRequestIdRef.current) return;
+      setAccountsError(error.message);
+    } finally {
+      if (requestId === accountsRequestIdRef.current) {
+        setIsAccountsLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      void loadLogs();
+      return () => {
+        logsRequestIdRef.current += 1;
+      };
+    }
+
+    void loadAccounts();
+    return () => {
+      accountsRequestIdRef.current += 1;
+    };
+  }, [activeTab, loadAccounts, loadLogs]);
 
   useEffect(() => {
     if (!isClearLogsDialogOpen) return;
@@ -105,14 +160,9 @@ export const AdminDashboard: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isClearLogsDialogOpen, isClearingLogs]);
 
-  const loadLogs = async () => {
-    setIsLogsLoading(true); setLogsError('');
-    try { const d = await fetchLogs(ipFilter, ignoreHeartbeat); setLogs(d.logs || []); }
-    catch (e: any) { setLogsError(e.message); }
-    finally { setIsLogsLoading(false); }
-  };
-
   const confirmClearLogs = async () => {
+    logsRequestIdRef.current += 1;
+    setIsLogsLoading(false);
     setIsClearingLogs(true);
     setLogsError('');
     try {
@@ -126,18 +176,27 @@ export const AdminDashboard: React.FC = () => {
     }
   };
 
-  const loadAccounts = async () => {
-    setIsAccountsLoading(true); setAccountsError('');
-    try { const d = await fetchAccounts(); setAccounts(d.accounts || []); }
-    catch (e: any) { setAccountsError(e.message); }
-    finally { setIsAccountsLoading(false); }
-  };
-
   const handleSaveAccount = async (e: React.FormEvent) => {
-    e.preventDefault(); setModalError(''); setIsSaving(true);
-    try { await setAccount(editUsername, editPassword, editRole); setIsModalOpen(false); loadAccounts(); }
-    catch (e: any) { setModalError(e.message); }
-    finally { setIsSaving(false); }
+    e.preventDefault();
+    const generation = modalGenerationRef.current;
+    const account = { username: editUsername, password: editPassword, role: editRole };
+    setModalError('');
+    setIsSaving(true);
+    try {
+      await setAccount(account.username, account.password, account.role);
+      void loadAccounts();
+      if (generation !== modalGenerationRef.current) return;
+      setIsSaving(false);
+      setIsModalOpen(false);
+      modalGenerationRef.current += 1;
+    } catch (error: any) {
+      if (generation !== modalGenerationRef.current) return;
+      setModalError(error.message);
+    } finally {
+      if (generation === modalGenerationRef.current) {
+        setIsSaving(false);
+      }
+    }
   };
 
   const handleDeleteAccount = async (username: string) => {
@@ -152,26 +211,50 @@ export const AdminDashboard: React.FC = () => {
 
     try {
       await deleteAccount(username);
-      loadAccounts();
+      void loadAccounts();
     } catch (e: any) {
       setAccountsError(e.message);
     }
   };
 
-  const openAddModal = () => { setModalMode('add'); setEditUsername(''); setEditPassword(''); setEditRole('user'); setModalError(''); setIsModalOpen(true); };
-  const openResetModal = (u: string, r: string) => { setModalMode('reset'); setEditUsername(u); setEditPassword(''); setEditRole(r); setModalError(''); setIsModalOpen(true); };
+  const closeAccountModal = useCallback(() => {
+    modalGenerationRef.current += 1;
+    setIsModalOpen(false);
+    setIsSaving(false);
+  }, []);
+
+  const openAddModal = () => {
+    modalGenerationRef.current += 1;
+    setModalMode('add');
+    setEditUsername('');
+    setEditPassword('');
+    setEditRole('user');
+    setModalError('');
+    setIsSaving(false);
+    setIsModalOpen(true);
+  };
+  const openResetModal = (u: string, r: string) => {
+    modalGenerationRef.current += 1;
+    setModalMode('reset');
+    setEditUsername(u);
+    setEditPassword('');
+    setEditRole(r);
+    setModalError('');
+    setIsSaving(false);
+    setIsModalOpen(true);
+  };
   const handleLogout = async () => { try { await apiLogout(); } finally { window.location.href = '/'; } };
 
   const parsedLogs = useMemo(() => logs.map(parseLogLine), [logs]);
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-[var(--bg-app)] text-[var(--fg-1)] transition-colors duration-500">
+    <div className="flex h-[100dvh] w-full max-w-full flex-col overflow-x-hidden bg-[var(--bg-app)] text-[var(--fg-1)] transition-colors duration-500">
 
       {/* ── Top Bar (Liquid Glass) ── */}
       <header className="lawver-topbar liquid-glass sticky top-0 z-30 flex shrink-0 items-center justify-between gap-3 px-3 pb-2 pt-[calc(0.625rem+var(--safe-top))] text-[var(--fg-1)] sm:px-5 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]" style={{ borderRadius: 0, borderTop: 'none', borderLeft: 'none', borderRight: 'none' }}>
         <div className="relative z-[1] flex min-w-0 items-center gap-2">
           <HoverInfo label="返回聊天" placement="bottom">
-            <button onClick={() => navigate('/')} className="lawver-pressable inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-11 sm:w-11" aria-label="返回聊天">
+            <button onClick={() => navigate('/')} className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="返回聊天">
               <ArrowLeft className="h-5 w-5" strokeWidth={2} />
             </button>
           </HoverInfo>
@@ -189,7 +272,7 @@ export const AdminDashboard: React.FC = () => {
       </header>
 
       {/* ── Navigation (MD3 Segmented Buttons) ── */}
-      <div className="px-5 pt-4 pb-2 shrink-0">
+      <div className="shrink-0 px-3 pb-2 pt-4 sm:px-5">
         <div className="inline-flex rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-1)]">
           <button onClick={() => setActiveTab('logs')} className={`md3-seg-btn ${activeTab === 'logs' ? 'active' : ''}`}>
             <Activity className="h-4 w-4" strokeWidth={2} /> 使用日志
@@ -201,25 +284,32 @@ export const AdminDashboard: React.FC = () => {
       </div>
 
       {/* ── Content ── */}
-      <main className="flex-1 overflow-hidden flex flex-col px-5 pb-5 pt-2">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden px-3 pb-5 pt-2 sm:px-5">
 
         {/* == Logs Tab == */}
         {activeTab === 'logs' && (
           <div className="flex flex-col h-full gap-3">
             {/* Toolbar */}
             <div className="flex flex-wrap gap-3 items-center">
-              <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <div className="relative min-w-0 w-full flex-1 sm:min-w-[200px] sm:max-w-sm">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fg-4)]" strokeWidth={2} />
                 <input
                   type="text" placeholder="按 IP 地址过滤…" value={ipFilter}
-                  onChange={e => setIpFilter(e.target.value)}
+                  onChange={e => {
+                    const value = e.target.value;
+                    logsQueryRef.current = { ...logsQueryRef.current, ipFilter: value };
+                    setIpFilter(value);
+                  }}
                   onKeyDown={e => e.key === 'Enter' && loadLogs()}
-                  className="md3-input !pl-10 !rounded-full !py-2.5"
+                  className="md3-input min-h-11 !rounded-full !py-2.5 !pl-10"
                 />
               </div>
               <AnimatedSwitch
                 checked={ignoreHeartbeat}
-                onCheckedChange={setIgnoreHeartbeat}
+                onCheckedChange={checked => {
+                  logsQueryRef.current = { ...logsQueryRef.current, ignoreHeartbeat: checked };
+                  setIgnoreHeartbeat(checked);
+                }}
                 label="隐藏心跳"
                 size="sm"
               />
@@ -307,8 +397,8 @@ export const AdminDashboard: React.FC = () => {
               </div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 overflow-auto md3-scroll flex-1 content-start pb-20">
-                {accounts.map((acc, i) => (
-                  <div key={i} className="md3-surface-card p-4 flex items-center gap-4 hover:shadow-md transition-shadow group cursor-default">
+                {accounts.map(acc => (
+                  <div key={acc.username} className="md3-surface-card p-4 flex items-center gap-4 hover:shadow-md transition-shadow group cursor-default">
                     <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold shadow-[var(--shadow-1)] ${acc.role === 'admin'
                         ? 'bg-[var(--accent)] text-[var(--accent-on)]'
                         : 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
@@ -324,20 +414,20 @@ export const AdminDashboard: React.FC = () => {
                     <div className="flex shrink-0 gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                       <HoverInfo label="重置密码" placement="top">
                         <button onClick={() => openResetModal(acc.username, acc.role)}
-                          className="md3-btn-text !p-2 !rounded-full" aria-label="重置密码">
+                          className="md3-btn-text min-h-11 min-w-11 !rounded-full !p-2" aria-label="重置密码">
                             <KeyRound className="h-4 w-4" strokeWidth={2} />
                         </button>
                       </HoverInfo>
                       {acc.username === 'admin' ? (
                         <HoverInfo label="系统管理员不可删除" placement="top">
-                          <button className="md3-btn-text !p-2 !rounded-full opacity-30 cursor-not-allowed" aria-label="系统管理员不可删除">
+                          <button className="md3-btn-text min-h-11 min-w-11 !rounded-full !p-2 opacity-30 cursor-not-allowed" aria-label="系统管理员不可删除">
                             <Trash2 className="h-4 w-4" strokeWidth={2} />
                           </button>
                         </HoverInfo>
                       ) : (
                         <HoverInfo label="删除账号" placement="top">
                           <button onClick={() => handleDeleteAccount(acc.username)}
-                            className="md3-btn-text !p-2 !rounded-full !text-[var(--color-danger-500)]" aria-label="删除账号">
+                            className="md3-btn-text min-h-11 min-w-11 !rounded-full !p-2 !text-[var(--color-danger-500)]" aria-label="删除账号">
                             <Trash2 className="h-4 w-4" strokeWidth={2} />
                           </button>
                         </HoverInfo>
@@ -416,7 +506,7 @@ export const AdminDashboard: React.FC = () => {
       {/* ── Modal (MD3 Dialog) ── */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-[var(--bg-overlay)]" onClick={() => setIsModalOpen(false)} />
+          <div className="fixed inset-0 bg-[var(--bg-overlay)]" onClick={closeAccountModal} />
           <div className="relative w-full max-w-md md3-surface-card !rounded-[28px] shadow-2xl overflow-hidden" style={{ animation: 'logSlideIn 0.2s ease-out' }}>
             <form onSubmit={handleSaveAccount}>
               <div className="px-6 pt-6 pb-2">
@@ -455,7 +545,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
 
               <div className="flex justify-end gap-2 px-6 py-4">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="md3-btn-text">取消</button>
+                <button type="button" onClick={closeAccountModal} className="md3-btn-text">取消</button>
                 <button type="submit" disabled={isSaving} className="md3-btn-filled">
                   {isSaving ? '保存中…' : '保存'}
                 </button>

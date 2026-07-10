@@ -96,14 +96,53 @@ class WebDavSSRFTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("协议", resp.json().get("detail", ""))
 
+    def test_url_userinfo_and_query_rejected(self):
+        resp = self._post("test", {"config": self._cfg("https://user:pass@example.com/dav?token=secret")})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("不允许", resp.json().get("detail", ""))
+
     def test_allow_private_env_bypasses_check(self):
         os.environ["LAWVER_WEBDAV_ALLOW_PRIVATE"] = "1"
         mock_resp = MagicMock()
         mock_resp.status_code = 207
-        with patch("routes.webdav.requests.request", return_value=mock_resp):
+        with patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("test", {"config": self._cfg("http://192.168.1.100")})
         os.environ.pop("LAWVER_WEBDAV_ALLOW_PRIVATE", None)
         self.assertNotEqual(resp.status_code, 400)
+
+    def test_second_resolution_rejects_rebound_private_address(self):
+        from fastapi import HTTPException
+        from routes import webdav
+
+        with patch(
+            "routes.webdav.socket.getaddrinfo",
+            return_value=[(None, None, None, None, ("127.0.0.1", 443))],
+        ), patch("routes.webdav.requests.Session.request") as remote_request:
+            with self.assertRaises(HTTPException) as captured:
+                webdav._request_remote(
+                    "GET",
+                    "https://rebind.example/backup.json",
+                    timeout=1,
+                    allow_redirects=False,
+                )
+
+        self.assertEqual(captured.exception.status_code, 400)
+        remote_request.assert_not_called()
+
+    def test_pinned_connection_keeps_hostname_but_connects_to_vetted_ip(self):
+        from routes import webdav
+
+        connection = webdav._PinnedHTTPSConnection(
+            "dav.example.com",
+            port=443,
+            timeout=1,
+            pinned_ip="93.184.216.34",
+        )
+        with patch("urllib3.util.connection.create_connection", return_value=MagicMock()) as create_connection:
+            connection._new_conn()
+
+        self.assertEqual(connection.host, "dav.example.com")
+        self.assertEqual(create_connection.call_args.args[0], ("93.184.216.34", 443))
 
 
 class WebDavAuthTests(unittest.TestCase):
@@ -171,7 +210,7 @@ class WebDavHappyPathTests(unittest.TestCase):
 
     def test_test_ok_directory_exists(self):
         mock_resp = MagicMock(); mock_resp.status_code = 207
-        with self._dns_public(), patch("routes.webdav.requests.request", return_value=mock_resp):
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("test", {"config": self._cfg()})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "ok")
@@ -180,7 +219,7 @@ class WebDavHappyPathTests(unittest.TestCase):
     def test_test_creates_directory_on_404(self):
         propfind_resp = MagicMock(); propfind_resp.status_code = 404
         mkcol_resp = MagicMock(); mkcol_resp.status_code = 201
-        with self._dns_public(), patch("routes.webdav.requests.request", side_effect=[propfind_resp, mkcol_resp]):
+        with self._dns_public(), patch("routes.webdav._request_remote", side_effect=[propfind_resp, mkcol_resp]):
             resp = self._post("test", {"config": self._cfg()})
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.json()["created_directory"])
@@ -201,8 +240,9 @@ class WebDavHappyPathTests(unittest.TestCase):
             </D:prop></D:propstat>
           </D:response>
         </D:multistatus>"""
-        mock_resp = MagicMock(); mock_resp.status_code = 207; mock_resp.text = xml_body
-        with self._dns_public(), patch("routes.webdav.requests.request", return_value=mock_resp):
+        mock_resp = MagicMock(); mock_resp.status_code = 207
+        mock_resp.iter_content.return_value = [xml_body.encode()]
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("list", {"config": self._cfg()})
         self.assertEqual(resp.status_code, 200)
         files = resp.json()["files"]
@@ -215,7 +255,7 @@ class WebDavHappyPathTests(unittest.TestCase):
         data_b64 = base64.b64encode(
             json.dumps({"version": 3, "conversations": [], "courtSessions": [], "settings": {}}).encode()
         ).decode()
-        with self._dns_public(), patch("routes.webdav.requests.put", return_value=mock_resp):
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("upload", {
                 "config": self._cfg(),
                 "filename": "lawver_backup_2025-01-01_120000.json",
@@ -240,6 +280,14 @@ class WebDavHappyPathTests(unittest.TestCase):
             })
         self.assertEqual(resp.status_code, 400)
 
+    def test_upload_rejects_malformed_base64_before_remote_request(self):
+        with self._dns_public(), patch("routes.webdav._request_remote") as remote_put:
+            resp = self._post("upload", {
+                "config": self._cfg(), "filename": "backup.json", "data_b64": "!!!!",
+            })
+        self.assertEqual(resp.status_code, 422)
+        remote_put.assert_not_called()
+
     def test_upload_rejects_oversized(self):
         big = base64.b64encode(b"x" * (26 * 1024 * 1024)).decode()
         with self._dns_public():
@@ -252,7 +300,7 @@ class WebDavHappyPathTests(unittest.TestCase):
         payload = json.dumps({"version": 3}).encode()
         mock_resp = MagicMock(); mock_resp.status_code = 200
         mock_resp.iter_content = lambda chunk_size: iter([payload])
-        with self._dns_public(), patch("routes.webdav.requests.get", return_value=mock_resp):
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("download", {"config": self._cfg(), "filename": "lawver_backup.json"})
         self.assertEqual(resp.status_code, 200)
         decoded = base64.b64decode(resp.json()["data_b64"])
@@ -260,16 +308,16 @@ class WebDavHappyPathTests(unittest.TestCase):
 
     def test_delete_ok(self):
         mock_resp = MagicMock(); mock_resp.status_code = 204
-        with self._dns_public(), patch("routes.webdav.requests.request", return_value=mock_resp):
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("delete", {"config": self._cfg(), "filename": "lawver_backup.json"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "ok")
 
-    def test_webdav_401_forwarded(self):
+    def test_remote_webdav_401_does_not_expire_lawver_session(self):
         mock_resp = MagicMock(); mock_resp.status_code = 401
-        with self._dns_public(), patch("routes.webdav.requests.request", return_value=mock_resp):
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("test", {"config": self._cfg()})
-        self.assertEqual(resp.status_code, 401)
+        self.assertEqual(resp.status_code, 400)
         self.assertIn("鉴权", resp.json().get("detail", ""))
 
     def test_list_root_directory_not_skipped(self):
@@ -290,8 +338,9 @@ class WebDavHappyPathTests(unittest.TestCase):
             </D:prop></D:propstat>
           </D:response>
         </D:multistatus>"""
-        mock_resp = MagicMock(); mock_resp.status_code = 207; mock_resp.text = xml_body
-        with self._dns_public(), patch("routes.webdav.requests.request", return_value=mock_resp):
+        mock_resp = MagicMock(); mock_resp.status_code = 207
+        mock_resp.iter_content.return_value = [xml_body.encode()]
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("list", {"config": cfg_root})
         self.assertEqual(resp.status_code, 200)
         files = resp.json()["files"]
@@ -314,13 +363,21 @@ class WebDavHappyPathTests(unittest.TestCase):
             </D:prop></D:propstat>
           </D:response>
         </D:multistatus>"""
-        mock_resp = MagicMock(); mock_resp.status_code = 207; mock_resp.text = xml_body
-        with self._dns_public(), patch("routes.webdav.requests.request", return_value=mock_resp):
+        mock_resp = MagicMock(); mock_resp.status_code = 207
+        mock_resp.iter_content.return_value = [xml_body.encode()]
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
             resp = self._post("list", {"config": self._cfg()})
         self.assertEqual(resp.status_code, 200)
         files = resp.json()["files"]
         self.assertEqual(len(files), 1)
         self.assertEqual(files[0]["filename"], "lawver backup 中文.json")
+
+    def test_list_rejects_oversized_propfind_response(self):
+        mock_resp = MagicMock(); mock_resp.status_code = 207
+        mock_resp.iter_content.return_value = [b"x" * (2 * 1024 * 1024 + 1)]
+        with self._dns_public(), patch("routes.webdav._request_remote", return_value=mock_resp):
+            resp = self._post("list", {"config": self._cfg()})
+        self.assertEqual(resp.status_code, 413)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,11 @@ async def collect_reader(stream_id: str, from_seq: int) -> list[dict]:
 
 class StreamBufferTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
-        for stream_id in ["s1", "s2", "owned", "ttl", "quota", "bytes", "cancel"]:
+        for stream_id in [
+            "s1", "s2", "owned", "ttl", "quota", "bytes", "cancel",
+            "slow", "finish-full", "reader-one", "events",
+            "slow-bytes",
+        ]:
             await stream_buffer.delete(stream_id)
 
     async def test_reader_replays_events_after_requested_seq_and_ack_trims(self):
@@ -86,6 +90,111 @@ class StreamBufferTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(replay[0]["reason"], "quota")
         finally:
             stream_buffer.MAX_BYTES_PER_STREAM = original
+
+    async def test_slow_reader_is_bounded_and_disconnected_with_reason(self):
+        original = stream_buffer.MAX_READER_QUEUE_EVENTS
+        stream_buffer.MAX_READER_QUEUE_EVENTS = 2
+        try:
+            await stream_buffer.create("slow", "alice")
+            reader = stream_buffer.reader("slow", -1)
+            pending = asyncio.create_task(reader.__anext__())
+            await asyncio.sleep(0)
+
+            for index in range(3):
+                await stream_buffer.append("slow", {"type": "content", "content": str(index)})
+
+            overflow = await asyncio.wait_for(pending, timeout=1)
+            self.assertEqual(overflow["type"], "resume_unavailable")
+            self.assertEqual(overflow["reason"], "slow_reader")
+            state = await stream_buffer.get("slow", "alice")
+            self.assertEqual(state.readers, {})
+            with self.assertRaises(StopAsyncIteration):
+                await reader.__anext__()
+        finally:
+            stream_buffer.MAX_READER_QUEUE_EVENTS = original
+
+    async def test_slow_reader_queue_is_also_bounded_by_bytes(self):
+        original_events = stream_buffer.MAX_READER_QUEUE_EVENTS
+        original_bytes = stream_buffer.MAX_READER_QUEUE_BYTES
+        stream_buffer.MAX_READER_QUEUE_EVENTS = 100
+        stream_buffer.MAX_READER_QUEUE_BYTES = 64
+        try:
+            await stream_buffer.create("slow-bytes", "alice")
+            reader = stream_buffer.reader("slow-bytes", -1)
+            pending = asyncio.create_task(reader.__anext__())
+            await asyncio.sleep(0)
+
+            await stream_buffer.append("slow-bytes", {"type": "content", "content": "x" * 200})
+
+            overflow = await asyncio.wait_for(pending, timeout=1)
+            self.assertEqual(overflow["type"], "resume_unavailable")
+            self.assertEqual(overflow["reason"], "slow_reader")
+            with self.assertRaises(StopAsyncIteration):
+                await reader.__anext__()
+        finally:
+            stream_buffer.MAX_READER_QUEUE_EVENTS = original_events
+            stream_buffer.MAX_READER_QUEUE_BYTES = original_bytes
+
+    async def test_finish_then_delete_never_queue_full_when_reader_data_slots_are_full(self):
+        original = stream_buffer.MAX_READER_QUEUE_EVENTS
+        stream_buffer.MAX_READER_QUEUE_EVENTS = 2
+        try:
+            await stream_buffer.create("finish-full", "alice")
+            reader = stream_buffer.reader("finish-full", -1)
+            first = asyncio.create_task(reader.__anext__())
+            await asyncio.sleep(0)
+
+            await stream_buffer.append("finish-full", {"type": "content", "content": "a"})
+            await stream_buffer.append("finish-full", {"type": "content", "content": "b"})
+            await stream_buffer.finish("finish-full")
+            await stream_buffer.delete("finish-full")
+
+            self.assertEqual((await first)["content"], "a")
+            remaining = [event async for event in reader]
+            self.assertEqual([event["content"] for event in remaining], ["b"])
+        finally:
+            stream_buffer.MAX_READER_QUEUE_EVENTS = original
+
+    async def test_reader_count_limit_rejects_extra_live_reader(self):
+        original = stream_buffer.MAX_READERS_PER_STREAM
+        stream_buffer.MAX_READERS_PER_STREAM = 1
+        try:
+            await stream_buffer.create("reader-one", "alice")
+            first_reader = stream_buffer.reader("reader-one", -1)
+            first_pending = asyncio.create_task(first_reader.__anext__())
+            await asyncio.sleep(0)
+
+            second_reader = stream_buffer.reader("reader-one", -1)
+            rejected = await second_reader.__anext__()
+            self.assertEqual(rejected["type"], "resume_unavailable")
+            self.assertEqual(rejected["reason"], "reader_limit")
+            with self.assertRaises(StopAsyncIteration):
+                await second_reader.__anext__()
+
+            first_pending.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await first_pending
+            await first_reader.aclose()
+        finally:
+            stream_buffer.MAX_READERS_PER_STREAM = original
+
+    async def test_stored_event_count_is_bounded_even_for_tiny_events(self):
+        original = stream_buffer.MAX_EVENTS_PER_STREAM
+        stream_buffer.MAX_EVENTS_PER_STREAM = 2
+        try:
+            await stream_buffer.create("events", "alice")
+            for index in range(5):
+                await stream_buffer.append("events", {"type": "x", "value": index})
+            await stream_buffer.finish("events")
+
+            state = await stream_buffer.get("events", "alice")
+            self.assertEqual(len(state.events), 2)
+            self.assertTrue(state.truncated)
+            replay = await collect_reader("events", -1)
+            self.assertEqual(replay[0]["type"], "resume_unavailable")
+            self.assertEqual(replay[0]["reason"], "quota")
+        finally:
+            stream_buffer.MAX_EVENTS_PER_STREAM = original
 
 
 if __name__ == "__main__":
