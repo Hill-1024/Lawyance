@@ -1,39 +1,27 @@
 """
-模块描述：命令行密码哈希生成工具，用于为账号文件生成 PBKDF2 密码摘要。
+模块描述：命令行密码哈希生成工具，为账号文件生成与 auth.py 完全一致的 PBKDF2 摘要。
 """
 
 import getpass
-import hashlib
 import os
-import json
+import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-def hash_password(password: str) -> str:
-    # Use a fixed salt for simplicity or generate a random one and prepend it.
-    # Let's use a random salt and prepend it. format: salt$hash
-    salt = os.urandom(16).hex()
-    hashed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
-    return f"{salt}${hashed}"
-
-def verify_password(password: str, hashed_password: str) -> bool:
-    try:
-        salt, expected_hash = hashed_password.split('$')
-        actual_hash = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
-        return actual_hash == expected_hash
-    except ValueError:
-        return False
+from services.password_hashing import hash_password, verify_password  # noqa: E402
 
 
 if __name__ == "__main__":
     print("=== Lawver 密码哈希生成工具 ===")
     password = getpass.getpass("请输入账号明文密码: ")
     confirm_password = getpass.getpass("请再次输入确认: ")
-    
+
     if password != confirm_password:
         print("两次输入的密码不一致！")
         exit(1)
-        
+
     hashed = hash_password(password)
+    assert verify_password(password, hashed), "哈希自检失败"
     print("\n生成的密码哈希值为:")
     print("-" * 50)
     print(hashed)

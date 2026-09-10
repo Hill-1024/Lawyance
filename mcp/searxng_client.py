@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import glob
 import hashlib
 import html
 import http.client
@@ -92,6 +93,12 @@ if not _WEB_TOOL_LOGGER.handlers:
     )
     _handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
     _WEB_TOOL_LOGGER.addHandler(_handler)
+    # 检索日志含查询指纹与错误码，与 usage.log 同级收紧为仅属主可读。
+    for _candidate in ("data/web_tools.log", *glob.glob("data/web_tools.log.*")):
+        try:
+            os.chmod(_candidate, 0o600)
+        except OSError:
+            continue
 
 
 @dataclass(frozen=True)

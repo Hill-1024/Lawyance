@@ -27,6 +27,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import type { CourtPublicEvent, CourtSession, CourtSpeaker } from '../types';
 import { HoverInfo } from './HoverInfo';
 import { useAppDialog } from '../contexts/DialogContext';
+import { stripAttachmentPrompt, stripWorkspacePaths } from '../lib/attachment-prompt';
 
 const PHASE_LABELS: Record<string, string> = {
   opening: '开庭',
@@ -120,6 +121,16 @@ const markdownComponents: any = {
   }
 };
 
+/**
+ * 展示用文本：剥掉内部工作区路径与附件说明块。
+ * 事件原始 content 保留路径（各角色据此调用 image_reader 等工具读取材料），
+ * 但用户不应在庭审记录里看到 TEMP/... 这类内部路径。
+ */
+const toDisplayContent = (content?: string): string => {
+  if (!content) return '';
+  return stripWorkspacePaths(stripAttachmentPrompt(content));
+};
+
 const CourtMarkdown: React.FC<{ content?: string; compact?: boolean; className?: string }> = ({
   content,
   compact = false,
@@ -131,7 +142,7 @@ const CourtMarkdown: React.FC<{ content?: string; compact?: boolean; className?:
       rehypePlugins={[rehypeRaw, [rehypeSanitize, courtSanitizeSchema]]}
       components={markdownComponents}
     >
-      {content || ''}
+      {toDisplayContent(content)}
     </Markdown>
   </div>
 );

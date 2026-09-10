@@ -1,17 +1,50 @@
 /*
- * 模块描述：管理员后台组件，展示访问日志、账号管理和管理员操作入口。
+ * 模块描述：管理员后台，展示访问日志与账号管理，视觉体系与主界面保持一致。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { fetchLogs, clearLogs, fetchAccounts, setAccount, logout as apiLogout, deleteAccount } from '../services/api';
-import { Search, ShieldAlert, Users, Activity, EyeOff, RefreshCw, ArrowLeft, LogOut, Plus, KeyRound, Globe, Clock, User, Trash2, MonitorSmartphone } from 'lucide-react';
+import { useAppBack } from '../hooks/useAppBack';
+import {
+  Activity,
+  ArrowLeft,
+  Clock,
+  EyeOff,
+  Globe,
+  KeyRound,
+  Loader2,
+  LogOut,
+  MonitorSmartphone,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  Trash2,
+  User,
+  Users,
+} from 'lucide-react';
+import {
+  clearLogs,
+  deleteAccount,
+  fetchAccounts,
+  fetchLogs,
+  logout as apiLogout,
+  setAccount,
+} from '../services/api';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
 import { useAppDialog } from '../contexts/DialogContext';
+import {
+  Banner,
+  EmptyState,
+  SettingsField,
+  SettingsRow,
+  StatusChip,
+  fieldInputClass,
+} from './settings/SettingsUI';
 
-/* ── helpers ── */
+/* ── 日志解析 ── */
+
 interface ParsedLog {
   time: string;
   ip: string;
@@ -24,7 +57,7 @@ interface ParsedLog {
 }
 
 function parseLogLine(raw: string): ParsedLog {
-  // Format: "2026-04-22 19:46:30,123 | INFO | 127.0.0.1 | admin | web | POST | /api/chat | 200"
+  // 格式: "2026-04-22 19:46:30,123 | INFO | 127.0.0.1 | admin | web | POST | /api/chat | 200"
   const parts = raw.split(' | ');
   if (parts.length >= 3) {
     const afterLevel = raw.split(' | INFO | ')[1] || raw.split(' | ')[2] || '';
@@ -44,26 +77,28 @@ function parseLogLine(raw: string): ParsedLog {
   return { time: '', ip: '', user: '', client: '', method: '', path: '', status: '', raw };
 }
 
-function statusColor(s: string) {
-  const code = parseInt(s);
-  if (code >= 200 && code < 300) return 'text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]';
-  if (code >= 300 && code < 400) return 'text-[var(--color-warning-500)]';
-  return 'text-[var(--color-danger-500)]';
-}
+const statusTone = (status: string): 'ok' | 'warn' | 'danger' | 'muted' => {
+  const code = Number.parseInt(status, 10);
+  if (Number.isNaN(code)) return 'muted';
+  if (code >= 200 && code < 300) return 'ok';
+  if (code >= 300 && code < 400) return 'warn';
+  return 'danger';
+};
 
-function methodBadge(m: string) {
-  const colors: Record<string, string> = {
-    GET: 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]',
-    POST: 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]',
-    DELETE: 'bg-[var(--color-danger-100)] text-[var(--color-danger-500)]',
-    PUT: 'bg-[var(--color-warning-100)] text-[var(--color-warning-500)]',
-  };
-  return colors[m] || 'bg-[var(--bg-inset)] text-[var(--fg-2)]';
-}
+const METHOD_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'muted' | 'accent'> = {
+  GET: 'accent',
+  POST: 'ok',
+  PUT: 'warn',
+  DELETE: 'danger',
+};
 
-/* ── component ── */
+const LOG_SKELETON_ROWS = 8;
+
+/* ── 组件 ── */
+
 export const AdminDashboard: React.FC = () => {
-  const navigate = useNavigate();
+  // 后台返回聊天必须退栈，否则再按返回又会前进回后台。
+  const goBack = useAppBack();
   const { showConfirm } = useAppDialog();
   const [activeTab, setActiveTab] = useState<'logs' | 'accounts'>('logs');
 
@@ -74,6 +109,7 @@ export const AdminDashboard: React.FC = () => {
   const [isClearingLogs, setIsClearingLogs] = useState(false);
   const [isClearLogsDialogOpen, setIsClearLogsDialogOpen] = useState(false);
   const [logsError, setLogsError] = useState('');
+  const [expandedLog, setExpandedLog] = useState<string | null>(null);
 
   const [accounts, setAccounts] = useState<{ username: string; role: string }[]>([]);
   const [isAccountsLoading, setIsAccountsLoading] = useState(false);
@@ -109,9 +145,7 @@ export const AdminDashboard: React.FC = () => {
       if (requestId !== logsRequestIdRef.current) return;
       setLogsError(error.message);
     } finally {
-      if (requestId === logsRequestIdRef.current) {
-        setIsLogsLoading(false);
-      }
+      if (requestId === logsRequestIdRef.current) setIsLogsLoading(false);
     }
   }, []);
 
@@ -127,35 +161,24 @@ export const AdminDashboard: React.FC = () => {
       if (requestId !== accountsRequestIdRef.current) return;
       setAccountsError(error.message);
     } finally {
-      if (requestId === accountsRequestIdRef.current) {
-        setIsAccountsLoading(false);
-      }
+      if (requestId === accountsRequestIdRef.current) setIsAccountsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (activeTab === 'logs') {
       void loadLogs();
-      return () => {
-        logsRequestIdRef.current += 1;
-      };
+      return () => { logsRequestIdRef.current += 1; };
     }
-
     void loadAccounts();
-    return () => {
-      accountsRequestIdRef.current += 1;
-    };
+    return () => { accountsRequestIdRef.current += 1; };
   }, [activeTab, loadAccounts, loadLogs]);
 
   useEffect(() => {
     if (!isClearLogsDialogOpen) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isClearingLogs) {
-        setIsClearLogsDialogOpen(false);
-      }
+      if (event.key === 'Escape' && !isClearingLogs) setIsClearLogsDialogOpen(false);
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isClearLogsDialogOpen, isClearingLogs]);
@@ -179,11 +202,10 @@ export const AdminDashboard: React.FC = () => {
   const handleSaveAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     const generation = modalGenerationRef.current;
-    const account = { username: editUsername, password: editPassword, role: editRole };
     setModalError('');
     setIsSaving(true);
     try {
-      await setAccount(account.username, account.password, account.role);
+      await setAccount(editUsername, editPassword, editRole);
       void loadAccounts();
       if (generation !== modalGenerationRef.current) return;
       setIsSaving(false);
@@ -193,9 +215,7 @@ export const AdminDashboard: React.FC = () => {
       if (generation !== modalGenerationRef.current) return;
       setModalError(error.message);
     } finally {
-      if (generation === modalGenerationRef.current) {
-        setIsSaving(false);
-      }
+      if (generation === modalGenerationRef.current) setIsSaving(false);
     }
   };
 
@@ -203,12 +223,11 @@ export const AdminDashboard: React.FC = () => {
     if (username === 'admin') return;
     const confirmed = await showConfirm({
       title: '删除账号？',
-      message: `确定要删除账号 "${username}" 吗？此操作不可撤销。`,
+      message: `确定要删除账号「${username}」吗？此操作不可撤销。`,
       tone: 'danger',
       confirmLabel: '删除',
     });
     if (!confirmed) return;
-
     try {
       await deleteAccount(username);
       void loadAccounts();
@@ -233,6 +252,7 @@ export const AdminDashboard: React.FC = () => {
     setIsSaving(false);
     setIsModalOpen(true);
   };
+
   const openResetModal = (u: string, r: string) => {
     modalGenerationRef.current += 1;
     setModalMode('reset');
@@ -243,58 +263,103 @@ export const AdminDashboard: React.FC = () => {
     setIsSaving(false);
     setIsModalOpen(true);
   };
+
   const handleLogout = async () => { try { await apiLogout(); } finally { window.location.href = '/'; } };
 
   const parsedLogs = useMemo(() => logs.map(parseLogLine), [logs]);
 
+  const logStats = useMemo(() => {
+    const entries = parsedLogs.filter(log => log.ip);
+    const errors = entries.filter(log => Number.parseInt(log.status, 10) >= 400).length;
+    const ips = new Set(entries.map(log => log.ip));
+    const users = new Set(entries.map(log => log.user).filter(Boolean));
+    return { total: entries.length, errors, ips: ips.size, users: users.size };
+  }, [parsedLogs]);
+
+  const adminCount = accounts.filter(a => a.role === 'admin').length;
+
   return (
     <div className="flex h-[100dvh] w-full max-w-full flex-col overflow-x-hidden bg-[var(--bg-app)] text-[var(--fg-1)] transition-colors duration-500">
-
-      {/* ── Top Bar (Liquid Glass) ── */}
-      <header className="lawver-topbar liquid-glass sticky top-0 z-30 flex shrink-0 items-center justify-between gap-3 px-3 pb-2 pt-[calc(0.625rem+var(--safe-top))] text-[var(--fg-1)] sm:px-5 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]" style={{ borderRadius: 0, borderTop: 'none', borderLeft: 'none', borderRight: 'none' }}>
-        <div className="relative z-[1] flex min-w-0 items-center gap-2">
+      <header className="lawver-topbar sticky top-0 z-30 flex w-full max-w-full shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-2 pt-[calc(0.625rem+var(--safe-top))] sm:px-5 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]">
+        <div className="flex min-w-0 items-center gap-2">
           <HoverInfo label="返回聊天" placement="bottom">
-            <button onClick={() => navigate('/')} className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="返回聊天">
-              <ArrowLeft className="h-5 w-5" strokeWidth={2} />
+            <button
+              onClick={() => goBack('/')}
+              className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
+              aria-label="返回聊天"
+            >
+              <ArrowLeft size={20} strokeWidth={2} />
             </button>
           </HoverInfo>
-          <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)] sm:flex">
+          <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)] sm:flex">
             <BrandMark className="h-5 w-5" />
-          </div>
+          </span>
           <div className="min-w-0">
-            <h1 className="lawver-header-title t-title-l truncate">管理后台</h1>
-            <p className="truncate text-[12px] text-[var(--fg-3)]">Lawver Admin Console</p>
+            <h1 className="t-title-l truncate">管理后台</h1>
+            <p className="truncate text-[12px] text-[var(--fg-3)]">访问审计与账号管理</p>
           </div>
         </div>
-        <button onClick={handleLogout} className="md3-btn-text relative z-[1] shrink-0 !gap-1.5 !text-[var(--color-danger-500)] text-sm">
-          <LogOut className="h-4 w-4" strokeWidth={2} /> 退出
+        <button
+          onClick={handleLogout}
+          className="md3-btn-text lawver-pressable shrink-0 !text-[var(--color-danger-500)] text-sm"
+        >
+          <LogOut size={16} strokeWidth={2} /> 退出
         </button>
       </header>
 
-      {/* ── Navigation (MD3 Segmented Buttons) ── */}
-      <div className="shrink-0 px-3 pb-2 pt-4 sm:px-5">
+      <div className="shrink-0 px-3 pt-4 sm:px-5">
         <div className="inline-flex rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-1)]">
-          <button onClick={() => setActiveTab('logs')} className={`md3-seg-btn ${activeTab === 'logs' ? 'active' : ''}`}>
-            <Activity className="h-4 w-4" strokeWidth={2} /> 使用日志
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`md3-seg-btn ${activeTab === 'logs' ? 'active' : ''}`}
+            aria-pressed={activeTab === 'logs'}
+          >
+            <Activity size={16} strokeWidth={2} /> 使用日志
           </button>
-          <button onClick={() => setActiveTab('accounts')} className={`md3-seg-btn ${activeTab === 'accounts' ? 'active' : ''}`}>
-            <Users className="h-4 w-4" strokeWidth={2} /> 用户管理
+          <button
+            onClick={() => setActiveTab('accounts')}
+            className={`md3-seg-btn ${activeTab === 'accounts' ? 'active' : ''}`}
+            aria-pressed={activeTab === 'accounts'}
+          >
+            <Users size={16} strokeWidth={2} /> 用户管理
           </button>
         </div>
       </div>
 
-      {/* ── Content ── */}
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden px-3 pb-5 pt-2 sm:px-5">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden px-3 pb-5 pt-4 sm:px-5">
+        {activeTab === 'logs' ? (
+          <div className="flex h-full min-w-0 flex-col gap-3">
+            {/* 概览 */}
+            <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: '本次读取', value: logStats.total, hint: '条记录' },
+                { label: '异常响应', value: logStats.errors, hint: '4xx / 5xx', danger: logStats.errors > 0 },
+                { label: '来源 IP', value: logStats.ips, hint: '去重后' },
+                { label: '活跃用户', value: logStats.users, hint: '去重后' },
+              ].map(stat => (
+                <div
+                  key={stat.label}
+                  className="min-w-0 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2.5 shadow-[var(--shadow-1)]"
+                >
+                  <p className="text-[11px] font-medium text-[var(--fg-3)]">{stat.label}</p>
+                  <p className={`mt-0.5 text-[19px] font-semibold tabular-nums leading-6 ${
+                    stat.danger ? 'text-[var(--color-danger-500)]' : 'text-[var(--fg-1)]'
+                  }`}>
+                    {stat.value}
+                  </p>
+                  <p className="text-[11px] text-[var(--fg-4)]">{stat.hint}</p>
+                </div>
+              ))}
+            </div>
 
-        {/* == Logs Tab == */}
-        {activeTab === 'logs' && (
-          <div className="flex flex-col h-full gap-3">
-            {/* Toolbar */}
-            <div className="flex flex-wrap gap-3 items-center">
+            {/* 工具条 */}
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <div className="relative min-w-0 w-full flex-1 sm:min-w-[200px] sm:max-w-sm">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fg-4)]" strokeWidth={2} />
                 <input
-                  type="text" placeholder="按 IP 地址过滤…" value={ipFilter}
+                  type="text"
+                  placeholder="按 IP 地址过滤…"
+                  value={ipFilter}
                   onChange={e => {
                     const value = e.target.value;
                     logsQueryRef.current = { ...logsQueryRef.current, ipFilter: value };
@@ -302,6 +367,7 @@ export const AdminDashboard: React.FC = () => {
                   }}
                   onKeyDown={e => e.key === 'Enter' && loadLogs()}
                   className="md3-input min-h-11 !rounded-full !py-2.5 !pl-10"
+                  aria-label="按 IP 地址过滤日志"
                 />
               </div>
               <AnimatedSwitch
@@ -313,65 +379,109 @@ export const AdminDashboard: React.FC = () => {
                 label="隐藏心跳"
                 size="sm"
               />
-              <button onClick={loadLogs} disabled={isLogsLoading} className="md3-btn-tonal">
-                <RefreshCw className={`h-4 w-4 ${isLogsLoading ? 'animate-spin' : ''}`} strokeWidth={2} /> 刷新
+              <button onClick={loadLogs} disabled={isLogsLoading} className="md3-btn-tonal lawver-pressable disabled:opacity-50">
+                {isLogsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" strokeWidth={2} />} 刷新
               </button>
-              <button onClick={() => setIsClearLogsDialogOpen(true)} disabled={isLogsLoading || isClearingLogs} className="md3-btn-tonal !text-[var(--color-danger-500)]">
-                <Trash2 className="h-4 w-4" strokeWidth={2} /> {isClearingLogs ? '清理中…' : '清理日志'}
+              <button
+                onClick={() => setIsClearLogsDialogOpen(true)}
+                disabled={isLogsLoading || isClearingLogs}
+                className="md3-btn-tonal lawver-pressable !text-[var(--color-danger-500)] disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={2} /> 清理日志
               </button>
             </div>
 
-            {logsError && (
-              <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[rgba(176,70,62,0.3)] bg-[rgba(176,70,62,0.1)] px-4 py-3 text-sm text-[var(--color-danger-500)]">
-                <ShieldAlert className="h-4 w-4 shrink-0" strokeWidth={2} /> {logsError}
-              </div>
-            )}
+            {logsError && <Banner tone="danger">{logsError}</Banner>}
 
-            {/* Log Table Card */}
-            <div className="md3-surface-card flex-1 overflow-hidden flex flex-col">
-              {parsedLogs.length === 0 ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[var(--fg-4)]">
-                  <EyeOff className="h-14 w-14 opacity-40" strokeWidth={2} />
-                  <p className="text-sm">暂无日志记录</p>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-1)]">
+              {isLogsLoading && parsedLogs.length === 0 ? (
+                <div className="flex-1 space-y-3 p-4" aria-busy="true">
+                  {Array.from({ length: LOG_SKELETON_ROWS }).map((_, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <span className="h-3 w-24 animate-pulse rounded-full bg-[var(--bg-inset)]" />
+                      <span className="h-3 w-20 animate-pulse rounded-full bg-[var(--bg-inset)]" />
+                      <span className="h-3 flex-1 animate-pulse rounded-full bg-[var(--bg-inset)]" />
+                      <span className="h-3 w-10 animate-pulse rounded-full bg-[var(--bg-inset)]" />
+                    </div>
+                  ))}
                 </div>
+              ) : parsedLogs.length === 0 ? (
+                <EmptyState
+                  icon={<EyeOff size={22} strokeWidth={2} />}
+                  title="暂无日志记录"
+                  description="产生 API 访问后，这里会显示时间、来源 IP、用户、方法与响应状态。"
+                />
               ) : (
-                <div className="flex-1 overflow-auto md3-scroll">
+                <div className="md3-scroll min-h-0 flex-1 overflow-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 z-10">
-                      <tr className="bg-[var(--bg-surface-2)]">
-                        <th className="t-label-s t-muted px-4 py-3 text-left">时间</th>
-                        <th className="t-label-s t-muted px-4 py-3 text-left">IP</th>
-                        <th className="t-label-s t-muted px-4 py-3 text-left">用户</th>
-                        <th className="t-label-s t-muted px-4 py-3 text-left">客户端</th>
-                        <th className="t-label-s t-muted px-4 py-3 text-left">方法</th>
-                        <th className="t-label-s t-muted px-4 py-3 text-left">路径</th>
-                        <th className="t-label-s t-muted px-4 py-3 text-right">状态</th>
+                      <tr className="bg-[var(--bg-surface-2)] shadow-[inset_0_-1px_0_var(--border-subtle)]">
+                        <th className="t-label-s t-muted px-3 py-2.5 text-left sm:px-4">时间</th>
+                        <th className="t-label-s t-muted px-3 py-2.5 text-left sm:px-4">IP</th>
+                        <th className="t-label-s t-muted hidden px-3 py-2.5 text-left sm:table-cell sm:px-4">用户</th>
+                        <th className="t-label-s t-muted hidden px-3 py-2.5 text-left lg:table-cell lg:px-4">客户端</th>
+                        <th className="t-label-s t-muted px-3 py-2.5 text-left sm:px-4">方法</th>
+                        <th className="t-label-s t-muted hidden px-3 py-2.5 text-left lg:table-cell lg:px-4">路径</th>
+                        <th className="t-label-s t-muted px-3 py-2.5 text-right sm:px-4">状态</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[var(--border-subtle)]">
                       {parsedLogs.map((log, i) => (
                         log.ip ? (
-                          <tr key={i} className="log-row transition-colors hover:bg-[rgba(59,98,184,0.05)]">
-                            <td className="whitespace-nowrap px-4 py-2.5 text-[var(--fg-3)]">
-                              <span className="flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 opacity-50" strokeWidth={2} />{log.time.split(',')[0]}</span>
-                            </td>
-                            <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-[var(--fg-2)]">
-                              <span className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5 opacity-40" strokeWidth={2} />{log.ip}</span>
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap">
-                              <span className="flex items-center gap-1.5"><User className="h-3.5 w-3.5 opacity-40" strokeWidth={2} /><span className="text-[var(--fg-1)]">{log.user}</span></span>
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap text-xs text-[var(--fg-3)]">
-                              <span className="flex items-center gap-1.5"><MonitorSmartphone className="h-3.5 w-3.5 opacity-40" strokeWidth={2} />{log.client}</span>
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap">
-                              <span className={`md3-chip text-[11px] ${methodBadge(log.method)}`}>{log.method}</span>
-                            </td>
-                            <td className="max-w-[300px] truncate px-4 py-2.5 font-mono text-xs text-[var(--fg-2)]">{log.path}</td>
-                            <td className={`px-4 py-2.5 text-right font-semibold tabular-nums ${statusColor(log.status)}`}>{log.status}</td>
-                          </tr>
+                          <React.Fragment key={i}>
+                            <tr
+                              onClick={() => setExpandedLog(expandedLog === log.raw ? null : log.raw)}
+                              className={`cursor-pointer transition-colors hover:bg-[rgba(59,98,184,0.05)] ${expandedLog === log.raw ? 'bg-[var(--accent-quiet)]' : ''}`}
+                            >
+                              <td className="whitespace-nowrap px-2 py-2.5 text-[var(--fg-3)] sm:px-4">
+                                <span className="flex items-center gap-1.5 tabular-nums">
+                                  <Clock className="hidden h-3.5 w-3.5 shrink-0 opacity-50 sm:block" strokeWidth={2} />
+                                  {/* 手机上只留时刻，完整日期在 sm 以上显示，避免表格横向溢出 */}
+                                  <span className="sm:hidden">{(log.time.split(' ')[1] || log.time).split(',')[0]}</span>
+                                  <span className="hidden sm:inline">{log.time.split(',')[0]}</span>
+                                </span>
+                              </td>
+                              <td className="whitespace-nowrap px-2 py-2.5 font-mono text-xs text-[var(--fg-2)] sm:px-4">
+                                <span className="flex items-center gap-1.5">
+                                  <Globe className="hidden h-3.5 w-3.5 shrink-0 opacity-40 sm:block" strokeWidth={2} />
+                                  {log.ip}
+                                </span>
+                              </td>
+                              <td className="hidden whitespace-nowrap px-3 py-2.5 sm:table-cell sm:px-4">
+                                <span className="flex items-center gap-1.5">
+                                  <User className="hidden h-3.5 w-3.5 shrink-0 opacity-40 sm:block" strokeWidth={2} />
+                                  <span className="text-[var(--fg-1)]">{log.user}</span>
+                                </span>
+                              </td>
+                              <td className="hidden whitespace-nowrap px-3 py-2.5 text-xs text-[var(--fg-3)] lg:table-cell lg:px-4">
+                                <span className="flex items-center gap-1.5">
+                                  <MonitorSmartphone className="h-3.5 w-3.5 shrink-0 opacity-40" strokeWidth={2} />
+                                  {log.client}
+                                </span>
+                              </td>
+                              <td className="whitespace-nowrap px-2 py-2.5 sm:px-4">
+                                <StatusChip tone={METHOD_TONE[log.method] || 'muted'}>{log.method}</StatusChip>
+                              </td>
+                              <td className="hidden max-w-[220px] truncate px-3 py-2.5 font-mono text-xs text-[var(--fg-2)] lg:table-cell lg:max-w-[180px] lg:px-4 xl:max-w-[320px]" title={log.path}>
+                                {log.path}
+                              </td>
+                              <td className="whitespace-nowrap px-2 py-2.5 text-right sm:px-4">
+                                <StatusChip tone={statusTone(log.status)} className="tabular-nums">{log.status}</StatusChip>
+                              </td>
+                            </tr>
+                            {expandedLog === log.raw && (
+                              <tr className="bg-[var(--bg-inset)]">
+                                <td colSpan={7} className="px-3 py-3 sm:px-4">
+                                  <p className="mb-1 text-[11px] font-medium text-[var(--fg-3)]">原始日志行</p>
+                                  <code className="block break-all font-mono text-[11px] leading-5 text-[var(--fg-2)]">{log.raw}</code>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ) : (
-                          <tr key={i} className="log-row"><td colSpan={7} className="break-all px-4 py-2 text-xs text-[var(--fg-3)]">{log.raw}</td></tr>
+                          <tr key={i}>
+                            <td colSpan={7} className="break-all px-3 py-2 text-xs text-[var(--fg-3)] sm:px-4">{log.raw}</td>
+                          </tr>
                         )
                       ))}
                     </tbody>
@@ -380,54 +490,91 @@ export const AdminDashboard: React.FC = () => {
               )}
             </div>
           </div>
-        )}
+        ) : (
+          <div className="md3-scroll flex h-full min-w-0 flex-col gap-3 overflow-auto pb-6">
+            {accountsError && <Banner tone="danger">{accountsError}</Banner>}
 
-        {/* == Accounts Tab == */}
-        {activeTab === 'accounts' && (
-          <div className="flex flex-col h-full gap-4">
-            {accountsError && (
-              <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[rgba(176,70,62,0.3)] bg-[rgba(176,70,62,0.1)] px-4 py-3 text-sm text-[var(--color-danger-500)]">
-                <ShieldAlert className="h-4 w-4 shrink-0" strokeWidth={2} /> {accountsError}
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+              <p className="text-[12px] text-[var(--fg-3)]">
+                共 {accounts.length} 个账号，其中管理员 {adminCount} 个
+              </p>
+              <button onClick={openAddModal} className="md3-btn-filled lawver-pressable text-sm">
+                <Plus size={16} strokeWidth={2.4} /> 新增账号
+              </button>
+            </div>
+
+            {isAccountsLoading && accounts.length === 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
+                    <span className="h-11 w-11 shrink-0 animate-pulse rounded-[var(--radius-md)] bg-[var(--bg-inset)]" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block h-3.5 w-1/2 animate-pulse rounded-full bg-[var(--bg-inset)]" />
+                      <span className="mt-2 block h-3 w-1/3 animate-pulse rounded-full bg-[var(--bg-inset)]" />
+                    </span>
+                  </div>
+                ))}
               </div>
-            )}
-
-            {isAccountsLoading ? (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--accent-quiet)] border-t-[var(--accent)]" />
+            ) : accounts.length === 0 ? (
+              <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+                <EmptyState
+                  icon={<Users size={22} strokeWidth={2} />}
+                  title="还没有账号"
+                  description="新增账号后，成员即可登录使用 Lawver。"
+                  action={(
+                    <button onClick={openAddModal} className="md3-btn-tonal lawver-pressable text-sm">
+                      <Plus size={16} strokeWidth={2.4} /> 新增账号
+                    </button>
+                  )}
+                />
               </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 overflow-auto md3-scroll flex-1 content-start pb-20">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {accounts.map(acc => (
-                  <div key={acc.username} className="md3-surface-card p-4 flex items-center gap-4 hover:shadow-md transition-shadow group cursor-default">
-                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold shadow-[var(--shadow-1)] ${acc.role === 'admin'
+                  <div
+                    key={acc.username}
+                    className="group flex min-w-0 items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] transition-colors hover:border-[var(--border-default)]"
+                  >
+                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[15px] font-semibold ${
+                      acc.role === 'admin'
                         ? 'bg-[var(--accent)] text-[var(--accent-on)]'
-                        : 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
-                      }`}>
+                        : 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]'
+                    }`}>
                       {acc.username.charAt(0).toUpperCase()}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="truncate text-sm font-medium text-[var(--fg-1)]">{acc.username}</p>
-                      <span className={`md3-chip mt-1 ${acc.role === 'admin' ? 'md3-chip-primary' : 'md3-chip-tertiary'}`}>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14px] font-medium text-[var(--fg-1)]">{acc.username}</p>
+                      <StatusChip tone={acc.role === 'admin' ? 'accent' : 'muted'} className="mt-1">
                         {acc.role === 'admin' ? '管理员' : '普通用户'}
-                      </span>
+                      </StatusChip>
                     </div>
-                    <div className="flex shrink-0 gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
+                    <div className="flex shrink-0 gap-0.5">
                       <HoverInfo label="重置密码" placement="top">
-                        <button onClick={() => openResetModal(acc.username, acc.role)}
-                          className="md3-btn-text min-h-11 min-w-11 !rounded-full !p-2" aria-label="重置密码">
-                            <KeyRound className="h-4 w-4" strokeWidth={2} />
+                        <button
+                          onClick={() => openResetModal(acc.username, acc.role)}
+                          className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
+                          aria-label={`重置 ${acc.username} 的密码`}
+                        >
+                          <KeyRound className="h-4 w-4" strokeWidth={2} />
                         </button>
                       </HoverInfo>
                       {acc.username === 'admin' ? (
                         <HoverInfo label="系统管理员不可删除" placement="top">
-                          <button className="md3-btn-text min-h-11 min-w-11 !rounded-full !p-2 opacity-30 cursor-not-allowed" aria-label="系统管理员不可删除">
+                          <button
+                            className="inline-flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-full text-[var(--fg-4)] opacity-40"
+                            aria-label="系统管理员不可删除"
+                            disabled
+                          >
                             <Trash2 className="h-4 w-4" strokeWidth={2} />
                           </button>
                         </HoverInfo>
                       ) : (
                         <HoverInfo label="删除账号" placement="top">
-                          <button onClick={() => handleDeleteAccount(acc.username)}
-                            className="md3-btn-text min-h-11 min-w-11 !rounded-full !p-2 !text-[var(--color-danger-500)]" aria-label="删除账号">
+                          <button
+                            onClick={() => handleDeleteAccount(acc.username)}
+                            className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+                            aria-label={`删除账号 ${acc.username}`}
+                          >
                             <Trash2 className="h-4 w-4" strokeWidth={2} />
                           </button>
                         </HoverInfo>
@@ -438,17 +585,18 @@ export const AdminDashboard: React.FC = () => {
               </div>
             )}
 
-            {/* FAB */}
-            <HoverInfo label="新增账号" placement="top">
-              <button onClick={openAddModal} className="md3-fab" aria-label="新增账号">
-                <Plus className="h-6 w-6" strokeWidth={2} />
-              </button>
-            </HoverInfo>
+            <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+              <SettingsRow
+                dense
+                icon={<ShieldAlert size={17} strokeWidth={2} />}
+                title="账号安全提示"
+                description="删除或重置密码会立即作废该账号已签发的令牌；系统管理员账号不可删除。"
+              />
+            </div>
           </div>
         )}
       </main>
 
-      {/* ── Clear Logs Dialog ── */}
       {isClearLogsDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
@@ -461,7 +609,7 @@ export const AdminDashboard: React.FC = () => {
             aria-modal="true"
             aria-labelledby="clear-logs-title"
             aria-describedby="clear-logs-description"
-            className="relative w-full max-w-md rounded-[28px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-6 text-[var(--fg-1)] shadow-2xl"
+            className="relative w-full max-w-md rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-6 text-[var(--fg-1)] shadow-[var(--shadow-5)]"
             style={{ animation: 'lawverPopoverIn 0.2s ease-out' }}
           >
             <div className="mb-5 flex items-start gap-4">
@@ -473,16 +621,15 @@ export const AdminDashboard: React.FC = () => {
                 <p id="clear-logs-description" className="mt-2 text-sm leading-6 text-[var(--fg-3)]">
                   此操作会清空当前使用日志和已轮转的日志文件，清理后无法撤销。
                 </p>
-                <p className="mt-3 rounded-[var(--radius-md)] bg-[var(--bg-inset)] px-3 py-2 text-xs text-[var(--fg-3)]">
+                <p className="mt-3 rounded-[var(--radius-md)] bg-[var(--bg-inset)] px-3 py-2 text-xs tabular-nums text-[var(--fg-3)]">
                   当前列表显示 {logs.length} 条记录；筛选隐藏的日志也会被一并清理。
                 </p>
               </div>
             </div>
-
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                className="md3-btn-text"
+                className="md3-btn-text lawver-pressable"
                 onClick={() => setIsClearLogsDialogOpen(false)}
                 disabled={isClearingLogs}
                 autoFocus
@@ -491,11 +638,11 @@ export const AdminDashboard: React.FC = () => {
               </button>
               <button
                 type="button"
-                className="md3-btn-tonal !text-[var(--color-danger-500)]"
+                className="md3-btn-tonal lawver-pressable !text-[var(--color-danger-500)]"
                 onClick={confirmClearLogs}
                 disabled={isClearingLogs}
               >
-                <Trash2 className="h-4 w-4" strokeWidth={2} />
+                {isClearingLogs ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" strokeWidth={2} />}
                 {isClearingLogs ? '清理中…' : '确认清理'}
               </button>
             </div>
@@ -503,50 +650,85 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* ── Modal (MD3 Dialog) ── */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-[var(--bg-overlay)]" onClick={closeAccountModal} />
-          <div className="relative w-full max-w-md md3-surface-card !rounded-[28px] shadow-2xl overflow-hidden" style={{ animation: 'logSlideIn 0.2s ease-out' }}>
+          <div className="fixed inset-0 bg-[var(--bg-overlay)]" onClick={closeAccountModal} aria-hidden="true" />
+          <div
+            className="relative w-full max-w-md overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-5)]"
+            style={{ animation: 'lawverPopoverIn 0.2s ease-out' }}
+          >
             <form onSubmit={handleSaveAccount}>
-              <div className="px-6 pt-6 pb-2">
-                <h3 className="t-title-l mb-1">
-                  {modalMode === 'add' ? '新增账号' : '重置密码'}
-                </h3>
-                <p className="t-body-m t-muted mb-5">
-                  {modalMode === 'add' ? '创建一个新的系统账号' : `为 ${editUsername} 设置新的登录密码`}
-                </p>
-
-                {modalError && (
-                  <div className="mb-4 rounded-[var(--radius-md)] border border-[rgba(176,70,62,0.3)] bg-[rgba(176,70,62,0.1)] p-3 text-sm text-[var(--color-danger-500)]">{modalError}</div>
-                )}
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="t-label-s t-muted mb-1.5 block">用户名</label>
-                    <input type="text" required disabled={modalMode === 'reset'} value={editUsername}
-                      onChange={e => setEditUsername(e.target.value)} className="md3-input" placeholder="输入用户名" />
-                  </div>
-                  <div>
-                    <label className="t-label-s t-muted mb-1.5 block">密码</label>
-                    <input type="password" required minLength={6} value={editPassword}
-                      onChange={e => setEditPassword(e.target.value)} className="md3-input" placeholder="最少 6 位字符" />
-                  </div>
-                  {modalMode === 'add' && (
-                    <div>
-                      <label className="t-label-s t-muted mb-1.5 block">角色</label>
-                      <select value={editRole} onChange={e => setEditRole(e.target.value)} className="md3-input">
-                        <option value="user">普通用户</option>
-                        <option value="admin">管理员</option>
-                      </select>
-                    </div>
-                  )}
+              <div className="flex items-start gap-3 border-b border-[var(--border-subtle)] p-5">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent-quiet)] text-[var(--accent)]">
+                  {modalMode === 'add' ? <Plus size={18} strokeWidth={2.4} /> : <KeyRound size={17} strokeWidth={2} />}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="t-title-l">{modalMode === 'add' ? '新增账号' : '重置密码'}</h3>
+                  <p className="mt-0.5 text-[12px] leading-5 text-[var(--fg-3)]">
+                    {modalMode === 'add' ? '创建一个新的系统账号' : `为 ${editUsername} 设置新的登录密码`}
+                  </p>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 px-6 py-4">
-                <button type="button" onClick={closeAccountModal} className="md3-btn-text">取消</button>
-                <button type="submit" disabled={isSaving} className="md3-btn-filled">
+              <div className="flex min-w-0 flex-col gap-4 p-5">
+                {modalError && <Banner tone="danger">{modalError}</Banner>}
+
+                <SettingsField label="用户名">
+                  <input
+                    type="text"
+                    required
+                    disabled={modalMode === 'reset'}
+                    value={editUsername}
+                    onChange={e => setEditUsername(e.target.value)}
+                    className={fieldInputClass}
+                    placeholder="输入用户名"
+                    autoComplete="off"
+                  />
+                </SettingsField>
+
+                <SettingsField label="密码" hint="至少 6 位字符">
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={editPassword}
+                    onChange={e => setEditPassword(e.target.value)}
+                    className={fieldInputClass}
+                    placeholder="最少 6 位字符"
+                    autoComplete="new-password"
+                  />
+                </SettingsField>
+
+                {modalMode === 'add' && (
+                  <SettingsField label="角色">
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { value: 'user', label: '普通用户' },
+                        { value: 'admin', label: '管理员' },
+                      ].map(option => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setEditRole(option.value)}
+                          aria-pressed={editRole === option.value}
+                          className={`lawver-pressable h-11 rounded-[var(--radius-md)] border text-[13px] font-medium transition-colors ${
+                            editRole === option.value
+                              ? 'border-[var(--accent)] bg-[var(--accent-quiet)] text-[var(--accent)]'
+                              : 'border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--fg-2)] hover:bg-[var(--bg-surface-2)]'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </SettingsField>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-4">
+                <button type="button" onClick={closeAccountModal} className="md3-btn-text lawver-pressable">取消</button>
+                <button type="submit" disabled={isSaving} className="md3-btn-filled lawver-pressable disabled:opacity-50">
+                  {isSaving ? <Loader2 size={15} className="animate-spin" /> : null}
                   {isSaving ? '保存中…' : '保存'}
                 </button>
               </div>

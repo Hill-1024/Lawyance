@@ -17,6 +17,9 @@ RAG/cache/
 RAG/data_doc/
 RAG/__pycache__/
 .claude/
+# 运行时会话产物，绝不能入库（vite.config.ts 亦把它们列为 watch-ignored）
+sessions.json
+titles.json
 android/app/src/main/assets/public/
 android/app/build/
 android/build/

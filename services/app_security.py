@@ -14,6 +14,7 @@ import time
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from auth import verify_token
@@ -106,6 +107,12 @@ def _install_usage_log_handler(log_path: Path) -> None:
     )
     file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
     usage_logger.addHandler(file_handler)
+    # 访问日志含客户端 IP 与用户名，必须与账号文件同级收紧权限。
+    for candidate in (log_path, *Path(log_path).parent.glob(f"{Path(log_path).name}.*")):
+        try:
+            os.chmod(candidate, 0o600)
+        except OSError:
+            continue
 
 
 _install_usage_log_handler(configured_usage_log_path)
@@ -344,7 +351,8 @@ async def security_and_logging_middleware(request: Request, call_next):
         if not token:
             token = request.cookies.get("auth_token")
         if token:
-            user = verify_token(token)
+            # verify_token 会 chmod/读盘并可能抢账号文件锁；放在事件循环里会阻塞所有 SSE。
+            user = await run_in_threadpool(verify_token, token)
             if user:
                 username = user
 

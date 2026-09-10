@@ -241,7 +241,7 @@ async def summarize_endpoint(request: SummarizeRequest, current_user: str = Depe
         title = content.strip().strip('"').strip("'")
         return {"title": title or fallback_title}
     except Exception as e:
-        print(f"[标题摘要] 生成失败，使用兜底标题: {e}")
+        logger.warning("标题摘要生成失败，使用兜底标题: %s", e)
         return {"title": fallback_title}
 
 

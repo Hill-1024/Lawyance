@@ -10,6 +10,7 @@ import { getAuthToken } from '../lib/auth-storage';
 import { isNative, isNativeAndroid } from '../lib/platform';
 import { NativeStream, requestNativeStreamNotificationPermission, type NativeStreamEvent } from '../lib/native-stream';
 import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled, subscribeResumeEnabled } from '../lib/resume-prefs';
+import { buildAttachmentPrompt, restoreAttachmentsFromMessage, stripAttachmentPrompt } from '../lib/attachment-prompt';
 import {
   ackStream,
   apiUrl,
@@ -522,12 +523,18 @@ export function useChat() {
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', flushConversationSave);
     let listener: { remove: () => Promise<void> } | undefined;
+    // 卸载可能早于 Promise 落地，必须补摘原生监听器。
+    let disposed = false;
     if (isNative()) {
       CapacitorApp.addListener('appStateChange', ({ isActive }) => {
         if (!isActive) flushConversationSave();
-      }).then(handle => { listener = handle; });
+      }).then(handle => {
+        if (disposed) { void handle.remove(); return; }
+        listener = handle;
+      });
     }
     return () => {
+      disposed = true;
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', flushConversationSave);
       listener?.remove();
@@ -768,7 +775,9 @@ export function useChat() {
       id: firstUserMessage.id,
       content: firstUserMessage.content
     };
-    const cleanMessage = firstUserMessage.content.replace(/\[用户已上传以下文件.*?\]/g, '').trim();
+    const cleanMessage = stripAttachmentPrompt(firstUserMessage.content)
+      .replace(/\[用户已上传以下文件[\s\S]*$/g, '')
+      .trim();
     const titleSource = cleanMessage.length > 0 ? cleanMessage : "File Analysis";
     const applyTitleIfCurrent = (title: string) => {
       setConversations(prev => prev.map(c => {
@@ -1497,16 +1506,19 @@ export function useChat() {
     document.addEventListener('visibilitychange', handleVisibility);
 
     let listener: { remove: () => Promise<void> } | undefined;
+    let disposed = false;
     if (isNative()) {
       CapacitorApp.addListener('appStateChange', ({ isActive }) => {
         if (isActive) scheduleResumePasses();
       }).then(handle => {
+        if (disposed) { void handle.remove(); return; }
         listener = handle;
       });
     }
     scheduleResumePasses();
 
     return () => {
+      disposed = true;
       resumeTimers.forEach(timer => clearTimeout(timer));
       resumeTimers.clear();
       window.removeEventListener('focus', scheduleResumePasses);
@@ -1644,14 +1656,26 @@ export function useChat() {
 
     let messageContent = input.trim();
     if (pendingUploads.length > 0) {
-      const fileInfo = pendingUploads.map(f => `- ${f.name} (路径: ${f.path})`).join('\n');
-      messageContent += messageContent ? `\n\n[用户已上传以下文件，请根据需要进行读取和处理]\n${fileInfo}` : `[用户已上传以下文件，请根据需要进行读取和处理]\n${fileInfo}`;
+      // 图片是"已可见"，文档才需要调工具读取；两者必须分开表述，
+      // 否则模型会把图片也当成需要读取的文件，进而声称自己看不了图。
+      const attachmentPrompt = buildAttachmentPrompt(pendingUploads);
+      messageContent += messageContent ? `\n\n${attachmentPrompt}` : attachmentPrompt;
     }
+
+    // 图片与文档同样只把「文件名 + 工作区路径」写进消息文本，
+    // 由模型自行决定何时调用 image_reader / pdf_text_reader 等工具读取。
+    const messageAttachments: Message['attachments'] = pendingUploads.map(file => ({
+      name: file.name,
+      path: file.path,
+      kind: file.kind,
+      mime: file.mime,
+    }));
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
       content: messageContent,
+      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
       created_at: nowIso(),
       updated_at: nowIso()
     };
@@ -1733,23 +1757,20 @@ export function useChat() {
       }
 
       if (isFirstUserMessage) {
+        // 副作用不能放进 setState 更新函数：StrictMode 下更新函数会被调用两次，
+        // 导致一次发送触发两遍标题摘要请求。这里只读 ref，不写状态。
         setTimeout(() => {
-          setConversations(currentConvs => {
-            const currentConv = currentConvs.find(c => c.id === convId);
-            if (currentConv && currentConv.messages.length > 0) {
-              const lastMsg = currentConv.messages[currentConv.messages.length - 1];
-              const isStillThinking = lastMsg.content.includes('正在调用工具') ||
-                                    lastMsg.content.includes('执行:') ||
-                                    (lastMsg.content.includes('<think>') && !lastMsg.content.includes('</think>'));
-
-              if (!isStillThinking) {
-                summarizeConversation(convId, currentConv.messages);
-              } else {
-                setTimeout(() => summarizeConversation(convId), 5000);
-              }
-            }
-            return currentConvs;
-          });
+          const currentConv = conversationsRef.current.find(c => c.id === convId);
+          if (!currentConv || currentConv.messages.length === 0) return;
+          const lastMsg = currentConv.messages[currentConv.messages.length - 1];
+          const isStillThinking = lastMsg.content.includes('正在调用工具') ||
+                                lastMsg.content.includes('执行:') ||
+                                (lastMsg.content.includes('<think>') && !lastMsg.content.includes('</think>'));
+          if (isStillThinking) {
+            setTimeout(() => summarizeConversation(convId), 5000);
+            return;
+          }
+          summarizeConversation(convId, currentConv.messages);
         }, 5000);
       }
     } catch (error) {
@@ -1816,7 +1837,14 @@ export function useChat() {
       }
 
       const now = nowIso();
-      const userMessage: Message = { id: Date.now().toString(), role: 'user', content: content, created_at: now, updated_at: now };
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: content,
+        attachments: msg.attachments && msg.attachments.length > 0 ? msg.attachments : undefined,
+        created_at: now,
+        updated_at: now,
+      };
       updateMessages(convId, prev => [...prev, userMessage]);
 
       const resumeEnabled = await getResumeEnabled();
@@ -1863,23 +1891,20 @@ export function useChat() {
       }
 
       if (isFirstUserMessage) {
+        // 副作用不能放进 setState 更新函数：StrictMode 下更新函数会被调用两次，
+        // 导致一次发送触发两遍标题摘要请求。这里只读 ref，不写状态。
         setTimeout(() => {
-          setConversations(currentConvs => {
-            const currentConv = currentConvs.find(c => c.id === convId);
-            if (currentConv && currentConv.messages.length > 0) {
-              const lastMsg = currentConv.messages[currentConv.messages.length - 1];
-              const isStillThinking = lastMsg.content.includes('正在调用工具') ||
-                                    lastMsg.content.includes('执行:') ||
-                                    (lastMsg.content.includes('<think>') && !lastMsg.content.includes('</think>'));
-
-              if (!isStillThinking) {
-                summarizeConversation(convId, currentConv.messages);
-              } else {
-                setTimeout(() => summarizeConversation(convId), 5000);
-              }
-            }
-            return currentConvs;
-          });
+          const currentConv = conversationsRef.current.find(c => c.id === convId);
+          if (!currentConv || currentConv.messages.length === 0) return;
+          const lastMsg = currentConv.messages[currentConv.messages.length - 1];
+          const isStillThinking = lastMsg.content.includes('正在调用工具') ||
+                                lastMsg.content.includes('执行:') ||
+                                (lastMsg.content.includes('<think>') && !lastMsg.content.includes('</think>'));
+          if (isStillThinking) {
+            setTimeout(() => summarizeConversation(convId), 5000);
+            return;
+          }
+          summarizeConversation(convId, currentConv.messages);
         }, 5000);
       }
     } catch (error) {
@@ -1917,24 +1942,12 @@ export function useChat() {
 
     await stopActiveGeneration();
 
-    let textContent = msg.content;
-    let filesToRestore: PendingUpload[] = [];
+    // 附件还原收敛到 attachment-prompt 单一实现：图片走消息元数据、文档走文本协议，
+    // 并统一去重，避免撤回后待发区出现重复条目。
+    const { text, files } = restoreAttachmentsFromMessage(msg.content, msg.attachments);
 
-    const fileInfoRegex = new RegExp("\\[用户已上传以下文件，请根据需要进行读取和处理\\]\\n([\\s\\S]*)$");
-    const match = msg.content.match(fileInfoRegex);
-    if (match) {
-      textContent = msg.content.replace(match[0], '').trim();
-      filesToRestore = match[1].split('\n').filter(line => line.startsWith('- ')).map(line => {
-        const nameMatch = line.match(/^- (.*?) \(路径: (.*?)\)/);
-        if (nameMatch) {
-          return { name: nameMatch[1], path: nameMatch[2] };
-        }
-        return { name: line.replace('- ', ''), path: '' };
-      });
-    }
-
-    setInput(textContent);
-    setPendingUploads(filesToRestore);
+    setInput(text);
+    setPendingUploads(files);
     const retainedMessages = conv.messages.slice(0, msgIndex);
     updateMessages(convId, () => retainedMessages);
     if (!retainedMessages.some(m => m.role === 'user')) {

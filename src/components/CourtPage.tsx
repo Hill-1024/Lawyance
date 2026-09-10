@@ -26,9 +26,11 @@ import { AnimatePresence, motion } from 'motion/react';
 import type { CourtAgentState, CourtSession, CourtSpeaker, WorkspaceFile } from '../types';
 import { useCourtSession } from '../hooks/useCourtSession';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { buildAttachmentPrompt } from '../lib/attachment-prompt';
 import { useBackButton } from '../hooks/useBackButton';
 import { flattenBranchTree } from '../lib/branchTree';
 import { downloadWorkspaceFile } from '../lib/download';
+import type { PendingUpload } from '../types';
 import { BrandMark, BrandLockup } from './Brand';
 import { BranchRails } from './BranchRails';
 import { HoverInfo } from './HoverInfo';
@@ -434,7 +436,9 @@ const CourtComposerDock: React.FC<{
   onSetUserAgentMode: (enabled: boolean) => void;
   onRequestUpload: () => void;
   isUploadingFiles: boolean;
-}> = ({ session, isRunning, status, value, onChange, onSend, onRunNext, onForceAdvance, onSetAutoMode, onSetUserAgentMode, onRequestUpload, isUploadingFiles }) => {
+  pendingMaterials: PendingUpload[];
+  onRemoveMaterial: (index: number) => void;
+}> = ({ session, isRunning, status, value, onChange, onSend, onRunNext, onForceAdvance, onSetAutoMode, onSetUserAgentMode, onRequestUpload, isUploadingFiles, pendingMaterials, onRemoveMaterial }) => {
   const state = session.court_state;
   const trialOver = state.trial_over;
   const awaitingUser = state.awaiting_user;
@@ -577,6 +581,34 @@ const CourtComposerDock: React.FC<{
           )}
         </div>
 
+        {/* 待发材料：发言时会随文本把清单（含工作区路径）发给各角色 */}
+        {pendingMaterials.length > 0 && (
+          <div className="mb-1 flex flex-wrap gap-2 px-2">
+            {pendingMaterials.map((file, index) => (
+              <div
+                key={file.path || `${file.name}-${index}`}
+                className="flex min-w-0 items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1 text-[12px] text-[var(--fg-2)] shadow-[var(--shadow-1)]"
+              >
+                <Paperclip size={12} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
+                <span className="max-w-[140px] truncate sm:max-w-[220px]">{file.name}</span>
+                {file.kind === 'image' && (
+                  <span className="shrink-0 rounded-sm bg-[var(--accent-quiet)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                    图片
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onRemoveMaterial(index)}
+                  className="lawver-pressable shrink-0 rounded-full p-1 text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+                  aria-label={`移除 ${file.name}`}
+                >
+                  <X size={12} strokeWidth={2} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* 输入框 */}
         <div className="lawver-composer-shell">
           <HoverInfo label="上传共享文件" placement="top">
@@ -713,6 +745,21 @@ export const CourtPage: React.FC<CourtPageProps> = ({
 
   const openFilePicker = () => fileInputRef.current?.click();
 
+  // 庭审发言同样要把上传材料的工作区路径告诉各角色，否则材料对模型不可见：
+  // 法庭请求只带公开事件文本，模型没有别的途径知道工作区里有什么文件。
+  const handleSendWithMaterials = React.useCallback(() => {
+    const uploads = workspace.pendingUploads;
+    const attachmentPrompt = buildAttachmentPrompt(uploads);
+    const speech = composerText.trim();
+    if (!speech && !attachmentPrompt) return;
+
+    const content = [speech, attachmentPrompt].filter(Boolean).join('\n\n');
+    sendUserSpeech(content);
+    if (uploads.length > 0) {
+      workspace.setPendingUploads([]);
+    }
+  }, [composerText, sendUserSpeech, workspace]);
+
   const handleUploadFiles = async (files: FileList | null) => {
     try {
       const selectedFiles = Array.from(files || []);
@@ -845,12 +892,14 @@ export const CourtPage: React.FC<CourtPageProps> = ({
                   status={status}
                   value={composerText}
                   onChange={setComposerText}
-                  onSend={() => sendUserSpeech()}
+                  onSend={handleSendWithMaterials}
                   onRunNext={runNextTurn}
                   onForceAdvance={handleForceAdvance}
                   onSetAutoMode={setAutoMode}
                   onSetUserAgentMode={setUserAgentMode}
                   onRequestUpload={openFilePicker}
+                  pendingMaterials={workspace.pendingUploads}
+                  onRemoveMaterial={workspace.removeUploadedFile}
                   isUploadingFiles={workspace.isUploadingFiles}
                 />
               </>
@@ -875,7 +924,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
         ref={fileInputRef}
         type="file"
         multiple
-        accept=".pdf,.doc,.docx,.txt,.md"
+        accept=".pdf,.doc,.docx,.txt,.md,image/png,image/jpeg,image/webp,image/gif,image/bmp"
         className="hidden"
         onChange={event => handleUploadFiles(event.target.files)}
       />

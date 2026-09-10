@@ -136,9 +136,22 @@ class RouteSecurityGroupDTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(upload.status_code, 200)
         file_path = upload.json()["file_path"]
 
+        # 上传返回值必须与列表接口同形（同一 workspace 根、同一相对形式）。
+        # 若上传返回绝对路径而列表返回相对路径，前端会把它误判为"生成文件"
+        # 重复回灌到 Result；附件解析也会因绝对路径被判越界而静默丢弃图片。
+        normalized = self.workspace_service.to_workspace_relative_path(file_path)
+        self.assertTrue(normalized.startswith("TEMP/"), f"路径无法归一为 TEMP/ 相对形式: {file_path}")
+        self.assertIn("evidence.txt", normalized)
+        self.assertNotIn(self.workspace_root, normalized, "归一后不应残留 workspace 根前缀")
+
         listing = self.client.get("/api/workspace/files", params={"conversation_id": "conv-happy"})
         self.assertEqual(listing.status_code, 200)
         self.assertEqual([item["name"] for item in listing.json()["files"]], ["evidence.txt"])
+        self.assertEqual(
+            [item["path"] for item in listing.json()["files"]],
+            [file_path],
+            "上传返回的路径必须与列表接口完全一致（前端据此比对集合）",
+        )
 
         download = self.client.get("/api/download", params={"file_path": file_path})
         self.assertEqual(download.status_code, 200)
@@ -151,6 +164,21 @@ class RouteSecurityGroupDTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(deletion.status_code, 200)
         self.assertEqual(deletion.json(), {"status": "success"})
+
+    async def test_workspace_restore_returns_relative_path(self) -> None:
+        """restore 接口与 upload 必须同形，否则同步回灌时同样会重复。"""
+        response = self.client.post(
+            "/api/workspace/restore",
+            data={"conversation_id": "conv-restore", "file_type": "upload"},
+            files={"file": ("note.md", b"# note", "text/markdown")},
+            headers=ORIGIN,
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        returned = payload.get("file_path") or payload.get("path")
+        normalized = self.workspace_service.to_workspace_relative_path(returned)
+        self.assertTrue(normalized.startswith("TEMP/"), f"restore 路径无法归一: {returned}")
+        self.assertNotIn(self.workspace_root, normalized, "归一后不应残留 workspace 根前缀")
 
     async def test_workspace_rejects_parent_symlink_delete_escape(self) -> None:
         temp_dir, _ = self.workspace_route.get_workspace_dirs("admin", "conv-delete")

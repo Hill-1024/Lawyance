@@ -7,7 +7,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable
 import json
+import logging
 
+
+logger = logging.getLogger(__name__)
 
 ToolHandler = Callable[[dict[str, Any], str | None], Any]
 ToolCoercer = Callable[[str], dict[str, Any]]
@@ -95,7 +98,15 @@ class ToolRegistry:
                 "capability": capability or "missing",
             }
         normalized_arguments = self.coerce_arguments(function_name, arguments)
-        return entry.handler(normalized_arguments, workspace_scope)
+        try:
+            return entry.handler(normalized_arguments, workspace_scope)
+        except Exception as exc:  # noqa: BLE001 - 工具异常必须转成模型可读结果
+            logger.exception("工具 %s 执行失败", function_name)
+            return {
+                "ok": False,
+                "error": f"工具执行失败: {type(exc).__name__}: {exc}",
+                "tool": function_name,
+            }
 
     def _visible_entries(self, exposure: str | None) -> list[ToolEntry]:
         if exposure is None:

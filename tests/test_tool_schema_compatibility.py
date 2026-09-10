@@ -28,6 +28,7 @@ EXPECTED_AGENT_TOOL_NAMES = [
     "txt_md_reader",
     "txt_md_writer",
     "list_workspace_files",
+    "image_reader",
     "retrieve_conversation_memory",
     "inspect_conversation_memory",
     "update_conversation_memory",
