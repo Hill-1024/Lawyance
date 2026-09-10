@@ -3,6 +3,7 @@
  */
 
 import { Conversation, CourtSession } from '../types';
+import { normalizeWorkspacePath } from './workspace-path';
 
 class FileDB {
   private dbName = 'LawverFileDB';
@@ -167,11 +168,14 @@ class FileDB {
 
   async saveFile(convId: string, fileName: string, blob: Blob, path: string) {
     const db = await this.getDB();
-    const id = this.buildFileId(convId, fileName, path);
+    // 主键含路径，必须先把路径归一成 TEMP/… 相对形式：否则同一个文件一次以
+    // 绝对路径写入、一次以相对路径写入会留下两条记录，界面上看起来是两份。
+    const normalizedPath = normalizeWorkspacePath(path);
+    const id = this.buildFileId(convId, fileName, normalizedPath);
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readwrite');
       const store = transaction.objectStore(this.storeName);
-      const request = store.put({ id, convId, fileName, blob, path: path || '', timestamp: Date.now() });
+      const request = store.put({ id, convId, fileName, blob, path: normalizedPath, timestamp: Date.now() });
       request.onerror = () => reject(request.error);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);

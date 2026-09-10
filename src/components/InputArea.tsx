@@ -4,7 +4,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings2, Paperclip, X, Send, LoaderCircle, Square } from 'lucide-react';
+import { Settings2, Paperclip, ImagePlus, X, Send, LoaderCircle, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { HoverInfo } from './HoverInfo';
@@ -135,6 +135,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
   const choicePromptRef = useRef<HTMLDivElement>(null);
@@ -358,15 +359,32 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  key={index}
-                  className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1 text-[var(--fg-2)] shadow-[var(--shadow-1)] sm:px-4 sm:py-1.5"
+                  key={file.previewUrl || file.path || index}
+                  className={`flex items-center gap-2 border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--fg-2)] shadow-[var(--shadow-1)] ${
+                    file.kind === 'image'
+                      ? 'rounded-[var(--radius-md)] p-1 pr-2'
+                      : 'rounded-full px-3 py-1 sm:px-4 sm:py-1.5'
+                  }`}
                 >
-                  <Paperclip size={12} strokeWidth={2} className="text-[var(--accent)] sm:size-3.5" />
+                  {file.kind === 'image' && file.previewUrl ? (
+                    <img
+                      src={file.previewUrl}
+                      alt={file.name}
+                      className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] object-cover"
+                    />
+                  ) : (
+                    <Paperclip size={12} strokeWidth={2} className="text-[var(--accent)] sm:size-3.5" />
+                  )}
                   <span className="max-w-[120px] truncate text-xs sm:max-w-[200px] sm:text-sm">{file.name}</span>
+                  {file.kind === 'image' && (
+                    <span className="shrink-0 rounded-sm bg-[var(--accent-quiet)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                      图片
+                    </span>
+                  )}
                   <button
                     onClick={() => removeUploadedFile(index)}
-                    className="rounded-full p-1 text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-                    aria-label="Remove upload"
+                    className="lawver-pressable rounded-full p-1 text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+                    aria-label={`移除 ${file.name}`}
                   >
                     <X size={12} strokeWidth={2} className="sm:size-3.5" />
                   </button>
@@ -404,12 +422,12 @@ export const InputArea: React.FC<InputAreaProps> = ({
               <Settings2 size={20} strokeWidth={2} />
             </button>
 
-            <HoverInfo label="Upload file (Max 50MB)" placement="top">
+            <HoverInfo label="上传材料 (最大 50MB)" placement="top">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isLoading}
                 className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
-                aria-label="Upload file (Max 50MB)"
+                aria-label="上传材料 (最大 50MB)"
               >
                 <Paperclip size={20} strokeWidth={2} />
               </button>
@@ -426,7 +444,32 @@ export const InputArea: React.FC<InputAreaProps> = ({
               accept=".pdf,.doc,.docx,.txt,.md"
             />
 
-            <ContextUsageMeter usage={contextUsage} />
+            <HoverInfo label="上传图片 (多模态识别)" placement="top">
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                disabled={isLoading}
+                className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+                aria-label="上传图片 (多模态识别)"
+              >
+                <ImagePlus size={20} strokeWidth={2} />
+              </button>
+            </HoverInfo>
+            <input
+              type="file"
+              ref={imageInputRef}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleFileUpload(file);
+                if (imageInputRef.current) imageInputRef.current.value = '';
+              }}
+              className="hidden"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+            />
+
+            {/* 小屏优先保证输入宽度：计量器信息量最低，sm 以上再显示 */}
+            <div className="hidden sm:block">
+              <ContextUsageMeter usage={contextUsage} />
+            </div>
 
             <textarea
               ref={textareaRef}
@@ -434,7 +477,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={hasActiveChoicePrompt}
-              placeholder="Message Lawver..."
+              placeholder="输入问题…"
               className="composer-textarea lawver-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] disabled:opacity-60 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
               rows={1}
             />

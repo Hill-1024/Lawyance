@@ -4,8 +4,11 @@
 
 import requests
 import json
+import logging
 import os
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(".env")
 # 1. 准备您的认证信息（请替换为实际值）
@@ -90,16 +93,16 @@ class DELIClient:
 
             # 5. 解析响应
             result_data = response.json()
-            print("API调用成功！")
+            logger.debug("得理案例检索 API 调用成功")
             # 接下来可以处理 result_data 中的数据...
             return result_data
 
 
         except requests.exceptions.RequestException as e:
-            print(f"请求发生错误: {e}")
+            logger.warning("得理案例检索网络请求失败: %s", e)
             return {"success": False, "message": f"案例检索网络请求失败: {e}"}
         except json.JSONDecodeError as e:
-            print(f"响应JSON解析错误: {e}")
+            logger.warning("得理案例检索响应解析失败: %s", e)
             return {"success": False, "message": f"案例检索响应解析失败: {e}"}
 
 def build_client():
@@ -115,7 +118,7 @@ def match_legal_case(
         end_year: str="2025-12-22",
 ):
     """根据查询语义和时间，精准查询相关的案例"""
-    print("正在调用tool:match_legal_case\n")
+    logger.debug("调用工具 match_legal_case")
     client = build_client()
     request_body = client._build_request_body(
         keywords=keywords,  # 搜索关键词数组
@@ -139,33 +142,35 @@ def match_legal_case(
             "message": result_data.get("message", "案例检索服务返回异常") if isinstance(result_data, dict) else "案例检索服务返回异常"
         }
 
-    if result_data["body"]["totalCount"] == 0:
-        mock_result = {
+    body = result_data.get("body") or {}
+    raw_items = body.get("data")
+    items = raw_items if isinstance(raw_items, list) else []
+    try:
+        total_count = int(body.get("totalCount") or 0)
+    except (TypeError, ValueError):
+        total_count = 0
+
+    if total_count == 0 or not items:
+        return {
             "success": False,
             "message": "没有找到匹配的案例，请修改关键词"
         }
-        # print(json.dumps(mock_result, indent=2, ensure_ascii=False))
-        return mock_result
-    else:
-        if result_data["body"]["totalCount"] <= 8:
-            count = result_data["body"]["totalCount"]
-        else:
-            count = 8
+
+    count = min(total_count, len(items), 8)
     # 下方是返回的数据
     result = []
-    for i in range(count):
-        search_result = {
-            "source": result_data["body"]["data"][i]["title"],
-            "judgementDate": result_data["body"]["data"][i]["judgementDate"],
-            "content": result_data["body"]["data"][i]["content"],
-        }
-        result.append(search_result)
+    for item in items[:count]:
+        if not isinstance(item, dict):
+            continue
+        result.append({
+            "source": item.get("title", ""),
+            "judgementDate": item.get("judgementDate", ""),
+            "content": item.get("content", ""),
+        })
     mock_result = {
         "success": True,
         "data": result,
     }
-    # print("检索结果")
-    # print(json.dumps(mock_result, indent=2, ensure_ascii=False))
     return json.dumps(mock_result, ensure_ascii=False)
 if __name__ == "__main__":
     # 以下代码用于测试连接，现在暂时用不了，需测试工具要运行mcps.py

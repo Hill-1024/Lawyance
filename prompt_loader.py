@@ -19,6 +19,9 @@ CORE_SECTIONS = (
     "core/10-hard-constraints.md",
     "core/20-tool-source-policy.md",
     "core/30-output-contract.md",
+    # 必须排在 40-file-processing 之前：先声明直附图片已可见，
+    # 再用文件处理规范约束 PDF/Word/TXT/MD，避免模型把图片也当成"需要工具读取的文件"。
+    "core/35-multimodal-input.md",
     "core/40-file-processing.md",
     "core/90-disclaimer.md",
 )

@@ -16,6 +16,13 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+from services.password_hashing import (
+    PBKDF2_ITERATIONS,
+    hash_password,
+    password_needs_rehash,
+    verify_password,
+)
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows fallback for local development.
@@ -94,17 +101,6 @@ def _harden_private_file(path: str) -> None:
 
 
 _ensure_private_dir(DATA_DIR)
-
-
-def hash_password(password: str) -> str:
-    salt = os.urandom(16).hex()
-    actual_hash = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        100000,
-    ).hex()
-    return f"{salt}${actual_hash}"
 
 
 # Unknown and locked accounts still perform one password KDF, keeping the public
@@ -303,20 +299,6 @@ def delete_account(username: str) -> tuple[bool, str]:
         except Exception:
             _logger.exception("Failed to persist account deletion")
             return False, "删除账号失败，请稍后重试"
-
-
-def verify_password(password: str, hashed_password: str) -> bool:
-    try:
-        salt, expected_hash = hashed_password.split("$")
-        actual_hash = hashlib.pbkdf2_hmac(
-            "sha256",
-            password.encode("utf-8"),
-            salt.encode("utf-8"),
-            100000,
-        ).hex()
-        return hmac.compare_digest(actual_hash, expected_hash)
-    except (AttributeError, ValueError):
-        return False
 
 
 def create_token(username: str) -> str:
@@ -562,6 +544,17 @@ def record_login_attempt(
         _logger.exception("Failed to record login attempt")
 
 
+def _upgrade_password_hash(username: str, password: str, previous_hash: str) -> None:
+    """登录成功后把旧格式/低迭代摘要就地升级，失败不影响本次登录。"""
+    with _auth_state_lock():
+        accounts = get_accounts_data()
+        user_data = accounts.get(username)
+        if not isinstance(user_data, dict) or user_data.get("hash") != previous_hash:
+            return
+        user_data["hash"] = hash_password(password)
+        _write_json(ACCOUNT_FILE, accounts)
+
+
 def authenticate_user(username, password, client_identity: str = "unknown"):
     accounts = get_accounts_data()
     if not accounts:
@@ -590,6 +583,11 @@ def authenticate_user(username, password, client_identity: str = "unknown"):
     hashed = user_data.get("hash")
     if verify_password(password, hashed):
         record_login_attempt(username, True, client_identity, account_exists=True)
+        if password_needs_rehash(hashed):
+            try:
+                _upgrade_password_hash(username, password, hashed)
+            except Exception:
+                _logger.exception("Failed to upgrade password hash for %s", username)
         return True, "登录成功"
 
     record_login_attempt(username, False, client_identity, account_exists=True)

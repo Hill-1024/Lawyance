@@ -23,13 +23,32 @@ from output_sanitizer import (
 
 load_dotenv(".env")
 
-# OCP 专用配置，未设置时回退到主模型配置
+# OCP 专用配置，未设置时回退到主模型环境变量，最后回退到管理后台的模型档案。
 OCP_API_KEY = os.getenv("OCP_API_KEY") or os.getenv("API_KEY")
 OCP_BASE_URL = os.getenv("OCP_BASE_URL") or os.getenv("BASE_URL")
 OCP_LLM_MODEL = os.getenv("OCP_LLM_MODEL") or os.getenv("LLM_MODEL")
 OCP_TOTAL_TIMEOUT = float(os.getenv("OCP_TOTAL_TIMEOUT", "50"))
 OCP_CALL_TIMEOUT = float(os.getenv("OCP_CALL_TIMEOUT", "25"))
 OCP_TOOL_TIMEOUT = float(os.getenv("OCP_TOOL_TIMEOUT", "8"))
+
+
+def _resolve_ocp_config() -> tuple[str, str, str]:
+    """返回 (api_key, base_url, model)；仅在环境变量缺项时读取活动模型档案。"""
+    api_key = OCP_API_KEY or ""
+    base_url = OCP_BASE_URL or ""
+    model = OCP_LLM_MODEL or ""
+    if api_key and base_url and model:
+        return api_key, base_url, model
+    try:
+        from services import settings_service
+        cfg = settings_service.resolve_active_llm_config() or {}
+    except Exception:
+        cfg = {}
+    return (
+        api_key or str(cfg.get("api_key") or ""),
+        base_url or str(cfg.get("base_url") or ""),
+        model or str(cfg.get("model") or ""),
+    )
 
 
 # ── OCP 审查专用 System Prompt ──────────────────────────────────────────
@@ -174,9 +193,11 @@ class OCPStatic:
 
     def __init__(self, session_id: str = "default"):
         self.session_id = session_id
+        api_key, base_url, model = _resolve_ocp_config()
+        self.model = model
         self.client = AsyncOpenAI(
-            api_key=OCP_API_KEY,
-            base_url=OCP_BASE_URL,
+            api_key=api_key or "lawver-missing-api-key",
+            base_url=base_url or "http://127.0.0.1/v1",
         )
 
     async def _call_with_retry(self, **kwargs):
@@ -204,7 +225,7 @@ class OCPStatic:
         content_to_check = self._clean_output(content) or self._deterministic_format_repair(content)
 
         print(f"\n[OCP-Static] ========== 开始审查 ==========")
-        print(f"[OCP-Static] 审查模型: {OCP_LLM_MODEL}")
+        print(f"[OCP-Static] 审查模型: {self.model}")
         print(f"[OCP-Static] 原文长度: {len(content_to_check)} 字符")
 
         try:
@@ -232,7 +253,7 @@ class OCPStatic:
 
                 response = await asyncio.wait_for(
                     self._call_with_retry(
-                        model=OCP_LLM_MODEL,
+                        model=self.model,
                         messages=context,
                         tools=OCP_TOOLS,
                         tool_choice="auto",
@@ -590,9 +611,11 @@ class OCPStream:
 
     def __init__(self, session_id: str = "default"):
         self.session_id = session_id
+        api_key, base_url, model = _resolve_ocp_config()
+        self.model = model
         self.client = AsyncOpenAI(
-            api_key=OCP_API_KEY,
-            base_url=OCP_BASE_URL,
+            api_key=api_key or "lawver-missing-api-key",
+            base_url=base_url or "http://127.0.0.1/v1",
         )
 
     async def _call_with_retry(self, **kwargs):
@@ -644,7 +667,7 @@ class OCPStream:
                 async with asyncio.timeout(round_timeout):
                     stream_res = await with_retry(
                         lambda: self.client.chat.completions.create(
-                            model=OCP_LLM_MODEL,
+                            model=self.model,
                             messages=context,
                             tools=OCP_TOOLS,
                             tool_choice="auto",

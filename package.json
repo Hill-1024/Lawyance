@@ -28,6 +28,8 @@
     "mobile:android:apk": "pnpm run mobile:android:sync && node scripts/run-android-gradle.mjs assembleDebug && echo 'APK: android/app/build/outputs/apk/debug/app-debug.apk'",
     "test:backup-crypto": "tsx scripts/test-backup-crypto.ts",
     "test:stream-run-guards": "tsx scripts/test-stream-run-guards.ts",
+    "test:app-back": "tsx scripts/test-app-back.ts",
+    "test:attachment-prompt": "tsx scripts/test-attachment-prompt.ts",
     "start": "python agent.py"
   },
   "dependencies": {

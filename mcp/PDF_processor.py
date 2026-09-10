@@ -4,6 +4,7 @@
 
 import fitz  # PyMuPDF
 import json
+import logging
 import math
 import multiprocessing as mp
 import re
@@ -16,6 +17,8 @@ import time
 from bisect import bisect_left
 from pathlib import Path
 
+
+logger = logging.getLogger(__name__)
 
 MAX_PDF_PAGES = 100
 MAX_PDF_EXTRACTED_CHARS = 400_000
@@ -717,14 +720,14 @@ class PDFCommitor:
             doc.close()
 
             if success:
-                print(f"✅ 成功添加便签注释到 {self.output_pdf_path}")
-                print(f"   页码: {page_num + 1}")
-                print(f"   位置: {position}")
-                print(f"   文本: {note_text[:50]}{'...' if len(note_text) > 50 else ''}")
-                print(f"   当前累计注释数: {len(self.annotations)}")
+                # 不打印 note_text：注释正文属于案卷内容，不应落进服务端日志。
+                logger.debug(
+                    "已添加便签注释 page=%s position=%s 累计=%s",
+                    page_num + 1, position, len(self.annotations),
+                )
                 return True
             else:
-                print(f"❌ 添加便签注释失败")
+                logger.warning("添加便签注释失败 page=%s", page_num + 1)
                 return False
 
         except Exception as e:

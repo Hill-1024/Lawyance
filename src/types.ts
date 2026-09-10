@@ -45,9 +45,24 @@ export type ContextUsage = {
   over_threshold: boolean;
 };
 
+export type AttachmentKind = 'image' | 'document';
+
 export type PendingUpload = {
   name: string;
   path: string;
+  /** 图片会作为多模态 content parts 随消息发给模型，文档仍走工作区工具读取。 */
+  kind: AttachmentKind;
+  mime?: string;
+  /** 仅存在于本地，用于发送前的缩略图预览。 */
+  previewUrl?: string;
+};
+
+/** 随消息持久化到 Message 上的附件元数据（不含 base64）。 */
+export type MessageAttachment = {
+  name: string;
+  path: string;
+  kind: AttachmentKind;
+  mime?: string;
 };
 
 export type WorkspaceFile = {
@@ -65,6 +80,8 @@ export type Message = {
   id: string;
   role: 'user' | 'assistant' | 'tool';
   content: string;
+  /** 用户随消息发送的图片附件，用于在气泡内还原缩略图。 */
+  attachments?: MessageAttachment[];
   stream_id?: string;
   stream_buffered?: boolean;
   stream_status?: 'streaming' | 'done' | 'error';

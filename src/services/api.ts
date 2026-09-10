@@ -27,6 +27,10 @@ export const setUnauthorizedHandler = (handler: (() => void | Promise<void>) | n
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 
+/** 登录/注册类端点的 401 表示凭据错误，而非会话失效。 */
+const AUTH_ATTEMPT_PATHS = ['/api/login', '/api/register'];
+const isAuthAttemptPath = (path: string) => AUTH_ATTEMPT_PATHS.some(p => path.startsWith(p));
+
 export const apiFetch = async (path: string, init: RequestInit = {}): Promise<Response> => {
   const headers = new Headers(init.headers);
   let finalInit: RequestInit;
@@ -41,7 +45,8 @@ export const apiFetch = async (path: string, init: RequestInit = {}): Promise<Re
   }
 
   const response = await fetch(apiUrl(path), finalInit);
-  if (response.status === 401) {
+  // /api/login 也会用 401 表达"密码错误"，不能因此清掉此前有效的原生会话令牌。
+  if (response.status === 401 && !isAuthAttemptPath(path)) {
     await clearAuthToken();
     await unauthorizedHandler?.();
   }
@@ -592,6 +597,78 @@ export const clearSecret = async (provider: string, key?: string): Promise<void>
 };
 
 export type LlmModel = { id: string; owned_by: string };
+
+export interface LlmProfile {
+  id: string;
+  name: string;
+  base_url: string;
+  model: string;
+  enabled: boolean;
+  has_api_key: boolean;
+  /** 缺少端点或模型时后端会整体回退到环境变量，该档案不会生效。 */
+  incomplete?: boolean;
+  active: boolean;
+}
+
+export interface LlmProfileState {
+  profiles: LlmProfile[];
+  active: string;
+  effective: { base_url: string; model: string; source: string };
+}
+
+const profileError = async (response: Response, fallback: string) =>
+  response.json()
+    .then(data => new Error((data as any)?.detail || fallback))
+    .catch(() => new Error(fallback));
+
+export const getLlmProfiles = async (): Promise<LlmProfileState> => {
+  const response = await apiFetch('/api/settings/llm/profiles');
+  if (!response.ok) throw await profileError(response, '读取模型档案失败');
+  return response.json();
+};
+
+export const saveLlmProfile = async (payload: {
+  id?: string;
+  name: string;
+  base_url: string;
+  model: string;
+  api_key?: string;
+  enabled?: boolean;
+  activate?: boolean;
+}): Promise<LlmProfileState> => {
+  const response = await apiFetch('/api/settings/llm/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await profileError(response, '保存模型档案失败');
+  return response.json();
+};
+
+export const activateLlmProfile = async (profileId: string): Promise<LlmProfileState> => {
+  const response = await apiFetch(
+    `/api/settings/llm/profiles/${encodeURIComponent(profileId)}/activate`,
+    { method: 'POST' },
+  );
+  if (!response.ok) throw await profileError(response, '切换模型档案失败');
+  return response.json();
+};
+
+export const deleteLlmProfile = async (profileId: string): Promise<LlmProfileState> => {
+  const response = await apiFetch(`/api/settings/llm/profiles/${encodeURIComponent(profileId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw await profileError(response, '删除模型档案失败');
+  return response.json();
+};
+
+export const clearLlmProfileSecret = async (profileId: string): Promise<void> => {
+  const response = await apiFetch(
+    `/api/settings/llm/profiles/${encodeURIComponent(profileId)}/secret/clear`,
+    { method: 'POST' },
+  );
+  if (!response.ok) throw await profileError(response, '清除该档案的 API Key 失败');
+};
 
 export const fetchLlmModels = async (): Promise<LlmModel[]> => {
   try {

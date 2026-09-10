@@ -284,31 +284,31 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
           </div>
         </section>
 
-        {/* 操作 */}
-        <div className="mt-7 flex items-center justify-between gap-3">
-          <p className="flex items-center gap-1.5 text-[12px] text-[var(--fg-3)]">
-            <Sparkles size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
-            默认中国法语境
-          </p>
-          <div className="flex items-center gap-2">
-            {onCancel && (
-              <button onClick={onCancel} className="md3-btn-text lawver-pressable">
-                取消
+        {/* 操作：吸底常驻。表单在移动端接近两屏高，主操作不能靠滚动去找；
+            「未填写」提示同时移入操作栏——按钮禁用时正是最需要看到它的时刻。 */}
+        <div className="sticky bottom-0 z-10 -mx-4 mt-7 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 pb-[calc(0.75rem+var(--safe-bottom))] pt-3 sm:-mx-8 sm:px-8">
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <p className="flex items-center gap-1.5 text-[12px] text-[var(--fg-3)]">
+              <Sparkles size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
+              {canCreate ? '默认中国法语境' : '请至少填写一项公开案卷信息'}
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              {onCancel && (
+                <button onClick={onCancel} className="md3-btn-text lawver-pressable">
+                  取消
+                </button>
+              )}
+              <button
+                onClick={handleSubmit}
+                disabled={!canCreate}
+                className="md3-btn-filled lawver-pressable min-w-[7.5rem]"
+              >
+                <Gavel size={18} strokeWidth={2} />
+                开庭
               </button>
-            )}
-            <button
-              onClick={handleSubmit}
-              disabled={!canCreate}
-              className="md3-btn-filled lawver-pressable"
-            >
-              <Gavel size={18} strokeWidth={2} />
-              开庭
-            </button>
+            </div>
           </div>
         </div>
-        {!canCreate && (
-          <p className="mt-2 text-right text-[12px] text-[var(--fg-4)]">请至少填写一项公开案卷信息</p>
-        )}
       </div>
     </div>
   );

@@ -142,7 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <HoverInfo label="Delete chat" placement="top">
                     <button
                       onClick={(e) => deleteConversation(conv.id, e)}
-                      className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:h-8 lg:w-8 lg:opacity-0 lg:group-hover:opacity-100"
+                      className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] xl:h-8 xl:w-8 xl:opacity-0 xl:group-hover:opacity-100"
                       aria-label="Delete chat"
                     >
                       <Trash2 size={16} strokeWidth={2} />

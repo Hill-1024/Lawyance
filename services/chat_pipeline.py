@@ -23,6 +23,7 @@ from schemas import ChatRequest
 from services.agent_builder import build_agent
 from services.conversation_state import active_conversations
 from services.context_compiler import CompiledContext, compile_context
+from services.multimodal import flatten_content_to_text
 from services.context_usage import (
     reset_current_context_usage_accumulator,
     set_current_context_usage_accumulator,
@@ -63,7 +64,8 @@ def sanitize_history(history: list[dict]) -> list[dict]:
         if "content" not in m or m["content"] is None:
             m["content"] = ""
         else:
-            m["content"] = str(m["content"])
+            # 历史一律降级为纯文本：图片只允许出现在本轮消息上，避免 base64 被反复计入上下文。
+            m["content"] = flatten_content_to_text(m["content"])
 
         if "tool_calls" in m and m["tool_calls"]:
             for tc in m["tool_calls"]:
@@ -109,10 +111,11 @@ async def load_memory_context(
         memory_context=memory_context,
         memory_payload=payload,
     )
-    print(
-        "[上下文编译] "
-        f"task={compiled.intent.get('task_type')} focus={','.join(compiled.intent.get('focus', []))} "
-        f"policy={compiled.execution_policy}"
+    logger.debug(
+        "上下文编译 task=%s focus=%s policy=%s",
+        compiled.intent.get("task_type"),
+        ",".join(compiled.intent.get("focus", [])),
+        compiled.execution_policy,
     )
     return compiled
 
@@ -139,6 +142,7 @@ async def prepare_history(
         current_user_content=content,
         last_context_tokens=last_context_tokens,
     )
+    # 图片由模型通过 image_reader 工具按需读取，不再自动附加到用户消息上。
     processed_history.append({"role": "user", "content": content})
     return processed_history
 
@@ -179,7 +183,10 @@ async def prepare_chat_turn(request: ChatRequest, current_user: str) -> Prepared
     active_conversations[workspace_scope] = time.time()
 
     sanitized_history = sanitize_history(request.history)
-    print(f"\n[收到请求] 会话ID: {session_id}, 模式: {request.agent_mode}, 流式: {request.stream}")
+    logger.debug(
+        "收到请求 会话ID=%s 模式=%s 流式=%s",
+        session_id, request.agent_mode, request.stream,
+    )
 
     compiled_context = await load_memory_context(workspace_scope, content, sanitized_history, request)
     prompt_focus = list(compiled_context.intent.get("focus") or [])

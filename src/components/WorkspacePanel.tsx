@@ -57,7 +57,7 @@ const WorkspaceFileItem: React.FC<{
                   });
                 }
               }}
-              className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
+              className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)] xl:h-8 xl:w-8 lg:rounded-[8px]"
               aria-label="Download"
             >
               <Download size={14} strokeWidth={2} />
@@ -66,7 +66,7 @@ const WorkspaceFileItem: React.FC<{
           <HoverInfo label="Delete" placement="top" disabled={disableHoverInfo}>
             <button
               onClick={() => onDeleteFile(file.path)}
-              className="lawver-pressable inline-flex h-[30px] w-[30px] items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
+              className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] xl:h-8 xl:w-8 lg:rounded-[8px]"
               aria-label="Delete"
             >
               <Trash2 size={14} strokeWidth={2} />

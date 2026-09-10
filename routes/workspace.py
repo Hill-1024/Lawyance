@@ -17,11 +17,14 @@ from services.auth_dependencies import get_current_user
 from services.conversation_state import active_conversations
 from services.memory_coordinator import call_memory_tool
 from services.workspace_service import (
+    MAX_IMAGE_BYTES,
     get_workspace_dirs,
     get_workspace_scope,
+    is_image_filename,
     is_within_directory,
     read_limited_upload,
     sanitize_path_component,
+    validate_image_content,
     validate_workspace_filename,
 )
 
@@ -59,6 +62,13 @@ def _ensure_workspace_dir(directory: str) -> str:
 
 
 def _write_workspace_file(directory: str, filename: str, content: bytes) -> str:
+    """写入工作区文件，返回**工作区相对路径**（如 TEMP/<scope>/a.png）。
+
+    返回值必须与 _list_workspace_files 保持一致：前端会用它判断文件类型
+    （TEMP/ 视为上传、Result/ 视为生成），也会把它作为附件路径交给
+    resolve_workspace_file——后者明确拒绝绝对路径。历史实现返回绝对路径，
+    导致图片附件被静默跳过、上传文件被误判为生成文件而重复入仓。
+    """
     abs_dir = _ensure_workspace_dir(directory)
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
     file_path = os.path.join(abs_dir, filename)
@@ -82,7 +92,7 @@ def _write_workspace_file(directory: str, filename: str, content: bytes) -> str:
         if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
             raise WorkspaceBoundaryError("unsafe workspace path") from exc
         raise
-    return file_path
+    return os.path.join(directory, filename).replace("\\", "/")
 
 
 def _list_workspace_files(temp_dir: str, result_dir: str) -> list[dict[str, str]]:
@@ -144,6 +154,14 @@ async def upload_file(
 ):
     safe_filename = validate_workspace_filename(file.filename)
     content = await read_limited_upload(file)
+    if is_image_filename(safe_filename):
+        # 图片额外按魔数校验并施加更小的体积上限，防止改扩展名绕过。
+        validate_image_content(safe_filename, content)
+        if len(content) > MAX_IMAGE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"图片大小超过 {MAX_IMAGE_BYTES // (1024 * 1024)}MB 上限",
+            )
 
     temp_dir, _ = get_workspace_dirs(current_user, conversation_id)
     try:

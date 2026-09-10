@@ -14,6 +14,12 @@ from typing import Any, Callable
 from function_calling import call, create_assistant_message
 from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
 from services.context_usage import record_openai_usage
+from services.multimodal import (
+    IMAGE_SIGNAL_KEY,
+    MAX_IMAGE_VIEWS_PER_TURN,
+    MAX_VIEW_TOTAL_BYTES,
+    flatten_content_to_text,
+)
 
 
 _DEFAULT_MAX_ROUNDS = object()
@@ -172,7 +178,13 @@ class ToolLoopAgent:
     @staticmethod
     def _history_context_message(message: dict) -> dict:
         allowed_keys = {"role", "content", "tool_calls", "tool_call_id", "name"}
-        return {key: value for key, value in message.items() if key in allowed_keys and value is not None}
+        # history_trace 会原样回到前端渲染，多模态 parts 必须压成文本，否则 base64 会灌进 UI。
+        trace: dict[str, Any] = {}
+        for key, value in message.items():
+            if key not in allowed_keys or value is None:
+                continue
+            trace[key] = flatten_content_to_text(value) if key == "content" else value
+        return trace
 
     @staticmethod
     def _message_reasoning_content(message: Any) -> str:
@@ -417,11 +429,14 @@ class ToolLoopAgent:
 
         final_answer: str | None = None
         awaiting_user = False
+        loaded_images: list[dict[str, Any]] = []
+        loaded_image_names: list[str] = []
         for tool_call in tool_calls:
             function = tool_call.get("function") or {}
             func_name = function.get("name") or ""
             args_str = function.get("arguments") or ""
             args, parse_error_content = self._parse_arguments(func_name, args_str)
+            result: Any = None
             if parse_error_content is not None:
                 result_content = parse_error_content
             else:
@@ -466,6 +481,29 @@ class ToolLoopAgent:
                     else:
                         events.append({"type": "thought", "content": f"执行: `{func_name}`\n", "thought_type": "tool", "mode": "new"})
 
+            # image_reader 无法用纯文本返回画面：载荷先收集起来，等本轮所有 tool 消息
+            # 追加完毕后再统一挂到一条 user 消息上。
+            # 两个约束叠加导致的：
+            #   1. OpenAI 规范里 tool 消息的 content 必须是字符串（数组实测被端点 400 拒绝）；
+            #   2. tool_calls 之后必须连续跟满对应的 tool 消息，
+            #      逐条插入 user 消息会把 tool 块切断，触发
+            #      "insufficient tool messages following tool_calls message"。
+            if isinstance(result, dict) and IMAGE_SIGNAL_KEY in result:
+                part = result.get(IMAGE_SIGNAL_KEY)
+                views = int(state.get("image_views", 0))
+                used_bytes = int(state.get("image_view_bytes", 0))
+                part_bytes = int(result.get("bytes") or 0)
+                if views >= MAX_IMAGE_VIEWS_PER_TURN:
+                    result_content = f"本轮已读取 {views} 张图片，达到上限，请基于已看到的画面继续作答。"
+                elif used_bytes + part_bytes > MAX_VIEW_TOTAL_BYTES:
+                    result_content = "图片总量超过本轮上限，未加载。请让用户提供更小的图片或改用文字说明。"
+                else:
+                    state["image_views"] = views + 1
+                    state["image_view_bytes"] = used_bytes + part_bytes
+                    loaded_images.append(part)
+                    loaded_image_names.append(str(result.get("name") or "图片"))
+                    result_content = f"图片 {result.get('name')} 已加载，画面见随后的消息，请直接依据画面作答。"
+
             tool_msg = {
                 "role": "tool",
                 "tool_call_id": tool_call.get("id") or f"call_{int(time.time())}",
@@ -483,6 +521,25 @@ class ToolLoopAgent:
                 break
             if final_answer is not None:
                 break
+
+        # 所有 tool 消息都已追加完毕，此时再挂图片，保证 tool 块连续完整。
+        if loaded_images:
+            image_msg = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "以下是本轮通过 image_reader 读取到的图片画面。"},
+                    *loaded_images,
+                ],
+            }
+            current_mem.append(image_msg)
+            events.append({"type": "history_trace", "content": [self._history_context_message(image_msg)]})
+            for name in loaded_image_names:
+                events.append({
+                    "type": "thought",
+                    "content": f"已查看图片: `{name}`\n",
+                    "thought_type": "tool",
+                    "mode": "new",
+                })
 
         return events, final_answer, awaiting_user
 

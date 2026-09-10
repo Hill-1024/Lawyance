@@ -12,11 +12,20 @@ import { Message, ThoughtBlock } from '../types';
 import { Mermaid } from './Mermaid';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
+import { MessageAttachments } from './MessageAttachments';
+import {
+  DOCUMENT_ATTACHMENT_HEADER,
+  parseDocumentAttachments,
+  stripAttachmentPrompt,
+  stripWorkspacePaths,
+} from '../lib/attachment-prompt';
 import { downloadWorkspaceFile, safeDownloadName } from '../lib/download';
 import { useAppDialog } from '../contexts/DialogContext';
 
 interface MessageItemProps {
   msg: Message;
+  /** 用于从本地缓存还原图片附件缩略图。 */
+  conversationId?: string;
   isThinking: boolean;
   isLast: boolean;
   onRegenerate?: (id: string) => void;
@@ -365,6 +374,7 @@ const WorkflowStatusIcon: React.FC<{ status: 'running' | 'done' }> = ({ status }
 
 export const MessageItem: React.FC<MessageItemProps> = ({
   msg,
+  conversationId,
   isThinking,
   onRegenerate,
   onAnswerChoice,
@@ -426,32 +436,30 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         {msg.role === 'user' ? (
           <div className="message-copy min-w-0 max-w-full w-fit rounded-[20px_6px_20px_20px] bg-[var(--accent)] px-3.5 py-2.5 text-[14px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:rounded-[24px_8px_24px_24px] sm:px-5 sm:py-3.5 sm:text-[16px]">
             <div className="flex min-w-0 max-w-full flex-col gap-2">
+              {msg.attachments && msg.attachments.length > 0 && (
+                <MessageAttachments conversationId={conversationId} attachments={msg.attachments} />
+              )}
               {(() => {
-                const fileInfoRegex = new RegExp("\\[用户已上传以下文件，请根据需要进行读取和处理\\]\\n([\\s\\S]*)$");
-                const match = msg.content.match(fileInfoRegex);
-                if (match) {
-                  const textContent = msg.content.replace(match[0], '').trim();
-                  const files = match[1].split('\n').filter((line: string) => line.startsWith('- ')).map((line: string) => {
-                    const nameMatch = line.match(/^- (.*?) \(路径:/);
-                    return nameMatch ? nameMatch[1] : line;
-                  });
-                  return (
-                    <>
-                      {textContent && <p className="whitespace-pre-wrap break-words">{textContent}</p>}
-                      {files.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {files.map((file: string, i: number) => (
-                            <div key={i} className="flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1 text-sm">
-                              <Paperclip size={14} strokeWidth={2} />
-                              <span className="max-w-[200px] truncate">{file}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  );
-                }
-                return <p className="whitespace-pre-wrap break-words">{msg.content.replace(/TEMP\/[^\s"'`)\]<>*。，！？,?]+/g, '').trim()}</p>;
+                const documentFiles = parseDocumentAttachments(msg.content);
+                const markerIndex = msg.content.indexOf(DOCUMENT_ATTACHMENT_HEADER);
+                const bodyText = stripWorkspacePaths(
+                  stripAttachmentPrompt(markerIndex >= 0 ? msg.content.slice(0, markerIndex) : msg.content),
+                );
+                return (
+                  <>
+                    {bodyText && <p className="whitespace-pre-wrap break-words">{bodyText}</p>}
+                    {documentFiles.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {documentFiles.map((file: string, i: number) => (
+                          <div key={i} className="flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1 text-sm">
+                            <Paperclip size={14} strokeWidth={2} />
+                            <span className="max-w-[200px] truncate">{file}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
               })()}
             </div>
           </div>
@@ -632,7 +640,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                           });
                         }
                       }}
-                      className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)] sm:h-8 sm:w-8"
+                      className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)] xl:h-9 xl:w-9"
                       aria-label="Download generated file"
                     >
                       <Download size={14} strokeWidth={2} />
@@ -648,7 +656,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             <HoverInfo label="Undo" placement="top">
               <button
                 onClick={() => onUndo(msg.id)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-8 sm:w-8"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] xl:h-9 xl:w-9"
                 aria-label="Undo"
               >
                 <Undo2 size={14} strokeWidth={2} />
@@ -657,7 +665,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             <HoverInfo label="Edit" placement="top">
               <button
                 onClick={() => onEdit(msg.id)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-8 sm:w-8"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] xl:h-9 xl:w-9"
                 aria-label="Edit"
               >
                 <Pencil size={14} strokeWidth={2} />
@@ -666,7 +674,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             <HoverInfo label="Regenerate" placement="top">
               <button
                 onClick={() => onRegenerate(msg.id)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] sm:h-8 sm:w-8"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06] xl:h-9 xl:w-9"
                 aria-label="Regenerate"
               >
                 <RefreshCw size={14} strokeWidth={2} />
@@ -676,7 +684,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               <HoverInfo label="从此分叉为新会话" placement="top">
                 <button
                   onClick={() => onBranch(msg.id)}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--brand-tertiary-700)] dark:hover:bg-white/[0.06] dark:hover:text-[#8ecdc7] sm:h-8 sm:w-8"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--brand-tertiary-700)] dark:hover:bg-white/[0.06] dark:hover:text-[#8ecdc7] xl:h-9 xl:w-9"
                   aria-label="从此分叉为新会话"
                 >
                   <GitBranch size={14} strokeWidth={2} />
@@ -690,7 +698,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             <HoverInfo label="从此分叉为新会话" placement="top">
               <button
                 onClick={() => onBranch(msg.id)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--brand-tertiary-700)] dark:hover:bg-white/[0.06] dark:hover:text-[#8ecdc7] sm:h-8 sm:w-8"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-4)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--brand-tertiary-700)] dark:hover:bg-white/[0.06] dark:hover:text-[#8ecdc7] xl:h-9 xl:w-9"
                 aria-label="从此分叉为新会话"
               >
                 <GitBranch size={14} strokeWidth={2} />

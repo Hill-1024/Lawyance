@@ -127,6 +127,7 @@ export const MessageList: React.FC<MessageListProps> = ({
             <MessageItem
               key={msg.id}
               msg={msg}
+              conversationId={conversationId}
               isThinking={isThinking}
               isLast={isLast}
               onRegenerate={onRegenerate}

@@ -15,6 +15,7 @@ from mcp.searxng_client import web_fetch, web_search
 from mcp.PDF_processor import pdf_commit_by_sentence, pdf_text_reader
 from mcp.text_file_client import TEXT_FILE_EXTENSIONS, txt_md_reader, txt_md_writer
 from mcp.word_annotator import word_reader, word_writer
+from services.multimodal import IMAGE_SIGNAL_KEY, load_workspace_image
 from mcp.qcc_client import (
     get_company_profile,
     get_contact_info,
@@ -39,6 +40,7 @@ from mcp.legal_document import (
     get_legal_document_guide,
     list_legal_document_types,
 )
+from services.workspace_service import is_image_filename
 from workspace import WorkspacePathError, get_result_path, resolve_workspace_file, validate_workspace_scope
 
 from .registry import registry
@@ -104,6 +106,7 @@ def _list_workspace_files(workspace_scope: str | None):
                     "name": file_name,
                     "path": file_path.replace("\\", "/"),
                     "type": file_type,
+                    "kind": "image" if is_image_filename(file_name) else "document",
                 })
 
     if not files:
@@ -226,6 +229,34 @@ def _write_word(arguments: dict[str, Any], workspace_scope: str | None):
         return f"错误：{e}"
     success = word_writer(safe_path, arguments.get("index"), arguments.get("text"), output_path=output_path)
     return f"批注成功，文件保存在: {output_path}" if success else "批注失败"
+
+
+def _read_image(arguments: dict[str, Any], workspace_scope: str | None):
+    """读取工作区图片。
+
+    图片无法作为纯文本返回，因此这里返回一个带保留字段的结构化结果；
+    agent 循环识别后会以 user 消息附带 image_url 载荷发给模型。
+    """
+    path = arguments.get("file_path") or arguments.get("path") or arguments.get("image_path")
+    if not path:
+        return "错误：未提供图片文件路径。"
+    if not workspace_scope:
+        return "错误：无法获取当前工作区作用域。"
+    if not is_image_filename(str(path)):
+        return "错误：该文件不是受支持的图片格式（支持 png/jpg/jpeg/webp/gif/bmp）。"
+
+    loaded = load_workspace_image(str(path), workspace_scope)
+    if loaded is None:
+        return f"错误：无法读取图片 {path}。请确认路径来自当前对话工作区，且文件为有效图片。"
+
+    return {
+        IMAGE_SIGNAL_KEY: loaded["part"],
+        "name": loaded["name"],
+        "path": loaded["path"],
+        "mime": loaded["mime"],
+        "bytes": loaded["bytes"],
+        "status": "image_loaded",
+    }
 
 
 def _read_txt_md(arguments: dict[str, Any], workspace_scope: str | None):
@@ -565,6 +596,22 @@ def _register_agent_tools() -> None:
         ),
         handler=lambda _arguments, workspace_scope: _list_workspace_files(workspace_scope),
         exposure=AGENT_PLAN_AND_SOLVE_COURT,
+    )
+    registry.register(
+        name="image_reader",
+        schema=_tool_schema(
+            "image_reader",
+            "查看当前对话工作区中的图片（照片、截图、扫描件等），读取后可获得图片画面内容。"
+            "当需要根据图片作答、需要核对图片中的文字/要素/印章/签名，或用户提及某张已上传的图片时，调用此工具。"
+            "先用 list_workspace_files 确认路径，再调用本工具。同一张图片不要重复读取。",
+            {
+                "file_path": {"type": "string", "description": "图片文件路径，必须来自当前对话的 TEMP/Result 工作区。"},
+            },
+            ["file_path"],
+        ),
+        handler=_read_image,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+        text_coercer=_text_field("file_path"),
     )
     registry.register(
         name="retrieve_conversation_memory",

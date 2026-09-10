@@ -14,6 +14,7 @@ import { useStorage } from './hooks/useStorage';
 import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler } from './services/api';
 import { isNative } from './lib/platform';
 import { exitNativeApp, useBackButton } from './hooks/useBackButton';
+import { useAppBack, useAppBackUp } from './hooks/useAppBack';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { WorkspacePanel } from './components/WorkspacePanel';
@@ -65,6 +66,9 @@ function App() {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [userRole, setUserRole] = useState('user');
   const navigate = useNavigate();
+  // 返回上级一律退栈；深链进入时改用 replace，避免压栈造成"返回又前进"。
+  const goBack = useAppBack();
+  const goUp = useAppBackUp();
   const location = useLocation();
 
   const {
@@ -172,6 +176,9 @@ function App() {
     if (!isNative()) return;
 
     let listener: { remove: () => Promise<void> } | undefined;
+    // 卸载可能早于 addListener 的 Promise 落地；用 disposed 标记补摘，
+    // 否则监听器会永久留在原生层。
+    let disposed = false;
     CapacitorApp.addListener('appStateChange', async ({ isActive }) => {
       if (!isActive) return;
       try {
@@ -182,10 +189,15 @@ function App() {
         setIsAuthenticated(false);
       }
     }).then(handle => {
+      if (disposed) {
+        void handle.remove();
+        return;
+      }
       listener = handle;
     });
 
     return () => {
+      disposed = true;
       listener?.remove();
     };
   }, []);
@@ -246,13 +258,11 @@ function App() {
       setIsWorkspaceOpen(false);
       return true;
     }
-    if (location.pathname !== '/') {
-      navigate(-1);
-      return true;
-    }
+    // 退栈优先：深链直接进入子页时退栈会离开应用，此时由 goUp 改用 replace 落到父级。
+    if (goUp()) return true;
     exitNativeApp().catch(console.error);
     return true;
-  }, [isInputExpanded, isSidebarOpen, isWorkspaceOpen, location.pathname, navigate]), isAuthenticated && isInitialized);
+  }, [isInputExpanded, isSidebarOpen, isWorkspaceOpen, goUp]), isAuthenticated && isInitialized);
 
   const activeChoicePrompt = React.useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -415,7 +425,7 @@ function App() {
         <React.Fragment key={location.pathname}>
           <Routes location={location}>
             <Route path="/" element={chatLayout} />
-            <Route path="/court" element={<React.Suspense fallback={<RouteLoadingFallback />}><CourtPage onBack={() => navigate('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} /></React.Suspense>} />
+            <Route path="/court" element={<React.Suspense fallback={<RouteLoadingFallback />}><CourtPage onBack={() => goBack('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} /></React.Suspense>} />
             <Route path="/settings/*" element={<AnimatedRouteSurface><React.Suspense fallback={<RouteLoadingFallback />}><SettingsPage /></React.Suspense></AnimatedRouteSurface>} />
             <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'admin' ? <React.Suspense fallback={<RouteLoadingFallback />}><AdminDashboard /></React.Suspense> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>} />
           </Routes>
