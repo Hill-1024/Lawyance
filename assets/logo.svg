@@ -1,12 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
   <style>
-    .logo-tile { fill: transparent; stroke: transparent; }
-    .logo-frame { stroke: transparent; }
+    :root { color-scheme: light dark; }
+    /* 透明底 + 反色线条：浅色主题用深墨（#1a2238），深色主题整体反相为浅墨（#f6f8fb）。
+       宿主页面声明 color-scheme 时该声明会传播到以 img 引用的 SVG 文档，
+       prefers-color-scheme 因而跟随宿主主题，而非系统偏好。 */
     .logo-ink { stroke: #1a2238; }
     .logo-fill { fill: #1a2238; }
+    @media (prefers-color-scheme: dark) {
+      .logo-ink { stroke: #f6f8fb; }
+      .logo-fill { fill: #f6f8fb; }
+    }
   </style>
-  <rect class="logo-tile" x="0.5" y="0.5" width="95" height="95" rx="4.5"/>
-  <rect class="logo-frame" x="10.5" y="10.5" width="75" height="75" rx="2.5"/>
+  <!-- 以下线条与圆点全部逐字复用 src/assets/logo-mark.svg，仅配色随主题反相 -->
   <line class="logo-ink" x1="14" y1="78" x2="82" y2="78" stroke-width="0.75" stroke-linecap="round" opacity="0.55"/>
   <g class="logo-ink" stroke-linecap="round" stroke-linejoin="round" fill="none">
     <path d="M38 18 C38 18 36 20 36 26 L36 64 C36 70 38 72 42 72 L70 72" stroke-width="2.2"/>
