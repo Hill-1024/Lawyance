@@ -1,6 +1,25 @@
-# Lawver
+<div align="center">
 
-[中文](./README.md) | English | [日本語](./README.ja.md)
+<img src="assets/logo.svg" width="112" height="112" alt="Lawver" />
+<br/>
+<img src="assets/logo-wordmark.svg" width="242" height="56" alt="Lawver" />
+
+<p>A Chinese legal AI assistant<br/>structuring legal questions into checkable facts, authorities, and analysis</p>
+
+<p>
+  <a href="https://github.com/Hill-1024/Lawyance/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1.20-3b62b8"></a>
+  <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-A42E2B">
+  <img alt="python" src="https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white">
+  <img alt="fastapi" src="https://img.shields.io/badge/FastAPI-0.139%2B-009688?logo=fastapi&logoColor=white">
+  <img alt="react" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black">
+  <img alt="vite" src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white">
+  <img alt="tailwind" src="https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white">
+  <img alt="capacitor" src="https://img.shields.io/badge/Capacitor-8-119EFF?logo=capacitor&logoColor=white">
+</p>
+
+<p><a href="./README.md">中文</a> · English · <a href="./README.ja.md">日本語</a></p>
+
+</div>
 
 Lawver is a Chinese legal AI assistant project built by the GDUT legal intelligence team. It combines legal consultation, statute retrieval, case matching, company information lookup, contract/PDF/Word/TXT/Markdown document handling, conversation-level memory, and a frontend workspace into one application. The goal is not to return unverifiable one-line answers, but to structure legal questions into facts, authorities, retrieved evidence, and analysis paths that can be checked further.
 

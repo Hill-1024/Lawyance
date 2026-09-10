@@ -1,6 +1,25 @@
-# Lawver
+<div align="center">
 
-[中文](./README.md) | [English](./README.en.md) | 日本語
+<img src="assets/logo.svg" width="112" height="112" alt="Lawver" />
+<br/>
+<img src="assets/logo-wordmark.svg" width="242" height="56" alt="Lawver" />
+
+<p>中国語法律シーン向け AI アシスタント<br/>法律問題を検証可能な事実・根拠・分析手順へ整理</p>
+
+<p>
+  <a href="https://github.com/Hill-1024/Lawyance/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1.20-3b62b8"></a>
+  <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-A42E2B">
+  <img alt="python" src="https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white">
+  <img alt="fastapi" src="https://img.shields.io/badge/FastAPI-0.139%2B-009688?logo=fastapi&logoColor=white">
+  <img alt="react" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black">
+  <img alt="vite" src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white">
+  <img alt="tailwind" src="https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=white">
+  <img alt="capacitor" src="https://img.shields.io/badge/Capacitor-8-119EFF?logo=capacitor&logoColor=white">
+</p>
+
+<p><a href="./README.md">中文</a> · <a href="./README.en.md">English</a> · 日本語</p>
+
+</div>
 
 Lawver は、工大法智チームによる中国語法律 AI アシスタントプロジェクトです。法律相談、法令検索、類似判例検索、企業情報照会、契約書/PDF/Word 文書処理、会話単位の記憶、フロントエンドのワークスペースを一つのアプリケーションに統合します。目的は検証できない短い結論を返すことではなく、法律問題を事実、根拠、検索結果、さらに確認可能な分析手順へ整理することです。
 
