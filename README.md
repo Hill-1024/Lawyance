@@ -42,7 +42,7 @@ Lawver 是工大法智团队的中文法律 AI 助手项目。它把法律咨询
 - **模拟法庭**: 民事、行政、刑事三类庭审推演，内置法官、对方律师、复盘员、用户方 AI 代理四角色，按阶段状态机推进，公开记录与私有 brief 之间有事实边界，支持撤回与分支会话。
 - **会话工作区**: 为每个用户和对话隔离 `TEMP` 与 `Result` 文件空间，避免文件串线。
 - **对话级记忆**: 记录和检索稳定事实、目标、约束与语义标签，不把全部历史暴力塞回上下文。
-- **认证与审计**: 包含登录、角色、管理员账号管理、API 访问日志和基础限流。
+- **认证与审计**: 包含登录、角色、管理员账号管理、API 访问日志、Redis 共享限流，以及用于挡住无效 token 洪水的会话布隆过滤器。
 - **前端体验**: React 19 + Vite，提供主聊天、模拟法庭、文件工作区、主题、管理员面板和 Lawver 品牌界面。
 
 ## 架构
@@ -262,12 +262,13 @@ TXT/Markdown 文件通过 `txt_md_reader` / `txt_md_writer` 处理，只能访�
 python -m pytest
 ```
 
-当前测试套件约 170 个用例，按模块大致覆盖：
+当前测试套件约 440 个用例，按模块大致覆盖：
 
 - `tests/test_memory_system.py`、`tests/test_prompt_loader.py`：对话级记忆与动态 prompt 装配。
 - `tests/test_ocp.py`、`tests/test_tool_loop_agent.py`：输出审查与统一工具循环。
 - `tests/test_court_mode.py`：模拟法庭阶段状态机与角色边界。
 - `tests/test_security_hardening.py`、`tests/test_mcps_workspace_paths.py`、`tests/test_remaining_vulnerability_fixes.py`：CSRF、限流、工作区路径与历史漏洞回归。
+- `tests/test_request_shielding.py`：布隆过滤器假阴性边界、共享限流、Redis 降级与无效 token 的免回源拒绝。Redis 分支需要 `fakeredis`（见 `requirements-dev.txt`），缺失时自动跳过。
 - `tests/test_function_calling_tools.py`、`tests/test_tool_schema_compatibility.py`、`tests/test_tool_exposure.py`：工具 schema、exposure 与 OpenAI 兼容性。
 - `tests/test_law_data_search.py`、`tests/test_law_cache_startup.py`、`tests/test_searxng_tool.py`：本地法库检索、缓存增量与 SearXNG 客户端。
 
@@ -280,15 +281,51 @@ python -m pytest
 - 前端迁移和 UI 调整应尊重 Lawver 设计系统，不通过 padding 或临时兼容层掩盖布局问题。
 - 页面返回必须走 `src/hooks/useAppBack.ts`（决策逻辑在同目录 `src/lib/app-history.ts`），不要在返回按钮里直接写 `navigate(父级路径)`。后者会往 history 栈压入新记录，用户再按返回就会「前进」回刚离开的子页，表现为返回错乱、需连按多次才能退出。规则由 `pnpm run test:app-back` 锁定：栈内有记录时退栈；深链/刷新进入（history idx 为 0）时改用 replace 落到父级，避免退栈离开应用；已在根路由则交由调用方退出应用。
 
+## 账号与权限
+
+账号、密码摘要与在线会话统一存放在 `data/` 下的 SQLite 数据库 `auth.sqlite3`，与 `secrets.json`、`settings.json`、`lockout.json` 同级，不再使用 `data/account.json`。首次启动时若账号库为空且存在遗留的 `account.json`，会自动导入并把该文件改名为 `account.json.imported-<时间戳>`（角色 `admin` 会映射为 `sudo`）。
+
+权限分三级，形成 `sudo → admin → user` 的层级：
+
+- `sudo`（超级管理员）：全部权限，包括查看使用日志、管理所有账号、给 admin 设定配额 n / m、给 user 覆写在线设备上限、踢任意设备，以及系统与模型设置。内置账号用户名为 `admin`，角色为 `sudo`，不可删除。
+- `admin`（管理员）：只能管理自己创建的 user，可创建的用户数量上限为 n，可重置密码、删除、踢下线；不能创建 admin/sudo，不能修改 m，也看不到日志与系统设置。
+- `user`：仅使用。
+
+在线设备限制：每个账号可登录的设备数受其「最大在线设备数」约束（留空/0 表示不限制）。登录产生一条会话记录，最近活跃时间在 `LAWVER_ONLINE_WINDOW_SECONDS`（默认 900 秒）内计为在线；超限时默认踢掉最久未活跃的设备（`LAWVER_ONLINE_LIMIT_ACTION=reject` 可改为拒绝新登录）。登出、改密码、改角色或删除账号都会立即作废相应会话。
+
+## 请求防护（限流与布隆过滤器）
+
+针对「大量无效请求打穿后端」，服务端有两层前置防护，二者都会随 Redis 可用性自动降级：
+
+**1. 共享限流**：所有 `/api` 请求按客户端 IP 计数（默认 100 次/分钟），`POST /api/login` 另有更严格的登录桶（默认 30 次/分钟）。登录桶是为了挡住同一 IP 跨用户名撞库——账号级锁定只保护单个账号，拦不住用户名喷洒。Android APK 下载同样走这套计数（默认 6 次/分钟，可用 `LAWVER_APK_DOWNLOAD_RPM` 调整）。命中限流返回 429 并带 `Retry-After`，且发生在读取请求体之前。
+
+**2. 会话布隆过滤器**：JWT 里的 `sid` 先过一张位图，位图判定「不存在」的 token 直接拒绝，不再打开 SQLite。它只增不删，并且只在预热完成、位图与就绪标记同时存在时才参与判断：Redis 键被淘汰、预热中断或命令报错时一律放行给数据库裁决。因此假阴性（误杀有效登录）不会发生，假阳性只是多查一次库。
+
+配置 Redis 后，限流计数与会话位图由所有 worker / 实例共享；未配置 `LAWVER_REDIS_URL` 时退回进程内实现，单 worker 行为与旧版一致。Redis 只是防护层：URL 写错、连不上或命令报错都会在冷却窗口内自动降级，不影响登录与鉴权。使用普通 Redis 即可，不需要 RedisBloom 模块——位图由 `SETBIT` / `GETBIT` 实现。
+
+可选环境变量：
+
+- `LAWVER_REDIS_URL`（兼容 `REDIS_URL`）：Redis 连接串，例如 `redis://127.0.0.1:6379/0`；未设置时全部退回进程内。
+- `LAWVER_REDIS_PREFIX`：键前缀，默认 `lawver`。
+- `LAWVER_REDIS_TIMEOUT`：单次 Redis 命令超时秒数，默认 `0.25`；Redis 卡住时最多给每个请求增加这点延迟。
+- `LAWVER_API_RATE_LIMIT`：全局 API 单 IP 每分钟上限，默认 `100`。
+- `LAWVER_LOGIN_RATE_LIMIT`：登录接口单 IP 每分钟上限，默认 `30`。
+- `LAWVER_RATE_LIMIT_ENABLED`：设为 `0` 完全关闭限流（仅建议测试环境）。
+- `LAWVER_BLOOM_ENABLED`：设为 `0` 关闭会话布隆过滤器，每个请求都回源数据库。
+- `LAWVER_BLOOM_SESSION_CAPACITY`：位图容量，默认 `200000`，按有效会话数量级估算。
+- `LAWVER_BLOOM_ERROR_RATE`：误判率，默认 `0.001`。
+
+启动日志会打印实际生效的后端：`Redis 请求防护：available=... prefix=...` 与 `会话布隆过滤器预热完成：...`。
+
 ## 安全注意
 
 - `.env`、真实合同、客户材料、生成结果和日志都可能包含敏感信息，不应随意提交。
-- 首次部署必须配置 `SECRET_KEY`（至少 32 位随机值）和一次性的 `INITIAL_ADMIN_PASSWORD`；创建 `data/account.json` 后应移除初始密码环境变量。
+- 首次部署必须配置 `SECRET_KEY`（至少 32 位随机值）和一次性的 `INITIAL_ADMIN_PASSWORD`；账号库创建后应移除初始密码环境变量。
 - 默认 CORS、限流和认证策略适合内部原型阶段，公开部署前需要按实际域名和安全策略收紧。
 - 所有非 GET 的 `/api` 请求都要求可信 Origin 或 Referer。可通过 `LAWVER_ALLOWED_ORIGINS`（兼容 `ALLOWED_ORIGINS`）追加生产前端域名；本地开发回环地址默认放行。
 - 默认只从 loopback 代理读取 `CF-Connecting-IP` / `X-Forwarded-For`；如果生产反代不在本机，请通过 `LAWVER_TRUSTED_PROXY_CIDRS` 明确列入。
-- 限流计数为进程内状态，多 worker 部署（`UVICORN_WORKERS>1`）时各 worker 各自计数，公开部署应迁到 Redis 或共享存储。
-- 管理员接口具备账号管理和日志读取能力，应只暴露给可信管理员。
+- 限流计数与会话布隆过滤器默认是进程内状态。多 worker（`UVICORN_WORKERS>1`）或多实例部署应配置 `LAWVER_REDIS_URL`，否则每个 worker 各自计数，真实上限会被放大到 worker 数量倍。
+- 后台接口具备账号管理和日志读取能力，`/api/admin/logs` 仅限 sudo，账号与设备接口 sudo/admin 按层级受限，应只暴露给可信人员。
 - 文件批注、文档读取和下载接口需要持续关注路径隔离和权限边界。
 
 ## 许可证

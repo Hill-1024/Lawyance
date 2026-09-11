@@ -11,7 +11,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
 import { useStorage } from './hooks/useStorage';
-import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler } from './services/api';
+import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
 import { isNative } from './lib/platform';
 import { exitNativeApp, useBackButton } from './hooks/useBackButton';
 import { useAppBack, useAppBackUp } from './hooks/useAppBack';
@@ -64,7 +64,7 @@ const AnimatedRouteSurface: React.FC<{ children: React.ReactNode }> = ({ childre
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [userRole, setUserRole] = useState('user');
+  const [userRole, setUserRole] = useState<Role>('user');
   const navigate = useNavigate();
   // 返回上级一律退栈；深链进入时改用 replace，避免压栈造成"返回又前进"。
   const goBack = useAppBack();
@@ -427,7 +427,7 @@ function App() {
             <Route path="/" element={chatLayout} />
             <Route path="/court" element={<React.Suspense fallback={<RouteLoadingFallback />}><CourtPage onBack={() => goBack('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} /></React.Suspense>} />
             <Route path="/settings/*" element={<AnimatedRouteSurface><React.Suspense fallback={<RouteLoadingFallback />}><SettingsPage /></React.Suspense></AnimatedRouteSurface>} />
-            <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'admin' ? <React.Suspense fallback={<RouteLoadingFallback />}><AdminDashboard /></React.Suspense> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>} />
+            <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'sudo' || userRole === 'admin' ? <React.Suspense fallback={<RouteLoadingFallback />}><AdminDashboard role={userRole} /></React.Suspense> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>} />
           </Routes>
         </React.Fragment>
       </AnimatePresence>

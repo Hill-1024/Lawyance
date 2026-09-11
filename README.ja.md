@@ -42,7 +42,7 @@ Lawver は、工大法智チームによる中国語法律 AI アシスタント
 - **模擬法廷**: 民事・行政・刑事の三類型の法廷シミュレーション。裁判官、相手方弁護士、復盤員、ユーザー側 AI 代理の四役を内蔵し、段階別の状態機械に従って進行します。公開記録と私的ブリーフのあいだに事実の境界があり、巻き戻しと分岐セッションに対応します。
 - **会話ワークスペース**: ユーザーと会話ごとに `TEMP` と `Result` のファイル空間を分離。
 - **会話記憶**: 安定した事実、目標、制約、セマンティックタグを記録・検索し、全履歴を無理にプロンプトへ詰め込みません。
-- **認証と監査**: ログイン、ロール、管理者アカウント管理、API アクセスログ、基本的なレート制限。
+- **認証と監査**: ログイン、ロール、管理者アカウント管理、API アクセスログ、Redis 共有のレート制限、無効トークンの洪水を吸収するセッション Bloom filter。
 - **フロントエンド体験**: React 19 + Vite によるメインチャット、模擬法廷、ファイルワークスペース、テーマ、管理画面、Lawver ブランド UI。
 
 ## アーキテクチャ
@@ -171,12 +171,13 @@ Android の正式リリースは GitHub Actions の `vX.Y.Z` タグ workflow で
 python -m pytest
 ```
 
-現在のテストスイートは約 170 ケースで、代表的なカバレッジは以下のとおりです：
+現在のテストスイートは約 440 ケースで、代表的なカバレッジは以下のとおりです：
 
 - `tests/test_memory_system.py`、`tests/test_prompt_loader.py`: 会話単位の記憶と動的 prompt の組み立て。
 - `tests/test_ocp.py`、`tests/test_tool_loop_agent.py`: 出力レビューと統一ツールループ。
 - `tests/test_court_mode.py`: 模擬法廷の状態機械と役割境界。
 - `tests/test_security_hardening.py`、`tests/test_mcps_workspace_paths.py`、`tests/test_remaining_vulnerability_fixes.py`: CSRF、レート制限、ワークスペースのパスと過去の脆弱性回帰。
+- `tests/test_request_shielding.py`: Bloom filter の偽陰性境界、共有レート制限、Redis 降格、無効トークンの DB 非参照拒否。Redis 分岐には `fakeredis`（`requirements-dev.txt` 参照）が必要で、無い場合は自動スキップ。
 - `tests/test_function_calling_tools.py`、`tests/test_tool_schema_compatibility.py`、`tests/test_tool_exposure.py`: ツール schema、exposure、OpenAI 互換性。
 - `tests/test_law_data_search.py`、`tests/test_law_cache_startup.py`、`tests/test_searxng_tool.py`: ローカル法令検索、キャッシュ増分構築、SearXNG クライアント。
 
@@ -246,15 +247,51 @@ OCP は主回答後のフォーマット審査 pass です。主モデルの失�
 - 法律回答では、事実、法条、判例、出典リンクなどの検証可能な経路を残すべきです。
 - フロントエンド移行や UI 調整は Lawver デザインシステムに従い、padding の小手先対応や互換レイヤーでレイアウト問題を隠さないでください。
 
+## アカウントと権限
+
+アカウント、パスワードハッシュ、オンラインセッションは `data/account.json` ではなく、`data/` 配下の SQLite データベース `auth.sqlite3`（`secrets.json`、`settings.json`、`lockout.json` と同階層）に保存されます。初回起動時に認証 DB が空で旧 `account.json` が存在する場合、自動的にインポートし、ファイルは `account.json.imported-<タイムスタンプ>` に改名されます（ロール `admin` は `sudo` にマップ）。
+
+ロールは `sudo → admin → user` の 3 段階です。
+
+- `sudo`: すべての権限。利用ログの閲覧、全アカウントの管理、各 admin のクォータ n / m の設定、user のオンライン上限の上書き、任意のデバイスの切断、システム/モデル設定。組み込みアカウントはユーザー名 `admin`・ロール `sudo` で削除不可。
+- `admin`: 自分が作成した user のみ管理でき、作成数は n まで。パスワード再設定、削除、デバイス切断が可能。admin/sudo の作成、m の変更、ログとシステム設定の閲覧は不可。
+- `user`: 利用のみ。
+
+オンラインデバイス制限: 各アカウントは「最大オンラインデバイス数」で制限されます（空欄/0 は無制限）。ログインごとにセッションが記録され、`LAWVER_ONLINE_WINDOW_SECONDS`（既定 900 秒）以内に活動したセッションをオンラインとみなします。上限超過時は既定で最も古いアイドルデバイスを切断します（`LAWVER_ONLINE_LIMIT_ACTION=reject` で新規ログインを拒否）。ログアウト、パスワード/ロール変更、削除は該当セッションを即時無効化します。
+
+## リクエスト防御（レート制限と Bloom filter）
+
+大量の無効リクエストがバックエンドまで到達するのを防ぐため、2 層の前段防御を用意しています。どちらも Redis の可用性に応じて自動的に降格します。
+
+**1. 共有レート制限**: すべての `/api` リクエストをクライアント IP 単位でカウントし（既定 100 回/分）、`POST /api/login` にはより厳しいログイン用バケット（既定 30 回/分）を適用します。ログイン用バケットは、同一 IP から多数のユーザー名を試す credential stuffing を止めるためのものです。アカウント単位のロックアウトではユーザー名の撒き散らしを防げません。Android APK ダウンロードも同じカウンタを使います（既定 6 回/分、`LAWVER_APK_DOWNLOAD_RPM` で変更可）。制限に達した場合は 429 と `Retry-After` を返し、リクエストボディを読む前に拒否します。
+
+**2. セッション Bloom filter**: JWT の `sid` をまずビットマップで判定し、「存在しない」と確定したトークンは SQLite を開かずに拒否します。ビットマップは追加のみで、ウォームアップ完了後かつビットマップと ready マーカーが両方存在する場合にのみ判定に使います。キーが evict された場合、ウォームアップが中断した場合、コマンドがエラーになった場合はすべて DB に委ねます。したがって偽陰性（有効なログインの誤拒否）は発生せず、偽陽性は 1 回余分にクエリするだけです。
+
+Redis を設定すると、レート制限カウンタとセッション用ビットマップは全 worker / インスタンスで共有されます。`LAWVER_REDIS_URL` 未設定時はプロセス内実装に戻り、単一 worker での挙動は従来どおりです。Redis はあくまで防御層であり、URL の誤り、接続不可、コマンド失敗はクールダウン期間中だけ降格し、ログインと認証には影響しません。通常の Redis で十分で、RedisBloom モジュールは不要です（ビットマップは `SETBIT` / `GETBIT` で実装）。
+
+任意の環境変数:
+
+- `LAWVER_REDIS_URL`（`REDIS_URL` も可）: Redis 接続文字列。例 `redis://127.0.0.1:6379/0`。未設定ならすべてプロセス内。
+- `LAWVER_REDIS_PREFIX`: キー接頭辞、既定 `lawver`。
+- `LAWVER_REDIS_TIMEOUT`: 1 コマンドのタイムアウト秒、既定 `0.25`。Redis が停止しても 1 リクエストあたりこの分しか遅くなりません。
+- `LAWVER_API_RATE_LIMIT`: 全体 API の IP あたり毎分上限、既定 `100`。
+- `LAWVER_LOGIN_RATE_LIMIT`: ログイン API の IP あたり毎分上限、既定 `30`。
+- `LAWVER_RATE_LIMIT_ENABLED`: `0` でレート制限を完全に無効化（テスト環境向け）。
+- `LAWVER_BLOOM_ENABLED`: `0` でセッション Bloom filter を無効化し、毎回 DB を参照。
+- `LAWVER_BLOOM_SESSION_CAPACITY`: ビットマップ容量、既定 `200000`。有効セッション数の桁を目安に。
+- `LAWVER_BLOOM_ERROR_RATE`: 偽陽性率、既定 `0.001`。
+
+起動ログで実際に有効なバックエンドを確認できます: `Redis 请求防护：available=... prefix=...` と `会话布隆过滤器预热完成：...`。
+
 ## セキュリティメモ
 
 - `.env`、実際の契約書、クライアント資料、生成結果、ログには機密情報が含まれる可能性があります。安易にコミットしないでください。
-- 初回デプロイでは 32 文字以上のランダムな `SECRET_KEY` と一度限りの `INITIAL_ADMIN_PASSWORD` を設定してください。`data/account.json` 作成後は初期パスワード用の環境変数を削除します。
+- 初回デプロイでは 32 文字以上のランダムな `SECRET_KEY` と一度限りの `INITIAL_ADMIN_PASSWORD` を設定してください。認証 DB 作成後は初期パスワード用の環境変数を削除します。
 - 現在の CORS、レート制限、認証の既定値は内部プロトタイプ向けです。公開デプロイ前には実際のドメインと安全方針に合わせて強化してください。
 - GET 以外の `/api` リクエストは信頼できる Origin か Referer を必須とします。本番のフロントエンドドメインは `LAWVER_ALLOWED_ORIGINS`（旧名 `ALLOWED_ORIGINS` も互換）で追加してください。ローカルのループバックアドレスは既定で許可されます。
 - `CF-Connecting-IP` / `X-Forwarded-For` は既定で loopback proxy からのみ採用します。本番 proxy がローカルでない場合は `LAWVER_TRUSTED_PROXY_CIDRS` で明示してください。
-- レート制限のカウンタはプロセス内状態です。`UVICORN_WORKERS>1` で動かす場合、各 worker が個別にカウントするため、公開デプロイでは Redis などの共有ストアに移行することを推奨します。
-- 管理者 API はアカウント管理とログ閲覧ができるため、信頼できる管理者だけに公開してください。
+- レート制限カウンタとセッション Bloom filter は既定でプロセス内状態です。`UVICORN_WORKERS>1` や複数インスタンスで運用する場合は `LAWVER_REDIS_URL` を設定してください。設定しないと各 worker が個別にカウントし、実質上限が worker 数の倍になります。
+- 管理 API はアカウント管理とログ閲覧ができます。`/api/admin/logs` は sudo のみ、アカウント/デバイス API は sudo/admin の階層で制限されるため、信頼できる担当者だけに公開してください。
 - ファイル注釈、文書読み取り、ダウンロード API では、パス分離と権限境界を継続的に確認してください。
 
 ## ライセンス

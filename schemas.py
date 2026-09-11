@@ -30,8 +30,11 @@ AgentMode = Literal["default", "plan_and_solve"]
 MemorySyncMode = Literal["merge", "rebuild"]
 MemoryConflictStrategy = Literal["server_merge"]
 CourtRole = Literal["judge", "opponent", "reviewer", "user"]
-AccountRole = Literal["admin", "user"]
+AccountRole = Literal["sudo", "admin", "user"]
 ProviderKey = Literal["llm", "deli", "searxng", "qcc", "embedding"]
+
+MAX_ONLINE_LIMIT = 1000
+MAX_USERS_QUOTA = 10_000
 
 
 class RequestModel(BaseModel):
@@ -207,6 +210,16 @@ class AccountRequest(RequestModel):
     username: str = Field(min_length=1, max_length=MAX_USERNAME_CHARS)
     password: str = Field(min_length=6, max_length=MAX_PASSWORD_CHARS)
     role: Optional[AccountRole] = "user"
+    # 0 / -1 表示不限制；None 表示沿用原值。仅 sudo 有权设置这些字段。
+    max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
+    max_users: Optional[int] = Field(default=None, ge=-1, le=MAX_USERS_QUOTA)
+    user_max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
+
+
+class AccountLimitsRequest(RequestModel):
+    max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
+    max_users: Optional[int] = Field(default=None, ge=-1, le=MAX_USERS_QUOTA)
+    user_max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
 
 
 class WebDavConfig(RequestModel):

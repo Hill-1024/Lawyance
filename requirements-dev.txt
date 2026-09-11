@@ -1,0 +1,4 @@
+# 开发/测试依赖：在 requirements.txt 之上补充测试专用包。
+# Redis 分支的测试在没有 fakeredis 时会自动跳过，但装上后覆盖更完整。
+-r requirements.txt
+fakeredis>=2.20.0

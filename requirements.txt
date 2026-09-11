@@ -11,3 +11,5 @@ PyMuPDF
 python-docx
 python-multipart>=0.0.31
 docxtpl>=0.18.0
+# 可选：配置 LAWVER_REDIS_URL 后用于共享限流计数与会话布隆过滤器；未配置时不使用。
+redis>=5.0.0

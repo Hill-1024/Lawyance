@@ -504,7 +504,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
         const role = auth?.role || 'user';
         if (cancelled) return;
         setUserRole(role);
-        if (role !== 'admin') return;
+        if (role !== 'sudo') return;
 
         const [nextSettings, nextStatuses] = await Promise.all([
           getSettings().catch(() => null),
@@ -529,7 +529,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
     return <CenteredSpinner label="正在读取配置…" />;
   }
 
-  if (userRole !== 'admin') {
+  if (userRole !== 'sudo') {
     return (
       <Banner tone="danger">
         需要管理员权限才能访问此配置。请联系管理员在后台开启相应能力。
@@ -1128,7 +1128,7 @@ export const SettingsPage: React.FC = () => {
       .then(auth => {
         const role = auth?.role || 'user';
         setUserRole(role);
-        if (role === 'admin') {
+        if (role === 'sudo') {
           return getProviderStatus().then(setProviderStatuses).catch(() => {});
         }
         return undefined;
@@ -1224,7 +1224,7 @@ export const SettingsPage: React.FC = () => {
                 />
               </SettingsGroup>
 
-              {userRole === 'admin' && (
+              {userRole === 'sudo' && (
                 <SettingsGroup
                   label="连接与能力"
                   hint="管理远端服务端的模型、法源与检索服务"

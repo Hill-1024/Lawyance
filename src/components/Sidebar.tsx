@@ -23,7 +23,7 @@ interface SidebarProps {
   setCurrentId: (id: string) => void;
   handleNewChat: () => void;
   deleteConversation: (id: string, e: React.MouseEvent) => void;
-  userRole?: string;
+  userRole?: 'sudo' | 'admin' | 'user';
   onAdminClick?: () => void;
   onCourtClick?: () => void;
   onSettingsClick?: () => void;
@@ -165,7 +165,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 设置
               </button>
             )}
-            {userRole === 'admin' && onAdminClick && (
+            {userRole !== 'user' && onAdminClick && (
               <button
                 onClick={onAdminClick}
                 className="md3-btn-tonal lawver-pressable w-full rounded-[var(--radius-md)] py-2.5 text-sm"

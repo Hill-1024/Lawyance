@@ -11,7 +11,6 @@ import os
 import re
 import tempfile
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +19,7 @@ from urllib.parse import urlparse
 import requests
 from fastapi import FastAPI, Request
 
+from services import rate_limit
 from services.app_security import client_ip_for_request
 
 
@@ -30,8 +30,8 @@ APK_MIME = "application/vnd.android.package-archive"
 GITHUB_API_VERSION = "2022-11-28"
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
-_download_windows: dict[str, dict[str, float | int]] = defaultdict(lambda: {"count": 0, "reset_time": 0.0})
-_last_download_prune = 0.0
+_APK_RATE_LIMIT_SCOPE = "apk"
+_APK_RATE_LIMIT_WINDOW_SECONDS = 60
 
 
 @dataclass(frozen=True)
@@ -277,27 +277,17 @@ def cached_apk_path() -> Path | None:
 
 
 def consume_apk_download_slot(request: Request) -> bool:
-    global _last_download_prune
-    now = time.time()
-    client_ip = client_ip_for_request(request)
-    if now - _last_download_prune > 60:
-        stale_ips = [ip for ip, data in _download_windows.items() if now > float(data["reset_time"])]
-        for ip in stale_ips:
-            del _download_windows[ip]
-        _last_download_prune = now
-
-    window = _download_windows[client_ip]
-    if now > float(window["reset_time"]):
-        window["count"] = 1
-        window["reset_time"] = now + 60
-        return True
-
-    window["count"] = int(window["count"]) + 1
-    return int(window["count"]) <= apk_download_rpm()
+    result = rate_limit.hit(
+        _APK_RATE_LIMIT_SCOPE,
+        client_ip_for_request(request),
+        limit=apk_download_rpm(),
+        window_seconds=_APK_RATE_LIMIT_WINDOW_SECONDS,
+    )
+    return result.allowed
 
 
 def reset_download_rate_limits() -> None:
-    _download_windows.clear()
+    rate_limit.reset(_APK_RATE_LIMIT_SCOPE)
 
 
 async def prepare_on_startup(app: FastAPI) -> None:

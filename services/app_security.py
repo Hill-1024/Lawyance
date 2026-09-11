@@ -2,7 +2,6 @@
 模块描述：应用级 CORS、CSRF、限流和访问日志中间件。
 """
 
-from collections import defaultdict
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from urllib.parse import urlparse
@@ -10,7 +9,6 @@ import ipaddress
 import logging
 import os
 import re
-import time
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -18,14 +16,29 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from auth import verify_token
+from services import rate_limit
 
 
 SECURE_ORIGIN = "https://law.mutsumi.moe"
 NATIVE_CLIENT_ORIGINS = {"https://localhost", "capacitor://localhost"}
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$")
-RATE_LIMIT = 100
 DEFAULT_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8", "::1/128")
+RATE_LIMIT_WINDOW_SECONDS = 60
+
+
+def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        configured = int(os.getenv(name, str(default)) or default)
+    except ValueError:
+        configured = default
+    return min(max(configured, minimum), maximum)
+
+
+# 通用 API 桶与登录桶分开：撞库是「同一 IP 喷洒大量用户名」，账号级锁定拦不住，
+# 只能靠 IP 维度的登录限流。计数默认走 Redis 共享，未配置时退回进程内。
+RATE_LIMIT = _bounded_env_int("LAWVER_API_RATE_LIMIT", 100, 1, 1_000_000)
+LOGIN_RATE_LIMIT = _bounded_env_int("LAWVER_LOGIN_RATE_LIMIT", 30, 1, 100_000)
 
 
 def _configured_json_body_limit() -> int:
@@ -116,10 +129,6 @@ def _install_usage_log_handler(log_path: Path) -> None:
 
 
 _install_usage_log_handler(configured_usage_log_path)
-
-# 进程内限流：仅在单 worker 部署下精确；多 worker 部署需要把状态迁到 Redis 或共享存储。
-ip_request_counts = defaultdict(lambda: {"count": 0, "reset_time": 0})
-last_rate_limit_prune = 0.0
 
 
 def get_usage_log_path() -> Path:
@@ -299,8 +308,15 @@ async def _buffer_json_body_with_limit(request: Request, limit: int | None = Non
     return None
 
 
+def _rate_limited_response(retry_after: int) -> Response:
+    return Response(
+        content="Rate limit exceeded",
+        status_code=429,
+        headers={"Retry-After": str(max(int(retry_after), 1))},
+    )
+
+
 async def security_and_logging_middleware(request: Request, call_next):
-    global last_rate_limit_prune
     client_ip = client_ip_for_request(request)
     method = request.method
     path = request.url.path
@@ -318,27 +334,24 @@ async def security_and_logging_middleware(request: Request, call_next):
         if not origin_trusted and not referer_trusted:
             return Response(content="Missing origin", status_code=403)
 
+    # 限流放在读取请求体之前：无效洪水应当只花一次计数，而不是先把 40MB 读进来。
+    if path.startswith("/api") and method != "OPTIONS":
+        general = rate_limit.hit(
+            "api", client_ip, limit=RATE_LIMIT, window_seconds=RATE_LIMIT_WINDOW_SECONDS
+        )
+        if not general.allowed:
+            return _rate_limited_response(general.retry_after)
+        if path == "/api/login":
+            login = rate_limit.hit(
+                "login", client_ip, limit=LOGIN_RATE_LIMIT, window_seconds=RATE_LIMIT_WINDOW_SECONDS
+            )
+            if not login.allowed:
+                return _rate_limited_response(login.retry_after)
+
     if _has_json_content_type(request):
         body_error = await _buffer_json_body_with_limit(request, _json_body_limit_for_path(path))
         if body_error is not None:
             return body_error
-
-    now = time.time()
-    if path.startswith("/api") and method != "OPTIONS":
-        if now - last_rate_limit_prune > 60:
-            stale_ips = [ip for ip, data in ip_request_counts.items() if now > data["reset_time"]]
-            for ip in stale_ips:
-                del ip_request_counts[ip]
-            last_rate_limit_prune = now
-
-        ip_data = ip_request_counts[client_ip]
-        if now > ip_data["reset_time"]:
-            ip_data["count"] = 1
-            ip_data["reset_time"] = now + 60
-        else:
-            ip_data["count"] += 1
-            if ip_data["count"] > RATE_LIMIT:
-                return Response(content="Rate limit exceeded", status_code=429)
 
     response = await call_next(request)
 
