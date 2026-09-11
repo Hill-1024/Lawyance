@@ -42,7 +42,7 @@ The repository contains a FastAPI backend, a React/Vite frontend, a tool forward
 - **Moot court**: civil, administrative, and criminal trial simulations driven by a phase state machine, with four built-in roles (judge, opposing counsel, post-trial reviewer, optional user-side AI agent), fact/source boundaries between the public record and the private brief, and rewind/branch support.
 - **Conversation workspace**: isolates `TEMP` and `Result` file spaces by user and conversation.
 - **Conversation memory**: records and retrieves stable facts, goals, constraints, and semantic tags without stuffing all history into the prompt.
-- **Auth and audit**: login, roles, admin account management, API access logs, and basic rate limiting.
+- **Auth and audit**: login, roles, admin account management, API access logs, Redis-backed shared rate limiting, and a session Bloom filter that absorbs invalid-token floods.
 - **Frontend experience**: React 19 + Vite UI covering chat, moot court, file workspace, theme settings, admin dashboard, and Lawver branding.
 
 ## Architecture
@@ -171,12 +171,13 @@ Optional environment variables:
 python -m pytest
 ```
 
-The current suite has roughly 170 cases. Representative coverage:
+The current suite has roughly 440 cases. Representative coverage:
 
 - `tests/test_memory_system.py`, `tests/test_prompt_loader.py`: conversation memory and dynamic prompt assembly.
 - `tests/test_ocp.py`, `tests/test_tool_loop_agent.py`: output review and the unified tool loop.
 - `tests/test_court_mode.py`: moot-court phase state machine and role boundaries.
 - `tests/test_security_hardening.py`, `tests/test_mcps_workspace_paths.py`, `tests/test_remaining_vulnerability_fixes.py`: CSRF, rate limiting, workspace paths, and regression coverage for past vulnerabilities.
+- `tests/test_request_shielding.py`: Bloom-filter false-negative boundaries, shared rate limiting, Redis degradation, and database-free rejection of invalid tokens. The Redis branch needs `fakeredis` (see `requirements-dev.txt`) and skips automatically without it.
 - `tests/test_function_calling_tools.py`, `tests/test_tool_schema_compatibility.py`, `tests/test_tool_exposure.py`: tool schemas, exposure tags, and OpenAI compatibility.
 - `tests/test_law_data_search.py`, `tests/test_law_cache_startup.py`, `tests/test_searxng_tool.py`: local law retrieval, incremental cache build, and the SearXNG client.
 
@@ -248,15 +249,51 @@ Backend entrypoint: `routes/court.py`; pipeline: `services/court_pipeline.py` an
 - Legal answers should preserve a verifiable chain: facts, statutes, cases, or source links should remain traceable.
 - Frontend migration and UI work should follow the Lawver design system, not hide layout issues with padding hacks or compatibility layers.
 
+## Accounts and Permissions
+
+Accounts, password hashes, and online sessions live in the SQLite database `auth.sqlite3` under `data/`, alongside `secrets.json`, `settings.json`, and `lockout.json`, instead of `data/account.json`. On first start, if the auth database is empty and a legacy `account.json` exists, it is imported and the file is renamed to `account.json.imported-<timestamp>` (role `admin` maps to `sudo`).
+
+There are three roles, forming a `sudo → admin → user` hierarchy:
+
+- `sudo`: full permissions — view usage logs, manage every account, set each admin's quota n / m, override a user's online-device limit, kick any device, and manage system/model settings. The built-in account is named `admin` with role `sudo` and cannot be deleted.
+- `admin`: manages only the users it created, up to n accounts; can reset passwords, delete, and kick their devices. Cannot create admins/sudos, cannot change m, and cannot see logs or system settings.
+- `user`: use only.
+
+Online device limit: each account is capped by its "max online devices" value (blank/0 means unlimited). A login creates a session record; sessions active within `LAWVER_ONLINE_WINDOW_SECONDS` (default 900) count as online. When the cap is exceeded the oldest idle device is kicked by default (`LAWVER_ONLINE_LIMIT_ACTION=reject` refuses the new login instead). Logout, password/role changes, and deletion revoke the affected sessions immediately.
+
+## Request Shielding (Rate Limits and Bloom Filter)
+
+Two front-line defenses keep large volumes of invalid requests from punching through to the backend. Both degrade automatically with Redis availability.
+
+**1. Shared rate limiting.** Every `/api` request is counted per client IP (100/minute by default), and `POST /api/login` has a stricter login bucket (30/minute by default). The login bucket exists to stop same-IP credential stuffing across many usernames, which per-account lockout cannot catch. Android APK downloads use the same counter (6/minute by default, tunable with `LAWVER_APK_DOWNLOAD_RPM`). A blocked request returns 429 with `Retry-After`, before the request body is read.
+
+**2. Session Bloom filter.** The JWT `sid` is checked against a bitmap first; a token whose `sid` is definitely absent is rejected without opening SQLite. The bitmap is add-only and only participates once warm-up finished and both the bitmap and its ready marker exist: evicted keys, interrupted warm-up, or command errors all fall through to the database. False negatives (rejecting a valid login) therefore cannot happen, and a false positive only costs one extra lookup.
+
+With Redis configured, rate-limit counters and the session bitmap are shared by every worker/instance; without `LAWVER_REDIS_URL` everything falls back to process-local state, matching the previous single-worker behavior. Redis is only a shield: a wrong URL, an unreachable server, or a failing command degrades for a cooldown window without affecting login or authentication. Plain Redis is enough — no RedisBloom module is needed, since the bitmap uses `SETBIT`/`GETBIT`.
+
+Optional environment variables:
+
+- `LAWVER_REDIS_URL` (also accepts `REDIS_URL`): Redis connection string, e.g. `redis://127.0.0.1:6379/0`; unset means fully process-local.
+- `LAWVER_REDIS_PREFIX`: key prefix, default `lawver`.
+- `LAWVER_REDIS_TIMEOUT`: per-command timeout in seconds, default `0.25`; a stalled Redis adds at most this much latency per request.
+- `LAWVER_API_RATE_LIMIT`: global per-IP API requests per minute, default `100`.
+- `LAWVER_LOGIN_RATE_LIMIT`: per-IP login attempts per minute, default `30`.
+- `LAWVER_RATE_LIMIT_ENABLED`: set to `0` to disable rate limiting entirely (test environments only).
+- `LAWVER_BLOOM_ENABLED`: set to `0` to disable the session Bloom filter and query the database on every request.
+- `LAWVER_BLOOM_SESSION_CAPACITY`: bitmap capacity, default `200000`; size it to the order of magnitude of live sessions.
+- `LAWVER_BLOOM_ERROR_RATE`: false-positive rate, default `0.001`.
+
+Startup logs report the backend actually in use: `Redis 请求防护：available=... prefix=...` and `会话布隆过滤器预热完成：...`.
+
 ## Security Notes
 
 - `.env`, real contracts, client materials, generated results, and logs may contain sensitive information and should not be committed casually.
-- First deployment must set `SECRET_KEY` with at least 32 random characters and a one-time `INITIAL_ADMIN_PASSWORD`; remove the initial password variable after `data/account.json` is created.
+- First deployment must set `SECRET_KEY` with at least 32 random characters and a one-time `INITIAL_ADMIN_PASSWORD`; remove the initial password variable after the auth database is created.
 - Current CORS, rate limit, and auth defaults fit an internal prototype. Public deployment requires domain-specific hardening.
 - Every non-GET `/api` request now requires a trusted Origin or Referer. Add production frontend origins to `LAWVER_ALLOWED_ORIGINS` (or the legacy `ALLOWED_ORIGINS`); local loopback addresses are accepted by default.
 - By default, `CF-Connecting-IP` / `X-Forwarded-For` are honored only from loopback proxies. Add production proxy ranges with `LAWVER_TRUSTED_PROXY_CIDRS` when the proxy is not local.
-- The rate limiter stores counters in process memory. With `UVICORN_WORKERS>1` each worker counts independently, so public deployments should move the counters to Redis or another shared store.
-- Admin APIs can manage accounts and read logs, so they should only be available to trusted administrators.
+- Rate-limit counters and the session Bloom filter are process-local by default. Multi-worker (`UVICORN_WORKERS>1`) or multi-instance deployments should set `LAWVER_REDIS_URL`; otherwise each worker counts on its own and the real ceiling is multiplied by the worker count.
+- Admin APIs manage accounts and read logs: `/api/admin/logs` is sudo-only, while account and device endpoints are scoped by the sudo/admin hierarchy. Expose them only to trusted staff.
 - File annotation, document reading, and download APIs require ongoing attention to path isolation and permissions.
 
 ## License

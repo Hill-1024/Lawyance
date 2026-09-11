@@ -5,7 +5,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from starlette.concurrency import run_in_threadpool
 
-from auth import authenticate_user, create_token, get_user_role
+from auth import (
+    ROLE_ADMIN,
+    authenticate_user,
+    count_online,
+    create_session,
+    create_token,
+    get_user_limits,
+    get_user_role,
+    hash_client_identity,
+    revoke_token_session,
+)
 from schemas import LoginRequest
 from services.app_security import (
     NATIVE_CLIENT_ORIGINS,
@@ -25,6 +35,13 @@ def is_native_client_request(request: Request) -> bool:
     return client_type == "capacitor" and (origin in NATIVE_CLIENT_ORIGINS or is_trusted_origin(origin))
 
 
+def _extract_token(request: Request) -> str | None:
+    authorization = request.headers.get("authorization") or ""
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    return request.cookies.get("auth_token")
+
+
 @router.post("/api/login")
 async def login(req: LoginRequest, response: Response, request: Request):
     success, msg = await run_in_threadpool(
@@ -36,7 +53,17 @@ async def login(req: LoginRequest, response: Response, request: Request):
     if not success:
         raise HTTPException(status_code=401, detail=msg)
 
-    token = await run_in_threadpool(create_token, req.username)
+    session_ok, session_msg, sid, _evicted = await run_in_threadpool(
+        create_session,
+        req.username,
+        client=((request.headers.get("x-lawver-client") or "web").strip() or "web"),
+        user_agent=(request.headers.get("user-agent") or "")[:512],
+        ip_hash=hash_client_identity(client_ip_for_request(request)),
+    )
+    if not session_ok:
+        raise HTTPException(status_code=429, detail=session_msg)
+
+    token = await run_in_threadpool(create_token, req.username, sid)
     response.set_cookie(
         key="auth_token",
         value=token,
@@ -58,6 +85,9 @@ async def login(req: LoginRequest, response: Response, request: Request):
 
 @router.post("/api/logout")
 async def logout(response: Response, request: Request):
+    token = _extract_token(request)
+    if token:
+        await run_in_threadpool(revoke_token_session, token)
     response.delete_cookie(
         key="auth_token",
         httponly=True,
@@ -69,4 +99,16 @@ async def logout(response: Response, request: Request):
 
 @router.get("/api/verify_auth")
 async def verify_auth_endpoint(current_user: str = Depends(get_current_user)):
-    return {"status": "success", "username": current_user, "role": get_user_role(current_user)}
+    role = get_user_role(current_user)
+    limits = get_user_limits(current_user)
+    payload = {
+        "status": "success",
+        "username": current_user,
+        "role": role,
+        "max_online": limits.get("max_online"),
+        "online_count": count_online(current_user),
+    }
+    if role == ROLE_ADMIN:
+        payload["max_users"] = limits.get("max_users")
+        payload["user_max_online"] = limits.get("user_max_online")
+    return payload

@@ -13,12 +13,56 @@ const API_BASE = isNative()
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
 
+export type Role = 'sudo' | 'admin' | 'user';
+
 export interface LoginResult {
   status: string;
   message: string;
   username?: string;
-  role?: string;
+  role?: Role;
   token?: string;
+}
+
+export interface AuthInfo {
+  status: string;
+  username: string;
+  role: Role;
+  max_online?: number | null;
+  online_count?: number;
+  max_users?: number | null;
+  user_max_online?: number | null;
+}
+
+export interface Account {
+  username: string;
+  role: Role;
+  owner?: string | null;
+  max_online?: number | null;
+  max_users?: number | null;
+  user_max_online?: number | null;
+  online_count?: number;
+  owned_count?: number | null;
+}
+
+export interface AccountLimits {
+  /** 0 表示不限制；不传表示沿用原值。 */
+  max_online?: number;
+  /** -1 表示不限制；不传表示沿用原值。 */
+  max_users?: number;
+  /** 0 表示不限制；不传表示沿用原值。 */
+  user_max_online?: number;
+}
+
+export interface SessionInfo {
+  sid: string;
+  username: string;
+  client?: string | null;
+  user_agent?: string | null;
+  ip_hash?: string | null;
+  created_at: number;
+  last_seen_at: number;
+  expires_at: number;
+  online: boolean;
 }
 
 export const setUnauthorizedHandler = (handler: (() => void | Promise<void>) | null) => {
@@ -97,7 +141,7 @@ export const buildChatRequestBody = (
   last_context_tokens: lastContextTokens ?? null
 });
 
-export const verifyAuth = async () => {
+export const verifyAuth = async (): Promise<AuthInfo> => {
   const res = await apiFetch('/api/verify_auth');
   if (!res.ok) throw new Error('Not authenticated');
   return res.json();
@@ -473,7 +517,7 @@ export const clearLogs = async () => {
   return res.json();
 };
 
-export const fetchAccounts = async () => {
+export const fetchAccounts = async (): Promise<{ status: string; accounts: Account[] }> => {
   const res = await apiFetch('/api/admin/accounts');
   if (!res.ok) {
     if (res.status === 403) throw new Error('Access denied. Admin role required.');
@@ -482,11 +526,16 @@ export const fetchAccounts = async () => {
   return res.json();
 };
 
-export const setAccount = async (username: string, password: string, role: string = 'user') => {
+export const setAccount = async (
+  username: string,
+  password: string,
+  role: Role = 'user',
+  limits: AccountLimits = {}
+) => {
   const res = await apiFetch('/api/admin/accounts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, role })
+    body: JSON.stringify({ username, password, role, ...limits })
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
@@ -494,6 +543,20 @@ export const setAccount = async (username: string, password: string, role: strin
   }
   return res.json();
 };
+
+export const updateAccountLimits = async (username: string, limits: AccountLimits) => {
+  const res = await apiFetch(`/api/admin/accounts/${encodeURIComponent(username)}/limits`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(limits)
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to update limits');
+  }
+  return res.json();
+};
+
 export const deleteAccount = async (username: string) => {
   const res = await apiFetch(`/api/admin/accounts/${encodeURIComponent(username)}`, {
     method: 'DELETE'
@@ -501,6 +564,26 @@ export const deleteAccount = async (username: string) => {
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Failed to delete account');
+  }
+  return res.json();
+};
+
+export const fetchSessions = async (): Promise<{ status: string; sessions: SessionInfo[] }> => {
+  const res = await apiFetch('/api/admin/sessions');
+  if (!res.ok) {
+    if (res.status === 403) throw new Error('Access denied. Admin role required.');
+    throw new Error('Failed to fetch sessions');
+  }
+  return res.json();
+};
+
+export const revokeSession = async (sid: string) => {
+  const res = await apiFetch(`/api/admin/sessions/${encodeURIComponent(sid)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to revoke session');
   }
   return res.json();
 };

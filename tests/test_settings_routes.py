@@ -82,7 +82,7 @@ class SettingsRouteTests(unittest.TestCase):
             for path in ("/api/settings", "/api/providers/status", "/api/llm/models"):
                 response = user_client.get(path)
                 self.assertEqual(response.status_code, 403, path)
-                self.assertEqual(response.json()["detail"], "Admin access required")
+                self.assertEqual(response.json()["detail"], "Sudo access required")
         finally:
             user_client.close()
 

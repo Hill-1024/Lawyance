@@ -17,6 +17,8 @@ RAG/cache/
 RAG/data_doc/
 RAG/__pycache__/
 .claude/
+# 本地 agent 计划/会话产物，与 .claude/ 同理不入库
+.zcode/
 # 运行时会话产物，绝不能入库（vite.config.ts 亦把它们列为 watch-ignored）
 sessions.json
 titles.json

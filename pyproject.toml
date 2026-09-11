@@ -14,10 +14,16 @@ dependencies = [
     "python-docx>=1.2.0",
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.31",
+    "redis>=5.0.0",
     "requests>=2.34.2",
     "tldextract>=5.3.1",
     "trafilatura>=2.0.0",
     "uvicorn[standard]>=0.42.0",
+]
+
+[dependency-groups]
+dev = [
+    "fakeredis>=2.20.0",
 ]
 
 [tool.pyright]

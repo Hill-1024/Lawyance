@@ -100,6 +100,7 @@ class AuthStateConcurrencyTests(unittest.TestCase):
             sys.modules.pop("auth", None)
             try:
                 auth = importlib.import_module("auth")
+                auth_store = importlib.import_module("services.auth_store")
                 captured_errors = []
 
                 # Lockout records are only created for real accounts. Reuse the
@@ -108,8 +109,18 @@ class AuthStateConcurrencyTests(unittest.TestCase):
                 accounts = auth.get_accounts_data()
                 bootstrap_hash = accounts["admin"]["hash"]
                 for index in range(8):
-                    accounts[f"user{index}"] = {"hash": bootstrap_hash, "role": "user"}
-                auth._write_json(auth.ACCOUNT_FILE, accounts)
+                    auth_store.insert_user_record(
+                        {
+                            "username": f"user{index}",
+                            "password_hash": bootstrap_hash,
+                            "role": "user",
+                            "auth_version": 0,
+                            "owner": None,
+                            "max_online": None,
+                            "max_users": None,
+                            "user_max_online": None,
+                        }
+                    )
 
                 def capture_print(*args, **_kwargs):
                     captured_errors.append(" ".join(str(arg) for arg in args))
@@ -204,7 +215,7 @@ class ApiBoundaryTests(unittest.TestCase):
         data = response.json()
         self.assertIn("token", data)
         self.assertEqual(data["username"], "admin")
-        self.assertEqual(data["role"], "admin")
+        self.assertEqual(data["role"], "sudo")
 
         stateless_client = TestClient(self.agent.app, base_url="http://localhost")
         try:

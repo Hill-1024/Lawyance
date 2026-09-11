@@ -26,5 +26,6 @@ if __name__ == "__main__":
     print("-" * 50)
     print(hashed)
     print("-" * 50)
-    print("\n请将此哈希值保存到 /data/account.json 对应的密码字段中。例如：")
-    print('{\n    "admin": "' + hashed + '"\n}')
+    print("\n账号现由 SQLite（data/auth.sqlite3）管理，请通过后台「系统管理 → 全部账号」")
+    print("为账号重置密码，不要把摘要直接写入文件。若确需手工写入数据库，请保持同样的")
+    print("pbkdf2_sha256 格式，并同步刷新该账号的 auth_version 以作废旧令牌。")

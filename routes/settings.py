@@ -6,7 +6,7 @@ from pydantic import Field
 from starlette.concurrency import run_in_threadpool
 
 from schemas import ProviderKey, RequestModel, SettingsPayload
-from services.auth_dependencies import require_admin
+from services.auth_dependencies import require_sudo
 from services.settings_service import (
     activate_llm_profile,
     clear_profile_secret,
@@ -49,14 +49,14 @@ class SecretClearRequest(RequestModel):
 
 
 @router.get("/api/settings")
-async def get_settings_endpoint(admin_user: str = Depends(require_admin)):
+async def get_settings_endpoint(admin_user: str = Depends(require_sudo)):
     return await run_in_threadpool(get_settings)
 
 
 @router.post("/api/settings")
 async def update_settings_endpoint(
     payload: SettingsPayload,
-    admin_user: str = Depends(require_admin),
+    admin_user: str = Depends(require_sudo),
 ):
     try:
         return await run_in_threadpool(update_settings, payload.model_dump())
@@ -67,7 +67,7 @@ async def update_settings_endpoint(
 @router.post("/api/settings/secret")
 async def set_secret_endpoint(
     req: SecretWriteRequest,
-    admin_user: str = Depends(require_admin),
+    admin_user: str = Depends(require_sudo),
 ):
     try:
         await run_in_threadpool(set_secret, req.provider, req.key, req.value)
@@ -79,7 +79,7 @@ async def set_secret_endpoint(
 @router.post("/api/settings/secret/clear")
 async def clear_secret_endpoint(
     req: SecretClearRequest,
-    admin_user: str = Depends(require_admin),
+    admin_user: str = Depends(require_sudo),
 ):
     try:
         await run_in_threadpool(clear_secret, req.provider, req.key)
@@ -92,14 +92,14 @@ async def clear_secret_endpoint(
 
 
 @router.get("/api/settings/llm/profiles")
-async def list_llm_profiles_endpoint(admin_user: str = Depends(require_admin)):
+async def list_llm_profiles_endpoint(admin_user: str = Depends(require_sudo)):
     return await run_in_threadpool(list_llm_profiles)
 
 
 @router.post("/api/settings/llm/profiles")
 async def save_llm_profile_endpoint(
     req: LlmProfileWriteRequest,
-    admin_user: str = Depends(require_admin),
+    admin_user: str = Depends(require_sudo),
 ):
     try:
         return await run_in_threadpool(
@@ -113,7 +113,7 @@ async def save_llm_profile_endpoint(
 @router.post("/api/settings/llm/profiles/{profile_id}/activate")
 async def activate_llm_profile_endpoint(
     profile_id: str = Path(min_length=1, max_length=64, pattern=_PROFILE_ID_PATTERN),
-    admin_user: str = Depends(require_admin),
+    admin_user: str = Depends(require_sudo),
 ):
     try:
         return await run_in_threadpool(activate_llm_profile, profile_id)
@@ -124,7 +124,7 @@ async def activate_llm_profile_endpoint(
 @router.post("/api/settings/llm/profiles/{profile_id}/secret/clear")
 async def clear_llm_profile_secret_endpoint(
     profile_id: str = Path(min_length=1, max_length=64, pattern=_PROFILE_ID_PATTERN),
-    admin_user: str = Depends(require_admin),
+    admin_user: str = Depends(require_sudo),
 ):
     try:
         await run_in_threadpool(clear_profile_secret, profile_id)
@@ -136,7 +136,7 @@ async def clear_llm_profile_secret_endpoint(
 @router.delete("/api/settings/llm/profiles/{profile_id}")
 async def delete_llm_profile_endpoint(
     profile_id: str = Path(min_length=1, max_length=64, pattern=_PROFILE_ID_PATTERN),
-    admin_user: str = Depends(require_admin),
+    admin_user: str = Depends(require_sudo),
 ):
     try:
         return await run_in_threadpool(delete_llm_profile, profile_id)
@@ -145,14 +145,14 @@ async def delete_llm_profile_endpoint(
 
 
 @router.get("/api/providers/status")
-async def provider_status_endpoint(admin_user: str = Depends(require_admin)):
+async def provider_status_endpoint(admin_user: str = Depends(require_sudo)):
     return await run_in_threadpool(get_provider_statuses)
 
 
 @router.get("/api/providers/test/{provider}")
 async def test_provider_endpoint(
     provider: ProviderKey,
-    admin_user: str = Depends(require_admin),
+    admin_user: str = Depends(require_sudo),
 ):
     result = await run_in_threadpool(test_provider_connection, provider)
     if not result["ok"]:
@@ -161,5 +161,5 @@ async def test_provider_endpoint(
 
 
 @router.get("/api/llm/models")
-async def llm_models_endpoint(admin_user: str = Depends(require_admin)):
+async def llm_models_endpoint(admin_user: str = Depends(require_sudo)):
     return await run_in_threadpool(fetch_llm_models)

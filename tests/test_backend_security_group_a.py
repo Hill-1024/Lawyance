@@ -142,17 +142,19 @@ class AuthLockoutBudgetTests(IsolatedBackendTest):
 class PrivateStoragePermissionTests(IsolatedBackendTest):
     def test_existing_auth_and_secret_files_are_hardened_before_read(self):
         auth = importlib.import_module("auth")
+        auth_store = importlib.import_module("services.auth_store")
         for _ in range(3):
             auth.authenticate_user("admin", "bad-password", "203.0.113.10")
 
+        db_path = auth_store.db_path()
         os.chmod(self.tmp, 0o777)
-        os.chmod(auth.ACCOUNT_FILE, 0o666)
+        os.chmod(db_path, 0o666)
         os.chmod(auth.LOCKOUT_FILE, 0o666)
         auth._ensure_account_file()
         auth._read_lockouts()
 
         self.assertEqual(_mode(self.tmp), 0o700)
-        self.assertEqual(_mode(auth.ACCOUNT_FILE), 0o600)
+        self.assertEqual(_mode(db_path), 0o600)
         self.assertEqual(_mode(auth.LOCKOUT_FILE), 0o600)
         self.assertEqual(_mode(auth.AUTH_STATE_LOCK_FILE), 0o600)
 
