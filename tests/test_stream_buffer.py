@@ -14,6 +14,66 @@ async def collect_reader(stream_id: str, from_seq: int) -> list[dict]:
 
 
 class StreamBufferTests(unittest.IsolatedAsyncioTestCase):
+    async def test_close_during_replay_releases_reader_slot(self):
+        state = await stream_buffer.create("s1", "alice")
+        await stream_buffer.append("s1", {"type": "content", "content": "cached"})
+        for _ in range(stream_buffer.MAX_READERS_PER_STREAM + 1):
+            reader = stream_buffer.reader("s1", -1)
+            try:
+                self.assertEqual((await anext(reader))["type"], "content")
+            finally:
+                await reader.aclose()
+            self.assertEqual(state.readers, {})
+
+    async def test_duplicate_id_preserves_original_owner_and_bytes(self):
+        state = await stream_buffer.create("s1", "alice")
+        await stream_buffer.append("s1", {"type": "content", "content": "cached"})
+        before = stream_buffer.stats()
+        self.assertIsNone(await stream_buffer.create("s1", "bob"))
+        self.assertIs(await stream_buffer.get("s1", "alice"), state)
+        self.assertEqual(stream_buffer.stats(), before)
+
+    async def test_append_waiting_on_deleted_state_does_not_leak_bytes(self):
+        state = await stream_buffer.create("s1", "alice")
+        before = stream_buffer.stats()["global_bytes"]
+        async with state.lock:
+            pending = asyncio.create_task(stream_buffer.append("s1", {"type": "content", "content": "late"}))
+            await asyncio.sleep(0)
+            await stream_buffer.delete("s1")
+        self.assertEqual(await pending, -1)
+        self.assertEqual(stream_buffer.stats()["global_bytes"], before)
+        self.assertEqual(state.events, [])
+
+    async def test_finished_stream_rejects_late_events(self):
+        state = await stream_buffer.create("s1", "alice")
+        await stream_buffer.append("s1", {"type": "done"})
+        await stream_buffer.finish("s1")
+        before = stream_buffer.stats()
+        self.assertEqual(await stream_buffer.append("s1", {"type": "content", "content": "late"}), -1)
+        self.assertEqual(state.next_seq, 1)
+        self.assertEqual(stream_buffer.stats(), before)
+
+    async def test_ack_waiting_on_deleted_state_preserves_other_stream_bytes(self):
+        state = await stream_buffer.create("s1", "alice")
+        other = await stream_buffer.create("s2", "alice")
+        await stream_buffer.append("s1", {"type": "content", "content": "a"})
+        await stream_buffer.append("s2", {"type": "content", "content": "b"})
+        async with state.lock:
+            pending = asyncio.create_task(stream_buffer.ack("s1", "alice", 0))
+            await asyncio.sleep(0)
+            await stream_buffer.delete("s1")
+        self.assertIsNone(await pending)
+        self.assertEqual(stream_buffer.stats()["global_bytes"], other.byte_count)
+
+    async def test_reader_waiting_on_deleted_state_terminates(self):
+        state = await stream_buffer.create("s1", "alice")
+        async with state.lock:
+            pending = asyncio.create_task(collect_reader("s1", -1))
+            await asyncio.sleep(0)
+            await stream_buffer.delete("s1")
+        self.assertEqual(await asyncio.wait_for(pending, timeout=1), [])
+        self.assertEqual(state.readers, {})
+
     async def asyncTearDown(self):
         for stream_id in [
             "s1", "s2", "owned", "ttl", "quota", "bytes", "cancel",

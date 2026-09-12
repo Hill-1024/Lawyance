@@ -1,0 +1,7 @@
+overrides:
+  '@capacitor/core': 8.3.4
+  '@capacitor/android': 8.3.4
+  esbuild: 0.28.1
+
+onlyBuiltDependencies:
+  - sharp

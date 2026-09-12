@@ -191,6 +191,8 @@ def _evict_done_until_under_limit(required_bytes: int = 0) -> None:
 
 async def create(stream_id: str, user: str) -> Optional[StreamState]:
     async with _GLOBAL_LOCK:
+        if stream_id in _REGISTRY:
+            return None
         _evict_done_until_under_limit()
         if MAX_STREAMS_PER_USER and _user_stream_count(user) >= MAX_STREAMS_PER_USER:
             return None
@@ -216,6 +218,9 @@ async def append(stream_id: str, payload: dict[str, Any]) -> int:
         return -1
 
     async with state.lock:
+        # 等待锁期间流可能已被取消、清理或替换，不能再写入失效状态。
+        if _REGISTRY.get(stream_id) is not state or state.done:
+            return -1
         seq = state.next_seq
         state.next_seq += 1
         event = dict(payload)
@@ -236,6 +241,8 @@ async def append(stream_id: str, payload: dict[str, Any]) -> int:
             state.truncated_at_seq = seq
 
         async with _GLOBAL_LOCK:
+            if _REGISTRY.get(stream_id) is not state:
+                return -1
             if should_store and MAX_BYTES_GLOBAL:
                 _evict_done_until_under_limit(size)
                 if _GLOBAL_BYTES + size > MAX_BYTES_GLOBAL:
@@ -293,6 +300,8 @@ async def reader(stream_id: str, from_seq: int) -> AsyncIterator[dict[str, Any]]
     reader_state = ReaderState()
     reader_id: Optional[int] = None
     async with state.lock:
+        if _REGISTRY.get(stream_id) is not state:
+            return
         truncated_upper_bound = state.final_seq if state.final_seq is not None else state.next_seq - 1
         if state.truncated and from_seq < truncated_upper_bound:
             unavailable = {
@@ -320,16 +329,17 @@ async def reader(stream_id: str, from_seq: int) -> AsyncIterator[dict[str, Any]]
             reader_id = _READER_ID
             state.readers[reader_id] = reader_state
 
-    for payload in replay:
-        seq = int(payload.get("seq", -1))
-        if seq > from_seq:
-            from_seq = seq
-            yield payload
-
-    if is_done:
-        return
-
     try:
+        # 回放也可能被客户端中断，必须和实时读取共用清理路径。
+        for payload in replay:
+            seq = int(payload.get("seq", -1))
+            if seq > from_seq:
+                from_seq = seq
+                yield payload
+
+        if is_done:
+            return
+
         while True:
             event = await reader_state.queue.get()
             if event is None:
@@ -353,17 +363,19 @@ async def ack(stream_id: str, user: str, acked_seq: int) -> Optional[int]:
         return None
 
     async with state.lock:
-        state.last_acked_seq = max(state.last_acked_seq, acked_seq)
-        kept: list[tuple[int, dict[str, Any]]] = []
-        removed_bytes = 0
-        for seq, payload in state.events:
-            if seq <= acked_seq:
-                removed_bytes += _payload_size(payload)
-            else:
-                kept.append((seq, payload))
-        state.events = kept
-        state.byte_count = max(0, state.byte_count - removed_bytes)
         async with _GLOBAL_LOCK:
+            if _REGISTRY.get(stream_id) is not state:
+                return None
+            state.last_acked_seq = max(state.last_acked_seq, acked_seq)
+            kept: list[tuple[int, dict[str, Any]]] = []
+            removed_bytes = 0
+            for seq, payload in state.events:
+                if seq <= acked_seq:
+                    removed_bytes += _payload_size(payload)
+                else:
+                    kept.append((seq, payload))
+            state.events = kept
+            state.byte_count = max(0, state.byte_count - removed_bytes)
             _GLOBAL_BYTES = max(0, _GLOBAL_BYTES - removed_bytes)
 
         final_seq = state.final_seq
