@@ -8,11 +8,11 @@ import re
 import time
 import copy
 import asyncio
-from openai import AsyncOpenAI
+from typing import Any
 from dotenv import load_dotenv
+from llm.client import build_client
 from llm.retry import with_retry
-from mcps import use_tools
-from tools import registry
+from mcps import ocp_tools, use_tools
 from output_sanitizer import (
     extract_final_answer as _shared_extract_final_answer,
     strip_think_blocks,
@@ -23,7 +23,7 @@ from output_sanitizer import (
 
 load_dotenv(".env")
 
-# OCP 专用配置，未设置时回退到主模型环境变量，最后回退到管理后台的模型档案。
+# 环境变量兜底配置；生产路径由 services.ocp_service 解析后经 config 注入。
 OCP_API_KEY = os.getenv("OCP_API_KEY") or os.getenv("API_KEY")
 OCP_BASE_URL = os.getenv("OCP_BASE_URL") or os.getenv("BASE_URL")
 OCP_LLM_MODEL = os.getenv("OCP_LLM_MODEL") or os.getenv("LLM_MODEL")
@@ -32,23 +32,18 @@ OCP_CALL_TIMEOUT = float(os.getenv("OCP_CALL_TIMEOUT", "25"))
 OCP_TOOL_TIMEOUT = float(os.getenv("OCP_TOOL_TIMEOUT", "8"))
 
 
-def _resolve_ocp_config() -> tuple[str, str, str]:
-    """返回 (api_key, base_url, model)；仅在环境变量缺项时读取活动模型档案。"""
-    api_key = OCP_API_KEY or ""
-    base_url = OCP_BASE_URL or ""
-    model = OCP_LLM_MODEL or ""
-    if api_key and base_url and model:
-        return api_key, base_url, model
-    try:
-        from services import settings_service
-        cfg = settings_service.resolve_active_llm_config() or {}
-    except Exception:
-        cfg = {}
-    return (
-        api_key or str(cfg.get("api_key") or ""),
-        base_url or str(cfg.get("base_url") or ""),
-        model or str(cfg.get("model") or ""),
-    )
+def _env_ocp_config() -> dict[str, str]:
+    return {
+        "api_key": OCP_API_KEY or "",
+        "base_url": OCP_BASE_URL or "",
+        "model": OCP_LLM_MODEL or "",
+    }
+
+
+def _build_ocp_client(config: dict[str, str] | None) -> tuple[Any, str]:
+    resolved = config if config is not None else _env_ocp_config()
+    client = build_client(resolved.get("api_key"), resolved.get("base_url"))
+    return client, str(resolved.get("model") or "")
 
 
 # ── OCP 审查专用 System Prompt ──────────────────────────────────────────
@@ -118,9 +113,9 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 </output_rules>"""
 
 
-# ── OCP 可用的工具子集（从 registry exposure 统一过滤，只允许审查必需的只读法律信源工具） ──
+# ── OCP 可用的工具子集（经 mcps 转发面按 exposure 过滤，只允许审查必需的只读法律信源工具） ──
 
-OCP_TOOLS = registry.schemas("ocp_reviewer")
+OCP_TOOLS = ocp_tools
 OCP_PROGRESS_MESSAGE = '\n\n**[OCP] 正在进行格式审查与信源核验...**\n'
 OCP_TOOL_LABELS = {
     "get_linked_content": "补充法规信源",
@@ -191,14 +186,10 @@ class OCPStatic:
         "incomplete chunked read",
     }
 
-    def __init__(self, session_id: str = "default"):
+    def __init__(self, session_id: str = "default", *, config: dict[str, str] | None = None):
         self.session_id = session_id
-        api_key, base_url, model = _resolve_ocp_config()
-        self.model = model
-        self.client = AsyncOpenAI(
-            api_key=api_key or "lawver-missing-api-key",
-            base_url=base_url or "http://127.0.0.1/v1",
-        )
+        self._config = config if config is not None else _env_ocp_config()
+        self.client, self.model = _build_ocp_client(self._config)
 
     async def _call_with_retry(self, **kwargs):
         """带指数退避重试的 LLM 调用封装"""
@@ -609,17 +600,13 @@ class OCPStream:
     MAX_RETRIES = 1
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
 
-    def __init__(self, session_id: str = "default"):
+    def __init__(self, session_id: str = "default", *, config: dict[str, str] | None = None):
         self.session_id = session_id
-        api_key, base_url, model = _resolve_ocp_config()
-        self.model = model
-        self.client = AsyncOpenAI(
-            api_key=api_key or "lawver-missing-api-key",
-            base_url=base_url or "http://127.0.0.1/v1",
-        )
+        self._config = config if config is not None else _env_ocp_config()
+        self.client, self.model = _build_ocp_client(self._config)
 
     async def _call_with_retry(self, **kwargs):
-        return await OCPStatic(self.session_id)._call_with_retry(**kwargs)
+        return await OCPStatic(self.session_id, config=self._config)._call_with_retry(**kwargs)
 
     async def check_stream(self, content: str):
         if not content or not content.strip():

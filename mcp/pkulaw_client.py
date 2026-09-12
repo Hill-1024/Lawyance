@@ -4,7 +4,12 @@
 
 import json
 
-from RAG.law_data_search import law_exact_search, law_fuzzy_search, law_link_search
+from RAG.law_data_search import (
+    ensure_law_database_ready,
+    law_exact_search,
+    law_fuzzy_search,
+    law_link_search,
+)
 
 
 def _format_search_result(items):

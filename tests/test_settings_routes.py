@@ -18,7 +18,7 @@ LOCAL_ORIGIN = "http://localhost:5173"
 
 def purge_runtime_modules():
     for name in list(sys.modules):
-        if name in {"agent", "app_factory", "auth", "routes", "services"} or name.startswith("routes.") or name.startswith("services."):
+        if name in {"agent", "app_factory", "auth", "routes", "services", "infra"} or name.startswith("routes.") or name.startswith("services.") or name.startswith("infra."):
             sys.modules.pop(name, None)
 
 

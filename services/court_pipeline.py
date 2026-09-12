@@ -13,10 +13,15 @@ import time
 import uuid
 
 from agents import ToolLoopAgent
-from mcp.memory_client import reset_current_memory_turn_id, set_current_memory_turn_id
-from memory_system import MemoryRevisionConflict
+from mcps import (
+    MemoryRevisionConflict,
+    court_tools,
+    reset_current_memory_turn_id,
+    set_current_memory_turn_id,
+    use_tools,
+)
 from schemas import CourtTurnRequest
-from services.context_usage import (
+from context_usage import (
     reset_current_context_usage_accumulator,
     set_current_context_usage_accumulator,
 )
@@ -31,7 +36,6 @@ from services.memory_coordinator import (
     sync_memory_cache,
 )
 from services.workspace_service import get_workspace_scope
-from tools import registry
 
 
 logger = logging.getLogger(__name__)
@@ -71,11 +75,11 @@ def role_scopes(base_scope: str) -> dict[str, str]:
 
 
 def build_court_tool_executor(base_scope: str, role_scope: str):
-    # arguments 由 ToolLoopAgent._parse_arguments / registry.coerce_arguments 处理，
+    # arguments 由 ToolLoopAgent._parse_arguments / mcps 转发面处理，
     # 这里只负责按工具名挑选记忆 scope 后转发。
     def execute_tool(tool_name: str, arguments):
         scope = role_scope if tool_name in MEMORY_TOOL_NAMES else base_scope
-        return registry.dispatch(tool_name, arguments, scope, capability="court")
+        return use_tools(tool_name, arguments, scope, capability="court")
 
     return execute_tool
 
@@ -193,7 +197,7 @@ async def prepare_court_turn(request: CourtTurnRequest, current_user: str) -> Pr
         use_ocp=False,
         execute_tool=build_court_tool_executor(base_scope, role_scope),
         mode=f"court_{speaker}",
-        tools=registry.schemas("court"),
+        tools=court_tools,
         final_answer_source="plain_text",
     )
     return PreparedCourtTurn(

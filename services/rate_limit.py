@@ -14,7 +14,7 @@ import threading
 import time
 from typing import NamedTuple, Optional
 
-from services import redis_backend
+from infra import redis_backend
 
 
 class RateLimitResult(NamedTuple):

@@ -10,8 +10,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import auth as auth_service
+from infra import redis_backend
 from routes import admin, auth, chat, court, releases, settings, spa, webdav, workspace
-from services import law_cache, redis_backend, release_sync, stream_buffer, workspace_cleanup
+from services import law_cache, release_sync, stream_buffer, workspace_cleanup
 from services.app_security import ALLOWED_ORIGINS, LOCAL_ORIGIN_RE, security_and_logging_middleware
 
 

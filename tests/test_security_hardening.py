@@ -22,7 +22,7 @@ TEST_SECRET = "x" * 32
 
 def purge_runtime_modules():
     for name in list(sys.modules):
-        if name in {"agent", "app_factory", "auth", "routes", "services"} or name.startswith("routes.") or name.startswith("services."):
+        if name in {"agent", "app_factory", "auth", "routes", "services", "infra"} or name.startswith("routes.") or name.startswith("services.") or name.startswith("infra."):
             sys.modules.pop(name, None)
 
 
@@ -100,7 +100,7 @@ class AuthStateConcurrencyTests(unittest.TestCase):
             sys.modules.pop("auth", None)
             try:
                 auth = importlib.import_module("auth")
-                auth_store = importlib.import_module("services.auth_store")
+                auth_store = importlib.import_module("infra.auth_store")
                 captured_errors = []
 
                 # Lockout records are only created for real accounts. Reuse the

@@ -207,6 +207,35 @@ OCP is a post-answer formatting review pass. Main-model failures still follow th
 
 This architecture work does not include Lawver naming cleanup, tool naming rewrites, or agent reasoning strategy rewrites.
 
+### Call Chain and Decoupling Invariants
+
+Every request is accepted and forwarded through exactly two routers; cross-module direct calls are forbidden:
+
+```text
+routes/  ->  services/  ->  services/agent_builder.py (paradigm router)
+                                 |-- execute_tool  = mcps.use_tools(..., capability)
+                                 |-- output_review = services/ocp_service.build_output_review(...)
+                                          |
+                                          v injected
+                             agents/ToolLoopAgent (single agent loop, only calls injected handlers)
+                                          |
+                                          v
+                             mcps.py (the only capability router)
+                                 |-- tools/registry.py
+                                 |-- mcp/* · memory_system/ · RAG/
+```
+
+Invariants are locked by `tests/test_architecture_boundaries.py`:
+
+- Only `mcps.py` and `tools/**` may import `tools` / `tools.registry`.
+- `agents/**` must not import `ocp`, `services/**`, `tools`, `mcp`, `memory_system`, or `RAG`.
+- `tools/**` must not import `services/**`.
+- `services/**` and `routes/**` must not import `tools`, `mcp`, `memory_system`, `RAG`, or `ocp` directly; everything goes through `mcps`. Only `services/ocp_service.py` may construct `ocp`.
+- The production import graph must be acyclic.
+- Neutral shared modules (`workspace.py`, `media.py`, `context_usage.py`, `infra/`) must not depend back on `services/`.
+
+OCP follows the same shape as default / plan_and_solve / court: `services/agent_builder.py` resolves it into an `output_review` injected into `ToolLoopAgent`, and the agent loop never imports `ocp` itself. Known exception: model-profile reads for the main model and OCP (`function_calling` / `services.ocp_service` → `services.settings_service`) remain a config-store dependency; it does not depend back on its callers and forms no cycle.
+
 The web-search tool uses self-hosted SearXNG and does not depend on third-party search APIs such as Tavily or SerpAPI. `web_search` only returns structured results and snippets; when full page text is needed, the model should call `web_fetch`. `web_fetch` marks returned page text as untrusted web data and it must not be followed as instructions.
 
 TXT/Markdown files are handled by `txt_md_reader` / `txt_md_writer` within the current conversation workspace. Reads and writes filter executable Markdown/HTML embeds such as `<script>`, event-handler attributes, and `javascript:` / `data:` links.

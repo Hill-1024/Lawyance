@@ -15,7 +15,7 @@ from mcp.searxng_client import web_fetch, web_search
 from mcp.PDF_processor import pdf_commit_by_sentence, pdf_text_reader
 from mcp.text_file_client import TEXT_FILE_EXTENSIONS, txt_md_reader, txt_md_writer
 from mcp.word_annotator import word_reader, word_writer
-from services.multimodal import IMAGE_SIGNAL_KEY, load_workspace_image
+from media import IMAGE_SIGNAL_KEY, is_image_filename, load_workspace_image
 from mcp.qcc_client import (
     get_company_profile,
     get_contact_info,
@@ -40,7 +40,6 @@ from mcp.legal_document import (
     get_legal_document_guide,
     list_legal_document_types,
 )
-from services.workspace_service import is_image_filename
 from workspace import WorkspacePathError, get_result_path, resolve_workspace_file, validate_workspace_scope
 
 from .registry import registry

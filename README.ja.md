@@ -207,6 +207,35 @@ OCP は主回答後のフォーマット審査 pass です。主モデルの失�
 
 この構成変更には、Lawver の命名統一、ツール命名規約の書き換え、agent 推論戦略の書き換えは含みません。
 
+### 呼び出しチェーンと解耦不変条件
+
+すべてのリクエストは次の 2 つのルーターだけを通って受け付け・転送され、モジュール間の直接呼び出しは禁止です。
+
+```text
+routes/  ->  services/  ->  services/agent_builder.py（パラダイムルーター）
+                                 |-- execute_tool  = mcps.use_tools(..., capability)
+                                 |-- output_review = services/ocp_service.build_output_review(...)
+                                          |
+                                          v 注入
+                             agents/ToolLoopAgent（単一 agent ループ、注入されたハンドラのみ呼ぶ）
+                                          |
+                                          v
+                             mcps.py（唯一のケイパビリティルーター）
+                                 |-- tools/registry.py
+                                 |-- mcp/* · memory_system/ · RAG/
+```
+
+不変条件は `tests/test_architecture_boundaries.py` が固定します。
+
+- `tools` / `tools.registry` を import できるのは `mcps.py` と `tools/**` だけ。
+- `agents/**` は `ocp`、`services/**`、`tools`、`mcp`、`memory_system`、`RAG` を import してはいけない。
+- `tools/**` は `services/**` を import してはいけない。
+- `services/**`、`routes/**` は `tools`、`mcp`、`memory_system`、`RAG`、`ocp` を直接 import せず、すべて `mcps` 経由。`ocp` を構築できるのは `services/ocp_service.py` だけ。
+- 本番モジュールの import グラフは非環状でなければならない。
+- 中性共有モジュール（`workspace.py`、`media.py`、`context_usage.py`、`infra/`）は `services/` に逆依存してはいけない。
+
+OCP は default / plan_and_solve / court と同じ形です。`services/agent_builder.py` が `output_review` として解決し `ToolLoopAgent` に注入し、agent ループは `ocp` を直接 import しません。既知の例外：主モデルと OCP のモデルプロファイル読み取り（`function_calling` / `services.ocp_service` → `services.settings_service`）は設定ストア依存として残します。呼び出し側へ逆依存せず、環を作りません。
+
 ウェブ検索ツールは自前運用の SearXNG を使い、Tavily や SerpAPI などの第三者検索 API には依存しません。`web_search` は構造化された検索結果と snippets のみを返し、本文が必要な場合はモデルが `web_fetch` を追加で呼び出します。`web_fetch` の本文は非信頼のウェブデータとして扱い、指示として従ってはいけません。
 
 任意の環境変数：

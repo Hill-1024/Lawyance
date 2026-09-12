@@ -31,9 +31,9 @@ def purge_runtime_modules():
     # `from services import x` 拿到上一次的模块对象，测试里的 patch 就会打空。
     for name in list(sys.modules):
         if (
-            name in {"agent", "app_factory", "auth", "services"}
+            name in {"agent", "app_factory", "auth", "services", "infra"}
             or name.startswith("routes.")
-            or name.startswith("services.")
+            or name.startswith("services.") or name.startswith("infra.")
         ):
             sys.modules.pop(name, None)
 
@@ -71,7 +71,7 @@ class ShieldTestBase(unittest.TestCase):
         rate_limit = sys.modules.get("services.rate_limit")
         if rate_limit is not None:
             rate_limit.reset()
-        redis_backend = sys.modules.get("services.redis_backend")
+        redis_backend = sys.modules.get("infra.redis_backend")
         if redis_backend is not None:
             redis_backend.reset()
         purge_runtime_modules()
@@ -85,7 +85,7 @@ class ShieldTestBase(unittest.TestCase):
 
 class LocalBloomFilterTests(ShieldTestBase):
     def test_no_false_negatives_for_inserted_items(self):
-        bloom = importlib.import_module("services.bloom")
+        bloom = importlib.import_module("infra.bloom")
         filter_ = bloom.LocalBloomFilter(capacity=5_000, error_rate=0.01)
         items = [f"sid-{index}" for index in range(5_000)]
         filter_.warm(items)
@@ -94,7 +94,7 @@ class LocalBloomFilterTests(ShieldTestBase):
             self.assertTrue(filter_.maybe_contains(item), item)
 
     def test_unwarmed_filter_fails_open(self):
-        bloom = importlib.import_module("services.bloom")
+        bloom = importlib.import_module("infra.bloom")
         filter_ = bloom.LocalBloomFilter(capacity=100, error_rate=0.01)
 
         self.assertTrue(filter_.needs_warm())
@@ -104,7 +104,7 @@ class LocalBloomFilterTests(ShieldTestBase):
         self.assertFalse(filter_.needs_warm())
 
     def test_unknown_items_are_rejected_within_configured_error_rate(self):
-        bloom = importlib.import_module("services.bloom")
+        bloom = importlib.import_module("infra.bloom")
         filter_ = bloom.LocalBloomFilter(capacity=2_000, error_rate=0.01)
         filter_.warm([f"member-{index}" for index in range(2_000)])
 
@@ -116,7 +116,7 @@ class LocalBloomFilterTests(ShieldTestBase):
 
     def test_disabled_switch_returns_null_filter(self):
         os.environ["LAWVER_BLOOM_ENABLED"] = "0"
-        bloom = importlib.import_module("services.bloom")
+        bloom = importlib.import_module("infra.bloom")
         filter_ = bloom.create("session", capacity=100, error_rate=0.01)
 
         self.assertEqual(filter_.backend, "disabled")
@@ -127,7 +127,7 @@ class LocalBloomFilterTests(ShieldTestBase):
 @unittest.skipIf(fakeredis is None, "fakeredis not installed")
 class RedisBloomFilterTests(ShieldTestBase):
     def _filter(self):
-        bloom = importlib.import_module("services.bloom")
+        bloom = importlib.import_module("infra.bloom")
         self.fake = fakeredis.FakeStrictRedis(decode_responses=True)
         return bloom.create("session", capacity=1_000, error_rate=0.01, client=self.fake)
 
@@ -170,7 +170,7 @@ class RedisBloomFilterTests(ShieldTestBase):
         self.assertTrue(filter_.maybe_contains("sid-2"))
 
     def test_fails_open_when_redis_errors(self):
-        bloom = importlib.import_module("services.bloom")
+        bloom = importlib.import_module("infra.bloom")
 
         class BrokenRedis:
             def pipeline(self, transaction=False):
@@ -255,21 +255,21 @@ class RedisRateLimitTests(ShieldTestBase):
 
 class RedisBackendTests(ShieldTestBase):
     def test_unconfigured_returns_no_client(self):
-        redis_backend = importlib.import_module("services.redis_backend")
+        redis_backend = importlib.import_module("infra.redis_backend")
 
         self.assertFalse(redis_backend.is_configured())
         self.assertIsNone(redis_backend.get_client())
         self.assertFalse(redis_backend.status()["available"])
 
     def test_malformed_url_degrades_without_raising(self):
-        redis_backend = importlib.import_module("services.redis_backend")
+        redis_backend = importlib.import_module("infra.redis_backend")
         os.environ["LAWVER_REDIS_URL"] = "http://not-a-redis-url"
 
         self.assertIsNone(redis_backend.get_client())
         self.assertFalse(redis_backend.status()["available"])
 
     def test_unreachable_server_degrades_quickly(self):
-        redis_backend = importlib.import_module("services.redis_backend")
+        redis_backend = importlib.import_module("infra.redis_backend")
         os.environ["LAWVER_REDIS_URL"] = "redis://127.0.0.1:6399/0"
 
         started = time.time()
@@ -359,7 +359,7 @@ class VerifyTokenBloomTests(ShieldTestBase):
     def setUp(self):
         super().setUp()
         self.auth = importlib.import_module("auth")
-        self.auth_store = importlib.import_module("services.auth_store")
+        self.auth_store = importlib.import_module("infra.auth_store")
         # auth 必须绑定到同一个 store 对象，否则下面的 patch 会打空、断言失去意义。
         self.assertIs(self.auth.auth_store, self.auth_store)
 
@@ -443,7 +443,7 @@ class VerifyTokenBloomTests(ShieldTestBase):
 class AuthSharedBloomTests(ShieldTestBase):
     def test_verify_token_uses_the_shared_bitmap(self):
         auth = importlib.import_module("auth")
-        provider = importlib.import_module("services.redis_backend")
+        provider = importlib.import_module("infra.redis_backend")
         fake = fakeredis.FakeStrictRedis(decode_responses=True)
 
         original = provider.get_client
@@ -472,7 +472,7 @@ class StartupShieldingTests(ShieldTestBase):
     def test_prepare_request_shielding_warms_bloom_when_redis_is_down(self):
         app_factory = importlib.import_module("app_factory")
         auth = importlib.import_module("auth")
-        redis_backend = importlib.import_module("services.redis_backend")
+        redis_backend = importlib.import_module("infra.redis_backend")
         self.assertIs(app_factory.auth_service, auth)
 
         os.environ["LAWVER_REDIS_URL"] = "redis://127.0.0.1:6399/0"

@@ -6,7 +6,7 @@ import asyncio
 
 from fastapi import FastAPI
 
-from RAG.law_data_search import ensure_law_database_ready
+from mcps import ensure_law_database_ready
 
 
 async def prepare_on_startup(app: FastAPI) -> None:

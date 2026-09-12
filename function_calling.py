@@ -2,7 +2,6 @@
 模块描述：OpenAI 兼容模型调用封装，集中处理静态工具 schema、重试和工具消息配对。
 """
 
-from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from datetime import datetime
 import os
@@ -10,9 +9,9 @@ import json
 import logging
 import time
 import copy
-from mcps import tools
-from services.context_usage import extract_cache_stats, record_context_usage
-from tools import registry
+from llm.client import build_client
+from mcps import schemas, tools
+from context_usage import extract_cache_stats, record_context_usage
 from llm.retry import with_retry
 
 # 工具定义保持常态加载：从 mcps 导入后原样传给 API，不进入动态 prompt 加载链路。
@@ -35,10 +34,7 @@ if not LLM_MODEL:
 
 # 环境变量是基线配置。管理后台启用模型档案后，这里会被热替换成档案对应的 client，
 # 因此管理员切换模型无需重启进程；未配置档案时行为与纯环境变量时代完全一致。
-client = AsyncOpenAI(
-    api_key=_ENV_API_KEY or "lawver-missing-api-key",
-    base_url=_ENV_BASE_URL or "http://127.0.0.1/v1",
-)
+client = build_client(_ENV_API_KEY, _ENV_BASE_URL)
 _client_signature: tuple[str, str, str] = ("", _ENV_BASE_URL, _ENV_API_KEY)
 
 
@@ -71,7 +67,7 @@ def _refresh_client() -> tuple[str, str]:
         return model, api_key
     signature = (profile_id, base_url, api_key)
     if signature != _client_signature and base_url and api_key:
-        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        client = build_client(api_key, base_url)
         _client_signature = signature
         logger.info("已切换到模型档案 %s：%s @ %s", profile_id, model, base_url)
     return model, api_key
@@ -231,7 +227,7 @@ async def call(
     if tools_override is not None:
         selected_tools = tools_override
     elif tool_exposure is not None:
-        selected_tools = registry.schemas(tool_exposure)
+        selected_tools = schemas(tool_exposure)
     elif include_tools:
         selected_tools = tools
 

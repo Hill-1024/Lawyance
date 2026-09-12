@@ -4,15 +4,15 @@
 
 from agents import ToolLoopAgent
 from agents.tool_loop import plan_and_solve_tool_choice_policy
-from mcps import default_tools, plan_and_solve_tools
-from tools import registry
+from mcps import default_tools, plan_and_solve_tools, use_tools
+from services.ocp_service import build_output_review
 
 
 def build_tool_executor(workspace_scope: str, capability: str = "agent"):
     # ToolLoopAgent._parse_arguments 已经把 raw arguments 解析成 dict；
-    # registry.dispatch 也会再做一次 coerce_arguments，这里只需直接转发。
+    # mcps 转发面会再做一次 coerce_arguments，这里只需直接转发。
     def execute_tool(tool_name: str, arguments):
-        return registry.dispatch(
+        return use_tools(
             tool_name,
             arguments,
             workspace_scope,
@@ -34,6 +34,9 @@ def build_agent(
         print("[agent_builder] 收到已废弃模式 react，自动降级为 default")
         mode = "default"
 
+    # OCP 与其它范式同构：由构造层解析后注入，agent 循环不直接 import ocp。
+    output_review = build_output_review(workspace_scope, use_ocp)
+
     if mode == "plan_and_solve":
         execute_tool = build_tool_executor(workspace_scope, "plan_and_solve")
         return ToolLoopAgent(
@@ -41,6 +44,7 @@ def build_agent(
             session_id=session_id,
             workspace_scope=workspace_scope,
             use_ocp=use_ocp,
+            output_review=output_review,
             execute_tool=execute_tool,
             mode="plan_and_solve",
             tools=plan_and_solve_tools,
@@ -55,6 +59,7 @@ def build_agent(
         session_id=session_id,
         workspace_scope=workspace_scope,
         use_ocp=use_ocp,
+        output_review=output_review,
         execute_tool=execute_tool,
         mode="default",
         tools=default_tools,

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.context_usage import estimate_text_tokens, trim_text_to_token_budget
+from context_usage import estimate_text_tokens, trim_text_to_token_budget
 
 
 MAX_RECENT_EVENTS = 16

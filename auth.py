@@ -1,7 +1,7 @@
 """
 模块描述：账号认证与会话模块，负责密码哈希、登录锁定、权限层级与在线设备限制。
 
-账号与密码摘要存放在 SQLite（services/auth_store.py），首次启动会把遗留的
+账号与密码摘要存放在 SQLite（infra/auth_store.py），首次启动会把遗留的
 data/account.json 导入数据库并改名归档。角色分为 sudo / admin / user 三级：
 sudo 拥有全部权限，admin 只能管理自己创建的 user（数量上限 n），user 仅使用。
 """
@@ -21,8 +21,8 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
-from services import auth_store, bloom
-from services.password_hashing import (
+from infra import auth_store, bloom
+from infra.password_hashing import (
     PBKDF2_ITERATIONS,
     hash_password,
     password_needs_rehash,
