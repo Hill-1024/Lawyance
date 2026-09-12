@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
-from memory_system import MemoryRevisionConflict
 from schemas import CourtMemoryClearRequest, CourtTurnRequest
 from services.auth_dependencies import get_current_user
 from services.court_pipeline import (
@@ -19,7 +18,7 @@ from services.court_pipeline import (
     role_scopes,
     run_court_turn_stream,
 )
-from services.memory_coordinator import call_memory_tool
+from services.memory_coordinator import MemoryRevisionConflict, call_memory_tool
 from services.workspace_service import get_workspace_scope
 
 

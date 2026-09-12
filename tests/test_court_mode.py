@@ -18,7 +18,7 @@ TEST_SECRET = "c" * 32
 
 def purge_runtime_modules():
     for name in list(sys.modules):
-        if name in {"agent", "app_factory", "auth", "routes", "services"} or name.startswith("routes.") or name.startswith("services."):
+        if name in {"agent", "app_factory", "auth", "routes", "services", "infra"} or name.startswith("routes.") or name.startswith("services.") or name.startswith("infra."):
             sys.modules.pop(name, None)
 
 
@@ -219,14 +219,14 @@ class CourtModeTests(unittest.IsolatedAsyncioTestCase):
             calls.append((name, workspace_scope, capability))
             return "ok"
 
-        original_dispatch = court_pipeline.registry.dispatch
+        original_dispatch = court_pipeline.use_tools
         try:
-            court_pipeline.registry.dispatch = fake_dispatch
+            court_pipeline.use_tools = fake_dispatch
             executor = court_pipeline.build_court_tool_executor("user/court", "user/court:judge")
             executor("retrieve_conversation_memory", {"query": "争点"})
             executor("pdf_text_reader", {"pdf_path": "TEMP/user/court/a.pdf"})
         finally:
-            court_pipeline.registry.dispatch = original_dispatch
+            court_pipeline.use_tools = original_dispatch
 
         self.assertEqual(calls, [
             ("retrieve_conversation_memory", "user/court:judge", "court"),

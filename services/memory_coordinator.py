@@ -5,8 +5,7 @@
 from typing import Any, List, Optional
 import json
 
-from memory_system import MemoryRevisionConflict
-from mcps import use_tools
+from mcps import MemoryRevisionConflict, prune_memory, use_tools
 
 
 MEMORY_SNAPSHOT_FIELD = "memory_snapshot"

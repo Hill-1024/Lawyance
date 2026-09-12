@@ -16,7 +16,7 @@ import threading
 import time
 from typing import Any, Iterable, Optional
 
-from services import redis_backend
+from infra import redis_backend
 
 DEFAULT_ERROR_RATE = 0.001
 MIN_BITS = 64

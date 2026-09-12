@@ -9,9 +9,8 @@ import time
 
 from fastapi import FastAPI
 
-from memory_system import prune_conversation_memory
 from services.conversation_state import active_conversations
-from services.memory_coordinator import call_memory_tool
+from services.memory_coordinator import call_memory_tool, prune_memory
 from workspace import is_within_directory
 
 
@@ -80,7 +79,7 @@ async def cleanup_task():
                 await asyncio.to_thread(call_memory_tool, "clear_conversation_memory", {}, k)
 
             await asyncio.to_thread(
-                prune_conversation_memory,
+                prune_memory,
                 int(os.getenv("LAWVER_MEMORY_CACHE_TTL_SECONDS", str(7 * 24 * 3600))),
             )
 

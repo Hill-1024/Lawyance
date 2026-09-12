@@ -9,6 +9,10 @@ class WorkspacePathError(ValueError):
     pass
 
 
+# 工作区两棵根目录：TEMP 存上传/中间产物，Result 存生成文件。
+WORKSPACE_ROOTS = ("TEMP", "Result")
+
+
 def is_within_directory(path: str, directory: str) -> bool:
     # realpath 同时解析已有父目录中的符号链接；仅用 abspath 会把
     # `TEMP/user/conv/link/secret` 错判为仍在工作区内。
@@ -37,7 +41,7 @@ def workspace_dir(root: str, workspace_scope: str | None) -> str:
 def resolve_workspace_file(
     input_path: str | None,
     workspace_scope: str | None,
-    allowed_roots: tuple[str, ...] = ("TEMP", "Result"),
+    allowed_roots: tuple[str, ...] = WORKSPACE_ROOTS,
 ) -> str:
     if not input_path:
         raise WorkspacePathError("未提供文件路径。")
@@ -54,7 +58,7 @@ def resolve_workspace_file(
 
 
 def get_result_path(input_path: str | None, workspace_scope: str | None) -> str:
-    source_path = resolve_workspace_file(input_path, workspace_scope, allowed_roots=("TEMP", "Result"))
+    source_path = resolve_workspace_file(input_path, workspace_scope, allowed_roots=WORKSPACE_ROOTS)
     filename = os.path.basename(source_path)
     base, ext = os.path.splitext(filename)
     if not base.endswith("_lawver"):
@@ -63,3 +67,21 @@ def get_result_path(input_path: str | None, workspace_scope: str | None) -> str:
     result_dir = os.path.join("Result", validate_workspace_scope(workspace_scope))
     os.makedirs(result_dir, exist_ok=True)
     return os.path.join(result_dir, f"{base}{ext}").replace("\\", "/")
+
+
+def to_workspace_relative_path(path: str | None) -> str:
+    """把任意形态的工作区路径折算成 `TEMP/…` 或 `Result/…` 相对形式。
+
+    上传接口历史版本返回绝对路径，而列表接口、工具读取（resolve_workspace_file）
+    和前端附件上传都以上述相对形式为准：绝对路径会被判为越界而静默丢弃，
+    也会被前端误判成"生成文件"重复回灌到 Result 工作区。
+    这里只做形式归一，越界校验仍由 resolve_workspace_file 按会话 scope 执行。
+    """
+    candidate = str(path or "").replace("\\", "/").strip()
+    if not candidate:
+        return ""
+    parts = candidate.split("/")
+    for root in WORKSPACE_ROOTS:
+        if root in parts:
+            return "/".join(parts[parts.index(root):])
+    return candidate

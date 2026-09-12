@@ -13,8 +13,8 @@ from typing import Any, Callable
 
 from function_calling import call, create_assistant_message
 from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
-from services.context_usage import record_openai_usage
-from services.multimodal import (
+from context_usage import record_openai_usage
+from media import (
     IMAGE_SIGNAL_KEY,
     MAX_IMAGE_VIEWS_PER_TURN,
     MAX_VIEW_TOTAL_BYTES,
@@ -124,11 +124,13 @@ class ToolLoopAgent:
         final_answer_source: str = "tagged_text",
         tool_choice_policy: Callable[[dict[str, Any]], str | dict] | None = None,
         execution_policy: dict[str, Any] | None = None,
+        output_review: Any | None = None,
     ):
         self.memory = memory or []
         self.session_id = session_id
         self.workspace_scope = workspace_scope or session_id
         self.use_ocp = use_ocp
+        self.output_review = output_review
         self.execute_tool = execute_tool or self._missing_tool_executor
         self.mode = mode
         self.tools = tools
@@ -558,18 +560,17 @@ class ToolLoopAgent:
             self._memory_candidate_emitted = True
             yield {"type": "memory_candidate", "content": answer}
 
-        if self.use_ocp and answer.strip():
+        if self.use_ocp and self.output_review is not None and answer.strip():
+            # output_review 由 services.agent_builder 统一注入；agent 循环不直接依赖 OCP。
             if stream:
-                from ocp import OCPStream
-                ocp = OCPStream(session_id=self.workspace_scope)
-                async for ocp_chunk in ocp.check_stream(answer):
+                async for ocp_chunk in self.output_review.stream(answer):
                     yield ocp_chunk
             else:
-                from ocp import OCPStatic
-                checker = OCPStatic(session_id=self.workspace_scope)
-                checked = await checker.check(answer)
+                checked = await self.output_review.complete(answer)
                 yield {"type": "content", "content": checked}
         else:
+            if self.use_ocp and self.output_review is None and answer.strip():
+                print("[ToolLoopAgent] use_ocp=True 但未注入 output_review，已跳过 OCP 审查")
             yield {"type": "content_replace" if stream else "content", "content": answer}
 
     async def run(self, content: str = None, stream: bool = True):

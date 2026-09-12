@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from services.password_hashing import hash_password, verify_password  # noqa: E402
+from infra.password_hashing import hash_password, verify_password  # noqa: E402
 
 
 if __name__ == "__main__":

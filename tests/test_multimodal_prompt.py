@@ -10,7 +10,7 @@ import unittest
 
 def purge_runtime_modules():
     for name in list(sys.modules):
-        if name in {"prompt_loader", "services", "services.context_compiler"} or name.startswith("services."):
+        if name in {"prompt_loader", "services", "services.context_compiler"} or name.startswith("services.") or name.startswith("infra."):
             sys.modules.pop(name, None)
 
 

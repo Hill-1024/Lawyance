@@ -25,7 +25,7 @@ JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 32
 
 def purge_runtime_modules():
     """清掉所有直接 import 了 function_calling / tools 的模块，避免陈旧引用。"""
-    prefixes = ("routes.", "services.", "agents.", "tools.")
+    prefixes = ("routes.", "services.", "agents.", "tools.", "infra.")
     roots = {
         "agent", "app_factory", "auth", "routes", "services",
         "agents", "tools", "mcps", "function_calling", "prompt_loader",

@@ -12,12 +12,15 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from function_calling import call
-from memory_system import MemoryRevisionConflict
 from output_sanitizer import strip_think_blocks, strip_wrapper_tags
 from schemas import ChatRequest, MemorySyncRequest, ResumeAckRequest, StreamCancelRequest, SummarizeRequest
 from services.auth_dependencies import get_current_user
 from services.chat_pipeline import CHAT_FAILURE_MESSAGE, prepare_chat_turn, run_agent_once, run_agent_stream
-from services.memory_coordinator import memory_conflict_detail, sync_memory_cache
+from services.memory_coordinator import (
+    MemoryRevisionConflict,
+    memory_conflict_detail,
+    sync_memory_cache,
+)
 from services import stream_buffer
 from services.workspace_service import get_workspace_scope
 

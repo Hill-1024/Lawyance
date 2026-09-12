@@ -222,6 +222,35 @@ OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误�
 
 本次架构边界不包含 Lawver 命名统一、工具命名规范重写或 agent 推理策略重写。
 
+### 调用链与解耦不变量
+
+所有请求只经过两条路由接受和转发，禁止跨模块直连：
+
+```text
+routes/  ->  services/  ->  services/agent_builder.py（范式路由）
+                                 |-- execute_tool  = mcps.use_tools(..., capability)
+                                 |-- output_review = services/ocp_service.build_output_review(...)
+                                          |
+                                          v 注入
+                             agents/ToolLoopAgent（统一 agent 循环，只调用注入的处理器）
+                                          |
+                                          v
+                             mcps.py（唯一能力路由）
+                                 |-- tools/registry.py
+                                 |-- mcp/* · memory_system/ · RAG/
+```
+
+不变量由 `tests/test_architecture_boundaries.py` 锁定：
+
+- 只有 `mcps.py` 与 `tools/**` 可以 import `tools` / `tools.registry`。
+- `agents/**` 不得 import `ocp`、`services/**`、`tools`、`mcp`、`memory_system`、`RAG`。
+- `tools/**` 不得 import `services/**`。
+- `services/**`、`routes/**` 不得直接 import `tools`、`mcp`、`memory_system`、`RAG`、`ocp`，一律经 `mcps` 转发；`ocp` 只允许 `services/ocp_service.py` 构造。
+- 生产模块的 import 图无环。
+- 中性共享模块（`workspace.py`、`media.py`、`context_usage.py`、`infra/`）不得反向依赖 `services/`。
+
+OCP 与 default / plan_and_solve / court 同构：由 `services/agent_builder.py` 解析成 `output_review` 注入 `ToolLoopAgent`，agent 循环不直接 import `ocp`。已知例外：主模型与 OCP 的模型档案读取（`function_calling` / `services.ocp_service` → `services.settings_service`）保留为配置存储依赖，它不反向依赖调用方，不构成环。
+
 联网搜索工具通过自托管 SearXNG 提供，不依赖 Tavily、SerpAPI 等第三方搜索 API。`web_search` 只返回结构化搜索结果和 snippets；需要阅读网页正文时由模型再调用 `web_fetch`。`web_fetch` 返回内容会被标记为非可信网页数据，不能作为指令执行。
 
 TXT/Markdown 文件通过 `txt_md_reader` / `txt_md_writer` 处理，只能访问当前对话工作区；读取和写入都会过滤 Markdown/HTML 中的可执行嵌入内容，例如 `<script>`、事件处理属性和 `javascript:` / `data:` 链接。

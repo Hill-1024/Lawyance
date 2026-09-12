@@ -8,7 +8,7 @@ import re
 
 from function_calling import call
 from prompt_loader import build_system_memory
-from services.context_usage import (
+from context_usage import (
     CONTEXT_COMPRESSION_THRESHOLD_TOKENS,
     CONTEXT_RECENT_RETENTION_TOKENS,
     HISTORY_SUMMARY_INPUT_TOKEN_BUDGET,

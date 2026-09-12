@@ -15,19 +15,22 @@ import re
 import time
 import uuid
 
-from mcp.memory_client import reset_current_memory_turn_id, set_current_memory_turn_id
-from memory_system import MemoryRevisionConflict
+from mcps import (
+    MemoryRevisionConflict,
+    reset_current_memory_turn_id,
+    set_current_memory_turn_id,
+)
 from prompt_loader import build_system_memory
 
 from schemas import ChatRequest
 from services.agent_builder import build_agent
 from services.conversation_state import active_conversations
 from services.context_compiler import CompiledContext, compile_context
-from services.multimodal import flatten_content_to_text
-from services.context_usage import (
+from context_usage import (
     reset_current_context_usage_accumulator,
     set_current_context_usage_accumulator,
 )
+from media import flatten_content_to_text
 from services.history import compress_history
 from services.memory_coordinator import (
     is_empty_reset_memory_snapshot,

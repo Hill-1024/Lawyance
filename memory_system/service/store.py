@@ -108,9 +108,8 @@ def _ensure_memory_db() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_embedding_cache_last_used "
                 "ON embedding_cache(last_used_at)"
             )
-            from . import embeddings
-
-            config = embeddings._embedding_config()
+            # 直接读 state 里的 embedding 配置，避免 store <-> embeddings 互相 import。
+            config = _EMBEDDING_CONFIG
             if config and config.get("model"):
                 conn.execute("DELETE FROM embedding_cache WHERE model != ?", (config["model"],))
             conn.commit()
