@@ -189,11 +189,26 @@ def _evict_done_until_under_limit(required_bytes: int = 0) -> None:
             return
 
 
+def _evict_user_done_before_limit(user: str) -> None:
+    # 只回收该用户已完成但尚未被 ACK 删除的缓冲，避免自己的旧回答占满每用户配额。
+    if not MAX_STREAMS_PER_USER:
+        return
+    candidates = sorted(
+        (state for state in _REGISTRY.values() if state.user == user and state.done),
+        key=lambda state: state.created_at,
+    )
+    for state in candidates:
+        if _user_stream_count(user) < MAX_STREAMS_PER_USER:
+            return
+        _remove_state(state.stream_id)
+
+
 async def create(stream_id: str, user: str) -> Optional[StreamState]:
     async with _GLOBAL_LOCK:
         if stream_id in _REGISTRY:
             return None
         _evict_done_until_under_limit()
+        _evict_user_done_before_limit(user)
         if MAX_STREAMS_PER_USER and _user_stream_count(user) >= MAX_STREAMS_PER_USER:
             return None
         if MAX_BYTES_GLOBAL and _GLOBAL_BYTES >= MAX_BYTES_GLOBAL:

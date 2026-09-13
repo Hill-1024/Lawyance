@@ -78,7 +78,7 @@ class StreamBufferTests(unittest.IsolatedAsyncioTestCase):
         for stream_id in [
             "s1", "s2", "owned", "ttl", "quota", "bytes", "cancel",
             "slow", "finish-full", "reader-one", "events",
-            "slow-bytes",
+            "slow-bytes", "evict-0", "evict-1", "evict-2", "evict-new",
         ]:
             await stream_buffer.delete(stream_id)
 
@@ -133,6 +133,23 @@ class StreamBufferTests(unittest.IsolatedAsyncioTestCase):
         try:
             self.assertIsNotNone(await stream_buffer.create("quota", "alice"))
             self.assertIsNone(await stream_buffer.create("s2", "alice"))
+        finally:
+            stream_buffer.MAX_STREAMS_PER_USER = original
+
+    async def test_create_evicts_oldest_done_stream_before_per_user_limit(self):
+        original = stream_buffer.MAX_STREAMS_PER_USER
+        stream_buffer.MAX_STREAMS_PER_USER = 3
+        try:
+            for index in range(3):
+                self.assertIsNotNone(await stream_buffer.create(f"evict-{index}", "evict-user"))
+            await stream_buffer.finish("evict-0")
+
+            created = await stream_buffer.create("evict-new", "evict-user")
+
+            self.assertIsNotNone(created)
+            self.assertIsNotNone(await stream_buffer.get("evict-new", "evict-user"))
+            self.assertIsNone(await stream_buffer.get("evict-0", "evict-user"))
+            self.assertEqual(stream_buffer.stats()["users"].get("evict-user"), 3)
         finally:
             stream_buffer.MAX_STREAMS_PER_USER = original
 
