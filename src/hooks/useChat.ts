@@ -30,6 +30,7 @@ import {
   ChatStreamResponseError,
   isSuccessfulChatStream,
   reduceChatStreamOutcome,
+  shouldAckBufferedStream,
   throwIfChatStreamFailed
 } from '../lib/stream-run-guards';
 
@@ -139,6 +140,12 @@ const normalizeBackendMessage = (msg: Partial<Message> | BackendHistoryMessage):
   }
   if ('name' in msg && msg.name) {
     normalized.name = msg.name;
+  }
+  if ('reasoning_content' in msg && typeof msg.reasoning_content === 'string') {
+    normalized.reasoning_content = msg.reasoning_content;
+  }
+  if ('thought_signature' in msg && typeof msg.thought_signature === 'string') {
+    normalized.thought_signature = msg.thought_signature;
   }
   if (normalized.role === 'tool' && !normalized.tool_call_id) {
     return null;
@@ -382,6 +389,21 @@ export function useChat() {
     const serverStreamId = activeServerStreamRef.current;
     const nativeStreamId = activeNativeStreamRef.current?.streamId;
     abortActiveRequest();
+    // 主动停止是终态；保留已收到的内容，刷新后不能再当作断线任务续传。
+    const stoppedConversations = conversationsRef.current.map(conv => ({
+      ...conv,
+      messages: conv.messages.map(message => (
+        message.stream_status === 'streaming' && (
+          message.id === activeAssistantMessageId ||
+          (serverStreamId && message.stream_id === serverStreamId) ||
+          (nativeStreamId && message.native_stream_id === nativeStreamId)
+        )
+          ? { ...message, stream_status: 'error' as const, updated_at: nowIso() }
+          : message
+      ))
+    }));
+    conversationsRef.current = stoppedConversations;
+    setConversations(stoppedConversations);
     setActiveAssistantMessageId(null);
     activeServerStreamRef.current = null;
     activeNativeStreamRef.current = null;
@@ -391,7 +413,7 @@ export function useChat() {
       serverStreamId ? cancelStream(serverStreamId).catch(console.error) : Promise.resolve(),
       nativeStreamId ? NativeStream.stop({ streamId: nativeStreamId }).catch(console.error) : Promise.resolve(),
     ]);
-  }, [abortActiveRequest]);
+  }, [abortActiveRequest, activeAssistantMessageId]);
 
   useEffect(() => () => abortActiveRequest(false), [abortActiveRequest]);
 
@@ -808,7 +830,7 @@ export function useChat() {
     if (seq < 0) return;
     const last = ackStateRef.current[streamId];
     const now = Date.now();
-    if (!force && last && (seq <= last.seq || now - last.at < 500)) return;
+    if (!shouldAckBufferedStream(last, seq, now, force)) return;
     ackStateRef.current[streamId] = { seq, at: now };
     ackStream(streamId, seq).catch(error => {
       console.warn('Stream ACK failed:', error);
@@ -1157,6 +1179,8 @@ export function useChat() {
       if (!streamId || resumingStreamsRef.current.has(streamId)) continue;
       resumingStreamsRef.current.add(streamId);
       const controller = new AbortController();
+      activeAbortRef.current = controller;
+      activeServerStreamRef.current = streamId;
       try {
         setIsLoading(true);
         setActiveAssistantMessageId(item.message.id);

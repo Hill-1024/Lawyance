@@ -1,5 +1,13 @@
 export type ChatStreamStatus = 'streaming' | 'done' | 'error';
 
+/** 终态确认可跳过节流，但不能重复确认已发送的序号。 */
+export const shouldAckBufferedStream = (
+  last: { seq: number; at: number } | undefined,
+  seq: number,
+  now: number,
+  force = false
+) => seq >= 0 && (!last || (seq > last.seq && (force || now - last.at >= 500)));
+
 export type ChatStreamOutcome = {
   status: ChatStreamStatus;
   seenDone: boolean;
