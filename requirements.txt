@@ -13,3 +13,6 @@ python-multipart>=0.0.31
 docxtpl>=0.18.0
 # 可选：配置 LAWVER_REDIS_URL 后用于共享限流计数与会话布隆过滤器；未配置时不使用。
 redis>=5.0.0
+# 代理兼容：当环境存在 ALL_PROXY=socks5://... 时 httpx（openai 依赖）需要 socksio，
+# 否则应用在导入阶段即抛 ImportError。
+socksio>=1.0.0
