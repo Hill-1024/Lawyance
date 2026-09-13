@@ -26,6 +26,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import type { CourtAgentState, CourtSession, CourtSpeaker, WorkspaceFile } from '../types';
 import { useCourtSession } from '../hooks/useCourtSession';
 import { useWorkspace } from '../hooks/useWorkspace';
+import { useAutoGrowTextarea } from '../hooks/useAutoGrowTextarea';
 import { buildAttachmentPrompt } from '../lib/attachment-prompt';
 import { useBackButton } from '../hooks/useBackButton';
 import { flattenBranchTree } from '../lib/branchTree';
@@ -438,13 +439,16 @@ const CourtComposerDock: React.FC<{
   isUploadingFiles: boolean;
   pendingMaterials: PendingUpload[];
   onRemoveMaterial: (index: number) => void;
-}> = ({ session, isRunning, status, value, onChange, onSend, onRunNext, onForceAdvance, onSetAutoMode, onSetUserAgentMode, onRequestUpload, isUploadingFiles, pendingMaterials, onRemoveMaterial }) => {
+  /** 发言区实际高度上报，供庭审记录在输入框增高时保持贴底。 */
+  onComposerHeightChange?: (height: number) => void;
+}> = ({ session, isRunning, status, value, onChange, onSend, onRunNext, onForceAdvance, onSetAutoMode, onSetUserAgentMode, onRequestUpload, isUploadingFiles, pendingMaterials, onRemoveMaterial, onComposerHeightChange }) => {
   const state = session.court_state;
   const trialOver = state.trial_over;
   const awaitingUser = state.awaiting_user;
   const userAgentEnabled = Boolean(state.user_agent_enabled);
   const pendingCount = session.pending_interjections.length;
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { ref: textareaRef, isMultiline } = useAutoGrowTextarea(value);
+  const dockRef = useRef<HTMLDivElement>(null);
 
   // 轮到用户发言、且未开启 AI 代理时，自动聚焦输入框。开启代理时不抢焦点。
   useEffect(() => {
@@ -487,8 +491,27 @@ const CourtComposerDock: React.FC<{
 
   const canSend = value.trim().length > 0 && !trialOver && !isUploadingFiles;
 
+  // 发言区在文档流里，高度变化会压缩庭审记录；上报实际高度以便贴底补偿。
+  useEffect(() => {
+    const element = dockRef.current;
+    if (!element || !onComposerHeightChange || typeof ResizeObserver === 'undefined') return;
+
+    let reported = -1;
+    const report = () => {
+      const height = Math.round(element.getBoundingClientRect().height);
+      if (height === reported) return;
+      reported = height;
+      onComposerHeightChange(height);
+    };
+    report();
+
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onComposerHeightChange]);
+
   return (
-    <div className="lawver-court-composer shrink-0 overflow-x-hidden border-t border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-[calc(0.75rem+var(--safe-bottom))] pt-2.5 sm:px-5">
+    <div ref={dockRef} className="lawver-court-composer shrink-0 overflow-x-hidden border-t border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-[calc(0.75rem+var(--safe-bottom))] pt-2.5 sm:px-5">
       <div className="mx-auto w-full min-w-0 max-w-3xl">
         {/* 阶段控制条 */}
         <div className="mb-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-3">
@@ -610,18 +633,21 @@ const CourtComposerDock: React.FC<{
         )}
 
         {/* 输入框 */}
-        <div className="lawver-composer-shell">
-          <HoverInfo label="上传共享文件" placement="top">
-            <button
-              type="button"
-              onClick={onRequestUpload}
-              disabled={trialOver}
-              className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-40 dark:hover:bg-white/[0.06]"
-              aria-label="上传共享文件"
-            >
-              <Paperclip size={20} strokeWidth={2} />
-            </button>
-          </HoverInfo>
+        <div className="lawver-composer-shell" data-multiline={isMultiline ? 'true' : 'false'}>
+          {/* 与主聊天共用控件组：庭审只有一个控件，竖排与横排等价 */}
+          <div className="lawver-composer-actions">
+            <HoverInfo label="上传共享文件" placement="top">
+              <button
+                type="button"
+                onClick={onRequestUpload}
+                disabled={trialOver}
+                className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-40 dark:hover:bg-white/[0.06]"
+                aria-label="上传共享文件"
+              >
+                <Paperclip size={20} strokeWidth={2} />
+              </button>
+            </HoverInfo>
+          </div>
           <textarea
             ref={textareaRef}
             value={value}
@@ -630,7 +656,7 @@ const CourtComposerDock: React.FC<{
             disabled={trialOver}
             rows={1}
             placeholder={placeholder}
-            className="composer-textarea lawver-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:outline-none disabled:opacity-60"
+            className="composer-textarea lawver-composer-textarea custom-scrollbar min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] focus:outline-none disabled:opacity-60"
           />
           <button
             type="button"
@@ -687,6 +713,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => windowWidth >= 1024);
   const [isCasePanelOpen, setIsCasePanelOpen] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useBackButton(useCallback(() => {
@@ -882,6 +909,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
                   session={session}
                   isRunning={isRunning}
                   status={status}
+                  composerHeight={composerHeight}
                   onStart={runNextTurn}
                   onRewind={handleRewindAtEvent}
                   onBranch={handleBranchAtEvent}
@@ -901,6 +929,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
                   pendingMaterials={workspace.pendingUploads}
                   onRemoveMaterial={workspace.removeUploadedFile}
                   isUploadingFiles={workspace.isUploadingFiles}
+                  onComposerHeightChange={setComposerHeight}
                 />
               </>
             )}

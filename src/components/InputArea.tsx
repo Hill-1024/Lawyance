@@ -2,13 +2,15 @@
  * 模块描述：聊天输入区组件，处理消息输入、文件上传、发送按钮和悬浮设置面板。
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings2, Paperclip, ImagePlus, X, Send, LoaderCircle, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { HoverInfo } from './HoverInfo';
 import { UserChoicePrompt } from './UserChoicePrompt';
+import { useAutoGrowTextarea } from '../hooks/useAutoGrowTextarea';
+import { computeComposerViewportBudget, planComposerActionBar } from '../lib/composer-autosize';
 import type { ContextUsage, PendingUpload, UserChoiceRequest } from '../types';
 
 const DEFAULT_CONTEXT_THRESHOLD_TOKENS = 500000;
@@ -107,6 +109,8 @@ interface InputAreaProps {
   isOCPEnabled: boolean;
   setIsOCPEnabled: (val: boolean) => void;
   onSettingsClearanceChange?: (height: number) => void;
+  /** 输入区实际高度上报，供消息列表在输入框增高时保持贴底。 */
+  onComposerHeightChange?: (height: number) => void;
 }
 
 export const InputArea: React.FC<InputAreaProps> = ({
@@ -131,9 +135,13 @@ export const InputArea: React.FC<InputAreaProps> = ({
   setAgentMode,
   isOCPEnabled,
   setIsOCPEnabled,
-  onSettingsClearanceChange
+  onSettingsClearanceChange,
+  onComposerHeightChange
 }) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [stackReferenceWidth, setStackReferenceWidth] = useState<number | null>(null);
+  const { ref: textareaRef, isMultiline, isStacked, viewportHeight } = useAutoGrowTextarea(input, {
+    stackReferenceWidth
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -142,6 +150,39 @@ export const InputArea: React.FC<InputAreaProps> = ({
   const [settingsPosition, setSettingsPosition] = useState({ left: 0, width: 0, bottom: 0, maxHeight: 0 });
   const hasActiveChoicePrompt = Boolean(activeChoicePrompt);
   const hasComposerOverlay = isInputExpanded || hasActiveChoicePrompt;
+
+  // 始终按横排可用宽度判定，包括侧栏开合和窗口横向缩放。
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    const shell = textarea?.parentElement;
+    const actions = shell?.querySelector<HTMLElement>('.lawver-composer-actions');
+    if (!textarea || !shell || !actions) return;
+    const report = () => {
+      const visibleItems = Array.from(actions.children as HTMLCollectionOf<Element>).filter(child => getComputedStyle(child).display !== 'none');
+      const actionSize = parseFloat(getComputedStyle(actions).getPropertyValue('--composer-action-size'));
+      const horizontalGap = window.matchMedia('(max-width: 480px)').matches ? 3 : 6;
+      const horizontalWidth = visibleItems.length * actionSize + Math.max(0, visibleItems.length - 1) * horizontalGap;
+      const width = parseFloat(getComputedStyle(textarea).width) + parseFloat(getComputedStyle(actions).width) - horizontalWidth;
+      if (width > 0) setStackReferenceWidth(previous => previous !== null && Math.abs(previous - width) < 0.5 ? previous : width);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(shell);
+    observer.observe(actions);
+    return () => observer.disconnect();
+  }, [textareaRef]);
+
+  // 桌面左侧共 4 个控件（设置、传材料、传图片、上下文用量环）；用量环在 sm 以下隐藏，
+  // 而竖排只在 sm 以上生效，所以这里按 4 个规划。
+  const actionBarPlan = useMemo(
+    () =>
+      planComposerActionBar({
+        itemCount: 4,
+        availableHeight: computeComposerViewportBudget({ viewportHeight: viewportHeight || 720 })
+      }),
+    [viewportHeight]
+  );
+  const isExpanded = isMultiline || isStacked;
 
   const updateSettingsPosition = useCallback(() => {
     const rect = composerRef.current?.getBoundingClientRect();
@@ -235,6 +276,26 @@ export const InputArea: React.FC<InputAreaProps> = ({
       setIsInputExpanded(false);
     }
   }, [activeChoicePrompt, isInputExpanded, setIsInputExpanded]);
+
+  // 整个输入区（附件条 + 状态条 + 输入框）都在文档流里，高度变化会压缩消息列表；
+  // 上报实际高度，让列表在用户贴底时跟着补偿。
+  useEffect(() => {
+    const element = composerRef.current;
+    if (!element || !onComposerHeightChange || typeof ResizeObserver === 'undefined') return;
+
+    let reported = -1;
+    const report = () => {
+      const height = Math.round(element.getBoundingClientRect().height);
+      if (height === reported) return;
+      reported = height;
+      onComposerHeightChange(height);
+    };
+    report();
+
+    const observer = new ResizeObserver(report);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onComposerHeightChange]);
 
   const canSendMessage = !hasActiveChoicePrompt && !isUploadingFiles && (input.trim().length > 0 || pendingUploads.length > 0);
 
@@ -412,64 +473,97 @@ export const InputArea: React.FC<InputAreaProps> = ({
             )}
           </AnimatePresence>
 
-          <div className="lawver-composer-shell">
-            <button
-              onClick={() => setIsInputExpanded(!isInputExpanded)}
-              className={`lawver-composer-action lawver-pressable transition-colors ${isInputExpanded ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
-              aria-label="Open composer settings"
-              aria-expanded={isInputExpanded}
+          <div
+            className="lawver-composer-shell"
+            data-multiline={isExpanded ? 'true' : 'false'}
+            data-stacked={isStacked ? 'true' : 'false'}
+            style={{ '--composer-action-rows': actionBarPlan.rows } as React.CSSProperties}
+          >
+            <motion.div
+              layout
+              transition={{ layout: { duration: 0.24, ease: [0.2, 0, 0, 1] } }}
+              className="lawver-composer-actions"
             >
-              <Settings2 size={20} strokeWidth={2} />
-            </button>
-
-            <HoverInfo label="上传材料 (最大 50MB)" placement="top">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading}
-                className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
-                aria-label="上传材料 (最大 50MB)"
+              <motion.div
+                layout
+                transition={{ layout: { duration: 0.24, ease: [0.2, 0, 0, 1] } }}
+                className="lawver-composer-action-slot"
               >
-                <Paperclip size={20} strokeWidth={2} />
-              </button>
-            </HoverInfo>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleFileUpload(file);
-                if (fileInputRef.current) fileInputRef.current.value = '';
-              }}
-              className="hidden"
-              accept=".pdf,.doc,.docx,.txt,.md"
-            />
+                <button
+                  onClick={() => setIsInputExpanded(!isInputExpanded)}
+                  className={`lawver-composer-action lawver-pressable transition-colors ${isInputExpanded ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
+                  aria-label="Open composer settings"
+                  aria-expanded={isInputExpanded}
+                >
+                  <Settings2 size={20} strokeWidth={2} />
+                </button>
+              </motion.div>
 
-            <HoverInfo label="上传图片 (多模态识别)" placement="top">
-              <button
-                onClick={() => imageInputRef.current?.click()}
-                disabled={isLoading}
-                className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
-                aria-label="上传图片 (多模态识别)"
+              <motion.div
+                layout
+                transition={{ layout: { duration: 0.24, ease: [0.2, 0, 0, 1] } }}
+                className="lawver-composer-action-slot"
               >
-                <ImagePlus size={20} strokeWidth={2} />
-              </button>
-            </HoverInfo>
-            <input
-              type="file"
-              ref={imageInputRef}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleFileUpload(file);
-                if (imageInputRef.current) imageInputRef.current.value = '';
-              }}
-              className="hidden"
-              accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
-            />
+                <HoverInfo label="上传材料 (最大 50MB)" placement="top">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isLoading}
+                    className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+                    aria-label="上传材料 (最大 50MB)"
+                  >
+                    <Paperclip size={20} strokeWidth={2} />
+                  </button>
+                </HoverInfo>
+              </motion.div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileUpload(file);
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+                className="hidden"
+                accept=".pdf,.doc,.docx,.txt,.md"
+              />
 
-            {/* 小屏优先保证输入宽度：计量器信息量最低，sm 以上再显示 */}
-            <div className="hidden sm:block">
-              <ContextUsageMeter usage={contextUsage} />
-            </div>
+              <motion.div
+                layout
+                transition={{ layout: { duration: 0.24, ease: [0.2, 0, 0, 1] } }}
+                className="lawver-composer-action-slot"
+              >
+                <HoverInfo label="上传图片 (多模态识别)" placement="top">
+                  <button
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={isLoading}
+                    className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+                    aria-label="上传图片 (多模态识别)"
+                  >
+                    <ImagePlus size={20} strokeWidth={2} />
+                  </button>
+                </HoverInfo>
+              </motion.div>
+              <input
+                type="file"
+                ref={imageInputRef}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileUpload(file);
+                  if (imageInputRef.current) imageInputRef.current.value = '';
+                }}
+                className="hidden"
+                accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+              />
+
+              {/* 小屏优先保证输入宽度：计量器信息量最低，sm 以上再显示 */}
+              <motion.div
+                layout
+                transition={{ layout: { duration: 0.24, ease: [0.2, 0, 0, 1] } }}
+                className="lawver-composer-action-slot hidden sm:block"
+              >
+                <ContextUsageMeter usage={contextUsage} />
+              </motion.div>
+            </motion.div>
 
             <textarea
               ref={textareaRef}
@@ -478,7 +572,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
               onKeyDown={handleKeyDown}
               disabled={hasActiveChoicePrompt}
               placeholder="输入问题…"
-              className="composer-textarea lawver-composer-textarea max-h-32 min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] disabled:opacity-60 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+              className="composer-textarea lawver-composer-textarea custom-scrollbar min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] disabled:opacity-60 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
               rows={1}
             />
             <button
