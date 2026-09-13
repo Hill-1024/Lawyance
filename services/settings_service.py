@@ -639,11 +639,241 @@ def get_provider_statuses() -> list[dict]:
     return result
 
 
+# ─── Provider 连通性探测 ─────────────────────────────────────────────────────
+#
+# 真实网络探测，不依赖 mcp/* 客户端（架构边界要求 services/** 不得 import mcp）。
+# 这里只复刻各服务的最小请求形状；探测必须是只读的，不得创建/修改/删除任何数据。
+
+_PROBE_TIMEOUT_SECONDS = 10
+_PROBE_EMBEDDING_INPUT = "ping"
+_PROBE_SEARCH_QUERY = "ping"
+
+_DNS_ERROR_MARKERS = (
+    "failed to resolve",
+    "name or service not known",
+    "nodename nor servname",
+    "temporary failure in name resolution",
+    "name resolution",
+    "getaddrinfo",
+    "no address associated with hostname",
+)
+
+
+def _probe_transport_error_message(exc: requests.exceptions.RequestException) -> str:
+    """把 requests 传输异常翻译成可操作的中文提示。"""
+    if isinstance(exc, requests.exceptions.Timeout):
+        return "连接超时"
+    if isinstance(exc, requests.exceptions.SSLError):
+        return "无法连接: TLS 握手失败"
+    if isinstance(
+        exc,
+        (
+            requests.exceptions.InvalidURL,
+            requests.exceptions.InvalidSchema,
+            requests.exceptions.MissingSchema,
+        ),
+    ):
+        return "配置的地址无效"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        text = str(exc).lower()
+        if any(marker in text for marker in _DNS_ERROR_MARKERS):
+            return "无法连接: 域名解析失败"
+        return "无法连接: 连接失败"
+    return "请求失败"
+
+
+def _probe_status_error_message(
+    status_code: int,
+    *,
+    auth_message: str = "密钥无效或无权限",
+) -> str:
+    if status_code in (401, 403):
+        return f"{auth_message} (HTTP {status_code})"
+    return f"HTTP {status_code}"
+
+
+def _probe_llm(provider: dict) -> tuple[bool, str]:
+    """GET {base_url}/models，验证端点可达且 Bearer 密钥有效。"""
+    base_url = str(provider.get("base_url") or "").rstrip("/")
+    api_key = str(provider.get("api_key") or "")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        response = requests.get(
+            f"{base_url}/models",
+            headers=headers,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException as exc:
+        return False, _probe_transport_error_message(exc)
+    if response.status_code == 200:
+        return True, ""
+    return False, _probe_status_error_message(response.status_code)
+
+
+def _probe_embedding(provider: dict) -> tuple[bool, str]:
+    """POST {base_url}/embeddings，用单条 "ping" 输入验证端点与密钥。"""
+    base_url = str(provider.get("base_url") or "").rstrip("/")
+    api_key = str(provider.get("api_key") or "")
+    model = str(provider.get("model") or "")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    payload = {"model": model, "input": _PROBE_EMBEDDING_INPUT}
+    try:
+        response = requests.post(
+            f"{base_url}/embeddings",
+            headers=headers,
+            json=payload,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException as exc:
+        return False, _probe_transport_error_message(exc)
+    if response.status_code == 200:
+        return True, ""
+    if response.status_code == 404:
+        return False, "接口或模型不存在 (HTTP 404)"
+    if response.status_code == 422:
+        return False, "请求参数被拒绝 (HTTP 422)"
+    return False, _probe_status_error_message(response.status_code)
+
+
+def _probe_searxng(provider: dict) -> tuple[bool, str]:
+    """GET {base_url}/search?q=ping&format=json，带上 Cloudflare Access Service Token。"""
+    base_url = str(provider.get("base_url") or "").rstrip("/")
+    cf_client_id = str(provider.get("cf_client_id") or "")
+    cf_client_secret = str(provider.get("cf_client_secret") or "")
+    headers = {"Accept": "application/json"}
+    if cf_client_id and cf_client_secret:
+        headers["CF-Access-Client-Id"] = cf_client_id
+        headers["CF-Access-Client-Secret"] = cf_client_secret
+    params = {"q": _PROBE_SEARCH_QUERY, "format": "json"}
+    try:
+        response = requests.get(
+            f"{base_url}/search",
+            params=params,
+            headers=headers,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException as exc:
+        return False, _probe_transport_error_message(exc)
+    if response.status_code == 200:
+        return True, ""
+    return False, _probe_status_error_message(
+        response.status_code,
+        auth_message="访问被拒绝，请检查 Cloudflare Access 凭据",
+    )
+
+
+def _probe_deli(provider: dict) -> tuple[bool, str]:
+    """POST 一次只读案例检索（pageSize=1），验证 appid/secret 是否被接受。"""
+    endpoint = str(provider.get("endpoint") or "").strip()
+    headers = {
+        "Content-Type": "application/json",
+        "appid": str(provider.get("appid") or ""),
+        "secret": str(provider.get("secret") or ""),
+    }
+    payload = {
+        "pageNo": 1,
+        "pageSize": 1,
+        "sortField": "correlation",
+        "sortOrder": "desc",
+        "condition": {"keywordArr": [_PROBE_SEARCH_QUERY]},
+    }
+    try:
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=payload,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException as exc:
+        return False, _probe_transport_error_message(exc)
+    if response.status_code == 200:
+        return True, ""
+    return False, _probe_status_error_message(response.status_code)
+
+
+def _probe_qcc(provider: dict) -> tuple[bool, str]:
+    """对企查查 MCP 端点做一次 initialize 握手，不调用任何业务工具。"""
+    endpoint = str(provider.get("endpoint") or "").strip()
+    token = str(provider.get("access_token") or "")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json",
+        "Accept-Encoding": "gzip, deflate",
+    }
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "lawver-settings-probe", "version": "0.1"},
+        },
+    }
+    try:
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=payload,
+            timeout=_PROBE_TIMEOUT_SECONDS,
+            stream=True,
+        )
+    except requests.exceptions.RequestException as exc:
+        return False, _probe_transport_error_message(exc)
+    try:
+        if response.status_code != 200:
+            return False, _probe_status_error_message(
+                response.status_code,
+                auth_message="访问令牌无效或无权限",
+            )
+        # SSE 流可能保持打开：只读一个有界分片就关闭，避免挂住设置页。
+        for chunk in response.iter_content(chunk_size=4096):
+            if chunk:
+                break
+    except requests.exceptions.RequestException as exc:
+        return False, _probe_transport_error_message(exc)
+    finally:
+        response.close()
+    return True, ""
+
+
+_PROBE_HANDLERS = {
+    "llm": _probe_llm,
+    "embedding": _probe_embedding,
+    "searxng": _probe_searxng,
+    "deli": _probe_deli,
+    "qcc": _probe_qcc,
+}
+
+
+def _with_llm_profile_api_key(provider: dict) -> dict:
+    """LLM 的 api_key 可能只存在于活动档案里，探测时按运行时路径补齐。
+
+    仅当端点与模型都已就绪、只缺 api_key 时才回退到 `_effective_llm_config`，
+    避免把真正缺失的端点/模型也掩盖掉。
+    """
+    if str(provider.get("api_key") or "").strip():
+        return provider
+    if not str(provider.get("base_url") or "").strip():
+        return provider
+    if not str(provider.get("model") or "").strip():
+        return provider
+    profile_api_key = str(_effective_llm_config().get("api_key") or "").strip()
+    if not profile_api_key:
+        return provider
+    merged = dict(provider)
+    merged["api_key"] = profile_api_key
+    return merged
+
+
 def test_provider_connection(key: str) -> dict:
-    """对指定 provider 做配置完整性探测。"""
+    """对指定 provider 发起真实网络探测，验证连通性与凭据有效性。"""
     if key not in PROVIDER_SPECS:
         return {"provider": key, "ok": False, "message": f"未知的 provider: {key}"}
     provider = get_provider_runtime_config(key)
+    if key == "llm":
+        provider = _with_llm_profile_api_key(provider)
     info = PROVIDER_SPECS[key]
     missing = _missing_required_fields(key, provider)
     if missing:
@@ -652,10 +882,17 @@ def test_provider_connection(key: str) -> dict:
             "ok": False,
             "message": f"缺少配置: {', '.join(missing)}",
         }
+    ok, error_message = _PROBE_HANDLERS[key](provider)
+    if ok:
+        return {
+            "provider": key,
+            "ok": True,
+            "message": f"{info['label']} 连接正常",
+        }
     return {
         "provider": key,
-        "ok": True,
-        "message": f"{info['label']} 已配置",
+        "ok": False,
+        "message": error_message,
     }
 
 
