@@ -12,6 +12,8 @@ interface MessageListProps {
   isLoading: boolean;
   activeAssistantMessageId?: string | null;
   bottomInset?: number;
+  /** 输入区实际高度：输入框增高会压缩列表，贴底时需要跟着补偿。 */
+  composerHeight?: number;
   onRegenerate: (id: string) => void;
   onAnswerChoice?: (id: string, value: string) => void;
   onEdit: (id: string) => void;
@@ -25,6 +27,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   isLoading,
   activeAssistantMessageId,
   bottomInset = 0,
+  composerHeight = 0,
   onRegenerate,
   onAnswerChoice,
   onEdit,
@@ -39,7 +42,8 @@ export const MessageList: React.FC<MessageListProps> = ({
     count: 0,
     lastId: '',
     lastRenderKey: '',
-    bottomInset: 0
+    bottomInset: 0,
+    composerHeight: 0
   });
 
   const isNearBottom = (element: HTMLDivElement) => {
@@ -80,6 +84,8 @@ export const MessageList: React.FC<MessageListProps> = ({
     const hasLastMessageChanged = lastRenderKey !== previous.lastRenderKey;
     const normalizedBottomInset = Math.round(bottomInset);
     const hasBottomInsetChanged = normalizedBottomInset !== previous.bottomInset;
+    const normalizedComposerHeight = Math.round(composerHeight);
+    const hasComposerHeightChanged = normalizedComposerHeight !== previous.composerHeight;
     const shouldFollow =
       hasConversationChanged ||
       shouldStickToBottomRef.current ||
@@ -91,15 +97,23 @@ export const MessageList: React.FC<MessageListProps> = ({
       count: messages.length,
       lastId: lastMessage?.id || '',
       lastRenderKey,
-      bottomInset: normalizedBottomInset
+      bottomInset: normalizedBottomInset,
+      composerHeight: normalizedComposerHeight
     };
 
-    if (!container || (!hasConversationChanged && !hasNewMessage && !hasLastMessageChanged && !hasBottomInsetChanged)) return;
+    if (
+      !container ||
+      (!hasConversationChanged && !hasNewMessage && !hasLastMessageChanged && !hasBottomInsetChanged && !hasComposerHeightChanged)
+    ) {
+      return;
+    }
     if (!shouldFollow) return;
 
-    scrollToBottom(hasConversationChanged || isLoading ? 'auto' : 'smooth');
+    // 输入框增高只是视口变矮，没有新内容；用即时滚动，避免打字时出现拖影。
+    const isComposerOnlyChange = hasComposerHeightChanged && !hasNewMessage && !hasLastMessageChanged;
+    scrollToBottom(hasConversationChanged || isLoading || isComposerOnlyChange ? 'auto' : 'smooth');
     shouldStickToBottomRef.current = true;
-  }, [conversationId, messages, isLoading, bottomInset]);
+  }, [conversationId, messages, isLoading, bottomInset, composerHeight]);
 
   const scrollStyle = {
     overflowAnchor: 'none',

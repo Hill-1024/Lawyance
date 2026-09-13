@@ -377,7 +377,6 @@ textarea.composer-textarea:focus-visible {
 
 .lawver-composer-shell {
   display: flex;
-  height: 52px;
   min-height: 52px;
   width: 100%;
   min-width: 0;
@@ -391,7 +390,50 @@ textarea.composer-textarea:focus-visible {
   transition:
     border-color var(--dur-base) var(--ease-standard),
     box-shadow var(--dur-base) var(--ease-standard),
+    border-radius var(--dur-base) var(--ease-standard),
     background-color var(--dur-base) var(--ease-standard);
+}
+
+/* 多行展开后胶囊形不再成立：圆角收成卡片，操作按钮贴底。 */
+.lawver-composer-shell[data-multiline='true'] {
+  align-items: flex-end;
+  border-radius: var(--radius-lg);
+}
+
+.lawver-composer-shell[data-multiline='true'] .lawver-composer-textarea {
+  align-self: flex-end;
+}
+
+/*
+ * 左侧控件组：默认横排，间距与改造前 shell 的直接子元素一致。
+ * 行数由 --composer-action-rows 注入，横排、单列、两列都是同一个 grid 的不同行数。
+ */
+.lawver-composer-actions {
+  --composer-action-size: 40px;
+  display: grid;
+  flex: 0 0 auto;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--composer-action-size);
+  grid-template-rows: var(--composer-action-size);
+  gap: 6px;
+  align-items: center;
+  justify-items: center;
+}
+
+/*
+ * 竖排（仅 sm 以上）：输入框增高后左侧控件改为单列；可见视口放不下单列时，
+ * JS 会把行数改为两列，控件尺寸与输入框宽度都不会因此改变。
+ */
+@media (min-width: 640px) {
+  .lawver-composer-shell[data-stacked='true'] .lawver-composer-actions {
+    grid-template-rows: repeat(var(--composer-action-rows, 4), var(--composer-action-size));
+    gap: 4px;
+  }
+
+  /* 控件组成为最高元素时文字从顶部开始，发送键仍在右下角。 */
+  .lawver-composer-shell[data-stacked='true'] .lawver-composer-textarea {
+    align-self: flex-start;
+  }
 }
 
 .lawver-composer-shell:focus-within {
@@ -412,10 +454,10 @@ textarea.composer-textarea:focus-visible {
 }
 
 .lawver-composer-textarea {
-  height: 40px;
   min-height: 40px;
   min-width: 0;
   align-self: center;
+  overflow-y: hidden;
   padding: 8.75px 6px;
   font-size: 15px;
   line-height: 1.5;
@@ -423,7 +465,6 @@ textarea.composer-textarea:focus-visible {
 
 @media (max-width: 480px) {
   .lawver-composer-shell {
-    height: 54px;
     min-height: 54px;
     gap: 3px;
     padding: 4px;
@@ -436,16 +477,19 @@ textarea.composer-textarea:focus-visible {
   }
 
   .lawver-composer-textarea {
-    height: 44px;
     min-height: 44px;
     padding: 10px 3px;
     font-size: 14px;
+  }
+
+  .lawver-composer-actions {
+    --composer-action-size: 44px;
+    gap: 3px;
   }
 }
 
 /* Court controls retain a 44px touch target without squeezing the textarea. */
 .lawver-court-composer .lawver-composer-shell {
-  height: 56px;
   min-height: 56px;
 }
 
@@ -455,8 +499,11 @@ textarea.composer-textarea:focus-visible {
   flex-basis: 44px;
 }
 
+.lawver-court-composer .lawver-composer-actions {
+  --composer-action-size: 44px;
+}
+
 .lawver-court-composer .lawver-composer-textarea {
-  height: 44px;
   min-height: 44px;
   padding: 9px 4px;
 }

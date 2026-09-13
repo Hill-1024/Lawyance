@@ -119,6 +119,7 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(0);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
   const isIpAccess = typeof window !== 'undefined' && !isNative() && isIpHostname(window.location.hostname);
   const secureAccessUrl = typeof window !== 'undefined'
@@ -369,6 +370,7 @@ function App() {
                   isLoading={isLoading}
                   activeAssistantMessageId={activeAssistantMessageId}
                   bottomInset={composerOverlayHeight}
+                  composerHeight={composerHeight}
                   onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
                   onAnswerChoice={(id, value) => handleUserChoice(id, value, handleGeneratedFile, syncFiles)}
                   onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}
@@ -404,6 +406,7 @@ function App() {
               isOCPEnabled={isOCPEnabled}
               setIsOCPEnabled={setIsOCPEnabled}
               onSettingsClearanceChange={setComposerOverlayHeight}
+              onComposerHeightChange={setComposerHeight}
             />
           </div>
 

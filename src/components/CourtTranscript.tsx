@@ -554,12 +554,14 @@ interface CourtTranscriptProps {
   session: CourtSession;
   isRunning: boolean;
   status: string | null;
+  /** 发言区实际高度：输入框增高会压缩记录区，贴底时需要跟着补偿。 */
+  composerHeight?: number;
   onStart: () => void;
   onRewind?: (eventId: string) => void;
   onBranch?: (eventId: string) => void;
 }
 
-export const CourtTranscript: React.FC<CourtTranscriptProps> = ({ session, isRunning, status, onStart, onRewind, onBranch }) => {
+export const CourtTranscript: React.FC<CourtTranscriptProps> = ({ session, isRunning, status, composerHeight = 0, onStart, onRewind, onBranch }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const lastSignatureRef = useRef('');
@@ -568,7 +570,7 @@ export const CourtTranscript: React.FC<CourtTranscriptProps> = ({ session, isRun
   const events = session.public_events;
   const hasStarted = useMemo(() => events.some(event => event.speaker !== 'system'), [events]);
   const lastEvent = events[events.length - 1];
-  const signature = `${events.length}:${lastEvent?.id || ''}:${lastEvent?.content.length || 0}:${isRunning ? 1 : 0}`;
+  const signature = `${events.length}:${lastEvent?.id || ''}:${lastEvent?.content.length || 0}:${isRunning ? 1 : 0}:${Math.round(composerHeight)}`;
 
   useEffect(() => {
     const container = scrollRef.current;
