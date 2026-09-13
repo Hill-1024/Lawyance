@@ -8,12 +8,20 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
 
 TEST_SECRET = "x" * 32
 LOCAL_ORIGIN = "http://localhost:5173"
+
+
+class _FakeProbeResponse:
+    """真实探测只读取 status_code；这里给 route 级用例一个确定性的 200。"""
+
+    def __init__(self, status_code: int = 200):
+        self.status_code = status_code
 
 
 def purge_runtime_modules():
@@ -166,9 +174,31 @@ class SettingsRouteTests(unittest.TestCase):
         self.assertTrue(embedding_after["ok"])
         self.assertEqual(embedding_after["message"], "已就绪")
 
-        test_after = self.client.get("/api/providers/test/embedding")
+        # embedding 探测会真实发 HTTP；这里只验证路由契约，网络层用 200 假响应替代。
+        with mock.patch(
+            "services.settings_service.requests.post",
+            return_value=_FakeProbeResponse(200),
+        ):
+            test_after = self.client.get("/api/providers/test/embedding")
         self.assertEqual(test_after.status_code, 200)
         self.assertTrue(test_after.json()["ok"])
+
+    def test_provider_test_route_surfaces_probe_failure(self):
+        save_secret = self.client.post(
+            "/api/settings/secret",
+            json={"provider": "embedding", "key": "api_key", "value": "bad-key"},
+            headers={"origin": LOCAL_ORIGIN},
+        )
+        self.assertEqual(save_secret.status_code, 200)
+
+        with mock.patch(
+            "services.settings_service.requests.post",
+            return_value=_FakeProbeResponse(401),
+        ):
+            response = self.client.get("/api/providers/test/embedding")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "密钥无效或无权限 (HTTP 401)")
 
     def test_secret_routes_reject_unknown_fields_and_provider_keys(self):
         extra = self.client.post(
