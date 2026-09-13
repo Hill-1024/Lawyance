@@ -592,7 +592,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
     try {
       const result = await testProvider(providerKey);
       setStatuses(await getProviderStatus().catch(() => []));
-      await showAlert({ title: '检测通过', message: result.message || `${label} 配置完整。`, tone: 'success' });
+      await showAlert({ title: '连接检测通过', message: result.message || `${label} 配置完整。`, tone: 'success' });
     } catch (error) {
       await showAlert({ title: '检测失败', message: (error as Error).message || '连接检测失败。', tone: 'danger' });
     } finally { setBusy(''); }
