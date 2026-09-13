@@ -223,6 +223,14 @@ async def call(
 
     final_context = system_msgs + other_msgs
 
+    # DeepSeek 思考模式要求每条 assistant 历史都携带 reasoning_content，
+    # 包括没有推理过程的欢迎语、旧会话和工具调用消息。仅补齐缺失字段，
+    # 已有推理原样保留；其他兼容端点继续使用原有的空字段清理规则。
+    if "deepseek" in active_model.lower():
+        for message in final_context:
+            if message["role"] == "assistant":
+                message.setdefault("reasoning_content", "")
+
     selected_tools = None
     if tools_override is not None:
         selected_tools = tools_override

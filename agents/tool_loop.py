@@ -179,7 +179,7 @@ class ToolLoopAgent:
 
     @staticmethod
     def _history_context_message(message: dict) -> dict:
-        allowed_keys = {"role", "content", "tool_calls", "tool_call_id", "name"}
+        allowed_keys = {"role", "content", "tool_calls", "tool_call_id", "name", "reasoning_content", "thought_signature"}
         # history_trace 会原样回到前端渲染，多模态 parts 必须压成文本，否则 base64 会灌进 UI。
         trace: dict[str, Any] = {}
         for key, value in message.items():

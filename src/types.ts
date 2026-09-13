@@ -31,6 +31,8 @@ export type UserChoiceRequest = {
 export type BackendHistoryMessage = {
   role: 'user' | 'assistant' | 'tool' | 'system';
   content: string;
+  reasoning_content?: string;
+  thought_signature?: string;
   tool_calls?: unknown[];
   tool_call_id?: string;
   name?: string;

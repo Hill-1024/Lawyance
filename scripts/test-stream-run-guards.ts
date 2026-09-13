@@ -5,6 +5,7 @@ import {
   isSuccessfulChatStream,
   reduceChatStreamOutcome,
   SessionRunBarrier,
+  shouldAckBufferedStream,
   throwIfChatStreamFailed,
   type ChatStreamOutcome
 } from '../src/lib/stream-run-guards';
@@ -13,6 +14,15 @@ const initialOutcome: ChatStreamOutcome = {
   status: 'streaming',
   seenDone: false
 };
+
+assert.equal(shouldAckBufferedStream(undefined, -1, 1000, true), false);
+assert.equal(shouldAckBufferedStream(undefined, 10, 1000), true);
+const lastAck = { seq: 10, at: 1000 };
+assert.equal(shouldAckBufferedStream(lastAck, 10, 2000, true), false, '终态重渲染不能重复确认相同序号');
+assert.equal(shouldAckBufferedStream(lastAck, 9, 2000, true), false);
+assert.equal(shouldAckBufferedStream(lastAck, 11, 1100), false);
+assert.equal(shouldAckBufferedStream(lastAck, 11, 1100, true), true, '新的终态序号应立即确认');
+assert.equal(shouldAckBufferedStream(lastAck, 11, 1500), true);
 
 const failedOutcome = reduceChatStreamOutcome(initialOutcome, {
   type: 'error',

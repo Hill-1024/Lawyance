@@ -10,6 +10,49 @@ from unittest import mock
 
 
 class FunctionCallingToolLoadingTest(unittest.IsolatedAsyncioTestCase):
+    def test_tool_history_trace_preserves_reasoning_and_signature(self):
+        from agents.tool_loop import ToolLoopAgent
+
+        trace = ToolLoopAgent._history_context_message({
+            "role": "assistant", "content": "", "reasoning_content": "original reasoning",
+            "thought_signature": "original signature", "internal_only": "not for history",
+        })
+        self.assertEqual(trace["reasoning_content"], "original reasoning")
+        self.assertEqual(trace["thought_signature"], "original signature")
+        self.assertNotIn("internal_only", trace)
+
+    async def test_deepseek_history_includes_reasoning_without_mutating_input(self):
+        import function_calling
+
+        history = [
+            {"role": "assistant", "content": "welcome"},
+            {"role": "assistant", "content": "answer", "reasoning_content": "original reasoning"},
+            {"role": "assistant", "content": "", "reasoning_content": "", "tool_calls": [
+                {"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "content": "result", "tool_call_id": "call_1"},
+            {"role": "user", "content": "continue"},
+        ]
+        response = types.SimpleNamespace(choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="ok"))])
+        with mock.patch.object(function_calling, "_refresh_client", return_value=("deepseek-flash", "test-key")), \
+             mock.patch.object(function_calling.client.chat.completions, "create", new_callable=mock.AsyncMock, return_value=response) as create:
+            for stream in (False, True):
+                await function_calling.call(history, stream=stream)
+                sent = create.call_args.kwargs["messages"]
+                self.assertEqual([m["reasoning_content"] for m in sent if m["role"] == "assistant"], ["", "original reasoning", ""])
+                self.assertNotIn("reasoning_content", sent[-1])
+        self.assertNotIn("reasoning_content", history[0])
+        self.assertEqual(history[2]["reasoning_content"], "")
+
+    async def test_other_models_do_not_receive_synthetic_reasoning_fields(self):
+        import function_calling
+
+        response = types.SimpleNamespace(choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="ok"))])
+        with mock.patch.object(function_calling, "_refresh_client", return_value=("other-model", "test-key")), \
+             mock.patch.object(function_calling.client.chat.completions, "create", new_callable=mock.AsyncMock, return_value=response) as create:
+            await function_calling.call([{"role": "assistant", "content": "welcome", "reasoning_content": ""}])
+        self.assertNotIn("reasoning_content", create.call_args.kwargs["messages"][0])
+
     async def asyncSetUp(self):
         os.environ.setdefault("API_KEY", "test-key")
         os.environ.setdefault("BASE_URL", "http://127.0.0.1/v1")
