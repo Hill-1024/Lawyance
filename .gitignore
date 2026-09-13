@@ -1,6 +1,8 @@
 .env
 .venv
 .idea
+.omo/
+.opencode/
 node_modules
 dist
 __pycache__
