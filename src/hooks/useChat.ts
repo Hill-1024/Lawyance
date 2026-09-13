@@ -346,6 +346,7 @@ export function useChat() {
   const resumeEnabledRef = useRef(false);
   const ackStateRef = useRef<Record<string, { seq: number; at: number }>>({});
   const resumingStreamsRef = useRef<Set<string>>(new Set());
+  const processingStreamIdsRef = useRef<Set<string>>(new Set());
   const promptedDisconnectsRef = useRef<Set<string>>(new Set());
   const regenerateMessageRef = useRef<((convId: string, messageId: string, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => Promise<void>) | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -853,6 +854,7 @@ export function useChat() {
       streamId?: string;
       buffered: boolean;
       seenDone: boolean;
+      resumeUnavailable: boolean;
       errorMessage?: string;
       finalSeq?: number;
       status: NonNullable<Message['stream_status']>;
@@ -869,6 +871,7 @@ export function useChat() {
       state.buffered = Boolean(data.buffered);
       state.status = 'streaming';
       if (state.buffered && state.streamId) activeServerStreamRef.current = state.streamId;
+      if (state.streamId) processingStreamIdsRef.current.add(state.streamId);
     } else if (data.type === 'content') {
       state.bodyText += data.content || '';
     } else if (data.type === 'thought') {
@@ -913,12 +916,8 @@ export function useChat() {
     } else if (data.type === 'content_replace') {
       state.bodyText = data.content || '';
     } else if (data.type === 'resume_unavailable') {
-      const message = '本次回答的临时缓存已不可用，请重新生成。';
-      const outcome = reduceChatStreamOutcome(state, { type: 'error', message });
-      state.status = outcome.status;
-      state.seenDone = outcome.seenDone;
-      state.errorMessage = outcome.errorMessage;
-      state.bodyText += `\n\n**续传不可用：** ${message}`;
+      // 仅表示本次回答没有可续传的缓冲，不是业务失败；等流结束后再决定如何收尾。
+      state.resumeUnavailable = true;
     } else if (data.type === 'error') {
       const message = typeof data.content === 'string' && data.content.trim()
         ? data.content.trim()
@@ -1021,6 +1020,7 @@ export function useChat() {
       streamId: existing?.stream_id,
       buffered: existing?.stream_buffered === true,
       seenDone: false,
+      resumeUnavailable: false,
       errorMessage: undefined as string | undefined,
       finalSeq: undefined as number | undefined,
       status: (existing?.stream_status || 'streaming') as NonNullable<Message['stream_status']>,
@@ -1119,6 +1119,17 @@ export function useChat() {
       }
       scheduleAssistantStateCommit(true);
       if (!isStreamActive()) return false;
+      if (!streamState.seenDone && streamState.resumeUnavailable) {
+        const message = '本次回答未能完整接收，且服务器临时缓存不可用，请重新生成。';
+        const outcome = reduceChatStreamOutcome(streamState, { type: 'error', message });
+        streamState.status = outcome.status;
+        streamState.seenDone = outcome.seenDone;
+        streamState.errorMessage = outcome.errorMessage;
+        streamState.bodyText += `\n\n**续传不可用：** ${message}`;
+        scheduleAssistantStateCommit(true);
+        // 保留已收到的部分回答，不抛出错误（抛出会触发 handleSend 里的对话回滚）。
+        return false;
+      }
       throwIfChatStreamFailed(streamState);
       if (!streamState.seenDone && !streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
@@ -1133,6 +1144,19 @@ export function useChat() {
       if (isAbortError(err) || !isStreamActive()) return false;
       console.error('Stream read error:', err);
       scheduleAssistantStateCommit(true);
+      if (streamState.resumeUnavailable) {
+        // 没有可续传的缓存，跳过自动续传；仅对未完成的回答追加提示。
+        if (!streamState.seenDone) {
+          const message = '本次回答未能完整接收，且服务器临时缓存不可用，请重新生成。';
+          const outcome = reduceChatStreamOutcome(streamState, { type: 'error', message });
+          streamState.status = outcome.status;
+          streamState.seenDone = outcome.seenDone;
+          streamState.errorMessage = outcome.errorMessage;
+          streamState.bodyText += `\n\n**续传不可用：** ${message}`;
+          scheduleAssistantStateCommit(true);
+        }
+        return false;
+      }
       if (!streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
       } else if (streamState.buffered && streamState.streamId) {
@@ -1147,6 +1171,7 @@ export function useChat() {
         commitTimer = null;
       }
       reader.releaseLock();
+      if (streamState.streamId) processingStreamIdsRef.current.delete(streamState.streamId);
       if (isStreamActive()) {
         setIsLoading(false);
         setActiveAssistantMessageId(current => current === agentMessageId ? null : current);
@@ -1176,7 +1201,7 @@ export function useChat() {
 
     for (const item of pending) {
       const streamId = item.message.stream_id;
-      if (!streamId || resumingStreamsRef.current.has(streamId)) continue;
+      if (!streamId || resumingStreamsRef.current.has(streamId) || processingStreamIdsRef.current.has(streamId)) continue;
       resumingStreamsRef.current.add(streamId);
       const controller = new AbortController();
       activeAbortRef.current = controller;
@@ -1184,7 +1209,7 @@ export function useChat() {
       try {
         setIsLoading(true);
         setActiveAssistantMessageId(item.message.id);
-        setComposerStatus('正在恢复中断的回答');
+        setComposerStatus('连接中断，正在自动续传');
         const response = await resumeStream(streamId, item.message.last_committed_seq ?? -1, controller.signal);
         await processStream(response, item.message.id, item.convId, undefined, controller.signal);
       } catch (error) {
