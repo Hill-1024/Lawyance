@@ -29,10 +29,11 @@
 
 马来西亚 riba 条目已入库：
 
-- `data/MY/ifsa2013_riba_rules.json`：IFSA 2013 ss.28, 29, 152, 153, 167, 168 + SAC Resolution 81 摘录（`sources/MY/ifsa2013/`）
+- `data/MY/ifsa2013_riba_rules.json`：IFSA 2013 ss.28, 29, 152, 153, 167, 168（`sources/MY/ifsa2013/`）
 - `data/MY/cba2009_sac_rules.json`：CBA 2009 ss.56, 57, 58（`sources/MY/cba2009/`）
+- `data/MY/bnm_sac_riba_rules.json`：BNM SAC 汇编 Resolutions 32/33/37/46/77/78/81/83/107/123/131 + 第210/213次会议（`sources/MY/bnm_sac/`）
 
-IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。正式引用以英文原文为准。
+IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。SAC 无单独“riba 裁决”，以汇编决议序号为可追溯编号。正式引用以英文原文为准。
 
 ## 效力三分类
 
@@ -65,14 +66,14 @@ print(semantic_search("Malaysia riba IFSA", 3))
 
 ## 条款级 JSON 脚手架（旧）
 
-`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/ifsa2013_riba_rules.json` 与 `data/MY/cba2009_sac_rules.json` 为双层入库语料。
+`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/ifsa2013_riba_rules.json`、`cba2009_sac_rules.json` 与 `bnm_sac_riba_rules.json` 为双层入库语料。
 
 ## P1 / P2 / P3 边界
 
 | 阶段 | 本库状态 |
 | --- | --- |
-| P1 | 双层 schema、术语初版、权威白名单、MY IFSA 2013 + CBA 2009 ss.56–58（AGC PDF 核验）；下一步为 SAC 正式文本与经训 |
+| P1 | 双层 schema、术语初版、权威白名单、MY IFSA 2013 + CBA 2009 ss.56–58 + BNM SAC riba 相关裁决；下一步为经训原文 |
 | P2 | 补 BN/SG/PH/TH；takaful/waqf/faraid 专题 |
 | P3 | 与各分国法库双向打通、横向对比检索；经训误引红队（多在总装/Agent） |
 
-共享层经训阿语原文仍待 A 级复核。SAC Resolution 81 摘自采集记录，本地未保存 BNM PDF，正式法律意见引用前须对照官方 URL。
+共享层经训阿语原文仍待 A 级复核。BNM SAC 2010 汇编本地为内容核对副本（直连官网下载失败），正式法律意见引用前须对照 bnm.gov.my 官方 URL。

@@ -4,7 +4,7 @@ P1 种子脚本：初始化双层伊斯兰法库，写入：
 - 共享层原则 SH-PRINCIPLE-RIBA-001
 - 马来西亚 IFSA 2013 riba 合规链条（AGC 官方 PDF 核验条款）
 - 马来西亚 CBA 2009 ss.56–58（SAC 提交、拘束力、优先）
-- BNM SAC Resolution 81（采集记录摘录；本地未存 BNM PDF）
+- BNM SAC riba 相关裁决（2010 汇编核对副本 + 第210/213次会议官网摘要）
 - 四语术语表初版
 - 权威来源白名单
 - manifest.shared.json + manifest.country.MY.json
@@ -92,7 +92,7 @@ AUTHORITY_SOURCES = [
         "channels": "SAC rulings, IFSA-related guidance",
         "primary_use": "伊斯兰金融监管与 SAC 裁决",
         "homepage_url": "https://www.bnm.gov.my/",
-        "notes": "P1 权威白名单；SAC Resolution 81 正式引用前须对照 BNM 官方 PDF",
+        "notes": "SAC 汇编 2nd ed. 2010 本地为内容核对副本；正式引用请对照 bnm.gov.my 官方 PDF",
     },
     {
         "source_key": "MY-SC",
@@ -190,6 +190,7 @@ AUTHORITY_SOURCES = [
 RULE_PACKS = [
     BASE / "data" / "MY" / "ifsa2013_riba_rules.json",
     BASE / "data" / "MY" / "cba2009_sac_rules.json",
+    BASE / "data" / "MY" / "bnm_sac_riba_rules.json",
 ]
 
 
@@ -289,11 +290,12 @@ def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> Non
         "source_packs": [
             "sources/MY/ifsa2013/provenance.step1_1.json",
             "sources/MY/cba2009/provenance.step2_2.json",
+            "sources/MY/bnm_sac/provenance.step2_3.json",
         ],
         "note": (
-            "IFSA 2013 riba chain and CBA 2009 ss.56–58 imported from AGC official PDFs "
-            "(MD5 verified). SAC Resolution 81 quoted from collection record; "
-            "BNM PDF not stored locally."
+            "IFSA 2013 and CBA 2009 from AGC PDFs (MD5 verified). "
+            "BNM SAC 2nd ed. 2010 imported from a content-verification copy "
+            "(MD5 08e35a8c9aa2faafc5285d8d9d794484); confirm against bnm.gov.my."
         ),
     }
     MANIFEST_SHARED.write_text(json.dumps(shared, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -316,7 +318,7 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "my_riba_ifsa_cba_step2_2"),
+            ("seed", "my_riba_ifsa_cba_sac_step2_3"),
         )
         conn.commit()
         write_manifests(principle, rules)

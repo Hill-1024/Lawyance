@@ -195,33 +195,5 @@
     "applicability_subject": "违背沙里亚的业务/活动所得（含 riba 收入）的 derecognize",
     "applicability_territory": "马来西亚全境",
     "sharia_principle_id": "SH-PRINCIPLE-RIBA-001"
-  },
-  {
-    "rule_id": "MY-BNM-SAC-RES-081",
-    "source_id": "my_bnm_sac_res_081",
-    "law_name": "Shariah Resolutions in Islamic Finance (2nd edition)",
-    "article_number": "Resolution 81",
-    "content": "BNM compilation Shariah Resolutions in Islamic Finance, English 2nd edition (October 2010), Resolution 81 (Imposition of Ta‘widh and Gharamah), p.191, as recorded in the 2026-09-14 collection note (local BNM PDF not downloaded due to connection reset):\n\n\"In conventional financial system, the problems associated with default in loan repayment are controlled by charging interests or riba on customers. Since the imposition of interests or riba is prohibited by Shariah, Islamic financial institutions do not adopt this mechanism ...\"\n\nThis is an official Malaysian identification that interest = riba and that its imposition is prohibited by Shariah. Under IFSA s.28(2), compliance with SAC rulings is deemed compliance with Shariah. Verify against the official BNM PDF before quoting in a production legal opinion.",
-    "url": "https://www.bnm.gov.my/documents/20124/9198675/shariah_resolutions_2nd_edition_EN.pdf",
-    "status": "in_force",
-    "effective_date": "2010-10-01",
-    "language": "en",
-    "country": "MY",
-    "country_label": "Malaysia",
-    "rule_subject": "SAC：收取 interest/riba 为沙里亚所禁止",
-    "national_transformation": "经 IFSA s.28(2) 视为符合沙里亚的判断标准；母法 CBA 2009 s.51 设立 SAC，ss.56–58 规定提交、拘束力与优先。本地未保存 BNM PDF，正式引用前请用官方 URL 复核。",
-    "parallel_languages": "英文（BNM 官方出版物）",
-    "output_annotation": "适用国家：马来西亚；效力：binding（对伊斯兰金融机构，经 IFSA s.28(2) 吸收）；出处：BNM SAC Resolution 81, 2nd ed. 2010 p.191；信源类型：Fatwa/SAC ruling。",
-    "madhhab": "Shafi'i",
-    "sharia_source_type": "Fatwa",
-    "religious_anchor": "裁决文本将 interest 等同 riba 并声明为 Shariah 所禁止；经训坐标见共享层原则",
-    "fatwa_issuer": "BNM-SAC",
-    "fatwa_id": "Resolution 81 (2nd ed. 2010, p.191)",
-    "supersedes": "",
-    "legal_effect": "binding",
-    "applicability_person": "伊斯兰金融机构",
-    "applicability_subject": "违约补偿机制；禁止以 interest/riba 处理贷款违约",
-    "applicability_territory": "马来西亚全境",
-    "sharia_principle_id": "SH-PRINCIPLE-RIBA-001"
   }
 ]

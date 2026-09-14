@@ -1,0 +1,43 @@
+{
+  "collected_at": "2026-09-14",
+  "step": "2.3",
+  "instrument": {
+    "title": "Shariah Resolutions in Islamic Finance",
+    "edition": "2nd edition",
+    "publisher": "Bank Negara Malaysia",
+    "published": "2010-10",
+    "pages": 248,
+    "copyright": "© Bank Negara Malaysia, 2010",
+    "coverage": "SAC resolutions 1997–2010 (135 items)",
+    "language_authentic": "en"
+  },
+  "collection_note": "SAC 无单独一份名为 riba 的裁决。BNM 官方无 fatwa_id 字段；A 表以汇编 Resolution No. 为可追溯编号。本地 PDF 为内容核对副本（直连 bnm.gov.my 下载失败），MD5 与采集记录一致。C 表仅为论证中提及 riba，未作为专门裁决入库。B 表中与汇编重复的第12/30/95/101次会议不另建规则；仅入库汇编未覆盖的第210、213次会议（官网全文未本地保存）。",
+  "primary_text": "content_verification_copy_of_bnm_2nd_ed_2010",
+  "files": [
+    {
+      "filename": "BNM_SAC_ShariahResolutions_2nd_2010.pdf",
+      "role": "primary_verification_copy",
+      "pages": 248,
+      "md5": "08e35a8c9aa2faafc5285d8d9d794484",
+      "url": "https://www.bnm.gov.my/documents/20124/9198675/shariah_resolutions_2nd_edition_EN.pdf"
+    },
+    {
+      "filename": "BNM_SAC_riba利息相关裁决_中文采集记录.docx",
+      "role": "collection_record",
+      "url": ""
+    }
+  ],
+  "imported_resolutions": [32, 33, 37, 46, 77, 78, 81, 83, 107, 123, 131],
+  "imported_meetings_no_resolution_number": ["210th (2020-12-23)", "213th (2021-04-27)"],
+  "not_imported_as_rules": {
+    "c_table_incidental": [60, 70, 73, 76, 80, 89, 93, 94, 129, 132, 135],
+    "b_table_overlap_with_compilation": ["12th", "30th", "95th", "101st"]
+  },
+  "related_urls": [
+    "https://www.bnm.gov.my/committees/sac",
+    "https://www.bnm.gov.my/-/resolutions-of-shariah-advisory-council-bank-negara-malaysia",
+    "https://www.bnm.gov.my/documents/6319173/6348793/0099TA%60WIDH.pdf",
+    "https://www.bnm.gov.my/-/ruling-of-the-bank-s-shariah-advisory-council-on-the-adoption-of-risk-free-rate",
+    "https://www.bnm.gov.my/-/sac20210708"
+  ]
+}
