@@ -29,6 +29,7 @@
 
 马来西亚 riba 条目已入库：
 
+- **正式综合条目** `data/MY/my_riba_ifsa_2013_formal.json`：`MY-RIBA-IFSA-2013-001`（`record_grade=formal`，`legal_effect=binding`，三重适用齐全，挂 `SH-PRINCIPLE-RIBA-001`）
 - 共享层 `data/shared/riba_scripture_principle.json`：Quran 2:275–279（Tanzil 阿语 + Saheeh International 英译 + 马坚中译）及已核圣训编号（`sources/shared/scripture_riba/`）；`legal_effect=religious-guidance`
 - `data/MY/ifsa2013_riba_rules.json`：IFSA 2013 ss.28, 29, 152, 153, 167, 168（`sources/MY/ifsa2013/`）
 - `data/MY/cba2009_sac_rules.json`：CBA 2009 ss.56, 57, 58（`sources/MY/cba2009/`）
@@ -67,14 +68,14 @@ print(semantic_search("Malaysia riba IFSA", 3))
 
 ## 条款级 JSON 脚手架（旧）
 
-`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/shared/riba_scripture_principle.json` 与 `data/MY/ifsa2013_riba_rules.json`、`cba2009_sac_rules.json`、`bnm_sac_riba_rules.json` 为双层入库语料。
+`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/my_riba_ifsa_2013_formal.json`、`data/shared/riba_scripture_principle.json` 与 `data/MY/ifsa2013_riba_rules.json`、`cba2009_sac_rules.json`、`bnm_sac_riba_rules.json` 为双层入库语料。
 
 ## P1 / P2 / P3 边界
 
 | 阶段 | 本库状态 |
 | --- | --- |
-| P1 | 双层 schema、术语初版、权威白名单、MY IFSA/CBA/SAC + 共享层经训 2:275–279；下一步为补全字段并标记正式（2.5）与检索验证（2.6） |
+| P1 | 双层 schema、术语初版、权威白名单、MY 正式 riba 条目（IFSA/CBA/SAC + 经训）；下一步为 2.6 全链路检索验证 |
 | P2 | 补 BN/SG/PH/TH；takaful/waqf/faraid 专题 |
 | P3 | 与各分国法库双向打通、横向对比检索；经训误引红队（多在总装/Agent） |
 
-辞朝演说圣训分条号仍待核验。BNM SAC 2010 汇编本地为内容核对副本，正式法律意见引用前须对照 bnm.gov.my / tanzil.net / sunnah.com 官方 URL。
+辞朝演说圣训分条号、阿语拉丁转写仍待核验（字段已标「待核验」）。BNM SAC 2010 汇编本地为内容核对副本，正式法律意见引用前须对照 bnm.gov.my / tanzil.net / sunnah.com 官方 URL。

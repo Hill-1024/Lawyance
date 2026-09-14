@@ -6,6 +6,7 @@ P1 种子脚本：初始化双层伊斯兰法库，写入：
 - 马来西亚 CBA 2009 ss.56–58（SAC 提交、拘束力、优先）
 - BNM SAC riba 相关裁决（2010 汇编核对副本 + 第210/213次会议官网摘要）
 - 共享层经训：Quran 2:275–279（阿/英/中）+ 已核圣训编号
+- 马来西亚正式综合条目 MY-RIBA-IFSA-2013-001（record_grade=formal）
 - 四语术语表初版
 - 权威来源白名单
 - manifest.shared.json + manifest.country.MY.json
@@ -209,11 +210,44 @@ AUTHORITY_SOURCES = [
 
 
 RULE_PACKS = [
+    BASE / "data" / "MY" / "my_riba_ifsa_2013_formal.json",
     BASE / "data" / "MY" / "ifsa2013_riba_rules.json",
     BASE / "data" / "MY" / "cba2009_sac_rules.json",
     BASE / "data" / "MY" / "bnm_sac_riba_rules.json",
 ]
 PRINCIPLE_PATH = BASE / "data" / "shared" / "riba_scripture_principle.json"
+FORMAL_RULE_ID = "MY-RIBA-IFSA-2013-001"
+FORMAL_REQUIRED_FIELDS = (
+    "rule_id",
+    "source_id",
+    "law_name",
+    "article_number",
+    "content",
+    "url",
+    "status",
+    "effective_date",
+    "language",
+    "country",
+    "country_label",
+    "rule_subject",
+    "national_transformation",
+    "parallel_languages",
+    "output_annotation",
+    "madhhab",
+    "sharia_source_type",
+    "religious_anchor",
+    "fatwa_issuer",
+    "fatwa_id",
+    "supersedes",
+    "legal_effect",
+    "applicability_person",
+    "applicability_subject",
+    "applicability_territory",
+    "arabic_text",
+    "transliteration",
+    "sharia_principle_id",
+    "country_rule_ids",
+)
 
 
 def load_rule_pack(path: Path) -> list[IslamicRule]:
@@ -241,6 +275,36 @@ def load_country_rules() -> list[IslamicRule]:
             seen.add(rule.rule_id)
             rules.append(rule)
     return rules
+
+
+def assert_formal_rule_complete(rules: list[IslamicRule]) -> IslamicRule:
+    formal = next((rule for rule in rules if rule.rule_id == FORMAL_RULE_ID), None)
+    if formal is None:
+        raise ValueError(f"Missing formal rule {FORMAL_RULE_ID}")
+    missing = []
+    for name in FORMAL_REQUIRED_FIELDS:
+        value = getattr(formal, name)
+        if value is None or value == "" or value == []:
+            missing.append(name)
+    if missing:
+        raise ValueError(f"{FORMAL_RULE_ID} has empty fields: {', '.join(missing)}")
+    if formal.legal_effect != "binding":
+        raise ValueError(f"{FORMAL_RULE_ID} legal_effect must be binding, got {formal.legal_effect!r}")
+    if formal.sharia_principle_id != "SH-PRINCIPLE-RIBA-001":
+        raise ValueError(
+            f"{FORMAL_RULE_ID} sharia_principle_id must be SH-PRINCIPLE-RIBA-001, "
+            f"got {formal.sharia_principle_id!r}"
+        )
+    for name in (
+        "applicability_person",
+        "applicability_subject",
+        "applicability_territory",
+    ):
+        if not getattr(formal, name):
+            raise ValueError(f"{FORMAL_RULE_ID} missing triple-scope field {name}")
+    if "record_grade=formal" not in formal.content and "record_grade=formal" not in formal.output_annotation:
+        raise ValueError(f"{FORMAL_RULE_ID} must mark record_grade=formal")
+    return formal
 
 
 def build_riba_principle(country_rule_ids: list[str]) -> ShariaPrinciple:
@@ -307,12 +371,15 @@ def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> Non
             "sources/MY/cba2009/provenance.step2_2.json",
             "sources/MY/bnm_sac/provenance.step2_3.json",
             "sources/shared/scripture_riba/provenance.step2_4.json",
+            "sources/MY/formal/provenance.step2_5.json",
         ],
+        "formal_rule_id": FORMAL_RULE_ID,
         "note": (
             "IFSA 2013 and CBA 2009 from AGC PDFs (MD5 verified). "
             "BNM SAC 2nd ed. 2010 content-verification copy "
             "(MD5 08e35a8c9aa2faafc5285d8d9d794484). "
-            "Scripture imported into shared principle; not alone a compliance basis."
+            "Scripture in shared principle. "
+            f"{FORMAL_RULE_ID} marked record_grade=formal with complete fields."
         ),
     }
     MANIFEST_SHARED.write_text(json.dumps(shared, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -321,6 +388,7 @@ def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> Non
 
 def main() -> None:
     rules = load_country_rules()
+    formal = assert_formal_rule_complete(rules)
     principle = build_riba_principle([rule.rule_id for rule in rules])
     conn = init_database()
     try:
@@ -335,7 +403,11 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "my_riba_ifsa_cba_sac_scripture_step2_4"),
+            ("seed", "my_riba_formal_step2_5"),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
+            ("formal_rule_id", FORMAL_RULE_ID),
         )
         conn.commit()
         write_manifests(principle, rules)
@@ -347,6 +419,17 @@ def main() -> None:
             ORDER BY r.rule_id
             """
         ).fetchall()
+        formal_row = conn.execute(
+            """
+            SELECT rule_id, legal_effect, sharia_principle_id,
+                   applicability_person, applicability_subject, applicability_territory,
+                   length(arabic_text) AS ar_len, length(transliteration) AS tr_len,
+                   length(fatwa_id) AS fatwa_len, length(supersedes) AS supersedes_len
+            FROM islamic_rules
+            WHERE rule_id = ?
+            """,
+            (FORMAL_RULE_ID,),
+        ).fetchone()
         principle_row = conn.execute(
             """
             SELECT sharia_principle_id, legal_effect, length(arabic_text) AS ar_len,
@@ -362,6 +445,20 @@ def main() -> None:
         print(f"Inserted principles={n_p} rules={n_r} terms={n_t} authorities={auth_count}")
         print(f"Manifest shared: {MANIFEST_SHARED}")
         print(f"Manifest MY: {MANIFEST_MY}")
+        print("Formal entry:")
+        print(
+            f"  {formal_row['rule_id']}  legal_effect={formal_row['legal_effect']}  "
+            f"principle={formal_row['sharia_principle_id']}"
+        )
+        print(
+            f"  person/subject/territory non-empty="
+            f"{bool(formal_row['applicability_person'] and formal_row['applicability_subject'] and formal_row['applicability_territory'])}"
+        )
+        print(
+            f"  arabic_chars={formal_row['ar_len']}  transliteration_chars={formal_row['tr_len']}  "
+            f"fatwa_id_chars={formal_row['fatwa_len']}  supersedes_chars={formal_row['supersedes_len']}"
+        )
+        print(f"  content_mark_ok={'record_grade=formal' in formal.content}")
         print("Principle:")
         print(
             f"  {principle_row['sharia_principle_id']}  {principle_row['legal_effect']}  "

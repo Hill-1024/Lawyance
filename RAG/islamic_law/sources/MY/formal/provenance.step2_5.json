@@ -1,0 +1,24 @@
+{
+  "collected_at": "2026-09-14",
+  "step": "2.5",
+  "formal_rule_id": "MY-RIBA-IFSA-2013-001",
+  "record_grade": "formal",
+  "acceptance": {
+    "fields_complete": true,
+    "legal_effect": "binding",
+    "triple_scope": ["applicability_person", "applicability_subject", "applicability_territory"],
+    "sharia_principle_id": "SH-PRINCIPLE-RIBA-001"
+  },
+  "pending_verification": [
+    "Sahih Muslim Khutbat al-Wada' riba-abolition sunnah.com subdivision number",
+    "Latin transliteration of Quran 2:275–279",
+    "BNM SAC 2nd ed. 2010 long quotes should be re-checked against official bnm.gov.my PDF"
+  ],
+  "source_packs_merged": [
+    "sources/MY/ifsa2013/provenance.step1_1.json",
+    "sources/MY/cba2009/provenance.step2_2.json",
+    "sources/MY/bnm_sac/provenance.step2_3.json",
+    "sources/shared/scripture_riba/provenance.step2_4.json"
+  ],
+  "data_file": "data/MY/my_riba_ifsa_2013_formal.json"
+}
