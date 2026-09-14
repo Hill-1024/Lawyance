@@ -429,15 +429,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ role }) => {
   const parsedLogs = useMemo(() => logs.map(parseLogLine), [logs]);
 
   const logStats = useMemo(() => {
-    const entries = parsedLogs.filter(log => log.ip);
-    const errors = entries.filter(log => Number.parseInt(log.status, 10) >= 400).length;
-    const ips = new Set(entries.map(log => log.ip));
-    const users = new Set(entries.map(log => log.user).filter(Boolean));
-    return { total: entries.length, errors, ips: ips.size, users: users.size };
+    // 单次遍历同时累计条数、错误数并收集 IP/用户，避免对同一数组做四遍扫描。
+    let total = 0;
+    let errors = 0;
+    const ips = new Set<string>();
+    const users = new Set<string>();
+    for (const log of parsedLogs) {
+      if (!log.ip) continue;
+      total += 1;
+      if (Number.parseInt(log.status, 10) >= 400) errors += 1;
+      ips.add(log.ip);
+      if (log.user) users.add(log.user);
+    }
+    return { total, errors, ips: ips.size, users: users.size };
   }, [parsedLogs]);
 
-  const staffCount = accounts.filter(a => a.role === 'sudo' || a.role === 'admin').length;
-  const onlineDeviceCount = sessions.filter(s => s.online).length;
+  const staffCount = useMemo(
+    () => accounts.filter(a => a.role === 'sudo' || a.role === 'admin').length,
+    [accounts]
+  );
+  const onlineDeviceCount = useMemo(
+    () => sessions.filter(s => s.online).length,
+    [sessions]
+  );
   const quotaReached = role === 'admin' && myQuota.max_users != null && accounts.length >= myQuota.max_users;
 
   return (

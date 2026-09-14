@@ -60,6 +60,9 @@ const AGENT_STATUS_META: Record<CourtAgentState['status'], { label: string; dotC
 
 const AGENT_ORDER: Array<Extract<CourtSpeaker, 'judge' | 'opponent' | 'reviewer'>> = ['judge', 'opponent', 'reviewer'];
 
+// 平台判定在按键回调里做，正则提到模块作用域，避免每次按键都新建 RegExp。
+const IS_APPLE_PLATFORM = /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent);
+
 /* ── 庭审侧栏 ─────────────────────────────────────────────── */
 
 const CourtSidebar: React.FC<{
@@ -77,6 +80,8 @@ const CourtSidebar: React.FC<{
     ? { width: isOpen ? PANEL_WIDTH : 0, opacity: isOpen ? 1 : 0, borderRightWidth: isOpen ? 1 : 0 }
     : { x: isOpen ? 0 : '-100%', opacity: isOpen ? 1 : 0 };
   const contentWidth = isDesktopLayout ? `${PANEL_WIDTH}px` : 'min(85vw, 320px)';
+  // 分支树展平是整棵树的遍历，只在会话列表变化时重算，别跟着每次父组件渲染重跑。
+  const sessionRows = useMemo(() => flattenBranchTree<CourtSession>(sessions), [sessions]);
 
   return (
     <>
@@ -138,7 +143,7 @@ const CourtSidebar: React.FC<{
                 新建后会保存在这里。
               </p>
             ) : (
-              flattenBranchTree<CourtSession>(sessions).map(({ item: session, ancestorTrails, isLastSibling }) => {
+              sessionRows.map(({ item: session, ancestorTrails, isLastSibling }) => {
                 const active = session.id === currentId;
                 return (
                   <div
@@ -480,8 +485,7 @@ const CourtComposerDock: React.FC<{
         : '输入发言或插话…';
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const isMac = /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent);
-    const sendTriggered = isMac ? event.metaKey && event.key === 'Enter' : event.ctrlKey && event.key === 'Enter';
+    const sendTriggered = IS_APPLE_PLATFORM ? event.metaKey && event.key === 'Enter' : event.ctrlKey && event.key === 'Enter';
     if (sendTriggered) {
       event.preventDefault();
       if (isUploadingFiles) return;
@@ -760,32 +764,34 @@ export const CourtPage: React.FC<CourtPageProps> = ({
     runNextTurn();
   };
 
-  const handleRewindAtEvent = (eventId: string) => {
+  // useCallback 依赖的是 workspace 对象字面量，每轮渲染都是新引用；
+  // 只取用到的字段，回调才能保持稳定（记录列表的 useMemo 依赖它）。
+  const { pendingUploads, setPendingUploads } = workspace;
+  const handleRewindAtEvent = React.useCallback((eventId: string) => {
     if (!currentCourtId) return;
     rewindToEvent(currentCourtId, eventId);
-  };
+  }, [currentCourtId, rewindToEvent]);
 
-  const handleBranchAtEvent = (eventId: string) => {
+  const handleBranchAtEvent = React.useCallback((eventId: string) => {
     if (!currentCourtId) return;
     branchFromEvent(currentCourtId, eventId);
-  };
+  }, [branchFromEvent, currentCourtId]);
 
   const openFilePicker = () => fileInputRef.current?.click();
 
   // 庭审发言同样要把上传材料的工作区路径告诉各角色，否则材料对模型不可见：
   // 法庭请求只带公开事件文本，模型没有别的途径知道工作区里有什么文件。
   const handleSendWithMaterials = React.useCallback(() => {
-    const uploads = workspace.pendingUploads;
-    const attachmentPrompt = buildAttachmentPrompt(uploads);
+    const attachmentPrompt = buildAttachmentPrompt(pendingUploads);
     const speech = composerText.trim();
     if (!speech && !attachmentPrompt) return;
 
     const content = [speech, attachmentPrompt].filter(Boolean).join('\n\n');
     sendUserSpeech(content);
-    if (uploads.length > 0) {
-      workspace.setPendingUploads([]);
+    if (pendingUploads.length > 0) {
+      setPendingUploads([]);
     }
-  }, [composerText, sendUserSpeech, workspace]);
+  }, [composerText, pendingUploads, sendUserSpeech, setPendingUploads]);
 
   const handleUploadFiles = async (files: FileList | null) => {
     try {

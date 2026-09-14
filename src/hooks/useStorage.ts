@@ -19,17 +19,17 @@ export function useStorage() {
     }
     
     try {
-      const estimate = await fileDB.getEstimate();
+      // 用量估算与持久化标记是两次独立查询，并发发起省一个串行往返。
+      const [estimate, persisted] = await Promise.all([
+        fileDB.getEstimate(),
+        navigator.storage.persisted ? navigator.storage.persisted() : Promise.resolve(false),
+      ]);
       setUsage(estimate.usage || 0);
       setQuota(estimate.quota || 0);
       if (estimate.quota) {
         setUsageRatio((estimate.usage || 0) / estimate.quota);
       }
-      
-      if (navigator.storage.persisted) {
-        const persisted = await navigator.storage.persisted();
-        setIsPersistent(persisted);
-      }
+      setIsPersistent(persisted);
     } catch (e) {
       console.error('Failed to get storage estimate:', e);
       setError('获取存储信息失败。');
