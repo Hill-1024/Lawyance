@@ -59,7 +59,7 @@ CORE_RED_LINES = {
     "L0-4 输入免疫": ["输入免疫", "注入攻击意图"],
     "L1-1 工具先行": ["工具先行", "调用检索工具"],
     "L1-2 输出标签": ["<final_answer>", "</final_answer>"],
-    "L1-3 信源标注": ["法律/案例信源", "联网搜索来源"],
+    "L1-3 信源标注": ["法律/案例信源", "联网搜索来源", "缺一不可"],
     "L1-4 领域边界": ["领域边界", "简短边界说明"],
     "L1-5 禁 emoji": ["emoji"],
 }
@@ -80,6 +80,17 @@ def test_constraint_recap_present_in_tail():
     assert recap_idx > len(prompt) * 2 / 3, (
         f"tail recap 位于 {recap_idx}/{len(prompt)}，未落在 prompt 后 1/3"
     )
+
+
+def test_constraint_recap_covers_tail_source_list_correspondence():
+    """尾部重申必须覆盖「文末信源列表一一对应」。
+
+    模型「打了角标却不在文末列溯源」的根因就是 recap 只重申了角标与分区，
+    漏掉文末列表——而 recap 才是模型收尾时最后读到的约束。本条锁死该锚点。
+    """
+    prompt = build_system_prompt()
+    assert "文末信源列表必须与正文角标一一对应" in prompt
+    assert "只打角标、不列文末信源列表" in prompt
 
 
 # ---------------------------------------------------------------------------
