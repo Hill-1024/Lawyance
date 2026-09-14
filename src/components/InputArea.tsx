@@ -2,7 +2,7 @@
  * 模块描述：聊天输入区组件，处理消息输入、文件上传、发送按钮和悬浮设置面板。
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings2, Paperclip, ImagePlus, X, Send, LoaderCircle, Square } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -139,7 +139,8 @@ export const InputArea: React.FC<InputAreaProps> = ({
   onComposerHeightChange
 }) => {
   const [stackReferenceWidth, setStackReferenceWidth] = useState<number | null>(null);
-  const { ref: textareaRef, isMultiline, isStacked, viewportHeight } = useAutoGrowTextarea(input, {
+  const [visibleActionCount, setVisibleActionCount] = useState(0);
+  const { ref: textareaRef, isMultiline, isStacked } = useAutoGrowTextarea(input, {
     stackReferenceWidth
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -159,6 +160,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
     if (!textarea || !shell || !actions) return;
     const report = () => {
       const visibleItems = Array.from(actions.children as HTMLCollectionOf<Element>).filter(child => getComputedStyle(child).display !== 'none');
+      setVisibleActionCount(previous => (previous === visibleItems.length ? previous : visibleItems.length));
       const actionSize = parseFloat(getComputedStyle(actions).getPropertyValue('--composer-action-size'));
       const horizontalGap = window.matchMedia('(max-width: 480px)').matches ? 3 : 6;
       const horizontalWidth = visibleItems.length * actionSize + Math.max(0, visibleItems.length - 1) * horizontalGap;
@@ -172,17 +174,34 @@ export const InputArea: React.FC<InputAreaProps> = ({
     return () => observer.disconnect();
   }, [textareaRef]);
 
-  // 桌面左侧共 4 个控件（设置、传材料、传图片、上下文用量环）；用量环在 sm 以下隐藏，
-  // 而竖排只在 sm 以上生效，所以这里按 4 个规划。
-  const actionBarPlan = useMemo(
-    () =>
-      planComposerActionBar({
-        itemCount: 4,
-        availableHeight: computeComposerViewportBudget({ viewportHeight: viewportHeight || 720 })
-      }),
-    [viewportHeight]
-  );
+  // 控件数量与参考宽度同源：都取自上面那次 DOM 测量，避免“JS 里写 4、CSS 里藏一个”两处各写一份。
+  // 它只用于“单列还是两列”的取舍（行数由 CSS 隐式生成），所以即使测量晚一拍也不会撑高外壳。
+  const [actionColumns, setActionColumns] = useState<1 | 2>(1);
+
+  // 视口高度只用来判断单列放不放得下。这里存“列数”而不是“视口高度”：
+  // 拖窗口高度、软键盘弹出动画期间每帧都会触发 resize，存原始高度会让整块输入区每帧重渲染，
+  // 而列数只在真的跨过阈值时才变一次。
+  useLayoutEffect(() => {
+    const update = () => {
+      const next = planComposerActionBar({
+        itemCount: visibleActionCount || 1,
+        availableHeight: computeComposerViewportBudget({
+          viewportHeight: window.visualViewport?.height ?? window.innerHeight
+        })
+      }).columns;
+      setActionColumns(previous => (previous === next ? previous : next));
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+    };
+  }, [visibleActionCount]);
+
   const isExpanded = isMultiline || isStacked;
+  const actionsLayout = !isStacked ? 'row' : actionColumns === 2 ? 'columns' : 'column';
 
   const updateSettingsPosition = useCallback(() => {
     const rect = composerRef.current?.getBoundingClientRect();
@@ -476,8 +495,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
           <div
             className="lawver-composer-shell"
             data-multiline={isExpanded ? 'true' : 'false'}
-            data-stacked={isStacked ? 'true' : 'false'}
-            style={{ '--composer-action-rows': actionBarPlan.rows } as React.CSSProperties}
+            data-actions-layout={actionsLayout}
           >
             <motion.div
               layout

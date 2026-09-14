@@ -95,12 +95,10 @@ const tall = computeComposerViewportBudget({ viewportHeight: 720 });
 const short = computeComposerViewportBudget({ viewportHeight: 400 });
 assert.deepEqual(planComposerActionBar({ itemCount: 4, availableHeight: tall }), {
   columns: 1,
-  rows: 4,
   height: 172
 });
 assert.deepEqual(planComposerActionBar({ itemCount: 4, availableHeight: short }), {
   columns: 2,
-  rows: 2,
   height: 84
 });
 // 单列刚好放得下与差一点放不下
@@ -109,20 +107,23 @@ assert.equal(planComposerActionBar({ itemCount: 4, availableHeight: 183 }).colum
 // 只有 3 个控件时单列 128px，在高窗口下仍是单列
 assert.deepEqual(planComposerActionBar({ itemCount: 3, availableHeight: tall }), {
   columns: 1,
-  rows: 3,
   height: 128
 });
 // 矮窗口下 3 个控件也会降为两列（2 行）
 assert.deepEqual(planComposerActionBar({ itemCount: 3, availableHeight: short }), {
   columns: 2,
-  rows: 2,
   height: 84
 });
 // 庭审页只有一个控件：竖排与横排等同，不产生额外高度
 assert.deepEqual(planComposerActionBar({ itemCount: 1, availableHeight: short }), {
   columns: 1,
-  rows: 1,
   height: 40
 });
+// 锁定“不返回行数”这个不变量：行数一旦回到 JS 手里，估错就会在 CSS 里变成空轨道
+assert.deepEqual(
+  Object.keys(planComposerActionBar({ itemCount: 4, availableHeight: short })).sort(),
+  ['columns', 'height'],
+  '排布计划不得携带行数'
+);
 
 console.log('composer autosize: single-line baselines, viewport cap, clamping and action-bar plan passed');

@@ -82,8 +82,8 @@ export const COMPOSER_ACTION_GAP = 4;
 export const COMPOSER_SHELL_CHROME = 12;
 
 export interface ComposerActionBarPlan {
-  columns: number;
-  rows: number;
+  /** 1 = 单列竖排，2 = 两列竖排。 */
+  columns: 1 | 2;
   /** 控件组自身高度，不含外壳 padding/border。 */
   height: number;
 }
@@ -91,6 +91,9 @@ export interface ComposerActionBarPlan {
 /**
  * 左侧控件从横排改为竖排后的排布：单列放不下时降为两列。
  * 单列高度由控件数量决定，四个 40px 控件需要 172px，超过六行上限但可能仍在视口预算内。
+ *
+ * 这里只返回列数，不返回行数：行数由 CSS 隐式生成（单列用 grid-auto-rows，两列写死 2 行），
+ * 所以 itemCount 估错最多让列数选择偏保守，不会让 grid 多出空轨道把外壳撑高。
  */
 export const planComposerActionBar = ({
   itemCount,
@@ -108,10 +111,10 @@ export const planComposerActionBar = ({
   const safeCount = Math.max(1, Math.floor(itemCount));
   const singleColumnHeight = safeCount * itemSize + (safeCount - 1) * gap;
   if (safeCount <= 2 || singleColumnHeight + shellChrome <= availableHeight) {
-    return { columns: 1, rows: safeCount, height: singleColumnHeight };
+    return { columns: 1, height: singleColumnHeight };
   }
 
   const rows = Math.ceil(safeCount / 2);
-  return { columns: 2, rows, height: rows * itemSize + (rows - 1) * gap };
+  return { columns: 2, height: rows * itemSize + (rows - 1) * gap };
 };
 

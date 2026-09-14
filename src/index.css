@@ -406,7 +406,7 @@ textarea.composer-textarea:focus-visible {
 
 /*
  * 左侧控件组：默认横排，间距与改造前 shell 的直接子元素一致。
- * 行数由 --composer-action-rows 注入，横排、单列、两列都是同一个 grid 的不同行数。
+ * 竖排形态见下方媒体查询——轨道数由 CSS 自己推，不由外部注入。
  */
 .lawver-composer-actions {
   --composer-action-size: 40px;
@@ -421,17 +421,30 @@ textarea.composer-textarea:focus-visible {
 }
 
 /*
- * 竖排（仅 sm 以上）：输入框增高后左侧控件改为单列；可见视口放不下单列时，
- * JS 会把行数改为两列，控件尺寸与输入框宽度都不会因此改变。
+ * 竖排（仅 sm 以上）：输入框增高后左侧控件改为单列；可见视口放不下单列时改用两列。
+ *
+ * 三种排布的轨道数全部由 CSS 自己推出，不接受外部传入的行数：单列靠隐式行
+ * （grid-auto-flow: row + grid-auto-rows），两列只写死 2。因此即使 JS 对控件数量估计有误，
+ * 也只会影响“单列还是两列”这个选择，不会凭空多出空轨道把外壳撑高。
  */
 @media (min-width: 640px) {
-  .lawver-composer-shell[data-stacked='true'] .lawver-composer-actions {
-    grid-template-rows: repeat(var(--composer-action-rows, 4), var(--composer-action-size));
+  .lawver-composer-shell:is([data-actions-layout='column'], [data-actions-layout='columns']) .lawver-composer-actions {
+    grid-auto-flow: row;
+    grid-template-rows: none;
+    grid-auto-rows: var(--composer-action-size);
     gap: 4px;
   }
 
+  .lawver-composer-shell[data-actions-layout='column'] .lawver-composer-actions {
+    grid-template-columns: var(--composer-action-size);
+  }
+
+  .lawver-composer-shell[data-actions-layout='columns'] .lawver-composer-actions {
+    grid-template-columns: repeat(2, var(--composer-action-size));
+  }
+
   /* 控件组成为最高元素时文字从顶部开始，发送键仍在右下角。 */
-  .lawver-composer-shell[data-stacked='true'] .lawver-composer-textarea {
+  .lawver-composer-shell:is([data-actions-layout='column'], [data-actions-layout='columns']) .lawver-composer-textarea {
     align-self: flex-start;
   }
 }
