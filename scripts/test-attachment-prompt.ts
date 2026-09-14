@@ -10,7 +10,8 @@ import {
   DOCUMENT_ATTACHMENT_HEADER,
   IMAGE_ATTACHMENT_HEADER,
   buildAttachmentPrompt,
-  parseDocumentAttachments,
+  parseAttachmentEntries,
+  resolveMessageAttachments,
   restoreAttachmentsFromMessage,
   stripAttachmentPrompt,
   stripWorkspacePaths,
@@ -62,13 +63,17 @@ assert.equal(stripAttachmentPrompt(imageOnly), '', '只有图片块时应剥离�
 assert.equal(stripAttachmentPrompt('纯文本问题'), '纯文本问题', '无附件说明时应原样返回');
 assert.equal(stripAttachmentPrompt(''), '');
 
-/* ── 文档清单解析与剥离保持一致 ── */
+/* ── 文本协议解析：块归属与路径都要取出来 ── */
 const docs = ['合同.pdf', '补充协议.docx'];
 const docPrompt = buildAttachmentPrompt(docs.map(name => ({
   name, path: `TEMP/u/c/${name}`, kind: 'document' as const,
 })));
-assert.deepEqual(parseDocumentAttachments(docPrompt), docs, '文档清单解析结果不一致');
-assert.deepEqual(parseDocumentAttachments('没有附件'), []);
+assert.deepEqual(
+  parseAttachmentEntries(docPrompt),
+  docs.map(name => ({ name, path: `TEMP/u/c/${name}`, block: 'document' as const })),
+  '文档块解析结果不一致',
+);
+assert.deepEqual(parseAttachmentEntries('没有附件'), []);
 
 /* ── 正文里不能残留内部工作区路径 ── */
 assert.equal(stripWorkspacePaths('见 TEMP/u/c/a.pdf 谢谢'), '见  谢谢');
@@ -148,11 +153,67 @@ const doubled = restoreAttachmentsFromMessage(doubledDoc, [
 ]);
 assert.equal(doubled.files.length, 1, `同文档被重复还原: ${doubled.files.length} 份`);
 
-/* ── 旧消息（有文本协议但无元数据）仍能还原文档 ── */
+/* ── 旧消息（有文本协议但无元数据）仍能还原文档，且路径不能丢 ── */
 const legacy = `旧消息正文\n\n[用户已上传以下文件，请根据需要进行读取和处理]\n- legacy.pdf (路径: TEMP/u/c/legacy.pdf)`;
 const legacyRestored = restoreAttachmentsFromMessage(legacy);
-assert.deepEqual(legacyRestored.files, [{ name: 'legacy.pdf', path: '', kind: 'document' }], '旧消息文档还原失败');
+assert.deepEqual(
+  legacyRestored.files,
+  [{ name: 'legacy.pdf', path: 'TEMP/u/c/legacy.pdf', kind: 'document', mime: undefined }],
+  '旧消息文档还原失败（路径必须一并还原，否则重发后模型读不到文件）',
+);
 assert.equal(legacyRestored.text, '旧消息正文');
+
+/* ── 关键回归：气泡渲染与撤回还原必须来自同一份附件清单 ── */
+// 旧版本把图片也写进文档块，且没有逐条 kind 元数据。撤回时若照抄「文档块 = 文档」，
+// 图片就会：待发区没有缩略图 → 重发被写回文档块 → 气泡里图片变成文件卡片，
+// 同时元数据与文本协议各渲染一次，上下各一份。
+{
+  const legacyImageMessage = `看下这张图\n\n${DOCUMENT_ATTACHMENT_HEADER}\n- 借条.png (路径: TEMP/u/c/借条.png)\n- 合同.pdf (路径: TEMP/u/c/合同.pdf)`;
+
+  const resolved = resolveMessageAttachments(legacyImageMessage);
+  assert.deepEqual(
+    resolved.map(item => `${item.kind}::${item.name}`),
+    ['image::借条.png', 'document::合同.pdf'],
+    '旧消息里的图片必须按扩展名识别为图片，而不是文档',
+  );
+  assert.equal(resolved[0].path, 'TEMP/u/c/借条.png', '图片路径不能丢');
+
+  // 气泡只会渲染 resolveMessageAttachments 的结果；图片与文档分区后必须不重不漏。
+  const bubbleImages = resolved.filter(item => item.kind === 'image');
+  const bubbleDocuments = resolved.filter(item => item.kind !== 'image');
+  assert.equal(
+    bubbleImages.length + bubbleDocuments.length,
+    resolved.length,
+    '图片与文档分区后有附件被重复计入',
+  );
+  for (const name of ['借条.png', '合同.pdf']) {
+    const occurrences = resolved.filter(item => item.name === name).length;
+    assert.equal(occurrences, 1, `${name} 在气泡里出现 ${occurrences} 次，应为 1 次`);
+  }
+
+  // 撤回再发送：图片必须回到图片块（拿回缩略图），文档块不再多出图片。
+  const undone = restoreAttachmentsFromMessage(legacyImageMessage);
+  assert.equal(undone.files.length, 2, '撤回后待发区条目数必须与附件数一致');
+  const resent = sendCycle(undone.text, undone.files);
+  assert.ok(
+    resent.content.indexOf('借条.png') < resent.content.indexOf(DOCUMENT_ATTACHMENT_HEADER),
+    '重发后图片应回到图片块，而不是留在文档块里',
+  );
+  assert.equal(
+    resent.content.split('- 借条.png (路径:').length - 1,
+    1,
+    '重发后图片在附件清单里出现了多次（图片块与文档块各一次）',
+  );
+
+  // 再撤回一次仍应稳定（数量与集合都不变）。
+  const secondUndo = restoreAttachmentsFromMessage(resent.content, resent.attachments);
+  assert.deepEqual(
+    secondUndo.files.map(item => `${item.kind}::${item.name}`),
+    ['image::借条.png', 'document::合同.pdf'],
+    '二次撤回后附件集合发生变化',
+  );
+  assert.equal(secondUndo.text, '看下这张图');
+}
 
 /* ── 历史消息兼容：旧标题的图片块也必须被剥离 ── */
 {

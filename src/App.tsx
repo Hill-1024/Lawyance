@@ -107,6 +107,7 @@ function App() {
     workspaceFiles,
     pendingUploads,
     setPendingUploads,
+    restorePendingUploads,
     isUploadingFiles,
     handleFileUpload,
     handleGeneratedFile,
@@ -302,6 +303,7 @@ function App() {
     handleGeneratedFile,
     syncFiles,
     setPendingUploads,
+    restorePendingUploads,
   });
   // 在 effect 里刷新而不是渲染期赋值：并发渲染下渲染可能被丢弃或重放，渲染期写 ref 不纯。
   useEffect(() => {
@@ -315,6 +317,7 @@ function App() {
       handleGeneratedFile,
       syncFiles,
       setPendingUploads,
+      restorePendingUploads,
     };
   });
 
@@ -328,11 +331,11 @@ function App() {
   }, []);
   const onEditMessage = useCallback((id: string) => {
     const actions = messageActionsRef.current;
-    return actions.handleEdit(actions.currentId, id, actions.setPendingUploads);
+    return actions.handleEdit(actions.currentId, id, actions.restorePendingUploads);
   }, []);
   const onUndoMessage = useCallback((id: string) => {
     const actions = messageActionsRef.current;
-    return actions.handleUndo(actions.currentId, id, actions.setPendingUploads);
+    return actions.handleUndo(actions.currentId, id, actions.restorePendingUploads);
   }, []);
   const onBranchMessage = useCallback((id: string) => {
     const actions = messageActionsRef.current;

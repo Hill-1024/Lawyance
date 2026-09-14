@@ -8,15 +8,10 @@ import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile, apiFet
 import { useAppDialog } from '../contexts/DialogContext';
 import type { PendingUpload, WorkspaceFile } from '../types';
 import { toWorkspaceRelativePath } from '../lib/workspace-path';
+import { isImageAttachment } from '../lib/attachment-prompt';
 
-const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
-
-const isImageFile = (file: { name?: string; type?: string }) => {
-  const mime = String(file.type || '').toLowerCase();
-  if (mime.startsWith('image/')) return true;
-  const name = String(file.name || '').toLowerCase();
-  return IMAGE_EXTENSIONS.some(ext => name.endsWith(ext));
-};
+const isImageFile = (file: { name?: string; type?: string }) =>
+  isImageAttachment(String(file.name || ''), String(file.type || ''));
 
 const createUploadTempId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -281,6 +276,40 @@ export function useWorkspace(currentId: string, enabled = true) {
     });
   }, [releasePreviewUrl]);
 
+  /**
+   * 撤回消息后把附件放回待发区。
+   *
+   * 还原出来的条目只有名称和路径，图片没有 previewUrl；这里从本地文件库补一张缩略图，
+   * 否则撤回后用户看到的是文件图标，而不是自己刚发出去的那张图。
+   * 对象的创建与释放都必须留在这个 hook 里，previewUrlsRef 才有机会回收它们。
+   */
+  const restorePendingUploads = useCallback(async (files: PendingUpload[]) => {
+    const convId = currentIdRef.current;
+    const needsPreview = files.filter(file => file.kind === 'image' && !file.previewUrl);
+    if (!convId || needsPreview.length === 0) {
+      setPendingUploads(files);
+      return;
+    }
+
+    try {
+      const localFiles = await fileDB.getFilesByConvId(convId);
+      if (currentIdRef.current !== convId) return;
+      const restored = files.map(file => {
+        if (file.kind !== 'image' || file.previewUrl) return file;
+        const match = localFiles.find(local => local.fileName === file.name)
+          || localFiles.find(local => local.path === file.path);
+        if (!match?.blob || match.blob.size === 0) return file;
+        const previewUrl = URL.createObjectURL(match.blob);
+        previewUrlsRef.current.add(previewUrl);
+        return { ...file, previewUrl };
+      });
+      setPendingUploads(restored);
+    } catch (error) {
+      console.error('Failed to restore attachment previews:', error);
+      setPendingUploads(files);
+    }
+  }, []);
+
   const deleteFile = useCallback(async (filePath: string) => {
     const deleteConversationId = currentId;
     const tombstoneKey = deletionKey(deleteConversationId, filePath);
@@ -348,6 +377,7 @@ export function useWorkspace(currentId: string, enabled = true) {
     workspaceFiles: visibleWorkspaceFiles,
     pendingUploads,
     setPendingUploads,
+    restorePendingUploads,
     isUploadingFiles,
     handleFileUpload,
     handleGeneratedFile,

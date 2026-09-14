@@ -30,6 +30,7 @@
     "test:stream-run-guards": "tsx scripts/test-stream-run-guards.ts",
     "test:app-back": "tsx scripts/test-app-back.ts",
     "test:attachment-prompt": "tsx scripts/test-attachment-prompt.ts",
+    "test:message-attachments": "tsx scripts/test-message-attachments.tsx",
     "test:composer-autosize": "tsx scripts/test-composer-autosize.ts",
     "start": "python agent.py"
   },
