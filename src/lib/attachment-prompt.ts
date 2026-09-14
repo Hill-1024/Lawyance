@@ -1,9 +1,14 @@
 /*
- * 模块描述：附件提示词协议，集中定义随消息文本下发的附件说明与其剥离逻辑。
+ * 模块描述：附件提示词协议，集中定义随消息文本下发的附件说明、其剥离逻辑，
+ * 以及「一条消息上有哪些附件」的唯一判定入口。
  *
- * 这里同时被 useChat（生成）与 MessageItem（渲染前剥离）使用。历史上这段文本
+ * 这里同时被 useChat（生成、撤回还原）与 MessageItem（渲染）使用。历史上这段文本
  * 在两处各写一遍字面量，且把图片描述成"请读取的文件"，导致模型误判自己看不到图片，
  * 因此改为单一来源并显式区分「已可见的图片」与「需工具读取的文档」。
+ *
+ * 附件清单同样只能有一个来源：气泡渲染与撤回还原都走 resolveMessageAttachments，
+ * 否则同一份附件会被元数据与文本协议各渲染一次（气泡上下各一份），
+ * 图片也会因为缺少元数据而被当成文档、丢掉缩略图。
  */
 
 /** 图片与文档同等对待：都给出工作区路径，由模型调用对应工具按需读取。 */
@@ -27,6 +32,29 @@ export type AttachmentPromptInput = {
   name: string;
   path: string;
   kind?: 'image' | 'document';
+};
+
+/** 气泡与待发区展示用的附件条目：kind 恒定有值，不再依赖消息元数据是否完整。 */
+export type ResolvedAttachment = {
+  name: string;
+  path: string;
+  kind: 'image' | 'document';
+  mime?: string;
+};
+
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
+
+/**
+ * 图片判定：mime 是 image/*，或文件名是已知图片扩展名。
+ *
+ * 上传（useWorkspace）与渲染/撤回还原共用这一条规则。旧版本消息没有逐条 kind 元数据，
+ * 只靠扩展名区分，若两处规则不一致，同一张图会出现「上传时算图片、撤回后算文档」的
+ * 漂移：待发区没有缩略图、重发后图片被写进文档块，气泡里就变成一张文件卡片。
+ */
+export const isImageAttachment = (name: string, mime?: string): boolean => {
+  if (String(mime || '').toLowerCase().startsWith('image/')) return true;
+  const lower = String(name || '').toLowerCase();
+  return IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext));
 };
 
 /**
@@ -91,17 +119,50 @@ export const stripAttachmentPrompt = (content: string): string => {
   return text.replace(/\n{3,}/g, '\n\n').trim();
 };
 
-/** 取出消息中的文档附件名列表（沿用既有渲染约定）。 */
-export const parseDocumentAttachments = (content: string): string[] => {
-  const marker = `${DOCUMENT_ATTACHMENT_HEADER}\n`;
-  const index = content.indexOf(marker);
-  if (index < 0) return [];
-  return content
-    .slice(index + marker.length)
-    .split('\n')
-    .filter(line => line.startsWith('- '))
-    .map(line => line.match(/^- (.*?) \(路径:/)?.[1] ?? line.slice(2))
-    .filter(Boolean);
+/** 文本协议里的附件条目：name/path 来自行内容，block 记录它写在哪个块里。 */
+export type ParsedAttachmentEntry = {
+  name: string;
+  path: string;
+  block: 'image' | 'document';
+};
+
+const ATTACHMENT_BLOCKS: { header: string; block: 'image' | 'document' }[] = [
+  ...ALL_IMAGE_HEADERS.map(header => ({ header, block: 'image' as const })),
+  { header: DOCUMENT_ATTACHMENT_HEADER, block: 'document' as const },
+];
+
+/**
+ * 解析消息文本里的附件块（图片块与文档块，含历史标题）。
+ *
+ * 逐行扫描而不是按标题切切片：文档块恒定在末尾且可能没有结尾空行，
+ * 而图片块总是夹在正文与文档块之间——按块内空行收尾对两种排布都成立。
+ * 路径必须一并取出：撤回重发时若丢掉路径，模型就再也读不到这个文件了。
+ */
+export const parseAttachmentEntries = (content: string): ParsedAttachmentEntry[] => {
+  if (!content) return [];
+  const entries: ParsedAttachmentEntry[] = [];
+  let block: 'image' | 'document' | null = null;
+
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim();
+    const matchedBlock = ATTACHMENT_BLOCKS.find(item => line === item.header);
+    if (matchedBlock) {
+      block = matchedBlock.block;
+      continue;
+    }
+    if (!block) continue;
+    if (!line) {
+      block = null;
+      continue;
+    }
+    if (!line.startsWith('- ')) continue;
+
+    const withPath = line.match(/^- (.*?) \(路径: ?(.*?)\)$/);
+    const name = (withPath ? withPath[1] : line.slice(2)).trim();
+    if (name) entries.push({ name, path: (withPath?.[2] ?? '').trim(), block });
+  }
+
+  return entries;
 };
 
 /** 去掉消息里残留的工作区路径，避免把内部路径显示给用户。 */
@@ -109,55 +170,60 @@ export const stripWorkspacePaths = (content: string): string =>
   content.replace(/TEMP\/[^\s"'`)\]<>*。，！？,?]+/g, '').trim();
 
 /**
+ * 汇总一条消息上的附件，供气泡渲染与撤回还原共用。
+ *
+ * 这是「附件只出现一次」的唯一出口：气泡上下的图片缩略图与文档卡片、以及撤回后
+ * 待发区的条目，全部由它派生。此前气泡分别从消息元数据与文本协议各取一次，
+ * 一份附件于是上下各显示一遍。
+ *
+ * kind 一律按 mime/扩展名重新判定，而不是照抄元数据——被旧逻辑写坏的记录
+ * （图片存成 document）也能在这里自愈。
+ */
+export const resolveMessageAttachments = (
+  content: string,
+  attachments?: MessageAttachmentLike[],
+): ResolvedAttachment[] => {
+  const records = attachments || [];
+  const parsed = parseAttachmentEntries(content || '');
+  const seen = new Set<string>();
+  const resolved: ResolvedAttachment[] = [];
+
+  const collect = (name: string, path: string, mime?: string) => {
+    if (!name) return;
+    const kind = isImageAttachment(name, mime) ? 'image' : 'document';
+    const key = `${kind}::${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    resolved.push({ name, path, kind, mime });
+  };
+
+  // 元数据在前：它带着上传时的 mime 与工作区路径，比文本协议更可靠。
+  records.forEach(record => collect(record.name, record.path, record.mime));
+
+  // 文本协议兜底：历史消息没有元数据，路径与顺序只能从这里取。
+  parsed.forEach(entry => {
+    const record = records.find(item => item.name === entry.name);
+    collect(entry.name, entry.path || record?.path || '', record?.mime);
+  });
+
+  return resolved;
+};
+
+/**
  * 从历史消息还原「待发送附件」与「用户正文」。
  *
- * 图片从消息元数据（attachments）还原，文档从文本协议还原——这是两条独立通道。
- * 同一份附件理论上只应被其中一条取到，但为避免任何情况下重复出现（撤回后待发区
- * 每个文件变成两份），这里按「kind + 文件名」去重，并保留首次出现的顺序。
+ * 返回值必须与气泡渲染完全一致（都走 resolveMessageAttachments），否则撤回一次
+ * 待发区就会多出一份、或者把文档复制成图片。
  */
 export const restoreAttachmentsFromMessage = (
   content: string,
   attachments?: MessageAttachmentLike[],
-): { text: string; files: AttachmentPromptInput[] } => {
+): { text: string; files: ResolvedAttachment[] } => {
   const source = content || '';
-  const records = attachments || [];
-
-  const documentMarker = `${DOCUMENT_ATTACHMENT_HEADER}\n`;
-  const documentIndex = source.indexOf(documentMarker);
-  const documentNames = documentIndex >= 0 ? parseDocumentAttachments(source) : [];
-
-  // 只保留元数据里真实存在的文档；没有元数据的旧消息才回退到纯文本协议。
-  const documents = documentNames.map(name => {
-    const record = records.find(item => item.name === name);
-    return {
-      name,
-      path: record?.path ?? '',
-      kind: 'document' as const,
-    };
-  });
-
-  const images = records
-    .filter(item => item.kind === 'image')
-    .map(item => ({
-      name: item.name,
-      path: item.path,
-      kind: 'image' as const,
-      mime: item.mime,
-    }));
-
-  // 图片优先展示在待发区最前，随后是文档。
-  const seen = new Set<string>();
-  const files: AttachmentPromptInput[] = [];
-  for (const file of [...images, ...documents]) {
-    const key = `${file.kind}::${file.name}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    files.push(file);
-  }
-
-  const body = documentIndex >= 0 ? source.slice(0, documentIndex) : source;
-
-  return { text: stripWorkspacePaths(stripAttachmentPrompt(body)), files };
+  return {
+    text: stripWorkspacePaths(stripAttachmentPrompt(source)),
+    files: resolveMessageAttachments(source, attachments),
+  };
 };
 
 export type MessageAttachmentLike = {

@@ -111,6 +111,8 @@ export const MessageAttachments: React.FC<{
             key={attachment.path}
             type="button"
             onClick={() => setLightbox(attachment)}
+            data-testid="message-attachment"
+            data-attachment={`${attachment.kind}:${attachment.name}`}
             className="lawver-pressable overflow-hidden rounded-[var(--radius-md)] border border-white/25 shadow-[var(--shadow-1)] transition-transform hover:scale-[1.02]"
             aria-label={`查看图片 ${attachment.name}`}
           >
@@ -123,6 +125,8 @@ export const MessageAttachments: React.FC<{
         ) : (
           <span
             key={attachment.path}
+            data-testid="message-attachment"
+            data-attachment={`${attachment.kind}:${attachment.name}`}
             className="flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1 text-sm"
             title={attachment.name}
           >

@@ -14,8 +14,7 @@ import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
 import { MessageAttachments } from './MessageAttachments';
 import {
-  DOCUMENT_ATTACHMENT_HEADER,
-  parseDocumentAttachments,
+  resolveMessageAttachments,
   stripAttachmentPrompt,
   stripWorkspacePaths,
 } from '../lib/attachment-prompt';
@@ -430,6 +429,24 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
   const collapsedStatus = getStatusLabel(latestThought) || (isThinking ? '正在思考' : null);
   const showThinking = isThinking && thoughtBlocks.length > 0;
   const generatedFileName = msg.download_path ? safeDownloadName(msg.download_path) : '';
+  // 气泡里的附件只解析一次，图片与文档都从这一份清单里分出来，避免同一份附件
+  // 被消息元数据和文本协议各渲染一遍（表现为气泡上下各一份）。
+  const bubbleAttachments = React.useMemo(
+    () => (msg.role === 'user' ? resolveMessageAttachments(msg.content, msg.attachments) : []),
+    [msg.role, msg.content, msg.attachments]
+  );
+  const imageAttachments = React.useMemo(
+    () => bubbleAttachments.filter(attachment => attachment.kind === 'image'),
+    [bubbleAttachments]
+  );
+  const documentAttachments = React.useMemo(
+    () => bubbleAttachments.filter(attachment => attachment.kind !== 'image'),
+    [bubbleAttachments]
+  );
+  const bodyText = React.useMemo(
+    () => (msg.role === 'user' ? stripWorkspacePaths(stripAttachmentPrompt(msg.content || '')) : ''),
+    [msg.role, msg.content]
+  );
   const submitChoice = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed || !canAnswerChoice) return;
@@ -449,31 +466,25 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
         {msg.role === 'user' ? (
           <div className="message-copy min-w-0 max-w-full w-fit rounded-[20px_6px_20px_20px] bg-[var(--accent)] px-3.5 py-2.5 text-[14px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:rounded-[24px_8px_24px_24px] sm:px-5 sm:py-3.5 sm:text-[16px]">
             <div className="flex min-w-0 max-w-full flex-col gap-2">
-              {msg.attachments && msg.attachments.length > 0 && (
-                <MessageAttachments conversationId={conversationId} attachments={msg.attachments} />
+              {imageAttachments.length > 0 && (
+                <MessageAttachments conversationId={conversationId} attachments={imageAttachments} />
               )}
-              {(() => {
-                const documentFiles = parseDocumentAttachments(msg.content);
-                const markerIndex = msg.content.indexOf(DOCUMENT_ATTACHMENT_HEADER);
-                const bodyText = stripWorkspacePaths(
-                  stripAttachmentPrompt(markerIndex >= 0 ? msg.content.slice(0, markerIndex) : msg.content),
-                );
-                return (
-                  <>
-                    {bodyText && <p className="whitespace-pre-wrap break-words">{bodyText}</p>}
-                    {documentFiles.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {documentFiles.map((file: string, i: number) => (
-                          <div key={i} className="flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1 text-sm">
-                            <Paperclip size={14} strokeWidth={2} />
-                            <span className="max-w-[200px] truncate">{file}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
+              {bodyText && <p className="whitespace-pre-wrap break-words">{bodyText}</p>}
+              {documentAttachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {documentAttachments.map((file) => (
+                    <div
+                      key={`${file.kind}:${file.name}:${file.path}`}
+                      data-testid="message-attachment"
+                      data-attachment={`${file.kind}:${file.name}`}
+                      className="flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1 text-sm"
+                    >
+                      <Paperclip size={14} strokeWidth={2} />
+                      <span className="max-w-[200px] truncate">{file.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
