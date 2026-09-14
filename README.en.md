@@ -7,7 +7,7 @@
 <p>A Chinese legal AI assistant<br/>structuring legal questions into checkable facts, authorities, and analysis</p>
 
 <p>
-  <a href="https://github.com/Hill-1024/Lawyance/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1.20-3b62b8"></a>
+  <a href="https://github.com/Hill-1024/Lawyance/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1.21-3b62b8"></a>
   <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-A42E2B">
   <img alt="python" src="https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white">
   <img alt="fastapi" src="https://img.shields.io/badge/FastAPI-0.139%2B-009688?logo=fastapi&logoColor=white">
