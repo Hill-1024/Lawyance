@@ -408,5 +408,147 @@ class OCPTests(unittest.TestCase):
         self.assertEqual(result, "《民法典》第五百七十七条规定违约责任。")
 
 
+class OCPSourceSectionTests(unittest.TestCase):
+    """「打了角标却不列文末溯源」的确定性补建回归测试。
+
+    该状态此前未被任何一层覆盖：OCP checklist 只处理角标缺失与列表格式错误，
+    降级路径又只修 Markdown 表格，因此超时/异常时裸角标会直接落到用户面前。
+    """
+
+    def test_builds_missing_legal_source_section_from_footnote_url(self):
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            "根据《中华人民共和国民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>，借款人应当按照约定的期限返还借款。'
+        )
+
+        self.assertIn("## 法律/案例信源", repaired)
+        self.assertIn(
+            "1. [《中华人民共和国民法典》第六百七十五条](https://example.com/675)",
+            repaired,
+        )
+
+    def test_builds_missing_web_source_section_with_domain_label(self):
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            '据公开报道<sup><a href="https://news.example.com/a">网1</a></sup>，该案已立案。'
+        )
+
+        self.assertIn("## 联网搜索来源", repaired)
+        self.assertIn("网1. [news.example.com](https://news.example.com/a)", repaired)
+        self.assertNotIn("## 法律/案例信源", repaired)
+
+    def test_keeps_legal_section_before_web_section(self):
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            '据公开报道<sup><a href="https://news.example.com/a">网1</a></sup>，该案已立案。\n'
+            '依据《刑法》第二百六十四条<sup><a href="https://example.com/264">1</a></sup>。'
+        )
+
+        self.assertIn("## 法律/案例信源", repaired)
+        self.assertIn("## 联网搜索来源", repaired)
+        self.assertLess(
+            repaired.index("## 法律/案例信源"),
+            repaired.index("## 联网搜索来源"),
+        )
+        self.assertIn("1. [《刑法》第二百六十四条](https://example.com/264)", repaired)
+
+    def test_resolves_abbreviated_second_article_reference(self):
+        """同一部法的后续条文常简写成「与第六百七十六条」，链接文字须各自正确。"""
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>与第六百七十六条'
+            '<sup><a href="https://example.com/676">2</a></sup>。'
+        )
+
+        self.assertIn("1. [《民法典》第六百七十五条](https://example.com/675)", repaired)
+        self.assertIn("2. [《民法典》第六百七十六条](https://example.com/676)", repaired)
+
+    def test_complete_sections_are_left_untouched(self):
+        text = (
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>规定借款人应按期返还借款。\n\n'
+            "## 法律/案例信源\n"
+            "1. [《民法典》第六百七十五条](https://example.com/675)"
+        )
+
+        self.assertEqual(ocp.OCPStatic._deterministic_format_repair(text), text)
+
+    def test_repair_is_idempotent(self):
+        once = ocp.OCPStatic._deterministic_format_repair(
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>规定借款人应按期返还借款。'
+        )
+
+        self.assertIn("## 法律/案例信源", once)
+        self.assertEqual(ocp.OCPStatic._deterministic_format_repair(once), once)
+
+    def test_fills_only_the_missing_entry_of_existing_section(self):
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>与第六百七十六条'
+            '<sup><a href="https://example.com/676">2</a></sup>。\n\n'
+            "## 法律/案例信源\n"
+            "1. [《民法典》第六百七十五条](https://example.com/675)"
+        )
+
+        self.assertEqual(repaired.count("## 法律/案例信源"), 1)
+        self.assertIn("2. [《民法典》第六百七十六条](https://example.com/676)", repaired)
+
+    def test_ignores_text_without_footnotes(self):
+        text = "普通正文，没有角标。"
+        self.assertEqual(ocp.OCPStatic._deterministic_format_repair(text), text)
+
+    def test_marks_footnote_without_verifiable_url(self):
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            '依《民法典》第一条<sup><a href="URL">1</a></sup>。'
+        )
+
+        self.assertIn("1. 该条缺少可核验链接", repaired)
+
+    def test_stream_degraded_path_still_emits_source_section(self):
+        """轮次耗尽等降级路径同样必须补出文末溯源——这是本次修复的核心目标。"""
+        checker = ocp.OCPStream(session_id="test")
+        checker.MAX_TOOL_ROUNDS = 0
+        original = (
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>规定借款人应按期返还借款。'
+        )
+
+        async def collect_events():
+            return [event async for event in checker.check_stream(original)]
+
+        events = asyncio.run(collect_events())
+        replacements = [event for event in events if event.get("type") == "content_replace"]
+
+        self.assertEqual(len(replacements), 1)
+        self.assertIn("## 法律/案例信源", replacements[0]["content"])
+        self.assertIn(
+            "1. [《民法典》第六百七十五条](https://example.com/675)",
+            replacements[0]["content"],
+        )
+
+    def test_static_timeout_path_still_emits_source_section(self):
+        checker = ocp.OCPStatic(session_id="test")
+        original_timeout = ocp.OCP_TOTAL_TIMEOUT
+        original = (
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>规定借款人应按期返还借款。'
+        )
+
+        async def run_check():
+            return await checker.check(original)
+
+        try:
+            ocp.OCP_TOTAL_TIMEOUT = 0
+            result = asyncio.run(run_check())
+        finally:
+            ocp.OCP_TOTAL_TIMEOUT = original_timeout
+
+        self.assertIn("## 法律/案例信源", result)
+
+    def test_ocp_prompt_covers_wholly_missing_source_section(self):
+        self.assertIn("整体缺失", ocp.OCP_SYSTEM_PROMPT)
+        self.assertIn("补建", ocp.OCP_SYSTEM_PROMPT)
+        self.assertIn("不需要为此调用工具", ocp.OCP_SYSTEM_PROMPT)
+
+
 if __name__ == "__main__":
     unittest.main()

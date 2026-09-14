@@ -9,6 +9,7 @@ import time
 import copy
 import asyncio
 from typing import Any
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
 from llm.client import build_client
 from llm.retry import with_retry
@@ -54,7 +55,7 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 <strict_rules>
 1. **身份禁止**：严禁自称“助手”、“AI”、“机器人”或任何身份。
 2. **交流禁止**：严禁输出任何解释、道歉、建议、前导词（如“好的”、“已为您修复”）或结语。
-3. **内容保留**：除了格式修复外，必须逐字保留原意。严禁添加新的法律意见，严禁概括或简化原句。
+3. **内容保留**：除了格式修复外，必须逐字保留原意。严禁添加新的法律意见，严禁概括或简化原句。补建或补全文末信源列表（依据正文角标 URL 重建 Markdown 链接）属于格式修复，不属于新增内容，必须执行。
 4. **纯净输出**：输出结果必须【仅包含】修复后的文本正文。如果违反此条，会导致整个流程失败。
 5. **故障退回**：如果无法修复或工具调用无果，请原样输出原文，不要做任何多余的解释。
 6. **禁止回显检查过程**：严禁输出“正在检查 Markdown 语法”“已确认表格正确”“列表编号无误”等任何检查过程或确认性语句。
@@ -63,16 +64,19 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 <checklist>
 请按以下清单逐项检查并强制修复：
 
-1. **信源角标（必查）**：
+1. **信源角标与文末信源区（必查，最高优先级）**：
+   - 文末信源区**整体缺失**是最常见的违规：正文已经出现 `<sup><a href="URL">N</a></sup>`（或 `网N`），但文末完全没有 `## 法律/案例信源`（或 `## 联网搜索来源`）。此时必须依据角标自身携带的 URL 在文末补建对应分区，编号与正文角标一一对应。
+   - 正文角标自带的 URL 就是权威来源，直接用它补建列表即可，**不需要为此调用工具**。
+   - 链接文字取角标前最近的引用名称；取不到时写 `来源 N`，严禁凭推测编造法律名称或案号。
    - 如果提到法律条文、法规或法律概念但缺少角标。
    - 如果正文引用新闻、公告、舆情、公关背景或公开网页信息，且原文已经包含来自 `web_search` / `web_fetch` 的 URL 角标或联网搜索来源，必须保留这些可点击来源，不得删除或改写成法规来源。
    - 格式：`<sup><a href="URL">N</a></sup>`
-   - 必须调用 `get_linked_content` 获取 URL。
    - 文末法律/案例信源必须使用 Markdown 超链接，格式为 `1. [《法律名称》第X条](URL)` 或 `[1] [《法律名称》第X条](URL)`。
    - 公开网页来源必须单独位于 `## 联网搜索来源`，使用 `网1. [页面标题 - source_domain](URL)`，不得伪装成法条、法规或案例。
    - 文末信源不得只写 `[1] 来源名称`、裸 URL 或纯文本法规名称；编号必须与正文角标对应。
    - 数字角标/编号只用于法律、法规和案例；`网N` 角标/编号只用于联网搜索或网页抓取来源。两类来源不得合并到同一个列表。
    - 如果正文已有角标但底部信源不是超链接，必须按角标 URL 修复为 Markdown 链接。
+   - 正文每出现一个角标，文末就必须有同编号的列表项；缺失即违规，必须补齐。
 
 2. **法条引用规范（必查）**：
    - 统一格式：
@@ -94,7 +98,7 @@ OCP_SYSTEM_PROMPT = """你是一个专业的法律文本格式审查员。你的
 <workflow>
 1. 仔细阅读待检查文本
 2. 逐项执行 checklist
-3. 如果发现需要补充信源的法条/法规，调用 `get_linked_content` 工具获取 URL
+3. 如果发现需要补充信源的法条/法规，调用 `get_linked_content` 工具获取 URL；但正文角标已带 URL 且只是文末信源区缺失时，直接依据角标 URL 补建列表，不要调用工具
 4. 如果需要查询具体法条内容以规范引用格式，调用 `search_article` 工具
 5. 如果工具调用返回错误、内容为空或不符合预期，你可以换个查询参数继续重新调用该工具。对同一查询目标你最多可以重试 3 次
 6. 所有工具调用完成后，输出最终修复后的完整文本
@@ -353,7 +357,8 @@ class OCPStatic:
     def _deterministic_format_repair(text: str) -> str:
         if not text:
             return ""
-        return OCPStatic._repair_markdown_tables(text).strip()
+        repaired = OCPStatic._repair_markdown_tables(text).strip()
+        return OCPStatic._ensure_source_sections(repaired)
 
     @staticmethod
     def _repair_markdown_tables(text: str) -> str:
@@ -493,6 +498,160 @@ class OCPStatic:
 
         flush_table(table_buffer, repaired)
         return "\n".join(repaired)
+
+    # ── 信源区确定性补建 ─────────────────────────────────────────────────
+    # 正文角标自带 href，所以「文末信源区整体缺失」可以完全离线补全：不依赖
+    # 审查模型、工具调用或网络。超时、异常、重复签名截断等全部降级路径因此
+    # 也能避免出现「有角标、无溯源」的裸输出。
+
+    _FOOTNOTE_CONTEXT_CHARS = 200
+    _MISSING_LINK_NOTE = "该条缺少可核验链接"
+    _LEGAL_SECTION_NAME = "法律/案例信源"
+    _WEB_SECTION_NAME = "联网搜索来源"
+
+    _SUP_FOOTNOTE_RE = re.compile(
+        r'<\s*sup\s*>\s*<\s*a\s+[^>]*?href\s*=\s*["\']([^"\']*)["\'][^>]*>(.*?)<\s*/\s*a\s*>\s*<\s*/\s*sup\s*>',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    _SOURCE_HEADING_RE = re.compile(r'^\s*#{2,4}\s*(法律/案例信源|联网搜索来源)\s*$')
+    _SOURCE_ENTRY_LABEL_RE = re.compile(r'^\s*(?:\[\s*(网?\d+)\s*\]|(网?\d+)\s*[.、)．])')
+    _LAW_NAME_RE = re.compile(r'《[^》\n]{2,60}》')
+    _ARTICLE_NUM_RE = re.compile(r'第[一二三四五六七八九十百千零〇\d]+条')
+    _CASE_NO_REF_RE = re.compile(r'[（(]\s*\d{4}\s*[)）][^\s，。；、\n]{2,30}?号')
+
+    @classmethod
+    def _collect_footnotes(cls, body: str) -> list[dict]:
+        """按正文出现顺序收集带链接的角标，同编号只取首次出现。"""
+        footnotes: list[dict] = []
+        seen: set[str] = set()
+        for match in cls._SUP_FOOTNOTE_RE.finditer(body):
+            label = re.sub(r'\s+', '', match.group(2) or "")
+            if not re.fullmatch(r'网?\d+', label) or label in seen:
+                continue
+            seen.add(label)
+            footnotes.append({
+                "label": label,
+                "url": (match.group(1) or "").strip(),
+                "start": match.start(),
+            })
+        return footnotes
+
+    @classmethod
+    def _footnote_link_text(cls, body: str, footnote: dict) -> str:
+        """就地取材生成链接文字：取角标前最近的法名 + 最近条文号。
+
+        正文常把同一部法律的后续条文简写成「与第六百七十六条」，因此法名与
+        条文号要分别取最近一次再拼接。取不到时退回中性占位，绝不编造法名。
+        """
+        window = body[max(0, footnote["start"] - cls._FOOTNOTE_CONTEXT_CHARS):footnote["start"]]
+
+        article = None
+        for match in cls._ARTICLE_NUM_RE.finditer(window):
+            article = match
+        law = None
+        for match in cls._LAW_NAME_RE.finditer(window):
+            if article is None or match.end() <= article.start():
+                law = match
+        if article is not None:
+            return f"{law.group(0)}{article.group(0)}" if law is not None else article.group(0)
+
+        cases = list(cls._CASE_NO_REF_RE.finditer(window))
+        if cases:
+            return re.sub(r'\s+', '', cases[-1].group(0))
+        if law is not None:
+            return law.group(0)
+        return f"来源 {footnote['label']}"
+
+    @staticmethod
+    def _web_link_text(url: str) -> str:
+        try:
+            host = urlsplit(url).netloc
+        except ValueError:
+            host = ""
+        return host or url
+
+    @classmethod
+    def _render_source_entry(cls, body: str, footnote: dict) -> str:
+        label = footnote["label"]
+        url = footnote["url"]
+        if not url.lower().startswith(("http://", "https://")):
+            return f"{label}. {cls._MISSING_LINK_NOTE}"
+        link_text = cls._web_link_text(url) if label.startswith("网") else cls._footnote_link_text(body, footnote)
+        return f"{label}. [{link_text}]({url})"
+
+    @classmethod
+    def _ensure_source_sections(cls, text: str) -> str:
+        """正文有角标而文末信源区缺失或漏项时，依据角标 URL 确定性补建。
+
+        幂等：编号与正文角标齐全时不改动文本。
+        """
+        if not text or "<sup" not in text.lower():
+            return text
+
+        lines = text.split("\n")
+        headings: list[tuple[int, str]] = []
+        for index, line in enumerate(lines):
+            match = cls._SOURCE_HEADING_RE.match(line)
+            if match:
+                headings.append((index, match.group(1)))
+
+        body_end = headings[0][0] if headings else len(lines)
+        body = "\n".join(lines[:body_end])
+        footnotes = cls._collect_footnotes(body)
+        if not footnotes:
+            return text
+
+        existing_labels: dict[str, set[str]] = {}
+        for position, (index, name) in enumerate(headings):
+            end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
+            labels: set[str] = set()
+            for line in lines[index + 1:end]:
+                match = cls._SOURCE_ENTRY_LABEL_RE.match(line)
+                if not match:
+                    continue
+                label = match.group(1) or match.group(2)
+                labels.add(label)
+                if name == cls._WEB_SECTION_NAME and not label.startswith("网"):
+                    # 联网分区误用纯数字编号时同样算已列出，避免重复补建同一来源
+                    labels.add(f"网{label}")
+            existing_labels[name] = labels
+
+        insertions: list[tuple[int, list[str]]] = []
+        new_sections: list[list[str]] = []
+        for name, is_web in ((cls._LEGAL_SECTION_NAME, False), (cls._WEB_SECTION_NAME, True)):
+            notes = [f for f in footnotes if f["label"].startswith("网") == is_web]
+            if not notes:
+                continue
+            missing = [note for note in notes if note["label"] not in existing_labels.get(name, set())]
+            if not missing:
+                continue
+            rendered = [cls._render_source_entry(body, note) for note in missing]
+            if name in existing_labels:
+                index = next(i for i, heading in headings if heading == name)
+                end = next((i for i, _ in headings if i > index), len(lines))
+                position = index + 1
+                for cursor in range(end - 1, index, -1):
+                    if lines[cursor].strip():
+                        position = cursor + 1
+                        break
+                insertions.append((position, rendered))
+            else:
+                new_sections.append([f"## {name}", *rendered])
+
+        if new_sections:
+            position = body_end if headings else len(lines)
+            while position > 0 and not lines[position - 1].strip():
+                position -= 1
+            block: list[str] = []
+            for section in new_sections:
+                if position > 0 or block:
+                    block.append("")
+                block.extend(section)
+            insertions.append((position, block))
+
+        for position, block in sorted(insertions, key=lambda item: -item[0]):
+            lines[position:position] = block
+        return "\n".join(lines)
 
     @staticmethod
     def _normalize_tool_arguments(arguments: str) -> str:
