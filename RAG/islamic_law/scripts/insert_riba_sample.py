@@ -2,9 +2,10 @@
 """
 P1 种子脚本：初始化双层伊斯兰法库，写入：
 - 共享层原则 SH-PRINCIPLE-RIBA-001
-- 马来西亚转化实例（附录 A 结构样例，scaffolding）
+- 马来西亚 IFSA 2013 riba 合规链条（AGC 官方 PDF 核验条款）
+- BNM SAC Resolution 81（采集记录摘录；本地未存 BNM PDF）
 - 四语术语表初版
-- 权威来源白名单骨架
+- 权威来源白名单
 - manifest.shared.json + manifest.country.MY.json
 
 用法（仓库根目录）：
@@ -17,6 +18,7 @@ import hashlib
 import json
 import sqlite3
 import sys
+from dataclasses import fields
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -72,6 +74,16 @@ CORE_TERMS: list[TermEntry] = [
 
 AUTHORITY_SOURCES = [
     {
+        "source_key": "MY-AGC-LOM",
+        "country": "MY",
+        "layer": "country",
+        "organization": "Attorney General's Chambers (Laws of Malaysia)",
+        "channels": "Federal legislation reprints / official PDF portal",
+        "primary_use": "IFSA 2013 等联邦法律官方文本",
+        "homepage_url": "https://lom.agc.gov.my/",
+        "notes": "AGC reprint 声明 NOT AN AUTHENTIC TEXT；仍为官方对外发布门户",
+    },
+    {
         "source_key": "MY-BNM",
         "country": "MY",
         "layer": "country",
@@ -79,7 +91,7 @@ AUTHORITY_SOURCES = [
         "channels": "SAC rulings, IFSA-related guidance",
         "primary_use": "伊斯兰金融监管与 SAC 裁决",
         "homepage_url": "https://www.bnm.gov.my/",
-        "notes": "P1 权威白名单骨架；具体决议页采集时补全",
+        "notes": "P1 权威白名单；SAC Resolution 81 正式引用前须对照 BNM 官方 PDF",
     },
     {
         "source_key": "MY-SC",
@@ -174,77 +186,47 @@ AUTHORITY_SOURCES = [
 ]
 
 
-def build_riba_principle() -> ShariaPrinciple:
+IFSA_RULES_PATH = BASE / "data" / "MY" / "ifsa2013_riba_rules.json"
+
+
+def load_ifsa_riba_rules() -> list[IslamicRule]:
+    if not IFSA_RULES_PATH.is_file():
+        raise FileNotFoundError(f"Missing IFSA rule pack: {IFSA_RULES_PATH}")
+    payload = json.loads(IFSA_RULES_PATH.read_text(encoding="utf-8"))
+    if not isinstance(payload, list) or not payload:
+        raise ValueError(f"Expected non-empty list in {IFSA_RULES_PATH}")
+    allowed = {f.name for f in fields(IslamicRule)}
+    rules: list[IslamicRule] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            raise ValueError(f"Expected object entries in {IFSA_RULES_PATH}")
+        rules.append(IslamicRule(**{k: v for k, v in item.items() if k in allowed}))
+    return rules
+
+
+def build_riba_principle(country_rule_ids: list[str]) -> ShariaPrinciple:
     return ShariaPrinciple(
         sharia_principle_id="SH-PRINCIPLE-RIBA-001",
         rule_subject="禁止 riba（利息、高利贷）",
         content=(
-            "[Scaffolding / 结构样例] 伊斯兰教法禁止 riba。"
+            "伊斯兰教法禁止 riba。"
             "权威文本为阿语经训；本条为共享层原则记录，"
-            "不得单独作为东盟任一国家的合规结论依据，须引用国家转化实例。"
+            "不得单独作为东盟任一国家的合规结论依据，须引用国家转化实例"
+            "（马来西亚见 IFSA 2013 ss.28, 29, 152, 153, 167, 168 及 BNM SAC 裁决）。"
+            "经训阿语原文与 A 级译文待核验后写入。"
         ),
         madhhab="Shafi'i",
         sharia_source_type="Quran",
         religious_anchor=(
-            "《古兰经》al-Baqarah 2:275-279（阿语原文加英、中译文须 A 级人工复核后写入；"
-            "当前为结构占位）；圣训依据（集录与编号待采集核验）"
+            "《古兰经》al-Baqarah 2:275-279（阿语原文加英、中译文须 A 级人工复核后写入）；"
+            "圣训依据（集录与编号待采集核验）"
         ),
         arabic_text="",
         transliteration="",
         legal_effect="religious-guidance",
         parallel_languages="阿拉伯语、马来语、印尼语、英文、中文",
         url="",
-        country_rule_ids=["MY-RIBA-IFSA-2013-001"],
-    )
-
-
-def build_riba_malaysia_rule() -> IslamicRule:
-    return IslamicRule(
-        rule_id="MY-RIBA-IFSA-2013-001",
-        source_id="my_riba_ifsa_2013_sample",
-        law_name="Islamic Financial Services Act 2013",
-        article_number="Central Bank of Malaysia Act 2009 Section 57",
-        content=(
-            "[Scaffolding / 结构样例] 禁止 riba（利息、高利贷）。"
-            "马来西亚通过 IFSA 2013 与《2009 年中央银行法》第 57 条"
-            "（赋予 SAC 裁决拘束力）及 BNM SAC 相关决议，"
-            "将沙里亚禁止 riba 的原则转化为对持牌伊斯兰金融机构具有拘束力的监管规则。"
-            "BNM SAC 届次与具体决议编号、官方链接须核验后写入正式库。"
-        ),
-        url="https://www.bnm.gov.my/",
-        status="in_force",
-        effective_date="2013-06-30",
-        language="en",
-        country="MY",
-        country_label=country_display_name("MY"),
-        rule_subject="禁止 riba（利息、高利贷）",
-        national_transformation=(
-            "IFSA 2013；《2009 年中央银行法》第 57 条（SAC 裁决拘束力）；"
-            "BNM SAC 相关决议（届次与编号待采集核验）"
-        ),
-        parallel_languages="阿拉伯语、马来语、英文、中文",
-        output_annotation=(
-            "适用国家：马来西亚；法系：混合法系（普通法加 Shafi'i Sharia）；"
-            "适用范围：持牌伊斯兰金融机构的金融业务；"
-            "出处：IFSA 2013 与 BNM SAC 裁决（编号核验后补）"
-        ),
-        madhhab="Shafi'i（东盟主流学派，并存记录其他学派观点）",
-        sharia_source_type="Statute",
-        religious_anchor=(
-            "《古兰经》al-Baqarah 2:275-279（译文等级待 A 级复核）；"
-            "圣训依据（集录与编号待采集核验）"
-        ),
-        fatwa_issuer="BNM-SAC",
-        fatwa_id="",
-        supersedes="",
-        legal_effect="binding",
-        applicability_person="持牌伊斯兰金融机构及其客户",
-        applicability_subject="伊斯兰金融业务",
-        applicability_territory="马来西亚全境",
-        arabic_text="",
-        transliteration="",
-        sharia_principle_id="SH-PRINCIPLE-RIBA-001",
-        country_rule_ids=["MY-RIBA-IFSA-2013-001"],
+        country_rule_ids=country_rule_ids,
     )
 
 
@@ -263,7 +245,7 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def write_manifests(principle: ShariaPrinciple, rule: IslamicRule) -> None:
+def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> None:
     shared = {
         "schema_version": SCHEMA_VERSION,
         "layer": "shared",
@@ -276,7 +258,7 @@ def write_manifests(principle: ShariaPrinciple, rule: IslamicRule) -> None:
         "asean_tiers": {
             code: meta["tier"] for code, meta in ASEAN_COUNTRY_TIERS.items()
         },
-        "note": "Scaffolding seed; verified official texts required before production use.",
+        "note": "Shared layer remains religious-guidance until Arabic A-grade texts are verified.",
     }
     country_my = {
         "schema_version": SCHEMA_VERSION,
@@ -285,21 +267,25 @@ def write_manifests(principle: ShariaPrinciple, rule: IslamicRule) -> None:
         "country_label": country_display_name("MY"),
         "tier": ASEAN_COUNTRY_TIERS["MY"]["tier"],
         "db_path": "cache/islamic_rules.db",
-        "rule_ids": [rule.rule_id],
-        "sharia_principle_ids": [rule.sharia_principle_id],
-        "note": "Appendix A structure sample; fatwa numbers and URLs pending verification.",
+        "rule_ids": [rule.rule_id for rule in rules],
+        "sharia_principle_ids": [principle.sharia_principle_id],
+        "source_pack": "sources/MY/ifsa2013/provenance.step1_1.json",
+        "note": (
+            "IFSA 2013 riba chain imported from AGC official PDFs (MD5 verified). "
+            "SAC Resolution 81 quoted from collection record; BNM PDF not stored locally."
+        ),
     }
     MANIFEST_SHARED.write_text(json.dumps(shared, ensure_ascii=False, indent=2), encoding="utf-8")
     MANIFEST_MY.write_text(json.dumps(country_my, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def main() -> None:
-    principle = build_riba_principle()
-    rule = build_riba_malaysia_rule()
+    rules = load_ifsa_riba_rules()
+    principle = build_riba_principle([rule.rule_id for rule in rules])
     conn = init_database()
     try:
         n_p = insert_principles(conn, [principle])
-        n_r = insert_rules(conn, [rule])
+        n_r = insert_rules(conn, rules)
         n_t = insert_terms(conn, CORE_TERMS)
         for row in AUTHORITY_SOURCES:
             conn.execute(INSERT_AUTHORITY_SQL, row)
@@ -309,33 +295,27 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "riba_dual_layer_v3"),
+            ("seed", "ifsa2013_riba_step1_1"),
         )
         conn.commit()
-        write_manifests(principle, rule)
+        write_manifests(principle, rules)
 
         preview = conn.execute(
             """
-            SELECT r.rule_id, r.country, r.legal_effect, r.sharia_principle_id,
-                   p.rule_subject AS principle_subject, p.legal_effect AS principle_effect
+            SELECT r.rule_id, r.article_number, r.legal_effect, r.sharia_source_type
             FROM islamic_rules r
-            LEFT JOIN sharia_principles p ON p.sharia_principle_id = r.sharia_principle_id
-            WHERE r.rule_id = ?
-            """,
-            (rule.rule_id,),
-        ).fetchone()
-        term_count = conn.execute("SELECT COUNT(*) FROM terminology").fetchone()[0]
+            ORDER BY r.rule_id
+            """
+        ).fetchall()
         auth_count = conn.execute("SELECT COUNT(*) FROM authority_sources").fetchone()[0]
 
         print(f"Database: {DB_PATH}")
         print(f"Inserted principles={n_p} rules={n_r} terms={n_t} authorities={auth_count}")
         print(f"Manifest shared: {MANIFEST_SHARED}")
         print(f"Manifest MY: {MANIFEST_MY}")
-        print("Join preview:")
-        print(json.dumps(dict(preview), ensure_ascii=False, indent=2))
-        print(f"terminology rows: {term_count}")
-        print("Canonical:")
-        print(json.dumps(rule.to_canonical_result(principle), ensure_ascii=False, indent=2))
+        print("Rules:")
+        for row in preview:
+            print(f"  {row['rule_id']}  {row['article_number']}  {row['legal_effect']}  {row['sharia_source_type']}")
     finally:
         conn.close()
 

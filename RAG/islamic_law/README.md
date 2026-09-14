@@ -27,6 +27,8 @@
 - `cache/manifest.shared.json`
 - `cache/manifest.country.MY.json`
 
+马来西亚 Step 1.1 已入库：`data/MY/ifsa2013_riba_rules.json`（IFSA 2013 ss.28, 29, 152, 153, 167, 168 + SAC Resolution 81 摘录），权威 PDF 与采集记录在 `sources/MY/ifsa2013/`。IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；正式引用以英文原文为准。
+
 ## 效力三分类
 
 - `binding`：国内法或法定拘束力裁决
@@ -58,14 +60,14 @@ print(semantic_search("Malaysia riba IFSA", 3))
 
 ## 条款级 JSON 脚手架（旧）
 
-`data/MY|BN|ID|SG/*.json` 仍为早期条款级 demo，**不是**正式双层规则语料。正式入库请走 `islamic_rules` + 核验后的权威文本。
+`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/ifsa2013_riba_rules.json` 为双层入库语料。
 
 ## P1 / P2 / P3 边界
 
 | 阶段 | 本库状态 |
 | --- | --- |
-| P1 | 双层 schema、术语初版、权威白名单骨架、MY riba 结构样例、三路检索联调（当前） |
+| P1 | 双层 schema、术语初版、权威白名单、MY IFSA 2013 riba 链条（AGC PDF 核验）、三路检索联调（当前） |
 | P2 | 补 BN/SG/PH/TH；takaful/waqf/faraid 专题 |
 | P3 | 与各分国法库双向打通、横向对比检索；经训误引红队（多在总装/Agent） |
 
-**当前种子为 scaffolding**：法特瓦编号、经训阿语原文与官方深链须核验后才能入正式库。
+共享层经训阿语原文仍待 A 级复核。SAC Resolution 81 摘自采集记录，本地未保存 BNM PDF，正式法律意见引用前须对照官方 URL。
