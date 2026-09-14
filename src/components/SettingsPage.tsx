@@ -119,6 +119,12 @@ const getWebDavHostLabel = (cfg: WebDavConfig) => {
 const WebDavSection: React.FC = () => {
   const { showAlert, showConfirm } = useAppDialog();
   const [cfg, setCfg] = useState<WebDavConfig>(emptyWebDavConfig);
+  // saveConfig 逐字段写入时需要读到最新配置，避免用旧快照覆盖刚输入的字段。
+  // 在 effect 里同步而非渲染期赋值：并发渲染下渲染期写 ref 可能来自被丢弃的那次渲染。
+  const cfgRef = useRef(cfg);
+  useEffect(() => {
+    cfgRef.current = cfg;
+  }, [cfg]);
   const [syncState, setSyncState] = useState<WebDavSyncState>('idle');
   const [activeFilename, setActiveFilename] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -131,7 +137,10 @@ const WebDavSection: React.FC = () => {
     getWebDavConfig().then(saved => { if (saved) setCfg(saved); });
   }, []);
 
-  const saveConfig = async (next: WebDavConfig) => {
+  const saveConfig = async (patch: Partial<WebDavConfig>) => {
+    // 以 ref 为准做合并：表单逐字符保存，用渲染期快照会让连续输入互相覆盖。
+    const next = { ...cfgRef.current, ...patch };
+    cfgRef.current = next;
     setCfg(next);
     await setWebDavConfig(next);
   };
@@ -246,7 +255,7 @@ const WebDavSection: React.FC = () => {
               className={fieldInputClass}
               placeholder="https://dav.example.com/dav/"
               value={cfg.url}
-              onChange={e => saveConfig({ ...cfg, url: e.target.value })}
+              onChange={e => saveConfig({ url: e.target.value })}
               disabled={busy}
               autoComplete="url"
             />
@@ -257,7 +266,7 @@ const WebDavSection: React.FC = () => {
                 className={fieldInputClass}
                 placeholder="username"
                 value={cfg.username}
-                onChange={e => saveConfig({ ...cfg, username: e.target.value })}
+                onChange={e => saveConfig({ username: e.target.value })}
                 disabled={busy}
                 autoComplete="username"
               />
@@ -269,7 +278,7 @@ const WebDavSection: React.FC = () => {
                   type={showPassword ? 'text' : 'password'}
                   placeholder="password"
                   value={cfg.password}
-                  onChange={e => saveConfig({ ...cfg, password: e.target.value })}
+                  onChange={e => saveConfig({ password: e.target.value })}
                   disabled={busy}
                   autoComplete="current-password"
                 />
@@ -288,7 +297,7 @@ const WebDavSection: React.FC = () => {
               className={fieldInputClass}
               placeholder="/Lawver/"
               value={cfg.directory}
-              onChange={e => saveConfig({ ...cfg, directory: e.target.value })}
+              onChange={e => saveConfig({ directory: e.target.value })}
               disabled={busy}
             />
           </SettingsField>
@@ -890,14 +899,15 @@ const AppearanceCard: React.FC<{
     setSeedDraft(customSeed);
   }, [customSeed]);
 
-  const monetDescription = useMemo(() => {
+  // 纯字符串选择，比 useMemo 本身还便宜，直接每次渲染计算。
+  const monetDescription = (() => {
     if (!isMonetAvailableOnPlatform) return '需 Android 客户端';
     if (monetStatus === 'available') return '跟随系统壁纸';
     if (monetStatus === 'loading') return '正在读取系统色';
     if (monetStatus === 'unavailable') return '此设备不支持';
     if (monetStatus === 'error') return '读取系统色失败';
     return '跟随系统壁纸';
-  }, [isMonetAvailableOnPlatform, monetStatus]);
+  })();
 
   const applySeedDraft = () => {
     if (!seedValid) return;
@@ -1142,7 +1152,12 @@ export const SettingsPage: React.FC = () => {
     notifyResumeEnabledChanged(enabled);
   };
 
-  const providerStatusOf = (key: string) => providerStatuses.find(s => s.provider === key);
+  // 每行服务都要按 key 取状态（LLM 一行取三次），建索引后是 O(1) 而不是每行线性扫描。
+  const providerStatusByKey = useMemo(
+    () => new Map(providerStatuses.map(status => [status.provider, status])),
+    [providerStatuses]
+  );
+  const providerStatusOf = (key: string) => providerStatusByKey.get(key);
 
   const statusLabel = isWebDavRoute
     ? '数据同步'

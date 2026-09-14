@@ -270,13 +270,21 @@ export function useCourtSession(enabled = true) {
     if (!isNative()) return;
 
     let listener: { remove: () => Promise<void> } | undefined;
+    // 卸载可能早于 addListener 的 Promise 落地；用 disposed 标记补摘，
+    // 否则监听器会永久留在原生层。
+    let disposed = false;
     CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive) abortActiveTurn();
     }).then(handle => {
+      if (disposed) {
+        void handle.remove();
+        return;
+      }
       listener = handle;
     });
 
     return () => {
+      disposed = true;
       listener?.remove();
     };
   }, [abortActiveTurn]);
@@ -434,13 +442,14 @@ export function useCourtSession(enabled = true) {
       return next;
     });
     delete consecutiveErrorsRef.current[sessionId];
-    await fileDB.deleteFilesByConvId(sessionId);
-    await fileDB.deleteCourtSession(sessionId);
-    try {
-      await deleteWorkspace(sessionId);
-    } catch (error) {
-      console.error('Failed to delete court workspace on server:', error);
-    }
+    // 两处 IndexedDB 清理与服务端工作区删除互不依赖，并发执行。
+    await Promise.all([
+      fileDB.deleteFilesByConvId(sessionId),
+      fileDB.deleteCourtSession(sessionId),
+      deleteWorkspace(sessionId).catch(error => {
+        console.error('Failed to delete court workspace on server:', error);
+      }),
+    ]);
   }, [abortActiveTurn, commitSessions, selectCourtSession]);
 
   const updateCourtSession = useCallback((sessionId: string, patch: Partial<CourtSession>) => {

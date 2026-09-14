@@ -72,13 +72,16 @@ export function useWorkspace(currentId: string, enabled = true) {
       && syncGenerationRef.current === generation
     );
     try {
-      const data = await getWorkspaceFiles(syncConversationId);
+      // 服务端列表与本地 IndexedDB 是两次独立读取，并发发起省一个串行往返。
+      const [data, rawLocalFiles] = await Promise.all([
+        getWorkspaceFiles(syncConversationId),
+        fileDB.getFilesByConvId(syncConversationId),
+      ]);
       if (!isCurrentSync()) return;
       const rawServerFiles = (data.files || []) as WorkspaceFile[];
       const serverFiles = rawServerFiles.filter(file => (
         !deletionTombstonesRef.current.has(deletionKey(syncConversationId, file.path))
       ));
-      const rawLocalFiles = await fileDB.getFilesByConvId(syncConversationId);
       const localFiles = rawLocalFiles.filter(file => (
         !deletionTombstonesRef.current.has(deletionKey(syncConversationId, file.path))
       ));

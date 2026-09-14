@@ -106,11 +106,12 @@ export const HoverInfo: React.FC<HoverInfoProps> = ({ label, children, placement
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(reposition);
     };
-    window.addEventListener('scroll', onReflow, true);
+    // 监听只用于重新定位浮层，不会 preventDefault；声明 passive 避免滚动时阻塞合成线程。
+    window.addEventListener('scroll', onReflow, { capture: true, passive: true });
     window.addEventListener('resize', onReflow);
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', onReflow, true);
+      window.removeEventListener('scroll', onReflow, { capture: true });
       window.removeEventListener('resize', onReflow);
     };
   }, [open, reposition, label]);

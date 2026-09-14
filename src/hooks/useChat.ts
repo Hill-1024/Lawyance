@@ -314,14 +314,16 @@ const waitForNativeStreamHead = async (
       finish({ kind: 'http_error', error: (error as Error)?.message || String(error) });
     }
   };
-  const eventHandle = await NativeStream.addListener('streamEvent', event => { if (event.streamId === streamId) evaluate(); });
-  const doneHandle = await NativeStream.addListener('streamDone', event => { if (event.streamId === streamId) evaluate(); });
+  // 两次 addListener 是独立的原生桥调用，并发注册可缩短 head 判定的启动延迟。
+  const [eventHandle, doneHandle] = await Promise.all([
+    NativeStream.addListener('streamEvent', event => { if (event.streamId === streamId) evaluate(); }),
+    NativeStream.addListener('streamDone', event => { if (event.streamId === streamId) evaluate(); }),
+  ]);
   await evaluate();
   try {
     return await outcome;
   } finally {
-    await eventHandle.remove();
-    await doneHandle.remove();
+    await Promise.all([eventHandle.remove(), doneHandle.remove()]);
   }
 };
 
@@ -605,12 +607,13 @@ export function useChat() {
     }
     conversationsRef.current = nextConversations;
     setConversations(nextConversations);
-    await fileDB.deleteFilesByConvId(id);
-    try {
-      await deleteWorkspace(id);
-    } catch (err) {
-      console.error("Failed to delete workspace on server:", err);
-    }
+    // 本地 IndexedDB 与服务端工作区互不依赖，并发清理省一个网络往返。
+    await Promise.all([
+      fileDB.deleteFilesByConvId(id),
+      deleteWorkspace(id).catch(err => {
+        console.error("Failed to delete workspace on server:", err);
+      }),
+    ]);
   };
 
   const updateMessages = (convId: string, updater: (prev: Message[]) => Message[]) => {
@@ -1260,7 +1263,11 @@ export function useChat() {
       }
       activeNativeStreamRef.current = { streamId: nativeStreamId, nextIndex: 0 };
     } else {
-      const token = await getAuthToken();
+      // 取 token 与申请通知权限互不依赖，且权限结果不参与后续判定，并发执行省一个往返。
+      const [token] = await Promise.all([
+        getAuthToken(),
+        requestNativeStreamNotificationPermission().catch(() => false),
+      ]);
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'X-Lawver-Client': 'capacitor',
@@ -1268,7 +1275,6 @@ export function useChat() {
         'Referer': 'capacitor://localhost/',
       };
       if (token) headers.Authorization = `Bearer ${token}`;
-      await requestNativeStreamNotificationPermission().catch(() => false);
 
       const started = await NativeStream.startStream({ url: apiUrl('/api/chat'), headers, body });
       nativeStreamId = started.streamId;
@@ -1382,14 +1388,16 @@ export function useChat() {
           }
         };
 
-        eventHandle = await NativeStream.addListener('streamEvent', (event: NativeStreamEvent) => {
-          if (event.streamId !== nativeStreamId) return;
-          pump().catch(console.error);
-        });
-        doneHandle = await NativeStream.addListener('streamDone', event => {
-          if (event.streamId !== nativeStreamId) return;
-          pump().catch(console.error);
-        });
+        [eventHandle, doneHandle] = await Promise.all([
+          NativeStream.addListener('streamEvent', (event: NativeStreamEvent) => {
+            if (event.streamId !== nativeStreamId) return;
+            pump().catch(console.error);
+          }),
+          NativeStream.addListener('streamDone', event => {
+            if (event.streamId !== nativeStreamId) return;
+            pump().catch(console.error);
+          }),
+        ]);
 
         drainNativeStreamRef.current = pump;
         await pump();
@@ -1415,8 +1423,7 @@ export function useChat() {
       }
       return completed;
     } finally {
-      await eventHandle?.remove();
-      await doneHandle?.remove();
+      await Promise.all([eventHandle?.remove(), doneHandle?.remove()]);
       activeNativeStreamRef.current = null;
       drainNativeStreamRef.current = null;
     }
@@ -1473,10 +1480,14 @@ export function useChat() {
             .finally(() => { resumingStreamsRef.current.delete(nid); });
         }
       }
+      // 下面按 liveIds 逐个回查会话，先建一次索引避免每个流都线性扫一遍会话列表。
+      const conversationsById = new Map<string, Conversation>(
+        conversationsRef.current.map(conv => [conv.id, conv] as const)
+      );
       for (const nid of liveIds) {
         const record = recordByStreamId.get(nid);
         if (!record) continue;
-        const conv = conversationsRef.current.find(item => item.id === record.convId);
+        const conv = conversationsById.get(record.convId);
         const msg = conv?.messages.find(item => item.id === record.messageId);
         if (msg?.role === 'assistant' && msg.stream_status === 'streaming') continue;
         ensureNativeAssistantMessage(record.convId, record.messageId, nid);
@@ -1636,11 +1647,11 @@ export function useChat() {
     activeAbortRef.current = abortController;
 
     try {
-      if (syncFiles) {
-        await syncFiles();
-      }
-
-      const resumeEnabled = await getResumeEnabled();
+      // 工作区预同步与读取续传开关互不依赖，并发执行；两者都在发起请求前完成。
+      const [, resumeEnabled] = await Promise.all([
+        syncFiles ? syncFiles() : Promise.resolve(),
+        getResumeEnabled(),
+      ]);
       resumeEnabledRef.current = resumeEnabled;
       if (isStreaming && isNativeAndroid()) {
         setComposerStatus(null);
@@ -1758,11 +1769,11 @@ export function useChat() {
 
     try {
       // Pre-flight sync: Ensure all files are synced to the server before sending the request
-      if (syncFiles) {
-        await syncFiles();
-      }
-
-      const resumeEnabled = await getResumeEnabled();
+      // 工作区预同步与读取续传开关互不依赖，并发执行；两者都在发起请求前完成。
+      const [, resumeEnabled] = await Promise.all([
+        syncFiles ? syncFiles() : Promise.resolve(),
+        getResumeEnabled(),
+      ]);
       resumeEnabledRef.current = resumeEnabled;
       if (isStreaming && isNativeAndroid()) {
         setComposerStatus(null);
@@ -1880,10 +1891,12 @@ export function useChat() {
     activeAbortRef.current = abortController;
 
     try {
-      // Pre-flight sync: Ensure all files are synced to the server before sending the request
-      if (syncFiles) {
-        await syncFiles();
-      }
+      // 工作区预同步与读取续传开关互不依赖，并发执行；两者都在发起请求前完成。
+      const [, resumeEnabled] = await Promise.all([
+        syncFiles ? syncFiles() : Promise.resolve(),
+        getResumeEnabled(),
+      ]);
+      resumeEnabledRef.current = resumeEnabled;
 
       const now = nowIso();
       const userMessage: Message = {
@@ -1896,8 +1909,6 @@ export function useChat() {
       };
       updateMessages(convId, prev => [...prev, userMessage]);
 
-      const resumeEnabled = await getResumeEnabled();
-      resumeEnabledRef.current = resumeEnabled;
       if (isStreaming && isNativeAndroid()) {
         setComposerStatus(null);
         const completed = await sendNativeChatWithMemoryRetry(content, history, convId, memorySnapshot, 'rebuild', lastContextTokens, resumeEnabled, onFileGenerated, abortController.signal);

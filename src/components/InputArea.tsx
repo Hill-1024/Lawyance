@@ -275,7 +275,8 @@ export const InputArea: React.FC<InputAreaProps> = ({
 
     window.addEventListener('resize', handleViewportChange);
     window.visualViewport?.addEventListener('resize', handleViewportChange);
-    window.visualViewport?.addEventListener('scroll', handleViewportChange);
+    // 视口滚动只用于重新贴底，不会 preventDefault；passive 避免移动端滚动被阻塞。
+    window.visualViewport?.addEventListener('scroll', handleViewportChange, { passive: true });
     composerResizeObserver?.observe(composerRef.current as Element);
     settingsResizeObserver?.observe(settingsPanelRef.current as Element);
     choiceResizeObserver?.observe(choicePromptRef.current as Element);

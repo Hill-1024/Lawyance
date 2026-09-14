@@ -499,7 +499,7 @@ export const LlmProfileManager: React.FC = () => {
                   className={fieldInputClass}
                   value={draft.name}
                   placeholder="主力模型"
-                  onChange={event => setDraft({ ...draft, name: event.target.value })}
+                  onChange={event => setDraft(prev => (prev ? { ...prev, name: event.target.value } : prev))}
                   autoComplete="off"
                 />
               </SettingsField>
@@ -508,7 +508,7 @@ export const LlmProfileManager: React.FC = () => {
                   className={fieldInputClass}
                   value={draft.base_url}
                   placeholder="https://api.deepseek.com"
-                  onChange={event => setDraft({ ...draft, base_url: event.target.value })}
+                  onChange={event => setDraft(prev => (prev ? { ...prev, base_url: event.target.value } : prev))}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -521,7 +521,7 @@ export const LlmProfileManager: React.FC = () => {
                   className={`${fieldInputClass} flex-1`}
                   value={draft.model}
                   placeholder="deepseek-v4-pro"
-                  onChange={event => setDraft({ ...draft, model: event.target.value })}
+                  onChange={event => setDraft(prev => (prev ? { ...prev, model: event.target.value } : prev))}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -564,7 +564,7 @@ export const LlmProfileManager: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            setDraft({ ...draft, model: model.id });
+                            setDraft(prev => (prev ? { ...prev, model: model.id } : prev));
                             setModelPickerOpen(false);
                           }}
                           className="lawver-pressable flex min-h-11 w-full items-center gap-2 px-3 text-left text-[13px] text-[var(--fg-1)] transition-colors hover:bg-[var(--accent-quiet)]"
@@ -605,7 +605,7 @@ export const LlmProfileManager: React.FC = () => {
                   type="password"
                   value={draft.api_key}
                   placeholder="sk-..."
-                  onChange={event => setDraft({ ...draft, api_key: event.target.value })}
+                  onChange={event => setDraft(prev => (prev ? { ...prev, api_key: event.target.value } : prev))}
                   autoComplete="new-password"
                 />
               </SettingsField>
@@ -616,7 +616,7 @@ export const LlmProfileManager: React.FC = () => {
                 <input
                   type="checkbox"
                   checked={draft.activate}
-                  onChange={event => setDraft({ ...draft, activate: event.target.checked })}
+                  onChange={event => setDraft(prev => (prev ? { ...prev, activate: event.target.checked } : prev))}
                   className="h-4 w-4 accent-[var(--accent)]"
                 />
                 保存后立即切换使用
