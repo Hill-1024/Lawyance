@@ -3,6 +3,7 @@
 P1 种子脚本：初始化双层伊斯兰法库，写入：
 - 共享层原则 SH-PRINCIPLE-RIBA-001
 - 马来西亚 IFSA 2013 riba 合规链条（AGC 官方 PDF 核验条款）
+- 马来西亚 CBA 2009 ss.56–58（SAC 提交、拘束力、优先）
 - BNM SAC Resolution 81（采集记录摘录；本地未存 BNM PDF）
 - 四语术语表初版
 - 权威来源白名单
@@ -186,21 +187,36 @@ AUTHORITY_SOURCES = [
 ]
 
 
-IFSA_RULES_PATH = BASE / "data" / "MY" / "ifsa2013_riba_rules.json"
+RULE_PACKS = [
+    BASE / "data" / "MY" / "ifsa2013_riba_rules.json",
+    BASE / "data" / "MY" / "cba2009_sac_rules.json",
+]
 
 
-def load_ifsa_riba_rules() -> list[IslamicRule]:
-    if not IFSA_RULES_PATH.is_file():
-        raise FileNotFoundError(f"Missing IFSA rule pack: {IFSA_RULES_PATH}")
-    payload = json.loads(IFSA_RULES_PATH.read_text(encoding="utf-8"))
+def load_rule_pack(path: Path) -> list[IslamicRule]:
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing rule pack: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, list) or not payload:
-        raise ValueError(f"Expected non-empty list in {IFSA_RULES_PATH}")
+        raise ValueError(f"Expected non-empty list in {path}")
     allowed = {f.name for f in fields(IslamicRule)}
     rules: list[IslamicRule] = []
     for item in payload:
         if not isinstance(item, dict):
-            raise ValueError(f"Expected object entries in {IFSA_RULES_PATH}")
+            raise ValueError(f"Expected object entries in {path}")
         rules.append(IslamicRule(**{k: v for k, v in item.items() if k in allowed}))
+    return rules
+
+
+def load_country_rules() -> list[IslamicRule]:
+    rules: list[IslamicRule] = []
+    seen: set[str] = set()
+    for path in RULE_PACKS:
+        for rule in load_rule_pack(path):
+            if rule.rule_id in seen:
+                raise ValueError(f"Duplicate rule_id {rule.rule_id} in {path}")
+            seen.add(rule.rule_id)
+            rules.append(rule)
     return rules
 
 
@@ -212,7 +228,8 @@ def build_riba_principle(country_rule_ids: list[str]) -> ShariaPrinciple:
             "伊斯兰教法禁止 riba。"
             "权威文本为阿语经训；本条为共享层原则记录，"
             "不得单独作为东盟任一国家的合规结论依据，须引用国家转化实例"
-            "（马来西亚见 IFSA 2013 ss.28, 29, 152, 153, 167, 168 及 BNM SAC 裁决）。"
+            "（马来西亚见 IFSA 2013 ss.28, 29, 152, 153, 167, 168；"
+            "CBA 2009 ss.56–58；及 BNM SAC 裁决）。"
             "经训阿语原文与 A 级译文待核验后写入。"
         ),
         madhhab="Shafi'i",
@@ -269,10 +286,14 @@ def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> Non
         "db_path": "cache/islamic_rules.db",
         "rule_ids": [rule.rule_id for rule in rules],
         "sharia_principle_ids": [principle.sharia_principle_id],
-        "source_pack": "sources/MY/ifsa2013/provenance.step1_1.json",
+        "source_packs": [
+            "sources/MY/ifsa2013/provenance.step1_1.json",
+            "sources/MY/cba2009/provenance.step2_2.json",
+        ],
         "note": (
-            "IFSA 2013 riba chain imported from AGC official PDFs (MD5 verified). "
-            "SAC Resolution 81 quoted from collection record; BNM PDF not stored locally."
+            "IFSA 2013 riba chain and CBA 2009 ss.56–58 imported from AGC official PDFs "
+            "(MD5 verified). SAC Resolution 81 quoted from collection record; "
+            "BNM PDF not stored locally."
         ),
     }
     MANIFEST_SHARED.write_text(json.dumps(shared, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -280,7 +301,7 @@ def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> Non
 
 
 def main() -> None:
-    rules = load_ifsa_riba_rules()
+    rules = load_country_rules()
     principle = build_riba_principle([rule.rule_id for rule in rules])
     conn = init_database()
     try:
@@ -295,7 +316,7 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "ifsa2013_riba_step1_1"),
+            ("seed", "my_riba_ifsa_cba_step2_2"),
         )
         conn.commit()
         write_manifests(principle, rules)
