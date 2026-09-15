@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-3.3 批量验证：对所有正式条目跑 semantic_search，确认每条至少被 1 个相关 query 命中。
+批量验证：对所有正式条目（MY + ID）跑 semantic_search，确认每条至少被 1 个相关 query 命中。
 
 用法（仓库根目录）：
   .venv/bin/python -m RAG.islamic_law.scripts.insert_riba_sample
@@ -29,7 +29,7 @@ from RAG.islamic_law.scripts.insert_riba_sample import (  # noqa: E402
 )
 
 BASE = Path(__file__).resolve().parents[1]
-OUT_DIR = BASE / "sources" / "MY" / "verify_step3_3"
+OUT_DIR = BASE / "sources" / "shared" / "verify_formal"
 TOP_N = 10
 
 # 每条正式条目的相关 query（至少 1 条须命中 Top-N）
@@ -73,6 +73,26 @@ QUERIES: dict[str, list[str]] = {
         "MS 1500 halal 食品标准",
         "马来西亚 halal 认证程序手册 MPPHM",
         "halal.gov.my 认证门户",
+    ],
+    "ID-HALAL-UU33-2014-001": [
+        "印尼 UU 33/2014 清真产品保障法",
+        "Indonesia Jaminan Produk Halal Pasal 4",
+        "BPJPH 强制清真认证母法",
+    ],
+    "ID-HALAL-PP42-2024-001": [
+        "印尼 PP 42/2024 过渡期 2026-10-17",
+        "Peraturan Pemerintah 42 2024 Pasal 160 UMK",
+        "印尼 halal 分阶段强制时间表",
+    ],
+    "ID-HALAL-BPJPH-2026-001": [
+        "2026-10-18 全面强制 官方不再延期",
+        "BPJPH wajib halal 18 Oktober 2026",
+        "印尼小微进口产品清真强制",
+    ],
+    "ID-HALAL-JPH-CORE-001": [
+        "印尼 halal 核心制度 UU PP BPJPH",
+        "Indonesia halal mandatory 2026-10-18",
+        "Jaminan Produk Halal 全面强制",
     ],
 }
 
@@ -131,7 +151,7 @@ def run_verification(top_n: int = TOP_N) -> dict:
     pass_count = sum(1 for row in results if row["pass"])
     return {
         "collected_at": str(date.today()),
-        "step": "3.3",
+        "step": "formal-batch-verify",
         "top_n": top_n,
         "formal_count": len(FORMAL_RULE_IDS),
         "all_pass": pass_count == len(FORMAL_RULE_IDS),
@@ -143,8 +163,8 @@ def run_verification(top_n: int = TOP_N) -> dict:
 
 def write_report(report: dict) -> tuple[Path, Path]:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    json_path = OUT_DIR / "provenance.step3_3.json"
-    md_path = OUT_DIR / "REPORT.step3_3.md"
+    json_path = OUT_DIR / "provenance.latest.json"
+    md_path = OUT_DIR / "REPORT.latest.md"
     json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     lines = [

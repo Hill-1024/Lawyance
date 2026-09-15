@@ -27,9 +27,10 @@
 - `cache/islamic_rules.db`
 - `cache/manifest.shared.json`
 - `cache/manifest.country.MY.json`
-- `sources/MY/verify_step3_3/`：3.3 语义检索批量验证报告（每条正式条目 ≥1 相关 query 命中）
+- `cache/manifest.country.ID.json`
+- `sources/shared/verify_formal/`：正式条目语义检索批量验证报告（每条 ≥1 相关 query 命中）
 
-马来西亚 riba 条目已入库：
+马来西亚 riba / 金融第二批与印尼 halal 核心已入库：
 
 - 共享层 `data/shared/riba_scripture_principle.json`：Quran 2:275–279（Tanzil 阿语 + Saheeh International 英译 + 马坚中译）及已核圣训编号（`sources/shared/scripture_riba/`）；`legal_effect=religious-guidance`
 - 共享层扩展 `data/shared/principles_step3_1.json`：gharar / maysir / sukuk / takaful / halal-haram（均为 `religious-guidance`）
@@ -42,6 +43,13 @@
   - `MY-HALAL-ACT730-FORMAL-001` / `MY-HALAL-MS1500-FORMAL-001` → `SH-PRINCIPLE-HALAL-HARAM-001`
 - 支撑包：`bnm_sac_sukuk_rules.json`、`bnm_sac_takaful_rules.json`、`ifsa2013_shariah_governance_rules.json`、`bnm_sgp_2019_rules.json`、`jakim_halal_rules.json`
 - 既有：`ifsa2013_riba_rules.json`、`cba2009_sac_rules.json`、`bnm_sac_riba_rules.json`
+- **4.1 印尼 halal 核心** `data/ID/id_halal_formal.json`（4 条 formal，均挂 `SH-PRINCIPLE-HALAL-HARAM-001`）：
+  - `ID-HALAL-UU33-2014-001`（UU 33/2014）
+  - `ID-HALAL-PP42-2024-001`（PP 42/2024）
+  - `ID-HALAL-BPJPH-2026-001`（BPJPH 2026-10-18 公告）
+  - `ID-HALAL-JPH-CORE-001`（综合正式条目）
+- 支撑包：`data/ID/id_halal_uu33_pp42_rules.json`；来源 `sources/ID/halal_bpjph/`（含官方 PDF）
+- **特别标注**：`2026-10-18 全面强制、官方不再延期`（过渡期至 2026-10-17，次日起强制）；印尼语原文为准；MUI/DSN-MUI 具体 fatwa 编号待核验
 
 IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。SAC 无单独“riba 裁决”，以汇编决议序号为可追溯编号。共享层经训不得单独作为国家合规结论。正式引用以英文立法文本与阿语经训原文为准。
 
@@ -76,13 +84,13 @@ print(semantic_search("Malaysia riba IFSA", 3))
 
 ## 条款级 JSON 脚手架（旧）
 
-`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/my_riba_ifsa_2013_formal.json`、`data/MY/my_step3_2_formal.json`、`data/shared/riba_scripture_principle.json`、`data/shared/principles_step3_1.json`、`data/shared/principle_governance_step3_2.json` 与各 `data/MY/*_rules.json` 为双层入库语料。
+`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/my_riba_ifsa_2013_formal.json`、`data/MY/my_step3_2_formal.json`、`data/shared/riba_scripture_principle.json`、`data/shared/principles_step3_1.json`、`data/shared/principle_governance_step3_2.json` 与各 `data/MY/*_rules.json`、`data/ID/id_halal_*.json` 为双层入库语料。
 
 ## P1 / P2 / P3 边界
 
 | 阶段 | 本库状态 |
 | --- | --- |
-| P1 | 双层 schema；MY formal 累计 8 条（riba + 3.2 金融第二批）；共享层含 riba/gharar/maysir/sukuk/takaful/halal-haram/governance（均为 religious-guidance）；下一步 3.3 批量验证 |
+| P1 | 双层 schema；MY formal 8 条 + ID halal formal 4 条；共享层含 riba/gharar/maysir/sukuk/takaful/halal-haram/governance；下一步 4.2 印尼伊斯兰金融（DSN-MUI/OJK） |
 | P2 | 补 BN/SG/PH/TH；takaful/waqf/faraid 专题 |
 | P3 | 与各分国法库双向打通、横向对比检索；经训误引红队（多在总装/Agent） |
 

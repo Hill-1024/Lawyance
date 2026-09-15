@@ -9,9 +9,10 @@ P1 种子脚本：初始化双层伊斯兰法库，写入：
 - 共享层扩展：gharar / maysir / sukuk / takaful / halal-haram / governance（religious-guidance）
 - 马来西亚正式综合条目 MY-RIBA-IFSA-2013-001（record_grade=formal）
 - 马来西亚第二批正式条目（sukuk / takaful / IFSA 治理 / SGP / halal，record_grade=formal）
+- 印尼halal 核心正式条目（UU 33/2014、PP 42/2024、BPJPH 2026-10-18，record_grade=formal）
 - 四语术语表初版
 - 权威来源白名单
-- manifest.shared.json + manifest.country.MY.json
+- manifest.shared.json + manifest.country.MY.json + manifest.country.ID.json
 
 用法（仓库根目录）：
   .venv/bin/python -m RAG.islamic_law.scripts.insert_riba_sample
@@ -50,6 +51,7 @@ CACHE_DIR = BASE / "cache"
 DB_PATH = CACHE_DIR / "islamic_rules.db"
 MANIFEST_SHARED = CACHE_DIR / "manifest.shared.json"
 MANIFEST_MY = CACHE_DIR / "manifest.country.MY.json"
+MANIFEST_ID = CACHE_DIR / "manifest.country.ID.json"
 
 SCHEMA_VERSION = 3
 
@@ -222,6 +224,8 @@ RULE_PACKS = [
     BASE / "data" / "MY" / "bnm_sac_takaful_rules.json",
     BASE / "data" / "MY" / "bnm_sgp_2019_rules.json",
     BASE / "data" / "MY" / "jakim_halal_rules.json",
+    BASE / "data" / "ID" / "id_halal_formal.json",
+    BASE / "data" / "ID" / "id_halal_uu33_pp42_rules.json",
 ]
 PRINCIPLE_PACKS = [
     BASE / "data" / "shared" / "riba_scripture_principle.json",
@@ -238,6 +242,10 @@ FORMAL_RULE_IDS = (
     "MY-BNM-SGP-2019-FORMAL-001",
     "MY-HALAL-ACT730-FORMAL-001",
     "MY-HALAL-MS1500-FORMAL-001",
+    "ID-HALAL-UU33-2014-001",
+    "ID-HALAL-PP42-2024-001",
+    "ID-HALAL-BPJPH-2026-001",
+    "ID-HALAL-JPH-CORE-001",
 )
 FORMAL_PRINCIPLE_BY_RULE = {
     "MY-RIBA-IFSA-2013-001": "SH-PRINCIPLE-RIBA-001",
@@ -248,6 +256,10 @@ FORMAL_PRINCIPLE_BY_RULE = {
     "MY-BNM-SGP-2019-FORMAL-001": "SH-PRINCIPLE-GOVERNANCE-001",
     "MY-HALAL-ACT730-FORMAL-001": "SH-PRINCIPLE-HALAL-HARAM-001",
     "MY-HALAL-MS1500-FORMAL-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "ID-HALAL-UU33-2014-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "ID-HALAL-PP42-2024-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "ID-HALAL-BPJPH-2026-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "ID-HALAL-JPH-CORE-001": "SH-PRINCIPLE-HALAL-HARAM-001",
 }
 FORMAL_REQUIRED_FIELDS = (
     "rule_id",
@@ -484,8 +496,47 @@ def write_manifests(principles: list[ShariaPrinciple], rules: list[IslamicRule])
             "(sukuk/takaful/IFSA governance/SGP/halal)."
         ),
     }
+    my_rules = [rule for rule in rules if rule.country == "MY"]
+    id_rules = [rule for rule in rules if rule.country == "ID"]
+    id_formal_ids = [rid for rid in FORMAL_RULE_IDS if rid.startswith("ID-")]
+    my_formal_ids = [rid for rid in FORMAL_RULE_IDS if rid.startswith("MY-")]
+
+    country_my["rule_ids"] = [rule.rule_id for rule in my_rules]
+    country_my["sharia_principle_ids"] = sorted(
+        {rule.sharia_principle_id for rule in my_rules if rule.sharia_principle_id}
+    )
+    country_my["formal_rule_ids"] = my_formal_ids
+
+    country_id = {
+        "schema_version": SCHEMA_VERSION,
+        "layer": "country",
+        "country": "ID",
+        "country_label": country_display_name("ID"),
+        "tier": ASEAN_COUNTRY_TIERS["ID"]["tier"],
+        "db_path": "cache/islamic_rules.db",
+        "rule_ids": [rule.rule_id for rule in id_rules],
+        "sharia_principle_ids": sorted(
+            {rule.sharia_principle_id for rule in id_rules if rule.sharia_principle_id}
+        ),
+        "formal_rule_ids": id_formal_ids,
+        "source_packs": [
+            "sources/ID/halal_bpjph/provenance.step4_1.json",
+            "sources/shared/principles_step3_1/provenance.step3_1.json",
+        ],
+        "mandatory_halal_node": {
+            "transition_end": "2026-10-17",
+            "mandatory_start": "2026-10-18",
+            "note": "2026-10-18 全面强制、官方不再延期",
+        },
+        "note": (
+            "ID country layer step 4.1: UU 33/2014 + PP 42/2024 + BPJPH 2026-10-18 "
+            "halal core formal entries; Bahasa Indonesia official texts prevail."
+        ),
+    }
+
     MANIFEST_SHARED.write_text(json.dumps(shared, ensure_ascii=False, indent=2), encoding="utf-8")
     MANIFEST_MY.write_text(json.dumps(country_my, ensure_ascii=False, indent=2), encoding="utf-8")
+    MANIFEST_ID.write_text(json.dumps(country_id, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def main() -> None:
@@ -505,7 +556,7 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "my_step3_2_finance_formal"),
+            ("seed", "id_halal_core_step4_1"),
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
@@ -549,6 +600,7 @@ def main() -> None:
         print(f"Inserted principles={n_p} rules={n_r} terms={n_t} authorities={auth_count}")
         print(f"Manifest shared: {MANIFEST_SHARED}")
         print(f"Manifest MY: {MANIFEST_MY}")
+        print(f"Manifest ID: {MANIFEST_ID}")
         print(f"Formal entries ({len(formal_rows)}):")
         for formal_row in formal_rows:
             print(

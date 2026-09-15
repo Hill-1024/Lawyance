@@ -1,0 +1,955 @@
+{
+  "collected_at": "2026-09-15",
+  "step": "formal-batch-verify",
+  "top_n": 10,
+  "formal_count": 12,
+  "all_pass": true,
+  "pass_count": 12,
+  "criterion": "每条正式条目至少被 1 个相关 query 在 semantic_search Top-N 命中",
+  "results": [
+    {
+      "rule_id": "MY-RIBA-IFSA-2013-001",
+      "sharia_principle_id": "SH-PRINCIPLE-RIBA-001",
+      "pass": true,
+      "best_hit": {
+        "query": "马来西亚 riba 利息",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "马来西亚 riba 利息",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-RIBA-IFSA-2013-001",
+              "subject": "禁止 riba（利息、高利贷）— 马来西亚正式转化条目"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SAC-RES-083",
+              "subject": "判决债务迟付收费只能按实际损失 ta`widh，不得变成利息"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-IFSA-2013-RIBA-CHAIN",
+              "subject": "禁止 riba（利息、高利贷）— IFSA 合规链条总述"
+            }
+          ]
+        },
+        {
+          "query": "IFSA 禁止利息 riba 正式",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-RIBA-IFSA-2013-001",
+              "subject": "禁止 riba（利息、高利贷）— 马来西亚正式转化条目"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-IFSA-2013-RIBA-CHAIN",
+              "subject": "禁止 riba（利息、高利贷）— IFSA 合规链条总述"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-SUKUK-BNM-SAC-001",
+              "subject": "sukuk（伊斯兰投资凭证）— 马来西亚正式转化条目（BNM SAC）"
+            }
+          ]
+        },
+        {
+          "query": "Malaysia riba IFSA binding",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-RIBA-IFSA-2013-001",
+              "subject": "禁止 riba（利息、高利贷）— 马来西亚正式转化条目"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-CBA-2009-SAC-CHAIN",
+              "subject": "SAC 提交、拘束力与优先地位（CBA 链条总述）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-CBA-2009-S57",
+              "subject": "SAC 依本编提交作出的裁决对机构及提交法院/仲裁有拘束力"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "MY-SUKUK-BNM-SAC-001",
+      "sharia_principle_id": "SH-PRINCIPLE-SUKUK-001",
+      "pass": true,
+      "best_hit": {
+        "query": "马来西亚 sukuk 伊斯兰债券 SAC",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "马来西亚 sukuk 伊斯兰债券 SAC",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-SUKUK-BNM-SAC-001",
+              "subject": "sukuk（伊斯兰投资凭证）— 马来西亚正式转化条目（BNM SAC）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SAC-SUKUK-CHAIN",
+              "subject": "BNM SAC sukuk 相关裁决总述（汇编精选）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-BNM-SAC-RES-011",
+              "subject": "sukuk：Utilisation of third-party mudarabah asset for sukuk ijarah not allowed"
+            }
+          ]
+        },
+        {
+          "query": "BNM SAC sukuk ijarah 底层资产",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-SUKUK-BNM-SAC-001",
+              "subject": "sukuk（伊斯兰投资凭证）— 马来西亚正式转化条目（BNM SAC）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SAC-RES-011",
+              "subject": "sukuk：Utilisation of third-party mudarabah asset for sukuk ijarah not allowed"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-BNM-SAC-RES-014",
+              "subject": "sukuk：Third-party asset acquired by sale for sukuk ijarah permissible"
+            }
+          ]
+        },
+        {
+          "query": "sukuk commodity murabahah tawarruq",
+          "success": true,
+          "returned": 10,
+          "rank": 3,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-BNM-SAC-RES-063",
+              "subject": "sukuk：Sukuk commodity murabahah via tawarruq with ≥3 parties permissible"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SAC-RES-062",
+              "subject": "sukuk：Sukuk ijarah / Shariah shares as tawarruq underlying asset permissible"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-SUKUK-BNM-SAC-001",
+              "subject": "sukuk（伊斯兰投资凭证）— 马来西亚正式转化条目（BNM SAC）"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "MY-TAKAFUL-BNM-SAC-001",
+      "sharia_principle_id": "SH-PRINCIPLE-TAKAFUL-001",
+      "pass": true,
+      "best_hit": {
+        "query": "马来西亚 takaful 伊斯兰保险",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "马来西亚 takaful 伊斯兰保险",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-TAKAFUL-BNM-SAC-001",
+              "subject": "takaful（互助保险）— 马来西亚正式转化条目（BNM SAC）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SAC-TAKAFUL-CHAIN",
+              "subject": "BNM SAC takaful 相关裁决总述（汇编精选）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-BNM-SAC-RES-041",
+              "subject": "takaful：Tabarru` + wakalah takaful/retakaful model permissible"
+            }
+          ]
+        },
+        {
+          "query": "BNM SAC tabarru wakalah takaful",
+          "success": true,
+          "returned": 10,
+          "rank": 3,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-BNM-SAC-RES-041",
+              "subject": "takaful：Tabarru` + wakalah takaful/retakaful model permissible"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SAC-RES-043",
+              "subject": "takaful：Wakalah retakaful with wakaf element permissible; tabarru` still require"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-TAKAFUL-BNM-SAC-001",
+              "subject": "takaful（互助保险）— 马来西亚正式转化条目（BNM SAC）"
+            }
+          ]
+        },
+        {
+          "query": "takaful 基金分账 盈余",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-TAKAFUL-BNM-SAC-001",
+              "subject": "takaful（互助保险）— 马来西亚正式转化条目（BNM SAC）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SAC-TAKAFUL-CHAIN",
+              "subject": "BNM SAC takaful 相关裁决总述（汇编精选）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-BNM-SAC-RES-041",
+              "subject": "takaful：Tabarru` + wakalah takaful/retakaful model permissible"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "MY-IFSA-2013-GOV-S28-29-001",
+      "sharia_principle_id": "SH-PRINCIPLE-GOVERNANCE-001",
+      "pass": true,
+      "best_hit": {
+        "query": "IFSA 沙里亚合规义务 section 28",
+        "rank": 2
+      },
+      "queries": [
+        {
+          "query": "IFSA 沙里亚合规义务 section 28",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-IFSA-2013-GOV-CHAIN",
+              "subject": "IFSA 2013 沙里亚合规义务与沙委会治理链条（ss.28–38）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-IFSA-2013-GOV-S28-29-001",
+              "subject": "沙里亚合规义务与 BNM 标准制定权 — 马来西亚正式转化条目（IFSA ss.28–29）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-IFSA-2013-S28",
+              "subject": "机构必须始终符合沙里亚（覆盖不得收取 riba）"
+            }
+          ]
+        },
+        {
+          "query": "遵从 SAC 裁决视为符合 Shariah",
+          "success": true,
+          "returned": 10,
+          "rank": null,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-BNM-SAC-RES-011",
+              "subject": "sukuk：Utilisation of third-party mudarabah asset for sukuk ijarah not allowed"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SAC-RES-014",
+              "subject": "sukuk：Third-party asset acquired by sale for sukuk ijarah permissible"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-BNM-SAC-RES-062",
+              "subject": "sukuk：Sukuk ijarah / Shariah shares as tawarruq underlying asset permissible"
+            }
+          ]
+        },
+        {
+          "query": "BNM 制定沙里亚治理标准 s.29",
+          "success": true,
+          "returned": 10,
+          "rank": 4,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-RIBA-IFSA-2013-001",
+              "subject": "禁止 riba（利息、高利贷）— 马来西亚正式转化条目"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-IFSA-2013-RIBA-CHAIN",
+              "subject": "禁止 riba（利息、高利贷）— IFSA 合规链条总述"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-IFSA-2013-S29",
+              "subject": "央行可据 SAC 制定沙里亚标准；即使无细则也不得违背沙里亚（含 riba）"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "MY-IFSA-2013-GOV-S30-38-001",
+      "sharia_principle_id": "SH-PRINCIPLE-GOVERNANCE-001",
+      "pass": true,
+      "best_hit": {
+        "query": "沙里亚合规审计 section 37 38",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "IFSA Shariah 委员会设立",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-IFSA-2013-GOV-S28-29-001",
+              "subject": "沙里亚合规义务与 BNM 标准制定权 — 马来西亚正式转化条目（IFSA ss.28–29）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-IFSA-2013-GOV-S30-38-001",
+              "subject": "Shariah 委员会设置与运行 — 马来西亚正式转化条目（IFSA ss.30–38）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-IFSA-2013-GOV-CHAIN",
+              "subject": "IFSA 2013 沙里亚合规义务与沙委会治理链条（ss.28–38）"
+            }
+          ]
+        },
+        {
+          "query": "沙里亚委员会任命 适格 fit and proper",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-IFSA-2013-GOV-S28-29-001",
+              "subject": "沙里亚合规义务与 BNM 标准制定权 — 马来西亚正式转化条目（IFSA ss.28–29）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-IFSA-2013-GOV-S30-38-001",
+              "subject": "Shariah 委员会设置与运行 — 马来西亚正式转化条目（IFSA ss.30–38）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-IFSA-2013-S31",
+              "subject": "IFSA 2013 s.31：Appointment of members"
+            }
+          ]
+        },
+        {
+          "query": "沙里亚合规审计 section 37 38",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-IFSA-2013-GOV-S30-38-001",
+              "subject": "Shariah 委员会设置与运行 — 马来西亚正式转化条目（IFSA ss.30–38）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-IFSA-2013-GOV-CHAIN",
+              "subject": "IFSA 2013 沙里亚合规义务与沙委会治理链条（ss.28–38）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-IFSA-2013-S37",
+              "subject": "IFSA 2013 s.37：Appointment of person to conduct audit on Shariah compliance"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "MY-BNM-SGP-2019-FORMAL-001",
+      "sharia_principle_id": "SH-PRINCIPLE-GOVERNANCE-001",
+      "pass": true,
+      "best_hit": {
+        "query": "Shariah Governance Policy Document",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "BNM 沙里亚治理政策文件 SGP 2019",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-BNM-SGP-2019-001",
+              "subject": "BNM 沙里亚治理政策文件 SGP 2019"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SGP-2019-FORMAL-001",
+              "subject": "沙里亚治理政策文件 — 马来西亚正式转化条目（SGP 2019）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "SH-PRINCIPLE-GOVERNANCE-001",
+              "subject": ""
+            }
+          ]
+        },
+        {
+          "query": "Shariah Governance Policy Document",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-BNM-SGP-2019-FORMAL-001",
+              "subject": "沙里亚治理政策文件 — 马来西亚正式转化条目（SGP 2019）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-BNM-SGP-2019-001",
+              "subject": "BNM 沙里亚治理政策文件 SGP 2019"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-IFSA-2013-S35",
+              "subject": "IFSA 2013 s.35：Information to be provided to Shariah committee"
+            }
+          ]
+        },
+        {
+          "query": "沙里亚风险管理 审查 审计",
+          "success": true,
+          "returned": 10,
+          "rank": null,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-IFSA-2013-GOV-S30-38-001",
+              "subject": "Shariah 委员会设置与运行 — 马来西亚正式转化条目（IFSA ss.30–38）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-IFSA-2013-S30",
+              "subject": "IFSA 2013 s.30：Establishment of Shariah committee"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-IFSA-2013-S31",
+              "subject": "IFSA 2013 s.31：Appointment of members"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "MY-HALAL-ACT730-FORMAL-001",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "pass": true,
+      "best_hit": {
+        "query": "JAKIM halal 认证主管机关",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "马来西亚 halal 法定定义 P.U.A 430",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-HALAL-ACT730-CHAIN",
+              "subject": "马来西亚 halal 法定定义与认证母法框架"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-HALAL-ACT730-FORMAL-001",
+              "subject": "halal 法定认证框架 — 马来西亚正式转化条目（Act 730 + P.U.(A) 430/431）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-HALAL-PUA430-S3",
+              "subject": "P.U.(A) 430/2011 第3条：halal 法定定义要件"
+            }
+          ]
+        },
+        {
+          "query": "Trade Descriptions Act 730 halal",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-HALAL-ACT730-CHAIN",
+              "subject": "马来西亚 halal 法定定义与认证母法框架"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-HALAL-ACT730-FORMAL-001",
+              "subject": "halal 法定认证框架 — 马来西亚正式转化条目（Act 730 + P.U.(A) 430/431）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-HALAL-PUA430-S3",
+              "subject": "P.U.(A) 430/2011 第3条：halal 法定定义要件"
+            }
+          ]
+        },
+        {
+          "query": "JAKIM halal 认证主管机关",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-HALAL-ACT730-FORMAL-001",
+              "subject": "halal 法定认证框架 — 马来西亚正式转化条目（Act 730 + P.U.(A) 430/431）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-HALAL-ACT730-CHAIN",
+              "subject": "马来西亚 halal 法定定义与认证母法框架"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-HALAL-MS1500-FORMAL-001",
+              "subject": "halal 技术与程序基准 — 马来西亚正式转化条目（MS 1500 / MPPHM / 门户）"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "MY-HALAL-MS1500-FORMAL-001",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "pass": true,
+      "best_hit": {
+        "query": "MS 1500 halal 食品标准",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "MS 1500 halal 食品标准",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-HALAL-MS1500-FORMAL-001",
+              "subject": "halal 技术与程序基准 — 马来西亚正式转化条目（MS 1500 / MPPHM / 门户）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-HALAL-MS1500-JAKIM",
+              "subject": "halal 技术标准与 JAKIM 认证程序基准"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-HALAL-PUA430-S3",
+              "subject": "P.U.(A) 430/2011 第3条：halal 法定定义要件"
+            }
+          ]
+        },
+        {
+          "query": "马来西亚 halal 认证程序手册 MPPHM",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-HALAL-MS1500-FORMAL-001",
+              "subject": "halal 技术与程序基准 — 马来西亚正式转化条目（MS 1500 / MPPHM / 门户）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-HALAL-MS1500-JAKIM",
+              "subject": "halal 技术标准与 JAKIM 认证程序基准"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-HALAL-ACT730-FORMAL-001",
+              "subject": "halal 法定认证框架 — 马来西亚正式转化条目（Act 730 + P.U.(A) 430/431）"
+            }
+          ]
+        },
+        {
+          "query": "halal.gov.my 认证门户",
+          "success": true,
+          "returned": 4,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "MY-HALAL-MS1500-FORMAL-001",
+              "subject": "halal 技术与程序基准 — 马来西亚正式转化条目（MS 1500 / MPPHM / 门户）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "MY-HALAL-MS1500-JAKIM",
+              "subject": "halal 技术标准与 JAKIM 认证程序基准"
+            },
+            {
+              "rank": 3,
+              "rule_id": "MY-HALAL-ACT730-FORMAL-001",
+              "subject": "halal 法定认证框架 — 马来西亚正式转化条目（Act 730 + P.U.(A) 430/431）"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "ID-HALAL-UU33-2014-001",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "pass": true,
+      "best_hit": {
+        "query": "Indonesia Jaminan Produk Halal Pasal 4",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "印尼 UU 33/2014 清真产品保障法",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-JPH-CORE-001",
+              "subject": "印尼 halal 核心制度综合正式条目（含 2026-10-18 全面强制）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-HALAL-UU33-2014-001",
+              "subject": "印尼清真产品保障母法 — 正式转化条目（UU 33/2014）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-UU-33-2014-HALAL-CHAIN",
+              "subject": "印尼清真产品保障母法 UU 33/2014 总述"
+            }
+          ]
+        },
+        {
+          "query": "Indonesia Jaminan Produk Halal Pasal 4",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-UU33-2014-001",
+              "subject": "印尼清真产品保障母法 — 正式转化条目（UU 33/2014）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-UU-33-2014-HALAL-CHAIN",
+              "subject": "印尼清真产品保障母法 UU 33/2014 总述"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-UU-33-2014-P4",
+              "subject": "UU 33/2014 Pasal 4：进入/流通/交易产品须持清真证书"
+            }
+          ]
+        },
+        {
+          "query": "BPJPH 强制清真认证母法",
+          "success": true,
+          "returned": 10,
+          "rank": 3,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-BPJPH-ANN-UMK-IMPORT",
+              "subject": "BPJPH 公告：小微与进口产品节点（含官方信息图口径）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-BPJPH-ANN-2026-10-18",
+              "subject": "BPJPH 公告：2026-10-18 起强制品类（执行口径）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-HALAL-UU33-2014-001",
+              "subject": "印尼清真产品保障母法 — 正式转化条目（UU 33/2014）"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "ID-HALAL-PP42-2024-001",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "pass": true,
+      "best_hit": {
+        "query": "Peraturan Pemerintah 42 2024 Pasal 160 UMK",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "印尼 PP 42/2024 过渡期 2026-10-17",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-JPH-CORE-001",
+              "subject": "印尼 halal 核心制度综合正式条目（含 2026-10-18 全面强制）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-HALAL-PP42-2024-001",
+              "subject": "印尼清真保障实施条例 — 正式转化条目（PP 42/2024 / GR 42/2024）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-PP-42-2024-P161",
+              "subject": "PP 42/2024 Pasal 161：其余品类分阶段强制清单"
+            }
+          ]
+        },
+        {
+          "query": "Peraturan Pemerintah 42 2024 Pasal 160 UMK",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-PP42-2024-001",
+              "subject": "印尼清真保障实施条例 — 正式转化条目（PP 42/2024 / GR 42/2024）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-PP-42-2024-HALAL-CHAIN",
+              "subject": "PP 42/2024 清真保障实施条例与分阶段强制时间表"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-PP-42-2024-P160",
+              "subject": "PP 42/2024 Pasal 160：食饮/屠宰类分企业规模过渡期"
+            }
+          ]
+        },
+        {
+          "query": "印尼 halal 分阶段强制时间表",
+          "success": true,
+          "returned": 10,
+          "rank": 5,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-JPH-CORE-001",
+              "subject": "印尼 halal 核心制度综合正式条目（含 2026-10-18 全面强制）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-HALAL-UU33-2014-001",
+              "subject": "印尼清真产品保障母法 — 正式转化条目（UU 33/2014）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-UU-33-2014-HALAL-CHAIN",
+              "subject": "印尼清真产品保障母法 UU 33/2014 总述"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rule_id": "ID-HALAL-BPJPH-2026-001",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "pass": true,
+      "best_hit": {
+        "query": "2026-10-18 全面强制 官方不再延期",
+        "rank": 2
+      },
+      "queries": [
+        {
+          "query": "2026-10-18 全面强制 官方不再延期",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-JPH-CORE-001",
+              "subject": "印尼 halal 核心制度综合正式条目（含 2026-10-18 全面强制）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-HALAL-BPJPH-2026-001",
+              "subject": "2026-10-18 全面强制官方口径 — 正式转化条目（BPJPH）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-BPJPH-ANN-2026-10-18",
+              "subject": "BPJPH 公告：2026-10-18 起强制品类（执行口径）"
+            }
+          ]
+        },
+        {
+          "query": "BPJPH wajib halal 18 Oktober 2026",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-BPJPH-ANN-2026-10-18",
+              "subject": "BPJPH 公告：2026-10-18 起强制品类（执行口径）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-HALAL-BPJPH-2026-001",
+              "subject": "2026-10-18 全面强制官方口径 — 正式转化条目（BPJPH）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-UU-33-2014-HALAL-CHAIN",
+              "subject": "印尼清真产品保障母法 UU 33/2014 总述"
+            }
+          ]
+        },
+        {
+          "query": "印尼小微进口产品清真强制",
+          "success": false,
+          "returned": 0,
+          "rank": null,
+          "top3": []
+        }
+      ]
+    },
+    {
+      "rule_id": "ID-HALAL-JPH-CORE-001",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "pass": true,
+      "best_hit": {
+        "query": "印尼 halal 核心制度 UU PP BPJPH",
+        "rank": 1
+      },
+      "queries": [
+        {
+          "query": "印尼 halal 核心制度 UU PP BPJPH",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-JPH-CORE-001",
+              "subject": "印尼 halal 核心制度综合正式条目（含 2026-10-18 全面强制）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-HALAL-UU33-2014-001",
+              "subject": "印尼清真产品保障母法 — 正式转化条目（UU 33/2014）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-UU-33-2014-HALAL-CHAIN",
+              "subject": "印尼清真产品保障母法 UU 33/2014 总述"
+            }
+          ]
+        },
+        {
+          "query": "Indonesia halal mandatory 2026-10-18",
+          "success": true,
+          "returned": 10,
+          "rank": 2,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-UU33-2014-001",
+              "subject": "印尼清真产品保障母法 — 正式转化条目（UU 33/2014）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-HALAL-JPH-CORE-001",
+              "subject": "印尼 halal 核心制度综合正式条目（含 2026-10-18 全面强制）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-BPJPH-ANN-UMK-IMPORT",
+              "subject": "BPJPH 公告：小微与进口产品节点（含官方信息图口径）"
+            }
+          ]
+        },
+        {
+          "query": "Jaminan Produk Halal 全面强制",
+          "success": true,
+          "returned": 10,
+          "rank": 1,
+          "top3": [
+            {
+              "rank": 1,
+              "rule_id": "ID-HALAL-JPH-CORE-001",
+              "subject": "印尼 halal 核心制度综合正式条目（含 2026-10-18 全面强制）"
+            },
+            {
+              "rank": 2,
+              "rule_id": "ID-HALAL-UU33-2014-001",
+              "subject": "印尼清真产品保障母法 — 正式转化条目（UU 33/2014）"
+            },
+            {
+              "rank": 3,
+              "rule_id": "ID-UU-33-2014-HALAL-CHAIN",
+              "subject": "印尼清真产品保障母法 UU 33/2014 总述"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
