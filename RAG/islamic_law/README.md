@@ -19,6 +19,7 @@
 
 ```bash
 .venv/bin/python -m RAG.islamic_law.scripts.insert_riba_sample
+.venv/bin/python -m RAG.islamic_law.scripts.verify_formal_semantic
 ```
 
 生成：
@@ -26,6 +27,7 @@
 - `cache/islamic_rules.db`
 - `cache/manifest.shared.json`
 - `cache/manifest.country.MY.json`
+- `sources/MY/verify_step3_3/`：3.3 语义检索批量验证报告（每条正式条目 ≥1 相关 query 命中）
 
 马来西亚 riba 条目已入库：
 
