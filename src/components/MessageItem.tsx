@@ -14,8 +14,7 @@ import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
 import { MessageAttachments } from './MessageAttachments';
 import {
-  DOCUMENT_ATTACHMENT_HEADER,
-  parseDocumentAttachments,
+  resolveMessageAttachments,
   stripAttachmentPrompt,
   stripWorkspacePaths,
 } from '../lib/attachment-prompt';
@@ -59,6 +58,37 @@ const markdownSanitizeSchema: any = {
   protocols: {
     ...defaultSchema.protocols,
     href: ['http', 'https', 'mailto']
+  }
+};
+
+// 这些对象只依赖模块级符号，提到模块作用域：否则每次渲染都是新引用，
+// 会让 react-markdown 每次都重新解析整篇正文（长会话里这是主要开销）。
+// 显式标 any：内联在 JSX 里时 TS 能按 PluggableList 上下文推断，提到模块作用域后不能。
+const markdownRemarkPlugins: any = [remarkGfm];
+const markdownRehypePlugins: any = [rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]];
+
+const markdownComponents: any = {
+  a(props: any) {
+    const { node, ...rest } = props;
+    return <a target="_blank" rel="noopener noreferrer" {...rest} />;
+  },
+  pre(props: any) {
+    const { children, ...rest } = props;
+    const childrenArray = React.Children.toArray(children);
+    const child = childrenArray[0] as any;
+
+    if (child && child.type === 'code' && typeof child.props?.className === 'string' && child.props.className.includes('language-mermaid')) {
+      return <>{children}</>;
+    }
+    return <pre {...rest}>{children}</pre>;
+  },
+  code(props: any) {
+    const {children, className, node, ...rest} = props;
+    const match = /language-(\w+)/.exec(className || '');
+    if (match && match[1] === 'mermaid') {
+      return <Mermaid chart={String(children).replace(/\n$/, '')} />;
+    }
+    return <code {...rest} className={className}>{children}</code>;
   }
 };
 
@@ -372,7 +402,7 @@ const WorkflowStatusIcon: React.FC<{ status: 'running' | 'done' }> = ({ status }
   </svg>
 );
 
-export const MessageItem: React.FC<MessageItemProps> = ({
+export const MessageItem: React.FC<MessageItemProps> = React.memo(({
   msg,
   conversationId,
   isThinking,
@@ -384,39 +414,39 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 }) => {
   const { showAlert } = useAppDialog();
   const [customChoice, setCustomChoice] = React.useState('');
-  const markdownComponents: any = {
-    a(props: any) {
-      const { node, ...rest } = props;
-      return <a target="_blank" rel="noopener noreferrer" {...rest} />;
-    },
-    pre(props: any) {
-      const { children, ...rest } = props;
-      const childrenArray = React.Children.toArray(children);
-      const child = childrenArray[0] as any;
-
-      if (child && child.type === 'code' && typeof child.props?.className === 'string' && child.props.className.includes('language-mermaid')) {
-        return <>{children}</>;
-      }
-      return <pre {...rest}>{children}</pre>;
-    },
-    code(props: any) {
-      const {children, className, node, ...rest} = props;
-      const match = /language-(\w+)/.exec(className || '');
-      if (match && match[1] === 'mermaid') {
-        return <Mermaid chart={String(children).replace(/\n$/, '')} />;
-      }
-      return <code {...rest} className={className}>{children}</code>;
-    }
-  };
-
-  const thoughtBlocks = msg.role === 'assistant' ? (msg.thought_blocks || []).filter(block => block.content.trim()) : [];
-  const mainContent = msg.role === 'assistant' ? normalizeBodyContent(msg.content || '') : '';
+  // 正文字符串处理（表格修复等）是正则密集的，按 content 缓存，避免同一内容反复重算。
+  const thoughtBlocks = React.useMemo(
+    () => (msg.role === 'assistant' ? (msg.thought_blocks || []).filter(block => block.content.trim()) : []),
+    [msg.role, msg.thought_blocks]
+  );
+  const mainContent = React.useMemo(
+    () => (msg.role === 'assistant' ? normalizeBodyContent(msg.content || '') : ''),
+    [msg.role, msg.content]
+  );
   const pendingChoice = msg.role === 'assistant' ? msg.pending_choice : undefined;
   const canAnswerChoice = Boolean(pendingChoice && !pendingChoice.answered && !isThinking && onAnswerChoice);
   const latestThought = thoughtBlocks[thoughtBlocks.length - 1];
   const collapsedStatus = getStatusLabel(latestThought) || (isThinking ? '正在思考' : null);
   const showThinking = isThinking && thoughtBlocks.length > 0;
   const generatedFileName = msg.download_path ? safeDownloadName(msg.download_path) : '';
+  // 气泡里的附件只解析一次，图片与文档都从这一份清单里分出来，避免同一份附件
+  // 被消息元数据和文本协议各渲染一遍（表现为气泡上下各一份）。
+  const bubbleAttachments = React.useMemo(
+    () => (msg.role === 'user' ? resolveMessageAttachments(msg.content, msg.attachments) : []),
+    [msg.role, msg.content, msg.attachments]
+  );
+  const imageAttachments = React.useMemo(
+    () => bubbleAttachments.filter(attachment => attachment.kind === 'image'),
+    [bubbleAttachments]
+  );
+  const documentAttachments = React.useMemo(
+    () => bubbleAttachments.filter(attachment => attachment.kind !== 'image'),
+    [bubbleAttachments]
+  );
+  const bodyText = React.useMemo(
+    () => (msg.role === 'user' ? stripWorkspacePaths(stripAttachmentPrompt(msg.content || '')) : ''),
+    [msg.role, msg.content]
+  );
   const submitChoice = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed || !canAnswerChoice) return;
@@ -436,31 +466,25 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         {msg.role === 'user' ? (
           <div className="message-copy min-w-0 max-w-full w-fit rounded-[20px_6px_20px_20px] bg-[var(--accent)] px-3.5 py-2.5 text-[14px] leading-relaxed text-[var(--accent-on)] shadow-[var(--shadow-1)] sm:rounded-[24px_8px_24px_24px] sm:px-5 sm:py-3.5 sm:text-[16px]">
             <div className="flex min-w-0 max-w-full flex-col gap-2">
-              {msg.attachments && msg.attachments.length > 0 && (
-                <MessageAttachments conversationId={conversationId} attachments={msg.attachments} />
+              {imageAttachments.length > 0 && (
+                <MessageAttachments conversationId={conversationId} attachments={imageAttachments} />
               )}
-              {(() => {
-                const documentFiles = parseDocumentAttachments(msg.content);
-                const markerIndex = msg.content.indexOf(DOCUMENT_ATTACHMENT_HEADER);
-                const bodyText = stripWorkspacePaths(
-                  stripAttachmentPrompt(markerIndex >= 0 ? msg.content.slice(0, markerIndex) : msg.content),
-                );
-                return (
-                  <>
-                    {bodyText && <p className="whitespace-pre-wrap break-words">{bodyText}</p>}
-                    {documentFiles.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-1">
-                        {documentFiles.map((file: string, i: number) => (
-                          <div key={i} className="flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1 text-sm">
-                            <Paperclip size={14} strokeWidth={2} />
-                            <span className="max-w-[200px] truncate">{file}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
+              {bodyText && <p className="whitespace-pre-wrap break-words">{bodyText}</p>}
+              {documentAttachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {documentAttachments.map((file) => (
+                    <div
+                      key={`${file.kind}:${file.name}:${file.path}`}
+                      data-testid="message-attachment"
+                      data-attachment={`${file.kind}:${file.name}`}
+                      className="flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1 text-sm"
+                    >
+                      <Paperclip size={14} strokeWidth={2} />
+                      <span className="max-w-[200px] truncate">{file.name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -498,7 +522,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                               <span className="thought-step-label-text">{thoughtTypeLabel[block.type]}</span>
                             </div>
                             <div className="thought-copy prose dark:prose-invert w-full max-w-none">
-                              <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]} components={markdownComponents}>{blockContent}</Markdown>
+                              <Markdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={markdownRehypePlugins} components={markdownComponents}>{blockContent}</Markdown>
                             </div>
                           </div>
                         );
@@ -617,7 +641,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             {mainContent && !pendingChoice && (
               <div data-testid="assistant-content" className="min-w-0 w-full max-w-full rounded-[6px_20px_20px_20px] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-[var(--fg-1)] shadow-[var(--shadow-1)] sm:rounded-[8px_24px_24px_24px] sm:px-5 sm:py-3.5">
                 <div className="message-copy prose dark:prose-invert w-full max-w-none">
-                  <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw, [rehypeSanitize, markdownSanitizeSchema]]} components={markdownComponents}>{mainContent}</Markdown>
+                  <Markdown remarkPlugins={markdownRemarkPlugins} rehypePlugins={markdownRehypePlugins} components={markdownComponents}>{mainContent}</Markdown>
                 </div>
               </div>
             )}
@@ -709,4 +733,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       </div>
     </div>
   );
-};
+});
+
+MessageItem.displayName = 'MessageItem';

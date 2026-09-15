@@ -1,7 +1,7 @@
 {
   "name": "lawver",
   "private": true,
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "工大法智团队的中文法律 AI 助手原型",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
@@ -30,6 +30,7 @@
     "test:stream-run-guards": "tsx scripts/test-stream-run-guards.ts",
     "test:app-back": "tsx scripts/test-app-back.ts",
     "test:attachment-prompt": "tsx scripts/test-attachment-prompt.ts",
+    "test:message-attachments": "tsx scripts/test-message-attachments.tsx",
     "test:composer-autosize": "tsx scripts/test-composer-autosize.ts",
     "start": "python agent.py"
   },

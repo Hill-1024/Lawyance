@@ -107,6 +107,7 @@ function App() {
     workspaceFiles,
     pendingUploads,
     setPendingUploads,
+    restorePendingUploads,
     isUploadingFiles,
     handleFileUpload,
     handleGeneratedFile,
@@ -204,9 +205,21 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
+    // resize 事件在一次拖拽中会连发上百次，而 windowWidth 只用于 1024 断点判定；
+    // 用 rAF 合并到每帧一次，避免整个 App 每像素重渲染一次。
+    let frame = 0;
+    const handleResize = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        setWindowWidth(window.innerWidth);
+      });
+    };
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -277,6 +290,57 @@ function App() {
     }
     return null;
   }, [messages]);
+
+  // 消息列表的操作回调用 ref 持有最新实现、外层暴露稳定引用：否则输入框每敲一个键
+  // 都会让 App 重渲染并连带整列消息重新渲染（每条消息都要重跑 Markdown 解析）。
+  const messageActionsRef = React.useRef({
+    currentId,
+    handleRegenerateMessage,
+    handleUserChoice,
+    handleEdit,
+    handleUndo,
+    branchConversation,
+    handleGeneratedFile,
+    syncFiles,
+    setPendingUploads,
+    restorePendingUploads,
+  });
+  // 在 effect 里刷新而不是渲染期赋值：并发渲染下渲染可能被丢弃或重放，渲染期写 ref 不纯。
+  useEffect(() => {
+    messageActionsRef.current = {
+      currentId,
+      handleRegenerateMessage,
+      handleUserChoice,
+      handleEdit,
+      handleUndo,
+      branchConversation,
+      handleGeneratedFile,
+      syncFiles,
+      setPendingUploads,
+      restorePendingUploads,
+    };
+  });
+
+  const onRegenerateMessage = useCallback((id: string) => {
+    const actions = messageActionsRef.current;
+    return actions.handleRegenerateMessage(actions.currentId, id, actions.handleGeneratedFile, actions.syncFiles);
+  }, []);
+  const onAnswerMessageChoice = useCallback((id: string, value: string) => {
+    const actions = messageActionsRef.current;
+    return actions.handleUserChoice(id, value, actions.handleGeneratedFile, actions.syncFiles);
+  }, []);
+  const onEditMessage = useCallback((id: string) => {
+    const actions = messageActionsRef.current;
+    return actions.handleEdit(actions.currentId, id, actions.restorePendingUploads);
+  }, []);
+  const onUndoMessage = useCallback((id: string) => {
+    const actions = messageActionsRef.current;
+    return actions.handleUndo(actions.currentId, id, actions.restorePendingUploads);
+  }, []);
+  const onBranchMessage = useCallback((id: string) => {
+    const actions = messageActionsRef.current;
+    return actions.branchConversation(actions.currentId, id);
+  }, []);
 
   if (isAuthChecking) {
     return (
@@ -371,11 +435,11 @@ function App() {
                   activeAssistantMessageId={activeAssistantMessageId}
                   bottomInset={composerOverlayHeight}
                   composerHeight={composerHeight}
-                  onRegenerate={(id) => handleRegenerateMessage(currentId, id, handleGeneratedFile, syncFiles)}
-                  onAnswerChoice={(id, value) => handleUserChoice(id, value, handleGeneratedFile, syncFiles)}
-                  onEdit={(id) => handleEdit(currentId, id, setPendingUploads)}
-                  onUndo={(id) => handleUndo(currentId, id, setPendingUploads)}
-                  onBranch={(id) => branchConversation(currentId, id)}
+                  onRegenerate={onRegenerateMessage}
+                  onAnswerChoice={onAnswerMessageChoice}
+                  onEdit={onEditMessage}
+                  onUndo={onUndoMessage}
+                  onBranch={onBranchMessage}
                 />
               </React.Suspense>
             )}
@@ -389,7 +453,7 @@ function App() {
               }}
               handleStop={stopActiveGeneration}
               activeChoicePrompt={activeChoicePrompt}
-              onAnswerChoice={(id, value) => handleUserChoice(id, value, handleGeneratedFile, syncFiles)}
+              onAnswerChoice={onAnswerMessageChoice}
               isLoading={isLoading}
               composerStatus={composerStatus}
               contextUsage={contextUsage}

@@ -49,7 +49,6 @@ export const useAutoGrowTextarea = (value: string, options: AutoGrowTextareaOpti
   valueRef.current = value;
   const [isMultiline, setIsMultiline] = useState(false);
   const [isStacked, setIsStacked] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState(0);
   const multilineRef = useRef(false);
   const lastWidthRef = useRef(0);
   const lastViewportHeightRef = useRef(0);
@@ -73,7 +72,6 @@ export const useAutoGrowTextarea = (value: string, options: AutoGrowTextareaOpti
     const element = ref.current;
     if (!element) return;
     lastViewportHeightRef.current = currentViewportHeight();
-    setViewportHeight(lastViewportHeightRef.current);
 
     const multiline = applyHeight(element);
 
@@ -131,12 +129,12 @@ export const useAutoGrowTextarea = (value: string, options: AutoGrowTextareaOpti
   }, [measure]);
 
   // 软键盘弹起/收起改变可见视口高度，需要实时收紧上限。
+  // 这里只重算输入框高度、不写 React 状态：resize 会在拖拽和键盘动画期间连续触发，
+  // 把视口高度放进 state 会让整块输入区跟着每帧重渲染。
   useLayoutEffect(() => {
-    setViewportHeight(currentViewportHeight());
     const handleViewportResize = () => {
       const next = currentViewportHeight();
       if (Math.abs(next - lastViewportHeightRef.current) < 0.5) return;
-      setViewportHeight(next);
       measure();
     };
     window.addEventListener('resize', handleViewportResize);
@@ -147,5 +145,5 @@ export const useAutoGrowTextarea = (value: string, options: AutoGrowTextareaOpti
     };
   }, [measure]);
 
-  return { ref, isMultiline, isStacked, viewportHeight };
+  return { ref, isMultiline, isStacked };
 };

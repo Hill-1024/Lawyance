@@ -7,7 +7,7 @@
 <p>面向中文法律场景的 AI 助手<br/>把法律问题拆成可核验的事实、依据与分析路径</p>
 
 <p>
-  <a href="https://github.com/Hill-1024/Lawyance/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1.20-3b62b8"></a>
+  <a href="https://github.com/Hill-1024/Lawyance/releases"><img alt="version" src="https://img.shields.io/badge/version-0.1.21-3b62b8"></a>
   <img alt="license" src="https://img.shields.io/badge/license-AGPL--3.0-A42E2B">
   <img alt="python" src="https://img.shields.io/badge/Python-3.13%2B-3776AB?logo=python&logoColor=white">
   <img alt="fastapi" src="https://img.shields.io/badge/FastAPI-0.139%2B-009688?logo=fastapi&logoColor=white">
@@ -218,7 +218,7 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 
 工作区路径校验集中在 `workspace.py`，`mcps.py` 和 `tools/*` 都依赖它，避免工具注册拆分后产生循环 import。
 
-OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误路径处理；OCP 自身的超时、网络异常、工具异常或审查模型异常不得向用户路径抛出，必须降级为 deterministic sanitizer-only fallback，保留主模型正文。
+OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误路径处理；OCP 自身的超时、网络异常、工具异常或审查模型异常不得向用户路径抛出，必须降级为 deterministic fallback：保留主模型正文，只在本地做 Markdown 表格修复与信源区补建（正文角标自带 URL，可离线反推文末溯源），因此任何降级路径都不会出现「有角标、无溯源」的裸输出。
 
 本次架构边界不包含 Lawver 命名统一、工具命名规范重写或 agent 推理策略重写。
 
