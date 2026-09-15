@@ -621,6 +621,16 @@ def main() -> None:
                     f"  {row['rule_id']}  {row['article_number']}  "
                     f"{row['legal_effect']}  {row['sharia_source_type']}"
                 )
+
+        # 对齐主库：种子完成后写语料指纹，供 ensure_*_ready 判断是否需重建
+        from RAG.islamic_law.search import MANIFEST_BUILD, build_source_manifest
+
+        build_manifest = build_source_manifest()
+        MANIFEST_BUILD.write_text(
+            json.dumps(build_manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Build manifest: {MANIFEST_BUILD} sha={build_manifest['content_sha256'][:12]}...")
     finally:
         conn.close()
 

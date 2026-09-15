@@ -53,13 +53,18 @@
 
 IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。SAC 无单独“riba 裁决”，以汇编决议序号为可追溯编号。共享层经训不得单独作为国家合规结论。正式引用以英文立法文本与阿语经训原文为准。
 
-## 效力三分类
+## 与主库的关系（增量对齐，不重造）
 
-- `binding`：国内法或法定拘束力裁决
-- `regulated-fatwa`：经监管吸收、约束持牌机构
-- `religious-guidance`：宗教/学理/国际标准（旧别名 `advisory` 入库时归一）
+本库**有意复用**主库 `RAG/law_data_search.py` 的外壳：SQLite + `search_blob` 关键词打分 + `exact` / 模糊 / `link` 三接口 + JSON envelope（`law_name` / `article_number` / `content` / `url`）。
 
-缺少国内转化时，共享层原则**不得**单独作为合规结论依据。
+**不合并进** `RAG/cache/law.db`，因为伊斯兰库需要双层（共享原则 ↔ 国家转化）与 `legal_effect` / `country` / `fatwa_*` 等字段；硬塞进主库 `laws`/`articles` 会变形。
+
+已做的简单对齐：
+
+- `fuzzy_search` 作为 `semantic_search` 别名（主库命名）
+- `link_search` 同时返回 `data`（完整）与 `references`（精简，对齐主库）
+- `cache/manifest.build.json`：对 `schema.sql` + `data/**/*.json` 做 content hash，变更才重建（对齐主库 rebuild 思路）
+- 连接开启 `PRAGMA journal_mode=WAL`
 
 ## 东盟分档
 

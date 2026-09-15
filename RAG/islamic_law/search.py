@@ -3,12 +3,14 @@
 默认数据库：cache/islamic_rules.db
 - 转化层 islamic_rules 为主检索对象
 - 命中后按 sharia_principle_id 附带共享层摘要
-提供 exact_search / semantic_search / link_search。
+提供 exact_search / semantic_search(=fuzzy_search) / link_search。
+检索 envelope 对齐主库 RAG/law_data_search.py；领域仍保持双层模型。
 不修改 tools/__init__.py、mcps.py、function_calling.py。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -26,6 +28,7 @@ CACHE_DIR = BASE_DIR / "cache"
 SCHEMA_PATH = BASE_DIR / "schema.sql"
 DB_PATH = CACHE_DIR / "islamic_rules.db"
 MANIFEST_SHARED = CACHE_DIR / "manifest.shared.json"
+MANIFEST_BUILD = CACHE_DIR / "manifest.build.json"
 SCHEMA_VERSION = 3
 
 MAX_QUERY_CHARS = 4000
@@ -118,10 +121,76 @@ def score_item(blob: str, query: str, terms: Iterable[str]) -> int:
     return score
 
 
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_source_manifest() -> dict[str, Any]:
+    """
+    对齐主库「语料指纹 → 是否重建」思路。
+    指纹覆盖 schema.sql + data/ 下全部 JSON（不扫 sources/ 大 PDF）。
+    """
+    data_root = BASE_DIR / "data"
+    files: dict[str, dict[str, Any]] = {}
+    digest = hashlib.sha256()
+    digest.update(f"schema:{SCHEMA_VERSION}\n".encode("utf-8"))
+
+    paths = [SCHEMA_PATH]
+    if data_root.is_dir():
+        paths.extend(sorted(data_root.rglob("*.json")))
+    for path in paths:
+        relative = str(path.relative_to(BASE_DIR)).replace("\\", "/")
+        file_sha = _hash_file(path)
+        stat = path.stat()
+        files[relative] = {
+            "size": stat.st_size,
+            "sha256": file_sha,
+        }
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(file_sha.encode("ascii"))
+        digest.update(b"\0")
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "file_count": len(files),
+        "content_sha256": digest.hexdigest(),
+        "files": files,
+    }
+
+
+def _read_build_manifest() -> dict[str, Any] | None:
+    if not MANIFEST_BUILD.exists():
+        return None
+    try:
+        payload = json.loads(MANIFEST_BUILD.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _needs_rebuild(source_manifest: dict[str, Any]) -> bool:
+    if not DB_PATH.exists():
+        return True
+    current = _read_build_manifest()
+    if current is None:
+        return True
+    return (
+        current.get("schema_version") != source_manifest.get("schema_version")
+        or current.get("content_sha256") != source_manifest.get("content_sha256")
+    )
+
+
 def ensure_islamic_database_ready(*, force_rebuild: bool = False) -> dict[str, Any]:
-    """确保规则库存在；缺失或 force 时执行种子重建。"""
+    """确保规则库存在；语料指纹变化、缺表/空表或 force 时执行种子重建。"""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    needs_seed = force_rebuild or not DB_PATH.exists()
+    source_manifest = build_source_manifest()
+    needs_seed = force_rebuild or _needs_rebuild(source_manifest)
+
     if not needs_seed:
         try:
             with closing(sqlite3.connect(DB_PATH)) as conn:
@@ -145,10 +214,15 @@ def ensure_islamic_database_ready(*, force_rebuild: bool = False) -> dict[str, A
         from .scripts.insert_riba_sample import main as seed_main
 
         seed_main()
+        MANIFEST_BUILD.write_text(
+            json.dumps(source_manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         return {
             "mode": "seed",
             "schema_version": SCHEMA_VERSION,
             "db_path": str(DB_PATH),
+            "content_sha256": source_manifest["content_sha256"],
         }
 
     shared_meta = {}
@@ -161,6 +235,7 @@ def ensure_islamic_database_ready(*, force_rebuild: bool = False) -> dict[str, A
         "mode": "reuse",
         "schema_version": shared_meta.get("schema_version", SCHEMA_VERSION),
         "db_path": str(DB_PATH),
+        "content_sha256": source_manifest["content_sha256"],
     }
 
 
@@ -175,6 +250,7 @@ class IslamicLawSearchEngine:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
     def _load_principle(self, conn: sqlite3.Connection, principle_id: str) -> ShariaPrinciple | None:
@@ -391,7 +467,18 @@ class IslamicLawSearchEngine:
             {
                 "success": bool(references),
                 "message": "ok" if references else "No linkable references found",
+                # 兼容本库既有消费者：完整 canonical 放 data
                 "data": references,
+                # 对齐主库 law_link_search：另给精简 references
+                "references": [
+                    {
+                        "title": item.get("law_name", ""),
+                        "article_number": item.get("article_number", ""),
+                        "url": item.get("url", ""),
+                        "content": item.get("content", ""),
+                    }
+                    for item in references
+                ],
                 "text": "\n".join(lines),
                 "search_time": time.time() - start,
             },
@@ -419,7 +506,13 @@ def exact_search(title: str, article_number: str) -> str:
 
 
 def semantic_search(query: str, limit: int = 5) -> str:
+    """关键词模糊检索（实现同主库 fuzzy_search；保留 semantic_search 旧名）。"""
     return get_engine().semantic_search(query, limit)
+
+
+def fuzzy_search(query: str, limit: int = 5) -> str:
+    """对齐主库命名：fuzzy_search == semantic_search。"""
+    return semantic_search(query, limit)
 
 
 def link_search(message: str, limit: int = 5) -> str:
