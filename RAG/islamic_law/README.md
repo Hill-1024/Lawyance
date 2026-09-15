@@ -30,11 +30,16 @@
 马来西亚 riba 条目已入库：
 
 - 共享层 `data/shared/riba_scripture_principle.json`：Quran 2:275–279（Tanzil 阿语 + Saheeh International 英译 + 马坚中译）及已核圣训编号（`sources/shared/scripture_riba/`）；`legal_effect=religious-guidance`
-- 共享层扩展 `data/shared/principles_step3_1.json`：gharar / maysir / sukuk / takaful / halal-haram（均为 `religious-guidance`，尚未做国家转化）
-- **正式综合条目** `data/MY/my_riba_ifsa_2013_formal.json`：`MY-RIBA-IFSA-2013-001`（`record_grade=formal`，`legal_effect=binding`，三重适用齐全，挂 `SH-PRINCIPLE-RIBA-001`）
-- `data/MY/ifsa2013_riba_rules.json`：IFSA 2013 ss.28, 29, 152, 153, 167, 168（`sources/MY/ifsa2013/`）
-- `data/MY/cba2009_sac_rules.json`：CBA 2009 ss.56, 57, 58（`sources/MY/cba2009/`）
-- `data/MY/bnm_sac_riba_rules.json`：BNM SAC 汇编 Resolutions 32/33/37/46/77/78/81/83/107/123/131 + 第210/213次会议（`sources/MY/bnm_sac/`）
+- 共享层扩展 `data/shared/principles_step3_1.json`：gharar / maysir / sukuk / takaful / halal-haram（均为 `religious-guidance`）
+- 共享层治理原则 `data/shared/principle_governance_step3_2.json`：`SH-PRINCIPLE-GOVERNANCE-001`（4:58；`religious-guidance`）
+- **正式综合条目** `data/MY/my_riba_ifsa_2013_formal.json`：`MY-RIBA-IFSA-2013-001`（挂 `SH-PRINCIPLE-RIBA-001`）
+- **3.2 正式条目** `data/MY/my_step3_2_formal.json`（7 条，累计 MY formal=8）：
+  - `MY-SUKUK-BNM-SAC-001` → `SH-PRINCIPLE-SUKUK-001`
+  - `MY-TAKAFUL-BNM-SAC-001` → `SH-PRINCIPLE-TAKAFUL-001`
+  - `MY-IFSA-2013-GOV-S28-29-001` / `MY-IFSA-2013-GOV-S30-38-001` / `MY-BNM-SGP-2019-FORMAL-001` → `SH-PRINCIPLE-GOVERNANCE-001`
+  - `MY-HALAL-ACT730-FORMAL-001` / `MY-HALAL-MS1500-FORMAL-001` → `SH-PRINCIPLE-HALAL-HARAM-001`
+- 支撑包：`bnm_sac_sukuk_rules.json`、`bnm_sac_takaful_rules.json`、`ifsa2013_shariah_governance_rules.json`、`bnm_sgp_2019_rules.json`、`jakim_halal_rules.json`
+- 既有：`ifsa2013_riba_rules.json`、`cba2009_sac_rules.json`、`bnm_sac_riba_rules.json`
 
 IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。SAC 无单独“riba 裁决”，以汇编决议序号为可追溯编号。共享层经训不得单独作为国家合规结论。正式引用以英文立法文本与阿语经训原文为准。
 
@@ -69,13 +74,13 @@ print(semantic_search("Malaysia riba IFSA", 3))
 
 ## 条款级 JSON 脚手架（旧）
 
-`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/my_riba_ifsa_2013_formal.json`、`data/shared/riba_scripture_principle.json`、`data/shared/principles_step3_1.json` 与 `data/MY/ifsa2013_riba_rules.json`、`cba2009_sac_rules.json`、`bnm_sac_riba_rules.json` 为双层入库语料。
+`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/my_riba_ifsa_2013_formal.json`、`data/MY/my_step3_2_formal.json`、`data/shared/riba_scripture_principle.json`、`data/shared/principles_step3_1.json`、`data/shared/principle_governance_step3_2.json` 与各 `data/MY/*_rules.json` 为双层入库语料。
 
 ## P1 / P2 / P3 边界
 
 | 阶段 | 本库状态 |
 | --- | --- |
-| P1 | 双层 schema；MY riba 正式条目闭环；共享层已扩至 riba/gharar/maysir/sukuk/takaful/halal-haram（均为 religious-guidance）；下一步 3.2 马来西亚第二批 |
+| P1 | 双层 schema；MY formal 累计 8 条（riba + 3.2 金融第二批）；共享层含 riba/gharar/maysir/sukuk/takaful/halal-haram/governance（均为 religious-guidance）；下一步 3.3 批量验证 |
 | P2 | 补 BN/SG/PH/TH；takaful/waqf/faraid 专题 |
 | P3 | 与各分国法库双向打通、横向对比检索；经训误引红队（多在总装/Agent） |
 

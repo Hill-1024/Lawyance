@@ -1,0 +1,16 @@
+[
+  {
+    "sharia_principle_id": "SH-PRINCIPLE-GOVERNANCE-001",
+    "rule_subject": "沙里亚治理与信托问责（amanah / institutional Shariah governance）",
+    "madhhab": "Shafi'i",
+    "sharia_source_type": "Quran",
+    "legal_effect": "religious-guidance",
+    "parallel_languages": "阿拉伯语（Uthmani）、英文（Saheeh International）、中文（马坚译本）",
+    "url": "https://quran.com/4:58",
+    "religious_anchor": "《古兰经》4:58（交付信托、秉公判决）。现代机构沙里亚委员会/合规治理是对该信托与公正命令的制度落实，具体以各国立法为准。",
+    "arabic_text": "4:58 ۞ إِنَّ ٱللَّهَ يَأْمُرُكُمْ أَن تُؤَدُّوا۟ ٱلْأَمَـٰنَـٰتِ إِلَىٰٓ أَهْلِهَا وَإِذَا حَكَمْتُم بَيْنَ ٱلنَّاسِ أَن تَحْكُمُوا۟ بِٱلْعَدْلِ ۚ إِنَّ ٱللَّهَ نِعِمَّا يَعِظُكُم بِهِۦٓ ۗ إِنَّ ٱللَّهَ كَانَ سَمِيعًۢا بَصِيرًا",
+    "transliteration": "待核验：拉丁转写未单独采集",
+    "content": "定义：沙里亚治理指在机构层面设置问责、咨询与控制安排，以确保业务符合沙里亚；其宗教伦理根基是 amanah（信托）与公正裁判。\n\n经训依据：\n\n--- 4:58 ---\nAR: ۞ إِنَّ ٱللَّهَ يَأْمُرُكُمْ أَن تُؤَدُّوا۟ ٱلْأَمَـٰنَـٰتِ إِلَىٰٓ أَهْلِهَا وَإِذَا حَكَمْتُم بَيْنَ ٱلنَّاسِ أَن تَحْكُمُوا۟ بِٱلْعَدْلِ ۚ إِنَّ ٱللَّهَ نِعِمَّا يَعِظُكُم بِهِۦٓ ۗ إِنَّ ٱللَّهَ كَانَ سَمِيعًۢا بَصِيرًا\nEN: Indeed, Allāh commands you to render trusts to whom they are due and when you judge between people to judge with justice. Excellent is that which Allāh instructs you. Indeed, Allāh is ever Hearing and Seeing.\nZH (马坚): 真主的确命令你们把一切受信托的事物交给应受的人，真主又命令你们替众人判决的时候要秉公判决。真主用来劝告你们的，真是优美！真主确是全聪的，确是全明的。\n\n学派：默认 Shafi'i（东盟主流）；其他学派差异待专题补录。legal_effect=religious-guidance；本条不得单独作为任一国家合规结论。",
+    "country_rule_ids": []
+  }
+]

@@ -6,8 +6,9 @@ P1 种子脚本：初始化双层伊斯兰法库，写入：
 - 马来西亚 CBA 2009 ss.56–58（SAC 提交、拘束力、优先）
 - BNM SAC riba 相关裁决（2010 汇编核对副本 + 第210/213次会议官网摘要）
 - 共享层经训：Quran 2:275–279（阿/英/中）+ 已核圣训编号
-- 共享层扩展：gharar / maysir / sukuk / takaful / halal-haram（religious-guidance）
+- 共享层扩展：gharar / maysir / sukuk / takaful / halal-haram / governance（religious-guidance）
 - 马来西亚正式综合条目 MY-RIBA-IFSA-2013-001（record_grade=formal）
+- 马来西亚第二批正式条目（sukuk / takaful / IFSA 治理 / SGP / halal，record_grade=formal）
 - 四语术语表初版
 - 权威来源白名单
 - manifest.shared.json + manifest.country.MY.json
@@ -212,15 +213,42 @@ AUTHORITY_SOURCES = [
 
 RULE_PACKS = [
     BASE / "data" / "MY" / "my_riba_ifsa_2013_formal.json",
+    BASE / "data" / "MY" / "my_step3_2_formal.json",
     BASE / "data" / "MY" / "ifsa2013_riba_rules.json",
+    BASE / "data" / "MY" / "ifsa2013_shariah_governance_rules.json",
     BASE / "data" / "MY" / "cba2009_sac_rules.json",
     BASE / "data" / "MY" / "bnm_sac_riba_rules.json",
+    BASE / "data" / "MY" / "bnm_sac_sukuk_rules.json",
+    BASE / "data" / "MY" / "bnm_sac_takaful_rules.json",
+    BASE / "data" / "MY" / "bnm_sgp_2019_rules.json",
+    BASE / "data" / "MY" / "jakim_halal_rules.json",
 ]
 PRINCIPLE_PACKS = [
     BASE / "data" / "shared" / "riba_scripture_principle.json",
     BASE / "data" / "shared" / "principles_step3_1.json",
+    BASE / "data" / "shared" / "principle_governance_step3_2.json",
 ]
 FORMAL_RULE_ID = "MY-RIBA-IFSA-2013-001"
+FORMAL_RULE_IDS = (
+    "MY-RIBA-IFSA-2013-001",
+    "MY-SUKUK-BNM-SAC-001",
+    "MY-TAKAFUL-BNM-SAC-001",
+    "MY-IFSA-2013-GOV-S28-29-001",
+    "MY-IFSA-2013-GOV-S30-38-001",
+    "MY-BNM-SGP-2019-FORMAL-001",
+    "MY-HALAL-ACT730-FORMAL-001",
+    "MY-HALAL-MS1500-FORMAL-001",
+)
+FORMAL_PRINCIPLE_BY_RULE = {
+    "MY-RIBA-IFSA-2013-001": "SH-PRINCIPLE-RIBA-001",
+    "MY-SUKUK-BNM-SAC-001": "SH-PRINCIPLE-SUKUK-001",
+    "MY-TAKAFUL-BNM-SAC-001": "SH-PRINCIPLE-TAKAFUL-001",
+    "MY-IFSA-2013-GOV-S28-29-001": "SH-PRINCIPLE-GOVERNANCE-001",
+    "MY-IFSA-2013-GOV-S30-38-001": "SH-PRINCIPLE-GOVERNANCE-001",
+    "MY-BNM-SGP-2019-FORMAL-001": "SH-PRINCIPLE-GOVERNANCE-001",
+    "MY-HALAL-ACT730-FORMAL-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "MY-HALAL-MS1500-FORMAL-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+}
 FORMAL_REQUIRED_FIELDS = (
     "rule_id",
     "source_id",
@@ -282,33 +310,39 @@ def load_country_rules() -> list[IslamicRule]:
 
 
 def assert_formal_rule_complete(rules: list[IslamicRule]) -> IslamicRule:
-    formal = next((rule for rule in rules if rule.rule_id == FORMAL_RULE_ID), None)
-    if formal is None:
-        raise ValueError(f"Missing formal rule {FORMAL_RULE_ID}")
-    missing = []
-    for name in FORMAL_REQUIRED_FIELDS:
-        value = getattr(formal, name)
-        if value is None or value == "" or value == []:
-            missing.append(name)
-    if missing:
-        raise ValueError(f"{FORMAL_RULE_ID} has empty fields: {', '.join(missing)}")
-    if formal.legal_effect != "binding":
-        raise ValueError(f"{FORMAL_RULE_ID} legal_effect must be binding, got {formal.legal_effect!r}")
-    if formal.sharia_principle_id != "SH-PRINCIPLE-RIBA-001":
-        raise ValueError(
-            f"{FORMAL_RULE_ID} sharia_principle_id must be SH-PRINCIPLE-RIBA-001, "
-            f"got {formal.sharia_principle_id!r}"
-        )
-    for name in (
-        "applicability_person",
-        "applicability_subject",
-        "applicability_territory",
-    ):
-        if not getattr(formal, name):
-            raise ValueError(f"{FORMAL_RULE_ID} missing triple-scope field {name}")
-    if "record_grade=formal" not in formal.content and "record_grade=formal" not in formal.output_annotation:
-        raise ValueError(f"{FORMAL_RULE_ID} must mark record_grade=formal")
-    return formal
+    by_id = {rule.rule_id: rule for rule in rules}
+    missing_ids = [rid for rid in FORMAL_RULE_IDS if rid not in by_id]
+    if missing_ids:
+        raise ValueError(f"Missing formal rules: {', '.join(missing_ids)}")
+    for rid in FORMAL_RULE_IDS:
+        formal = by_id[rid]
+        missing = []
+        for name in FORMAL_REQUIRED_FIELDS:
+            value = getattr(formal, name)
+            if value is None or value == "" or value == []:
+                missing.append(name)
+        if missing:
+            raise ValueError(f"{rid} has empty fields: {', '.join(missing)}")
+        if formal.legal_effect != "binding":
+            raise ValueError(f"{rid} legal_effect must be binding, got {formal.legal_effect!r}")
+        expected_principle = FORMAL_PRINCIPLE_BY_RULE[rid]
+        if formal.sharia_principle_id != expected_principle:
+            raise ValueError(
+                f"{rid} sharia_principle_id must be {expected_principle}, "
+                f"got {formal.sharia_principle_id!r}"
+            )
+        for name in (
+            "applicability_person",
+            "applicability_subject",
+            "applicability_territory",
+        ):
+            if not getattr(formal, name):
+                raise ValueError(f"{rid} missing triple-scope field {name}")
+        if "record_grade=formal" not in formal.content and "record_grade=formal" not in formal.output_annotation:
+            raise ValueError(f"{rid} must mark record_grade=formal")
+        if not formal.url.startswith("http"):
+            raise ValueError(f"{rid} must have official http(s) URL")
+    return by_id[FORMAL_RULE_ID]
 
 
 def load_principle_pack(path: Path) -> list[ShariaPrinciple]:
@@ -336,7 +370,16 @@ def load_principle_pack(path: Path) -> list[ShariaPrinciple]:
     return principles
 
 
-def load_shared_principles(riba_country_rule_ids: list[str]) -> list[ShariaPrinciple]:
+def load_shared_principles(rules: list[IslamicRule]) -> list[ShariaPrinciple]:
+    linked: dict[str, list[str]] = {}
+    for rule in rules:
+        pid = rule.sharia_principle_id
+        if not pid:
+            continue
+        linked.setdefault(pid, [])
+        if rule.rule_id not in linked[pid]:
+            linked[pid].append(rule.rule_id)
+
     principles: list[ShariaPrinciple] = []
     seen: set[str] = set()
     for path in PRINCIPLE_PACKS:
@@ -344,8 +387,8 @@ def load_shared_principles(riba_country_rule_ids: list[str]) -> list[ShariaPrinc
             if principle.sharia_principle_id in seen:
                 raise ValueError(f"Duplicate principle {principle.sharia_principle_id} in {path}")
             seen.add(principle.sharia_principle_id)
-            if principle.sharia_principle_id == "SH-PRINCIPLE-RIBA-001":
-                principle.country_rule_ids = list(riba_country_rule_ids)
+            if principle.sharia_principle_id in linked:
+                principle.country_rule_ids = list(linked[principle.sharia_principle_id])
                 principle.search_blob = principle.build_search_blob()
             if principle.legal_effect != "religious-guidance":
                 raise ValueError(
@@ -358,7 +401,13 @@ def load_shared_principles(riba_country_rule_ids: list[str]) -> list[ShariaPrinc
 
 def build_riba_principle(country_rule_ids: list[str]) -> ShariaPrinciple:
     """Backward-compatible helper: return the riba shared principle. """
-    principles = load_shared_principles(country_rule_ids)
+    # Minimal synthetic rules list for helper callers.
+    class _Tmp:
+        def __init__(self, rid: str):
+            self.rule_id = rid
+            self.sharia_principle_id = "SH-PRINCIPLE-RIBA-001"
+
+    principles = load_shared_principles([_Tmp(x) for x in country_rule_ids])
     for principle in principles:
         if principle.sharia_principle_id == "SH-PRINCIPLE-RIBA-001":
             return principle
@@ -396,10 +445,11 @@ def write_manifests(principles: list[ShariaPrinciple], rules: list[IslamicRule])
         "source_packs": [
             "sources/shared/scripture_riba/provenance.step2_4.json",
             "sources/shared/principles_step3_1/provenance.step3_1.json",
+            "sources/shared/governance_step3_2/provenance.step3_2.json",
         ],
         "note": (
             "Shared layer holds religious-guidance principles only "
-            "(riba, gharar, maysir, sukuk, takaful, halal/haram). "
+            "(riba, gharar, maysir, sukuk, takaful, halal/haram, governance). "
             "Not alone a country compliance basis."
         ),
     }
@@ -411,19 +461,27 @@ def write_manifests(principles: list[ShariaPrinciple], rules: list[IslamicRule])
         "tier": ASEAN_COUNTRY_TIERS["MY"]["tier"],
         "db_path": "cache/islamic_rules.db",
         "rule_ids": [rule.rule_id for rule in rules],
-        "sharia_principle_ids": ["SH-PRINCIPLE-RIBA-001"],
+        "sharia_principle_ids": sorted(
+            {rule.sharia_principle_id for rule in rules if rule.sharia_principle_id}
+        ),
+        "formal_rule_ids": list(FORMAL_RULE_IDS),
         "source_packs": [
             "sources/MY/ifsa2013/provenance.step1_1.json",
             "sources/MY/cba2009/provenance.step2_2.json",
             "sources/MY/bnm_sac/provenance.step2_3.json",
+            "sources/MY/bnm_sac/provenance.step3_2_sukuk_takaful.json",
             "sources/shared/scripture_riba/provenance.step2_4.json",
             "sources/MY/formal/provenance.step2_5.json",
             "sources/shared/principles_step3_1/provenance.step3_1.json",
+            "sources/shared/governance_step3_2/provenance.step3_2.json",
+            "sources/MY/sgp2019/provenance.step3_2.json",
+            "sources/MY/halal_jakim/provenance.step3_2.json",
+            "sources/MY/formal_step3_2/provenance.step3_2.json",
         ],
         "formal_rule_id": FORMAL_RULE_ID,
         "note": (
-            "MY country layer still centers on riba formal entry; "
-            "step 3.1 only expanded shared religious-guidance principles."
+            "MY country layer: riba formal + step 3.2 finance formal set "
+            "(sukuk/takaful/IFSA governance/SGP/halal)."
         ),
     }
     MANIFEST_SHARED.write_text(json.dumps(shared, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -433,7 +491,7 @@ def write_manifests(principles: list[ShariaPrinciple], rules: list[IslamicRule])
 def main() -> None:
     rules = load_country_rules()
     formal = assert_formal_rule_complete(rules)
-    principles = load_shared_principles([rule.rule_id for rule in rules])
+    principles = load_shared_principles(rules)
     conn = init_database()
     try:
         n_p = insert_principles(conn, principles)
@@ -447,11 +505,15 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "shared_principles_step3_1"),
+            ("seed", "my_step3_2_finance_formal"),
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
             ("formal_rule_id", FORMAL_RULE_ID),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
+            ("formal_rule_ids", json.dumps(list(FORMAL_RULE_IDS), ensure_ascii=False)),
         )
         conn.commit()
         write_manifests(principles, rules)
@@ -463,17 +525,16 @@ def main() -> None:
             ORDER BY r.rule_id
             """
         ).fetchall()
-        formal_row = conn.execute(
-            """
-            SELECT rule_id, legal_effect, sharia_principle_id,
-                   applicability_person, applicability_subject, applicability_territory,
-                   length(arabic_text) AS ar_len, length(transliteration) AS tr_len,
-                   length(fatwa_id) AS fatwa_len, length(supersedes) AS supersedes_len
+        formal_rows = conn.execute(
+            f"""
+            SELECT rule_id, legal_effect, sharia_principle_id, url,
+                   length(arabic_text) AS ar_len
             FROM islamic_rules
-            WHERE rule_id = ?
+            WHERE rule_id IN ({",".join("?" for _ in FORMAL_RULE_IDS)})
+            ORDER BY rule_id
             """,
-            (FORMAL_RULE_ID,),
-        ).fetchone()
+            tuple(FORMAL_RULE_IDS),
+        ).fetchall()
         principle_rows = conn.execute(
             """
             SELECT sharia_principle_id, legal_effect, rule_subject,
@@ -488,29 +549,26 @@ def main() -> None:
         print(f"Inserted principles={n_p} rules={n_r} terms={n_t} authorities={auth_count}")
         print(f"Manifest shared: {MANIFEST_SHARED}")
         print(f"Manifest MY: {MANIFEST_MY}")
-        print("Formal entry:")
-        print(
-            f"  {formal_row['rule_id']}  legal_effect={formal_row['legal_effect']}  "
-            f"principle={formal_row['sharia_principle_id']}"
-        )
-        print(
-            f"  person/subject/territory non-empty="
-            f"{bool(formal_row['applicability_person'] and formal_row['applicability_subject'] and formal_row['applicability_territory'])}"
-        )
-        print(
-            f"  arabic_chars={formal_row['ar_len']}  transliteration_chars={formal_row['tr_len']}  "
-            f"fatwa_id_chars={formal_row['fatwa_len']}  supersedes_chars={formal_row['supersedes_len']}"
-        )
-        print(f"  content_mark_ok={'record_grade=formal' in formal.content}")
+        print(f"Formal entries ({len(formal_rows)}):")
+        for formal_row in formal_rows:
+            print(
+                f"  {formal_row['rule_id']}  {formal_row['legal_effect']}  "
+                f"{formal_row['sharia_principle_id']}  url_ok={str(formal_row['url']).startswith('http')}"
+            )
+        print(f"Anchor formal still present: {formal.rule_id}")
         print("Principles:")
         for row in principle_rows:
             print(
                 f"  {row['sharia_principle_id']}  {row['legal_effect']}  "
                 f"ar={row['ar_len']}  {row['rule_subject']}"
             )
-        print("Rules:")
+        print(f"Rules: {len(preview)} total")
         for row in preview:
-            print(f"  {row['rule_id']}  {row['article_number']}  {row['legal_effect']}  {row['sharia_source_type']}")
+            if row["rule_id"] in FORMAL_RULE_IDS or "CHAIN" in row["rule_id"]:
+                print(
+                    f"  {row['rule_id']}  {row['article_number']}  "
+                    f"{row['legal_effect']}  {row['sharia_source_type']}"
+                )
     finally:
         conn.close()
 
