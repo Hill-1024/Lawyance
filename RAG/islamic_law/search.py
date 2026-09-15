@@ -289,32 +289,31 @@ class IslamicLawSearchEngine:
                     continue
                 candidates.append((score, self._result_from_row(conn, row)))
 
-            # 若转化层无命中，回退检索共享层并包装为只读摘要结果
-            if not candidates:
-                for row in conn.execute("SELECT * FROM sharia_principles"):
-                    score = score_item(row["search_blob"], query, terms)
-                    if score <= 0:
-                        continue
-                    principle = ShariaPrinciple.from_row(row)
-                    summary = {
-                        "law_name": f"[shared principle] {principle.rule_subject}",
-                        "article_number": principle.religious_anchor or principle.sharia_source_type,
-                        "content": principle.content,
-                        "url": principle.url,
-                        "source_id": principle.sharia_principle_id,
-                        "status": "unknown",
-                        "effective_date": "",
-                        "language": "ar",
-                        "country": "XX",
-                        "country_label": country_display_name("XX"),
-                        "legal_system": "islamic",
-                        "legal_effect": principle.legal_effect,
-                        "sharia_principle_id": principle.sharia_principle_id,
-                        "madhhab": principle.madhhab,
-                        "principle": principle.to_summary(),
-                        "note": "Shared religious layer only; not a country binding rule.",
-                    }
-                    candidates.append((score, summary))
+            # 共享层原则始终参与语义检索（religious-guidance，不得单独当合规结论）
+            for row in conn.execute("SELECT * FROM sharia_principles"):
+                score = score_item(row["search_blob"], query, terms)
+                if score <= 0:
+                    continue
+                principle = ShariaPrinciple.from_row(row)
+                summary = {
+                    "law_name": f"[shared principle] {principle.rule_subject}",
+                    "article_number": principle.religious_anchor or principle.sharia_source_type,
+                    "content": principle.content,
+                    "url": principle.url,
+                    "source_id": principle.sharia_principle_id,
+                    "status": "unknown",
+                    "effective_date": "",
+                    "language": "ar",
+                    "country": "XX",
+                    "country_label": country_display_name("XX"),
+                    "legal_system": "islamic",
+                    "legal_effect": principle.legal_effect,
+                    "sharia_principle_id": principle.sharia_principle_id,
+                    "madhhab": principle.madhhab,
+                    "principle": principle.to_summary(),
+                    "note": "Shared religious layer only; not a country binding rule.",
+                }
+                candidates.append((score, summary))
 
         candidates.sort(key=lambda item: (-item[0], len(str(item[1].get("law_name", "")))))
         selected = [item for _, item in candidates[:safe_limit]]

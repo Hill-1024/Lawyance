@@ -6,6 +6,7 @@ P1 种子脚本：初始化双层伊斯兰法库，写入：
 - 马来西亚 CBA 2009 ss.56–58（SAC 提交、拘束力、优先）
 - BNM SAC riba 相关裁决（2010 汇编核对副本 + 第210/213次会议官网摘要）
 - 共享层经训：Quran 2:275–279（阿/英/中）+ 已核圣训编号
+- 共享层扩展：gharar / maysir / sukuk / takaful / halal-haram（religious-guidance）
 - 马来西亚正式综合条目 MY-RIBA-IFSA-2013-001（record_grade=formal）
 - 四语术语表初版
 - 权威来源白名单
@@ -215,7 +216,10 @@ RULE_PACKS = [
     BASE / "data" / "MY" / "cba2009_sac_rules.json",
     BASE / "data" / "MY" / "bnm_sac_riba_rules.json",
 ]
-PRINCIPLE_PATH = BASE / "data" / "shared" / "riba_scripture_principle.json"
+PRINCIPLE_PACKS = [
+    BASE / "data" / "shared" / "riba_scripture_principle.json",
+    BASE / "data" / "shared" / "principles_step3_1.json",
+]
 FORMAL_RULE_ID = "MY-RIBA-IFSA-2013-001"
 FORMAL_REQUIRED_FIELDS = (
     "rule_id",
@@ -307,17 +311,58 @@ def assert_formal_rule_complete(rules: list[IslamicRule]) -> IslamicRule:
     return formal
 
 
-def build_riba_principle(country_rule_ids: list[str]) -> ShariaPrinciple:
-    if not PRINCIPLE_PATH.is_file():
-        raise FileNotFoundError(f"Missing principle pack: {PRINCIPLE_PATH}")
-    payload = json.loads(PRINCIPLE_PATH.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"Expected object in {PRINCIPLE_PATH}")
+def load_principle_pack(path: Path) -> list[ShariaPrinciple]:
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing principle pack: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    items: list[dict]
+    if isinstance(payload, dict):
+        items = [payload]
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        raise ValueError(f"Expected object or list in {path}")
+    if not items:
+        raise ValueError(f"Empty principle pack: {path}")
     allowed = {f.name for f in fields(ShariaPrinciple)}
-    data = {k: v for k, v in payload.items() if k in allowed}
-    data["country_rule_ids"] = country_rule_ids
-    data.pop("search_blob", None)
-    return ShariaPrinciple(**data)
+    principles: list[ShariaPrinciple] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError(f"Expected object entries in {path}")
+        data = {k: v for k, v in item.items() if k in allowed}
+        data.setdefault("country_rule_ids", [])
+        data.pop("search_blob", None)
+        principles.append(ShariaPrinciple(**data))
+    return principles
+
+
+def load_shared_principles(riba_country_rule_ids: list[str]) -> list[ShariaPrinciple]:
+    principles: list[ShariaPrinciple] = []
+    seen: set[str] = set()
+    for path in PRINCIPLE_PACKS:
+        for principle in load_principle_pack(path):
+            if principle.sharia_principle_id in seen:
+                raise ValueError(f"Duplicate principle {principle.sharia_principle_id} in {path}")
+            seen.add(principle.sharia_principle_id)
+            if principle.sharia_principle_id == "SH-PRINCIPLE-RIBA-001":
+                principle.country_rule_ids = list(riba_country_rule_ids)
+                principle.search_blob = principle.build_search_blob()
+            if principle.legal_effect != "religious-guidance":
+                raise ValueError(
+                    f"{principle.sharia_principle_id} must be religious-guidance, "
+                    f"got {principle.legal_effect!r}"
+                )
+            principles.append(principle)
+    return principles
+
+
+def build_riba_principle(country_rule_ids: list[str]) -> ShariaPrinciple:
+    """Backward-compatible helper: return the riba shared principle. """
+    principles = load_shared_principles(country_rule_ids)
+    for principle in principles:
+        if principle.sharia_principle_id == "SH-PRINCIPLE-RIBA-001":
+            return principle
+    raise ValueError("SH-PRINCIPLE-RIBA-001 missing")
 
 
 def init_database(db_path: Path = DB_PATH) -> sqlite3.Connection:
@@ -335,14 +380,14 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> None:
+def write_manifests(principles: list[ShariaPrinciple], rules: list[IslamicRule]) -> None:
     shared = {
         "schema_version": SCHEMA_VERSION,
         "layer": "shared",
         "db_path": "cache/islamic_rules.db",
         "schema_file": "schema.sql",
         "schema_sha256": _file_sha256(SCHEMA_PATH),
-        "principle_ids": [principle.sharia_principle_id],
+        "principle_ids": [p.sharia_principle_id for p in principles],
         "term_count": len(CORE_TERMS),
         "authority_source_count": len(AUTHORITY_SOURCES),
         "asean_tiers": {
@@ -350,11 +395,12 @@ def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> Non
         },
         "source_packs": [
             "sources/shared/scripture_riba/provenance.step2_4.json",
+            "sources/shared/principles_step3_1/provenance.step3_1.json",
         ],
         "note": (
-            "Shared riba principle now carries Quran 2:275–279 (Tanzil Uthmani + "
-            "Saheeh International + Ma Jian) and verified hadith numbers; "
-            "legal_effect remains religious-guidance. Khutbat al-Wada' number pending."
+            "Shared layer holds religious-guidance principles only "
+            "(riba, gharar, maysir, sukuk, takaful, halal/haram). "
+            "Not alone a country compliance basis."
         ),
     }
     country_my = {
@@ -365,21 +411,19 @@ def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> Non
         "tier": ASEAN_COUNTRY_TIERS["MY"]["tier"],
         "db_path": "cache/islamic_rules.db",
         "rule_ids": [rule.rule_id for rule in rules],
-        "sharia_principle_ids": [principle.sharia_principle_id],
+        "sharia_principle_ids": ["SH-PRINCIPLE-RIBA-001"],
         "source_packs": [
             "sources/MY/ifsa2013/provenance.step1_1.json",
             "sources/MY/cba2009/provenance.step2_2.json",
             "sources/MY/bnm_sac/provenance.step2_3.json",
             "sources/shared/scripture_riba/provenance.step2_4.json",
             "sources/MY/formal/provenance.step2_5.json",
+            "sources/shared/principles_step3_1/provenance.step3_1.json",
         ],
         "formal_rule_id": FORMAL_RULE_ID,
         "note": (
-            "IFSA 2013 and CBA 2009 from AGC PDFs (MD5 verified). "
-            "BNM SAC 2nd ed. 2010 content-verification copy "
-            "(MD5 08e35a8c9aa2faafc5285d8d9d794484). "
-            "Scripture in shared principle. "
-            f"{FORMAL_RULE_ID} marked record_grade=formal with complete fields."
+            "MY country layer still centers on riba formal entry; "
+            "step 3.1 only expanded shared religious-guidance principles."
         ),
     }
     MANIFEST_SHARED.write_text(json.dumps(shared, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -389,10 +433,10 @@ def write_manifests(principle: ShariaPrinciple, rules: list[IslamicRule]) -> Non
 def main() -> None:
     rules = load_country_rules()
     formal = assert_formal_rule_complete(rules)
-    principle = build_riba_principle([rule.rule_id for rule in rules])
+    principles = load_shared_principles([rule.rule_id for rule in rules])
     conn = init_database()
     try:
-        n_p = insert_principles(conn, [principle])
+        n_p = insert_principles(conn, principles)
         n_r = insert_rules(conn, rules)
         n_t = insert_terms(conn, CORE_TERMS)
         for row in AUTHORITY_SOURCES:
@@ -403,14 +447,14 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "my_riba_formal_step2_5"),
+            ("seed", "shared_principles_step3_1"),
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
             ("formal_rule_id", FORMAL_RULE_ID),
         )
         conn.commit()
-        write_manifests(principle, rules)
+        write_manifests(principles, rules)
 
         preview = conn.execute(
             """
@@ -430,15 +474,14 @@ def main() -> None:
             """,
             (FORMAL_RULE_ID,),
         ).fetchone()
-        principle_row = conn.execute(
+        principle_rows = conn.execute(
             """
-            SELECT sharia_principle_id, legal_effect, length(arabic_text) AS ar_len,
-                   length(content) AS content_len, substr(religious_anchor, 1, 80) AS anchor_head
+            SELECT sharia_principle_id, legal_effect, rule_subject,
+                   length(arabic_text) AS ar_len, length(content) AS content_len
             FROM sharia_principles
-            WHERE sharia_principle_id = ?
-            """,
-            (principle.sharia_principle_id,),
-        ).fetchone()
+            ORDER BY sharia_principle_id
+            """
+        ).fetchall()
         auth_count = conn.execute("SELECT COUNT(*) FROM authority_sources").fetchone()[0]
 
         print(f"Database: {DB_PATH}")
@@ -459,12 +502,12 @@ def main() -> None:
             f"fatwa_id_chars={formal_row['fatwa_len']}  supersedes_chars={formal_row['supersedes_len']}"
         )
         print(f"  content_mark_ok={'record_grade=formal' in formal.content}")
-        print("Principle:")
-        print(
-            f"  {principle_row['sharia_principle_id']}  {principle_row['legal_effect']}  "
-            f"arabic_chars={principle_row['ar_len']}  content_chars={principle_row['content_len']}"
-        )
-        print(f"  anchor: {principle_row['anchor_head']}…")
+        print("Principles:")
+        for row in principle_rows:
+            print(
+                f"  {row['sharia_principle_id']}  {row['legal_effect']}  "
+                f"ar={row['ar_len']}  {row['rule_subject']}"
+            )
         print("Rules:")
         for row in preview:
             print(f"  {row['rule_id']}  {row['article_number']}  {row['legal_effect']}  {row['sharia_source_type']}")
