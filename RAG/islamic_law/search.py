@@ -3,7 +3,7 @@
 默认数据库：cache/islamic_rules.db
 - 转化层 islamic_rules 为主检索对象
 - 命中后按 sharia_principle_id 附带共享层摘要
-提供 exact_search / semantic_search(=fuzzy_search) / link_search。
+提供 exact_search / semantic_search(=fuzzy_search) / link_search / rules_by_principle。
 检索 envelope 对齐主库 RAG/law_data_search.py；领域仍保持双层模型。
 不修改 tools/__init__.py、mcps.py、function_calling.py。
 """
@@ -485,6 +485,85 @@ class IslamicLawSearchEngine:
             ensure_ascii=False,
         )
 
+    def rules_by_principle(
+        self,
+        principle_id: str,
+        country: str | None = None,
+        limit: int = 100,
+    ) -> str:
+        """
+        按共享层原则 ID 反查各国转化实例（4.3）。
+        返回原则摘要 + 实例列表，并按 country 分组。
+        """
+        start = time.time()
+        pid = normalize_whitespace(principle_id)
+        country_code = normalize_whitespace(country or "").upper() or None
+        try:
+            safe_limit = max(1, min(int(limit), 200))
+        except (TypeError, ValueError):
+            safe_limit = 100
+        result: dict[str, Any] = {
+            "success": False,
+            "message": "",
+            "sharia_principle_id": pid,
+            "principle": None,
+            "data": [],
+            "by_country": {},
+            "total_count": 0,
+            "returned_count": 0,
+            "search_time": 0.0,
+        }
+        if not pid:
+            result["message"] = "sharia_principle_id is required"
+            result["search_time"] = time.time() - start
+            return json.dumps(result, ensure_ascii=False)
+
+        with closing(self._connect()) as conn:
+            principle = self._load_principle(conn, pid)
+            if principle is None:
+                result["message"] = f"principle not found: {pid}"
+                result["search_time"] = time.time() - start
+                return json.dumps(result, ensure_ascii=False)
+
+            sql = """
+                SELECT * FROM islamic_rules
+                WHERE sharia_principle_id = ?
+                  AND status != 'repealed'
+            """
+            params: list[Any] = [pid]
+            if country_code:
+                sql += " AND country = ?"
+                params.append(country_code)
+            sql += " ORDER BY country ASC, rule_id ASC"
+            rows = conn.execute(sql, params).fetchall()
+
+            items = [self._result_from_row(conn, row) for row in rows]
+            by_country: dict[str, list[dict[str, Any]]] = {}
+            for item in items:
+                code = str(item.get("country") or "")
+                by_country.setdefault(code, []).append(item)
+
+            # 与原则侧 country_rule_ids 交叉核对（完整性）
+            reverse_ids = set(principle.country_rule_ids)
+            db_ids = {item.get("rule_id") for item in items}
+            missing_in_db = sorted(reverse_ids - db_ids)
+            if country_code:
+                missing_in_db = [rid for rid in missing_in_db if rid.startswith(f"{country_code}-")]
+
+            result["success"] = True
+            result["message"] = "ok"
+            result["principle"] = principle.to_summary()
+            result["data"] = items[:safe_limit]
+            result["by_country"] = {
+                code: group[:safe_limit] for code, group in by_country.items()
+            }
+            result["total_count"] = len(items)
+            result["returned_count"] = len(result["data"])
+            result["country_rule_ids"] = list(principle.country_rule_ids)
+            result["missing_from_db"] = missing_in_db
+            result["search_time"] = time.time() - start
+            return json.dumps(result, ensure_ascii=False)
+
 
 def get_engine() -> IslamicLawSearchEngine:
     global _ENGINE
@@ -517,3 +596,12 @@ def fuzzy_search(query: str, limit: int = 5) -> str:
 
 def link_search(message: str, limit: int = 5) -> str:
     return get_engine().link_search(message, limit)
+
+
+def rules_by_principle(
+    principle_id: str,
+    country: str | None = None,
+    limit: int = 100,
+) -> str:
+    """按 SH-PRINCIPLE-* 反查各国转化实例（含 by_country 分组）。"""
+    return get_engine().rules_by_principle(principle_id, country=country, limit=limit)

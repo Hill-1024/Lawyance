@@ -392,16 +392,25 @@ def load_principle_pack(path: Path) -> list[ShariaPrinciple]:
     return principles
 
 
-def load_shared_principles(rules: list[IslamicRule]) -> list[ShariaPrinciple]:
+def build_principle_rule_index(rules: list[IslamicRule]) -> dict[str, list[str]]:
+    """从国家实例正向键聚合成原则侧反向索引（排序去重）。"""
     linked: dict[str, list[str]] = {}
     for rule in rules:
-        pid = rule.sharia_principle_id
+        pid = (rule.sharia_principle_id or "").strip()
         if not pid:
             continue
         linked.setdefault(pid, [])
         if rule.rule_id not in linked[pid]:
             linked[pid].append(rule.rule_id)
+    return {pid: sorted(ids) for pid, ids in linked.items()}
 
+
+def load_shared_principles(rules: list[IslamicRule]) -> list[ShariaPrinciple]:
+    """
+    加载共享层原则，并校验 JSON 中 country_rule_ids 已与 RULE_PACKS 挂回完整（4.3）。
+    入库时以规则正向键推算结果为准（与 JSON 必须一致）。
+    """
+    linked = build_principle_rule_index(rules)
     principles: list[ShariaPrinciple] = []
     seen: set[str] = set()
     for path in PRINCIPLE_PACKS:
@@ -409,9 +418,20 @@ def load_shared_principles(rules: list[IslamicRule]) -> list[ShariaPrinciple]:
             if principle.sharia_principle_id in seen:
                 raise ValueError(f"Duplicate principle {principle.sharia_principle_id} in {path}")
             seen.add(principle.sharia_principle_id)
-            if principle.sharia_principle_id in linked:
-                principle.country_rule_ids = list(linked[principle.sharia_principle_id])
-                principle.search_blob = principle.build_search_blob()
+            expected = linked.get(principle.sharia_principle_id, [])
+            persisted = sorted(principle.country_rule_ids)
+            if persisted != expected:
+                missing = sorted(set(expected) - set(persisted))
+                extra = sorted(set(persisted) - set(expected))
+                raise ValueError(
+                    f"{principle.sharia_principle_id} country_rule_ids 未挂回完整 "
+                    f"(JSON={len(persisted)}, rules={len(expected)}; "
+                    f"missing={missing[:8]}{'…' if len(missing) > 8 else ''}; "
+                    f"extra={extra[:8]}{'…' if len(extra) > 8 else ''}). "
+                    f"请运行: .venv/bin/python -m RAG.islamic_law.scripts.sync_principle_links"
+                )
+            principle.country_rule_ids = list(expected)
+            principle.search_blob = principle.build_search_blob()
             if principle.legal_effect != "religious-guidance":
                 raise ValueError(
                     f"{principle.sharia_principle_id} must be religious-guidance, "
@@ -468,11 +488,15 @@ def write_manifests(principles: list[ShariaPrinciple], rules: list[IslamicRule])
             "sources/shared/scripture_riba/provenance.step2_4.json",
             "sources/shared/principles_step3_1/provenance.step3_1.json",
             "sources/shared/governance_step3_2/provenance.step3_2.json",
+            "sources/shared/principle_links/provenance.step4_3.json",
         ],
+        "country_rule_ids_by_principle": {
+            p.sharia_principle_id: list(p.country_rule_ids) for p in principles
+        },
         "note": (
             "Shared layer holds religious-guidance principles only "
             "(riba, gharar, maysir, sukuk, takaful, halal/haram, governance). "
-            "Not alone a country compliance basis."
+            "country_rule_ids 已挂回 MY/ID 实例（step 4.3）；不得单独作为国家合规结论。"
         ),
     }
     country_my = {
@@ -571,7 +595,7 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "id_islamic_finance_step4_2"),
+            ("seed", "shared_principle_links_step4_3"),
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",

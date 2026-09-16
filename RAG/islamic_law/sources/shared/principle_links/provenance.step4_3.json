@@ -1,0 +1,40 @@
+{
+  "collected_at": "2026-09-16",
+  "step": "4.3",
+  "topic": "hang_country_instances_back_to_shared_principles",
+  "goal": "每条 MY/ID 实例经 sharia_principle_id 正向挂接；共享层 country_rule_ids 反向完整；rules_by_principle 可按原则 ID 反查各国实例",
+  "principle_counts": {
+    "SH-PRINCIPLE-RIBA-001": {"total": 37, "MY": 26, "ID": 11},
+    "SH-PRINCIPLE-SUKUK-001": {"total": 14, "MY": 10, "ID": 4},
+    "SH-PRINCIPLE-TAKAFUL-001": {"total": 11, "MY": 11, "ID": 0},
+    "SH-PRINCIPLE-HALAL-HARAM-001": {"total": 17, "MY": 5, "ID": 12},
+    "SH-PRINCIPLE-GOVERNANCE-001": {"total": 14, "MY": 14, "ID": 0},
+    "SH-PRINCIPLE-GHARAR-001": {"total": 0, "MY": 0, "ID": 0},
+    "SH-PRINCIPLE-MAYSIR-001": {"total": 0, "MY": 0, "ID": 0}
+  },
+  "id_formal_links": {
+    "ID-FIN-MUI-BUNGA-2004-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-UU21-2008-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-POJK16-2022-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-POJK18-2015-001": "SH-PRINCIPLE-SUKUK-001",
+    "ID-HALAL-UU33-2014-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "ID-HALAL-PP42-2024-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "ID-HALAL-BPJPH-2026-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "ID-HALAL-JPH-CORE-001": "SH-PRINCIPLE-HALAL-HARAM-001"
+  },
+  "shared_packs": [
+    "data/shared/riba_scripture_principle.json",
+    "data/shared/principles_step3_1.json",
+    "data/shared/principle_governance_step3_2.json"
+  ],
+  "scripts": [
+    "scripts/sync_principle_links.py",
+    "scripts/verify_principle_links.py"
+  ],
+  "api": "rules_by_principle(sharia_principle_id, country=None)",
+  "notes": [
+    "GHARAR/MAYSIR 暂无国家实例属正常（尚未入库）",
+    "TAKAFUL/GOVERNANCE 目前仅 MY；ID 待后续批次",
+    "种子脚本会断言 JSON country_rule_ids 与 RULE_PACKS 一致，过期须先 sync"
+  ]
+}

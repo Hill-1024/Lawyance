@@ -18,6 +18,7 @@ from .search import (
     fuzzy_search,
     link_search,
     reset_engine,
+    rules_by_principle,
     semantic_search,
 )
 
@@ -40,5 +41,6 @@ __all__ = [
     "link_search",
     "list_asean_by_tier",
     "reset_engine",
+    "rules_by_principle",
     "semantic_search",
 ]
