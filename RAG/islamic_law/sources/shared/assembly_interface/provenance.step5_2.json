@@ -1,0 +1,10 @@
+{
+  "collected_at": "2026-09-16",
+  "step": "5.2",
+  "topic": "assembly_interface_smoke",
+  "all_pass": true,
+  "docs": [
+    "INTERFACE.md"
+  ],
+  "script": "scripts/assembly_smoke_cases.py"
+}

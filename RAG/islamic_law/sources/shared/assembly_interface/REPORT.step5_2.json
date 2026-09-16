@@ -1,0 +1,47 @@
+{
+  "verified_at": "2026-09-16",
+  "step": "5.2",
+  "all_pass": true,
+  "pass_count": 5,
+  "total": 5,
+  "db": {
+    "mode": "reuse",
+    "schema_version": 3,
+    "db_path": "/Users/liujinyu/Documents/Lawyance/Lawyance/RAG/islamic_law/cache/islamic_rules.db",
+    "content_sha256": "903371e7032401d9ef35e6ca5b35b8d7293129bebb8f89ff58ae9aa8da89ff42"
+  },
+  "cases": [
+    {
+      "case_id": "01",
+      "title": "semantic_search 中文禁止 riba → MY+ID",
+      "pass": true,
+      "detail": "countries=['ID', 'MY'] returned=15"
+    },
+    {
+      "case_id": "02",
+      "title": "exact_search MY riba formal",
+      "pass": true,
+      "detail": "hit='MY-RIBA-IFSA-2013-001' article_key=MY-RIBA-FORMAL"
+    },
+    {
+      "case_id": "03",
+      "title": "link_search 禁止 riba → MY+ID + references",
+      "pass": true,
+      "detail": "countries=['ID', 'MY'] refs=15"
+    },
+    {
+      "case_id": "04",
+      "title": "rules_by_principle RIBA country=ID",
+      "pass": true,
+      "detail": "total=11 has=['ID-FIN-MUI-BUNGA-2004-001', 'ID-FIN-UU21-2008-001']"
+    },
+    {
+      "case_id": "05",
+      "title": "semantic_search 中文 2026-10-18 清真强制",
+      "pass": true,
+      "detail": "hit=['ID-HALAL-BPJPH-2026-001', 'ID-HALAL-JPH-CORE-001', 'ID-HALAL-PP42-2024-001']"
+    }
+  ],
+  "interface_doc": "RAG/islamic_law/INTERFACE.md",
+  "note": "总装冒烟；不修改 tools/__init__.py / mcps.py"
+}

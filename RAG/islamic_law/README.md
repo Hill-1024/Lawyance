@@ -24,7 +24,10 @@
 .venv/bin/python -m RAG.islamic_law.scripts.verify_principle_links  # 4.3 双向关联 + 反查
 .venv/bin/python -m RAG.islamic_law.scripts.verify_cross_country    # 4.4 跨国对比（≥2 国）
 .venv/bin/python -m RAG.islamic_law.scripts.verify_full_selftest    # 5.1 全量自测（exact/semantic/link × 中英本地语）
+.venv/bin/python -m RAG.islamic_law.scripts.assembly_smoke_cases   # 5.2 总装接口冒烟（5 用例）
 ```
+
+总装接线请先读 **[INTERFACE.md](./INTERFACE.md)**（函数 / 入参出参 / 字段含义 / 测试用例）。**不**修改 `tools/__init__.py` / `mcps.py`。
 
 生成：
 
@@ -36,6 +39,7 @@
 - `sources/shared/principle_links/`：4.3 挂回校验报告
 - `sources/shared/verify_cross_country/`：4.4 跨国对比报告（禁止 riba 等须同时命中 MY+ID）
 - `sources/shared/verify_full_selftest/`：5.1 全量自测（每条 formal ≥2 种检索命中；中文必中）
+- `sources/shared/assembly_interface/`：5.2 总装冒烟报告
 
 马来西亚 riba / 金融第二批与印尼 halal 核心、伊斯兰金融已入库：
 
@@ -67,6 +71,7 @@
 - **4.3 挂回共享层**：各原则 `country_rule_ids` 已写入 `data/shared/*.json`；`rules_by_principle("SH-PRINCIPLE-…")` 可按原则反查 MY/ID 实例（RIBA 含 11 条 ID、HALAL 含 12 条 ID、SUKUK 含 4 条 ID）
 - **4.4 跨国对比**：`verify_cross_country` 确认同一原则下 ≥2 国转化实例；`semantic_search` / `link_search("禁止 riba")` 与 `rules_by_principle("SH-PRINCIPLE-RIBA-001")` 同时命中 MY + ID
 - **5.1 全量自测**：`verify_full_selftest` 对 16 条 MY+ID formal 跑 exact / semantic / link；中/英/本地语各一轮；**每条 ≥2 种检索命中且中文必中**（跨语言）
+- **5.2 总装接口**：见 `INTERFACE.md`；冒烟脚本 `assembly_smoke_cases`（5 用例，可独立运行）
 
 IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。SAC 无单独“riba 裁决”，以汇编决议序号为可追溯编号。共享层经训不得单独作为国家合规结论。正式引用以英文立法文本与阿语经训原文为准。印尼方向以印尼语官方文本为准。
 
@@ -118,7 +123,7 @@ print(rules_by_principle("SH-PRINCIPLE-RIBA-001", country="ID"))  # 原则 → �
 
 | 阶段 | 本库状态 |
 | --- | --- |
-| P1 | MY+ID 双层库已就绪；4.4 跨国对比 + 5.1 全量自测通过；下一步 5.2 接口说明 / 5.3 文档收尾（不接 tools/mcps） |
+| P1 | MY+ID 双层库就绪；5.1 自测 + 5.2 接口文档/冒烟通过；下一步 5.3 文档收尾（不接 tools/mcps） |
 | P2 | 补 BN/SG/PH/TH；takaful/waqf/faraid 专题 |
 | P3 | 与各分国法库双向打通、横向对比检索；经训误引红队（多在总装/Agent） |
 
