@@ -143,7 +143,6 @@ def _execution_policy_from_intent(intent: dict[str, Any]) -> dict[str, Any]:
         "requires_file_read": bool(intent.get("requires_file_read")),
         "requires_workspace_listing": bool(intent.get("requires_workspace_listing")),
         "requires_memory_deep_search": bool(intent.get("requires_memory_deep_search")),
-        "soft_repair_enabled": True,
     }
     policy["recommended_tools"] = _recommended_tools(policy)
     return policy

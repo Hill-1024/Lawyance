@@ -54,7 +54,6 @@ class PreparedChatTurn:
     workspace_scope: str
     turn_id: str
     agent: object
-    execution_policy: dict | None = None
     attention_trace: dict | None = None
 
 
@@ -150,34 +149,6 @@ async def prepare_history(
     return processed_history
 
 
-def _build_agent_with_optional_policy(
-    mode: str,
-    memory: list[dict],
-    session_id: str,
-    workspace_scope: str,
-    *,
-    use_ocp: bool,
-    execution_policy: dict | None,
-):
-    sig = inspect.signature(build_agent)
-    if "execution_policy" in sig.parameters:
-        return build_agent(
-            mode,
-            memory,
-            session_id,
-            workspace_scope,
-            use_ocp=use_ocp,
-            execution_policy=execution_policy,
-        )
-    return build_agent(
-        mode,
-        memory,
-        session_id,
-        workspace_scope,
-        use_ocp=use_ocp,
-    )
-
-
 async def prepare_chat_turn(request: ChatRequest, current_user: str) -> PreparedChatTurn:
     content = request.message
     session_id = request.conversation_id
@@ -201,13 +172,12 @@ async def prepare_chat_turn(request: ChatRequest, current_user: str) -> Prepared
         compiled_context.working_context_text,
         request.last_context_tokens,
     )
-    agent = _build_agent_with_optional_policy(
+    agent = build_agent(
         request.agent_mode,
         processed_history,
         session_id,
         workspace_scope,
         use_ocp=request.use_ocp,
-        execution_policy=compiled_context.execution_policy,
     )
     return PreparedChatTurn(
         content=content,
@@ -217,7 +187,6 @@ async def prepare_chat_turn(request: ChatRequest, current_user: str) -> Prepared
         workspace_scope=workspace_scope,
         turn_id=turn_id,
         agent=agent,
-        execution_policy=compiled_context.execution_policy,
         attention_trace=compiled_context.attention_trace,
     )
 

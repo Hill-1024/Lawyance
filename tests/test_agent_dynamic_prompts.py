@@ -119,6 +119,83 @@ class AgentDynamicPromptTests(unittest.TestCase):
         self.assertFalse(intent["requires_file_read"])
         self.assertTrue(intent["requires_legal_evidence"])
 
+    def test_greeting_history_does_not_create_tool_requirements(self):
+        """欢迎语里的"合同/审查/分析"不得把纯文本问答判成必须读文件。
+
+        历史回归：前端把欢迎语当历史下发，关键词打分扫到"合同审查/文件批注/案例分析"，
+        于是每会话第一轮的纯文本法律问答都被判成 legal_file_review 且要求读取工作区文件；
+        那一轮没有文件可读，缺口修复因此重写回答，最终把正确回答换成了拒绝模板。
+        """
+        from services.prompt_focus import route_intent_rules
+
+        greeting = (
+            "您好，我是 Lawver。\n"
+            "- 案例分析：基于事实进行多维度法律分析（民事、行政、刑事）\n"
+            "- 合同审查：支持PDF与Word文档的批注、修改及风险识别\n"
+            "请问有什么法律问题需要我协助分析？"
+        )
+        routed = route_intent_rules(
+            "有人偷窃外卖,可以追究作案者的哪些责任,考虑对方可能的抗辩手段",
+            [{"role": "assistant", "content": greeting}],
+        )
+
+        self.assertFalse(routed["requires_file_read"])
+        self.assertFalse(routed["requires_workspace_listing"])
+        self.assertFalse(routed["requires_legal_evidence"])
+        self.assertEqual(routed["task_type"], "general")
+
+    def test_text_only_legal_question_does_not_require_files(self):
+        from services.prompt_focus import route_intent_rules
+
+        routed = route_intent_rules("申请劳动仲裁要准备哪些材料？", [])
+
+        self.assertTrue(routed["requires_legal_evidence"])
+        self.assertFalse(routed["requires_file_read"])
+        self.assertFalse(routed["requires_workspace_listing"])
+
+    def test_attachment_message_still_requires_file_read(self):
+        from services.prompt_focus import route_intent_rules
+
+        for content in ("帮我看看这份合同有什么风险", "这份.pdf 你读一下", "这张截图里的条款有问题吗"):
+            routed = route_intent_rules(content, [])
+            self.assertTrue(routed["requires_file_read"], content)
+            self.assertTrue(routed["requires_workspace_listing"], content)
+
+    def test_llm_router_preserves_semantic_tool_hints(self):
+        """关键词未命中时，语义路由仍可识别附件指代与记忆追问。"""
+        import services.prompt_focus as prompt_focus
+
+        original_classifier = prompt_focus.classify_intent_with_llm
+        original_mode = os.environ.get("CONTEXT_ROUTER_MODE")
+        try:
+            os.environ["CONTEXT_ROUTER_MODE"] = "hybrid"
+
+            async def fake_classifier(_content, _history):
+                return {
+                    "task_type": "file_processing",
+                    "confidence": 0.9,
+                    "focus": ["general_gate", "file_processing"],
+                    "reasons": ["fake_llm"],
+                    "source": "llm",
+                    "requires_legal_evidence": False,
+                    "requires_file_read": True,
+                    "requires_workspace_listing": True,
+                    "requires_memory_deep_search": True,
+                }
+
+            prompt_focus.classify_intent_with_llm = fake_classifier
+            intent = asyncio.run(resolve_intent("继续处理它，再找找上次说的内容", [{"role": "user", "content": "已上传劳动合同"}]))
+        finally:
+            prompt_focus.classify_intent_with_llm = original_classifier
+            if original_mode is None:
+                os.environ.pop("CONTEXT_ROUTER_MODE", None)
+            else:
+                os.environ["CONTEXT_ROUTER_MODE"] = original_mode
+
+        self.assertTrue(intent["requires_file_read"])
+        self.assertTrue(intent["requires_workspace_listing"])
+        self.assertTrue(intent["requires_memory_deep_search"])
+
     def test_build_agent_react_falls_back_to_default_configuration(self):
         from services.agent_builder import build_agent
         from mcps import default_tools
