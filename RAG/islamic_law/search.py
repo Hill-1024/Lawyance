@@ -75,6 +75,10 @@ def normalize_key(text: str) -> str:
 
 def normalize_article_key(article_number: str) -> str:
     text = normalize_whitespace(article_number)
+    # 已是显式 article_key（如 MY-RIBA-FORMAL / ID-HALAL-UU33-FORMAL）时直接保留
+    compact = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"[A-Za-z]{2}-[A-Za-z0-9\-]+", compact):
+        return compact.upper()
     match = ARTICLE_HINT_RE.search(text)
     if match:
         return re.sub(r"\s+", "", match.group("num")).upper()
@@ -82,6 +86,20 @@ def normalize_article_key(article_number: str) -> str:
     if digits:
         return digits[0].upper()
     return normalize_key(text)
+
+
+def article_key_candidates(article_number: str) -> list[str]:
+    """exact 查询时尝试多种 article_key，避免 Formal 条目被抽成 Section 数字误命中。"""
+    text = normalize_whitespace(article_number)
+    keys: list[str] = []
+    for candidate in (
+        normalize_article_key(text),
+        re.sub(r"\s+", "", text).upper(),
+        normalize_key(text),
+    ):
+        if candidate and candidate not in keys:
+            keys.append(candidate)
+    return keys
 
 
 def build_query_terms(query: str) -> list[str]:
@@ -285,33 +303,39 @@ class IslamicLawSearchEngine:
             return json.dumps(result, ensure_ascii=False)
 
         title_key = normalize_key(title)
-        article_key = normalize_article_key(article_number)
+        key_candidates = article_key_candidates(article_number)
         with closing(self._connect()) as conn:
-            row = conn.execute(
-                """
-                SELECT * FROM islamic_rules
-                WHERE law_name_key = ? AND article_key = ?
-                  AND status != 'repealed'
-                ORDER BY CASE status WHEN 'in_force' THEN 0 ELSE 1 END
-                LIMIT 1
-                """,
-                (title_key, article_key),
-            ).fetchone()
-            if row is None:
+            row = None
+            for article_key in key_candidates:
                 row = conn.execute(
                     """
                     SELECT * FROM islamic_rules
-                    WHERE (instr(law_name_key, ?) > 0 OR instr(?, law_name_key) > 0)
-                      AND article_key = ?
-                      AND length(?) >= 4
+                    WHERE law_name_key = ? AND article_key = ?
                       AND status != 'repealed'
-                    ORDER BY length(law_name_key) ASC
+                    ORDER BY CASE status WHEN 'in_force' THEN 0 ELSE 1 END
                     LIMIT 1
                     """,
-                    (title_key, title_key, article_key, title_key),
+                    (title_key, article_key),
                 ).fetchone()
+                if row is not None:
+                    break
             if row is None:
-                # 也允许用 rule_subject / principle 主题做近似精确（无条号时）
+                for article_key in key_candidates:
+                    row = conn.execute(
+                        """
+                        SELECT * FROM islamic_rules
+                        WHERE (instr(law_name_key, ?) > 0 OR instr(?, law_name_key) > 0)
+                          AND article_key = ?
+                          AND length(?) >= 4
+                          AND status != 'repealed'
+                        ORDER BY length(law_name_key) ASC
+                        LIMIT 1
+                        """,
+                        (title_key, title_key, article_key, title_key),
+                    ).fetchone()
+                    if row is not None:
+                        break
+            if row is None:
                 result["message"] = f"No article found for {title!r} / {article_number!r}"
                 result["search_time"] = time.time() - start
                 return json.dumps(result, ensure_ascii=False)
