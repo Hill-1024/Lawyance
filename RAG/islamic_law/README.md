@@ -50,8 +50,15 @@
   - `ID-HALAL-JPH-CORE-001`（综合正式条目）
 - 支撑包：`data/ID/id_halal_uu33_pp42_rules.json`；来源 `sources/ID/halal_bpjph/`（含官方 PDF）
 - **特别标注**：`2026-10-18 全面强制、官方不再延期`（过渡期至 2026-10-17，次日起强制）；印尼语原文为准；MUI/DSN-MUI 具体 fatwa 编号待核验
+- **4.2 印尼伊斯兰金融** `data/ID/id_islamic_finance_formal.json`（4 条 formal）：
+  - `ID-FIN-MUI-BUNGA-2004-001`（Fatwa MUI 1/2004 禁息）→ `SH-PRINCIPLE-RIBA-001`
+  - `ID-FIN-UU21-2008-001`（UU 21/2008 伊斯兰银行母法）→ `SH-PRINCIPLE-RIBA-001`
+  - `ID-FIN-POJK16-2022-001`（POJK 16/POJK.03/2022 BUS）→ `SH-PRINCIPLE-RIBA-001`
+  - `ID-FIN-POJK18-2015-001`（POJK 18/POJK.04/2015 Sukuk）→ `SH-PRINCIPLE-SUKUK-001`
+- 支撑包：`data/ID/id_islamic_finance_rules.json`；来源 `sources/ID/islamic_finance/`（含官方 PDF）
+- **链条**：MUI 法特瓦（宗教裁决，无 LN/TLN，但被监管援引）→ UU 21/2008 → POJK 16/2022（银行）+ POJK 18/2015（sukuk，Pasal 1 明文回接 DSN-MUI）；注意 UU 21/2008 经 UU 4/2023 修订、POJK 18/2015 ≠ POJK 18/2023
 
-IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。SAC 无单独“riba 裁决”，以汇编决议序号为可追溯编号。共享层经训不得单独作为国家合规结论。正式引用以英文立法文本与阿语经训原文为准。
+IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。SAC 无单独“riba 裁决”，以汇编决议序号为可追溯编号。共享层经训不得单独作为国家合规结论。正式引用以英文立法文本与阿语经训原文为准。印尼方向以印尼语官方文本为准。
 
 ## 与主库的关系（增量对齐，不重造）
 
@@ -89,13 +96,13 @@ print(semantic_search("Malaysia riba IFSA", 3))
 
 ## 条款级 JSON 脚手架（旧）
 
-`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/my_riba_ifsa_2013_formal.json`、`data/MY/my_step3_2_formal.json`、`data/shared/riba_scripture_principle.json`、`data/shared/principles_step3_1.json`、`data/shared/principle_governance_step3_2.json` 与各 `data/MY/*_rules.json`、`data/ID/id_halal_*.json` 为双层入库语料。
+`data/BN|ID|SG/*.json` 与 `data/MY/my_ifla_*.json` 仍为早期条款级 demo。`data/MY/my_riba_ifsa_2013_formal.json`、`data/MY/my_step3_2_formal.json`、`data/shared/riba_scripture_principle.json`、`data/shared/principles_step3_1.json`、`data/shared/principle_governance_step3_2.json` 与各 `data/MY/*_rules.json`、`data/ID/id_halal_*.json`、`data/ID/id_islamic_finance_*.json` 为双层入库语料。
 
 ## P1 / P2 / P3 边界
 
 | 阶段 | 本库状态 |
 | --- | --- |
-| P1 | 双层 schema；MY formal 8 条 + ID halal formal 4 条；共享层含 riba/gharar/maysir/sukuk/takaful/halal-haram/governance；下一步 4.2 印尼伊斯兰金融（DSN-MUI/OJK） |
+| P1 | 双层 schema；MY formal 8 条 + ID halal formal 4 条 + ID 伊斯兰金融 formal 4 条；共享层含 riba/gharar/maysir/sukuk/takaful/halal-haram/governance；下一步可扩 BN 或 ID 产品级 DSN 法特瓦 |
 | P2 | 补 BN/SG/PH/TH；takaful/waqf/faraid 专题 |
 | P3 | 与各分国法库双向打通、横向对比检索；经训误引红队（多在总装/Agent） |
 

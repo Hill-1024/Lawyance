@@ -94,6 +94,26 @@ QUERIES: dict[str, list[str]] = {
         "Indonesia halal mandatory 2026-10-18",
         "Jaminan Produk Halal 全面强制",
     ],
+    "ID-FIN-MUI-BUNGA-2004-001": [
+        "印尼 Fatwa MUI 1/2004 利息 riba haram",
+        "MUI bunga interest faidah 禁止",
+        "DSN-MUI 禁息法特瓦",
+    ],
+    "ID-FIN-UU21-2008-001": [
+        "印尼 UU 21/2008 伊斯兰银行法",
+        "Perbankan Syariah Pasal 68 spin-off UUS",
+        "Bank Umum Syariah Prinsip Syariah DPS",
+    ],
+    "ID-FIN-POJK16-2022-001": [
+        "印尼 POJK 16/2022 伊斯兰商业银行",
+        "Bank Umum Syariah OJK 监管细则",
+        "POJK.03 废止 PBI 11/3/2009",
+    ],
+    "ID-FIN-POJK18-2015-001": [
+        "印尼 POJK 18/2015 Sukuk 发行",
+        "Sukuk undivided share 底层资产 DSN-MUI",
+        "POJK.04 Penerbitan Persyaratan Sukuk",
+    ],
 }
 
 

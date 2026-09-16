@@ -1,9 +1,9 @@
 # 3.3 批量验证报告
 
-- 日期：2026-09-15
+- 日期：2026-09-16
 - Top-N：10
-- 正式条目：12
-- 结果：ALL PASS（12/12）
+- 正式条目：16
+- 结果：ALL PASS（16/16）
 - 标准：每条正式条目至少被 1 个相关 query 在 semantic_search Top-N 命中
 
 | 正式条目 | 原则 | 结果 | 最佳命中 |
@@ -20,3 +20,7 @@
 | `ID-HALAL-PP42-2024-001` | `SH-PRINCIPLE-HALAL-HARAM-001` | PASS | #1 ← `Peraturan Pemerintah 42 2024 Pasal 160 UMK` |
 | `ID-HALAL-BPJPH-2026-001` | `SH-PRINCIPLE-HALAL-HARAM-001` | PASS | #2 ← `2026-10-18 全面强制 官方不再延期` |
 | `ID-HALAL-JPH-CORE-001` | `SH-PRINCIPLE-HALAL-HARAM-001` | PASS | #1 ← `印尼 halal 核心制度 UU PP BPJPH` |
+| `ID-FIN-MUI-BUNGA-2004-001` | `SH-PRINCIPLE-RIBA-001` | PASS | #1 ← `印尼 Fatwa MUI 1/2004 利息 riba haram` |
+| `ID-FIN-UU21-2008-001` | `SH-PRINCIPLE-RIBA-001` | PASS | #1 ← `Perbankan Syariah Pasal 68 spin-off UUS` |
+| `ID-FIN-POJK16-2022-001` | `SH-PRINCIPLE-RIBA-001` | PASS | #1 ← `印尼 POJK 16/2022 伊斯兰商业银行` |
+| `ID-FIN-POJK18-2015-001` | `SH-PRINCIPLE-SUKUK-001` | PASS | #1 ← `印尼 POJK 18/2015 Sukuk 发行` |

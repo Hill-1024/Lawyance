@@ -226,6 +226,8 @@ RULE_PACKS = [
     BASE / "data" / "MY" / "jakim_halal_rules.json",
     BASE / "data" / "ID" / "id_halal_formal.json",
     BASE / "data" / "ID" / "id_halal_uu33_pp42_rules.json",
+    BASE / "data" / "ID" / "id_islamic_finance_formal.json",
+    BASE / "data" / "ID" / "id_islamic_finance_rules.json",
 ]
 PRINCIPLE_PACKS = [
     BASE / "data" / "shared" / "riba_scripture_principle.json",
@@ -246,6 +248,10 @@ FORMAL_RULE_IDS = (
     "ID-HALAL-PP42-2024-001",
     "ID-HALAL-BPJPH-2026-001",
     "ID-HALAL-JPH-CORE-001",
+    "ID-FIN-MUI-BUNGA-2004-001",
+    "ID-FIN-UU21-2008-001",
+    "ID-FIN-POJK16-2022-001",
+    "ID-FIN-POJK18-2015-001",
 )
 FORMAL_PRINCIPLE_BY_RULE = {
     "MY-RIBA-IFSA-2013-001": "SH-PRINCIPLE-RIBA-001",
@@ -260,6 +266,10 @@ FORMAL_PRINCIPLE_BY_RULE = {
     "ID-HALAL-PP42-2024-001": "SH-PRINCIPLE-HALAL-HARAM-001",
     "ID-HALAL-BPJPH-2026-001": "SH-PRINCIPLE-HALAL-HARAM-001",
     "ID-HALAL-JPH-CORE-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "ID-FIN-MUI-BUNGA-2004-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-UU21-2008-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-POJK16-2022-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-POJK18-2015-001": "SH-PRINCIPLE-SUKUK-001",
 }
 FORMAL_REQUIRED_FIELDS = (
     "rule_id",
@@ -521,6 +531,7 @@ def write_manifests(principles: list[ShariaPrinciple], rules: list[IslamicRule])
         "formal_rule_ids": id_formal_ids,
         "source_packs": [
             "sources/ID/halal_bpjph/provenance.step4_1.json",
+            "sources/ID/islamic_finance/provenance.step4_2.json",
             "sources/shared/principles_step3_1/provenance.step3_1.json",
         ],
         "mandatory_halal_node": {
@@ -528,9 +539,13 @@ def write_manifests(principles: list[ShariaPrinciple], rules: list[IslamicRule])
             "mandatory_start": "2026-10-18",
             "note": "2026-10-18 全面强制、官方不再延期",
         },
+        "islamic_finance_chain": (
+            "Fatwa MUI 1/2004 → UU 21/2008 → POJK 16/2022 (BUS) + POJK 18/2015 (Sukuk)"
+        ),
         "note": (
-            "ID country layer step 4.1: UU 33/2014 + PP 42/2024 + BPJPH 2026-10-18 "
-            "halal core formal entries; Bahasa Indonesia official texts prevail."
+            "ID country layer: step 4.1 halal core (UU 33/2014 + PP 42/2024 + BPJPH 2026-10-18) "
+            "and step 4.2 Islamic finance (Fatwa MUI 1/2004 + UU 21/2008 + POJK 16/2022 + "
+            "POJK 18/2015); Bahasa Indonesia official texts prevail."
         ),
     }
 
@@ -556,7 +571,7 @@ def main() -> None:
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
-            ("seed", "id_halal_core_step4_1"),
+            ("seed", "id_islamic_finance_step4_2"),
         )
         conn.execute(
             "INSERT OR REPLACE INTO islamic_manifest(key, value) VALUES (?, ?)",
