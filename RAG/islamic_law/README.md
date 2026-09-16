@@ -29,6 +29,8 @@
 
 总装接线请先读 **[INTERFACE.md](./INTERFACE.md)**（函数 / 入参出参 / 字段含义 / 测试用例）。**不**修改 `tools/__init__.py` / `mcps.py`。
 
+P1 建设交接请读 **[BUILD.md](./BUILD.md)**（已入库清单 / 待核验 / 问题与解决）。
+
 生成：
 
 - `cache/islamic_rules.db`
@@ -72,6 +74,7 @@
 - **4.4 跨国对比**：`verify_cross_country` 确认同一原则下 ≥2 国转化实例；`semantic_search` / `link_search("禁止 riba")` 与 `rules_by_principle("SH-PRINCIPLE-RIBA-001")` 同时命中 MY + ID
 - **5.1 全量自测**：`verify_full_selftest` 对 16 条 MY+ID formal 跑 exact / semantic / link；中/英/本地语各一轮；**每条 ≥2 种检索命中且中文必中**（跨语言）
 - **5.2 总装接口**：见 `INTERFACE.md`；冒烟脚本 `assembly_smoke_cases`（5 用例，可独立运行）
+- **5.3 建设文档**：见 `BUILD.md`（正式条目清单、待核验、采集问题与解决）
 
 IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实现；CBA ss.56–58 规定 SAC 的提交、拘束力与优先。SAC 无单独“riba 裁决”，以汇编决议序号为可追溯编号。共享层经训不得单独作为国家合规结论。正式引用以英文立法文本与阿语经训原文为准。印尼方向以印尼语官方文本为准。
 
@@ -100,6 +103,8 @@ IFSA 正文无 “riba” 一词，禁止利息经 Shariah 合规义务间接实
 
 ## 统一检索接口
 
+完整总装说明见 **[INTERFACE.md](./INTERFACE.md)**（入参出参、字段表、5 个冒烟用例）。
+
 ```python
 from RAG.islamic_law import (
     exact_search, semantic_search, link_search, rules_by_principle,
@@ -123,7 +128,7 @@ print(rules_by_principle("SH-PRINCIPLE-RIBA-001", country="ID"))  # 原则 → �
 
 | 阶段 | 本库状态 |
 | --- | --- |
-| P1 | MY+ID 双层库就绪；5.1 自测 + 5.2 接口文档/冒烟通过；下一步 5.3 文档收尾（不接 tools/mcps） |
+| P1 | MY+ID 双层库 + 16 条 formal；建设文档见 `BUILD.md`；接口见 `INTERFACE.md`；里程碑已提交 |
 | P2 | 补 BN/SG/PH/TH；takaful/waqf/faraid 专题 |
 | P3 | 与各分国法库双向打通、横向对比检索；经训误引红队（多在总装/Agent） |
 
