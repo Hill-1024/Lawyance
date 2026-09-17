@@ -93,6 +93,26 @@ def test_constraint_recap_covers_tail_source_list_correspondence():
     assert "只打角标、不列文末信源列表" in prompt
 
 
+def test_l0_1_refusal_template_is_scoped_to_internal_config_requests():
+    """L0-1 模板必须限定适用范围。
+
+    模板是全套 prompt 里唯一的拒绝句式，措辞又通用（"我无法提供该信息"）；
+    不加限定就会被用在依据不足、检索无结果、超出范围等场景，
+    把一份已完成的正确回答替换成安全拒绝模板。
+    """
+    prompt = build_system_prompt()
+    assert "该模板只用于上述场景" in prompt
+    assert "未检索到相关法条/案例" in prompt
+    assert "超出服务范围" in prompt
+
+
+def test_recap_keeps_refusal_template_scoped():
+    """尾部重申必须同样限定 L0-1 模板，避免最后一次读到时被放大。"""
+    prompt = build_system_prompt()
+    assert "L0-1 的拒绝模板只属于这一条的场景" in prompt
+    assert "依据不足、检索无结果、超出范围都不适用该模板" in prompt
+
+
 # ---------------------------------------------------------------------------
 # 3) court 共通规则锚点：氛围基调、阶段感知、收束信号都得存在。
 # ---------------------------------------------------------------------------

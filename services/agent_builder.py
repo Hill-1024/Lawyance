@@ -28,7 +28,6 @@ def build_agent(
     session_id: str,
     workspace_scope: str,
     use_ocp: bool = True,
-    execution_policy: dict | None = None,
 ):
     if mode == "react":
         print("[agent_builder] 收到已废弃模式 react，自动降级为 default")
@@ -50,7 +49,6 @@ def build_agent(
             tools=plan_and_solve_tools,
             final_answer_source="tool_arg",
             tool_choice_policy=plan_and_solve_tool_choice_policy,
-            execution_policy=execution_policy,
         )
 
     execute_tool = build_tool_executor(workspace_scope, "agent")
@@ -64,5 +62,4 @@ def build_agent(
         mode="default",
         tools=default_tools,
         final_answer_source="tagged_text",
-        execution_policy=execution_policy,
     )

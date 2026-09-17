@@ -305,20 +305,22 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(choice_events[0]["content"]["ignore_label"], "忽略此问题")
         self.assertFalse(any(event.get("type") == "content" for event in events))
 
-    async def test_execution_policy_repairs_missing_legal_evidence_once(self):
+    async def test_final_answer_without_expected_tools_is_emitted_asis(self):
+        """缺口修复已移除：未按执行策略调用工具时，也不得再插入提醒或重跑模型。
+
+        这条曾经在提交最终回答后注入 system 提醒并重跑一轮，把已经写完的回答
+        替换成了 L0-1 拒绝模板；现在首轮最终回答直接采用。
+        """
         import agents.tool_loop as tool_loop_module
         from agents.tool_loop import ToolLoopAgent
 
         original_call = tool_loop_module.call
         memory = [{"role": "user", "content": "乙公司违约怎么起诉？"}]
-        responses = [
-            types.SimpleNamespace(content="<final_answer>可以起诉。</final_answer>", tool_calls=None),
-            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="match_legal_case", arguments='{"keywords":["违约责任"]}')]),
-            types.SimpleNamespace(content="<final_answer>已根据案例补充。</final_answer>", tool_calls=None),
-        ]
+        calls = {"count": 0}
 
         async def fake_call(context, stream=False, **kwargs):
-            return responses.pop(0)
+            calls["count"] += 1
+            return types.SimpleNamespace(content="<final_answer>可以起诉。</final_answer>", tool_calls=None)
 
         try:
             tool_loop_module.call = fake_call
@@ -326,75 +328,17 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
                 memory=memory,
                 use_ocp=False,
                 execute_tool=lambda name, args: "工具结果",
-                execution_policy={"requires_legal_evidence": True, "soft_repair_enabled": True},
             )
             events = [event async for event in agent.run(stream=False)]
         finally:
             tool_loop_module.call = original_call
 
-        self.assertEqual(events[-1], {"type": "content", "content": "已根据案例补充。"})
-        self.assertTrue(any(msg.get("role") == "system" and "execution_policy_repair" in msg.get("content", "") for msg in memory))
-        self.assertFalse(responses)
+        self.assertEqual(calls["count"], 1, "首轮最终回答后不应再重跑模型")
+        self.assertEqual(events[-1], {"type": "content", "content": "可以起诉。"})
+        self.assertFalse(any(msg.get("role") == "system" for msg in memory), "不应再向对话注入提醒")
 
-    async def test_execution_policy_does_not_repair_when_legal_tool_was_used(self):
-        import agents.tool_loop as tool_loop_module
-        from agents.tool_loop import ToolLoopAgent
-
-        original_call = tool_loop_module.call
-        memory = [{"role": "user", "content": "找法条"}]
-        responses = [
-            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="get_article", arguments='{"query":"违约责任"}')]),
-            types.SimpleNamespace(content="<final_answer>完成</final_answer>", tool_calls=None),
-        ]
-
-        async def fake_call(context, stream=False, **kwargs):
-            return responses.pop(0)
-
-        try:
-            tool_loop_module.call = fake_call
-            agent = ToolLoopAgent(
-                memory=memory,
-                use_ocp=False,
-                execute_tool=lambda name, args: "法条结果",
-                execution_policy={"requires_legal_evidence": True, "soft_repair_enabled": True},
-            )
-            events = [event async for event in agent.run(stream=False)]
-        finally:
-            tool_loop_module.call = original_call
-
-        self.assertEqual(events[-1], {"type": "content", "content": "完成"})
-        self.assertFalse(any(msg.get("role") == "system" and "execution_policy_repair" in msg.get("content", "") for msg in memory))
-
-    async def test_execution_policy_repairs_missing_file_read_once(self):
-        import agents.tool_loop as tool_loop_module
-        from agents.tool_loop import ToolLoopAgent
-
-        original_call = tool_loop_module.call
-        responses = [
-            types.SimpleNamespace(content="<final_answer>文件看完了。</final_answer>", tool_calls=None),
-            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="list_workspace_files", arguments="{}")]),
-            types.SimpleNamespace(content="<final_answer>已确认文件列表。</final_answer>", tool_calls=None),
-        ]
-
-        async def fake_call(context, stream=False, **kwargs):
-            return responses.pop(0)
-
-        try:
-            tool_loop_module.call = fake_call
-            agent = ToolLoopAgent(
-                memory=[{"role": "user", "content": "分析上传的合同"}],
-                use_ocp=False,
-                execute_tool=lambda name, args: "文件列表",
-                execution_policy={"requires_file_read": True, "requires_workspace_listing": True, "soft_repair_enabled": True},
-            )
-            events = [event async for event in agent.run(stream=False)]
-        finally:
-            tool_loop_module.call = original_call
-
-        self.assertEqual(events[-1], {"type": "content", "content": "已确认文件列表。"})
-        self.assertFalse(responses)
-
-    async def test_plan_and_solve_repairs_plan_steps_without_business_tool(self):
+    async def test_plan_and_solve_submitted_answer_is_emitted_without_extra_round(self):
+        """Plan-and-Solve 提交最终答案后直接出结果，不再因执行缺口重跑。"""
         import agents.tool_loop as tool_loop_module
         from agents.tool_loop import ToolLoopAgent, plan_and_solve_tool_choice_policy
 
@@ -402,8 +346,6 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         responses = [
             types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="submit_plan", arguments='{"steps":["检索相关法条"]}', call_id="call_plan")]),
             types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="submit_final_answer", arguments='{"answer":"直接回答"}', call_id="call_final_1")]),
-            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="search_article", arguments='{"query":"违约责任"}', call_id="call_search")]),
-            types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(name="submit_final_answer", arguments='{"answer":"补证后回答"}', call_id="call_final_2")]),
         ]
 
         async def fake_call(context, stream=False, **kwargs):
@@ -423,8 +365,78 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         finally:
             tool_loop_module.call = original_call
 
-        self.assertEqual(events[-1], {"type": "content", "content": "补证后回答"})
-        self.assertFalse(responses)
+        self.assertEqual(events[-1], {"type": "content", "content": "直接回答"})
+        self.assertFalse(responses, "提交最终答案后不应再调用模型")
+
+    async def test_completed_answer_is_terminal_across_output_paths(self):
+        """终轮预算下仍交付答案：覆盖流式、控制面与 OCP 的所有组合。"""
+        from unittest.mock import patch
+        from agents.tool_loop import ToolLoopAgent, plan_and_solve_tool_choice_policy
+
+        answer = "现有信息不足以确认责任，需要进一步核验。"
+        for stream in (False, True):
+            for planned in (False, True):
+                for reviewed in (False, True):
+                    with self.subTest(stream=stream, planned=planned, reviewed=reviewed):
+                        responses = []
+                        if planned:
+                            responses.extend([
+                                types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(
+                                    name="submit_plan", arguments='{"steps":["检索法条并读取附件"]}', call_id="plan")]),
+                                types.SimpleNamespace(content="", tool_calls=[_NonStreamToolCall(
+                                    name="submit_final_answer", arguments='{"answer":"' + answer + '"}', call_id="final")]),
+                            ])
+                        else:
+                            responses.append(types.SimpleNamespace(
+                                content="<final_answer>" + answer + "</final_answer>", tool_calls=None))
+                        expected_calls = len(responses)
+                        review_inputs = []
+
+                        class Review:
+                            async def complete(self, content):
+                                review_inputs.append(content)
+                                return content
+
+                            async def stream(self, content):
+                                review_inputs.append(content)
+                                yield {"type": "content_replace", "content": content}
+
+                        async def fake_call(context, stream=False, **kwargs):
+                            self.assertTrue(responses, "最终回答后不得因工具缺口再次调用模型")
+                            response = responses.pop(0)
+                            if not stream:
+                                return response
+
+                            async def chunks():
+                                if response.tool_calls:
+                                    for index, tool in enumerate(response.tool_calls):
+                                        tool.index = index
+                                    parts = [types.SimpleNamespace(content=None, tool_calls=response.tool_calls)]
+                                else:
+                                    # 刻意拆开 final_answer 标签，覆盖真实增量输出。
+                                    parts = [types.SimpleNamespace(content=piece, tool_calls=None)
+                                             for piece in ("<final_", "answer>" + answer, "</final_answer>")]
+                                for delta in parts:
+                                    yield types.SimpleNamespace(choices=[types.SimpleNamespace(delta=delta)])
+                            return chunks()
+
+                        memory = [{"role": "user", "content": "请检索法条并读取附件"}]
+                        with patch("agents.tool_loop.call", side_effect=fake_call) as model_call:
+                            agent = ToolLoopAgent(
+                                memory=memory, use_ocp=reviewed, output_review=Review() if reviewed else None,
+                                execute_tool=lambda name, args: "ok", max_rounds=expected_calls,
+                                mode="plan_and_solve" if planned else "default",
+                                final_answer_source="tool_arg" if planned else "tagged_text",
+                                tool_choice_policy=plan_and_solve_tool_choice_policy if planned else None,
+                            )
+                            events = [event async for event in agent.run(stream=stream)]
+                        self.assertEqual(model_call.call_count, expected_calls)
+                        self.assertFalse(responses)
+                        visible = [event for event in events if event.get("type") in {"content", "content_replace"}]
+                        self.assertEqual(visible, [{"type": "content_replace" if stream else "content", "content": answer}])
+                        self.assertEqual(review_inputs, [answer] if reviewed else [])
+                        self.assertFalse(any(msg.get("role") == "system" for msg in memory))
+                        self.assertFalse(any(event.get("type") == "error" for event in events))
 
 
 if __name__ == "__main__":

@@ -34,9 +34,20 @@ LEGAL_PATTERNS = (
     r"法条|法律|法规|司法解释|案例|判例|裁判|民法典|劳动法|公司法|行政诉讼|刑事|民事|仲裁",
     r"起诉|应诉|答辩|诉讼|管辖|举证|质证|赔偿|违约|侵权|工伤|解除合同|律师函|法律意见",
 )
+# 焦点/任务类型判定：允许宽松，命中只影响注入哪段 prompt。
 FILE_PATTERNS = (
     r"上传|附件|文件|文档|材料|卷宗|合同|协议|简历|证据|读取|分析|审查|批注|生成文书",
     r"\.(?:pdf|docx?|txt|md|xlsx?|pptx?)(?:\b|$)",
+)
+# 附件关键词仅作为工具建议，不能证明工作区确实存在可读文件。
+# 避免把“要准备哪些材料”等纯文本问题直接解释为读文件任务。
+FILE_ATTACHMENT_PATTERNS = (
+    r"上传|附件|工作区|卷宗|批注|扫描件|压缩包",
+    r"\.(?:pdf|docx?|xlsx?|pptx?|txt|md)(?:\b|$)",
+    r"(?:这份|这个|上述|以下|附件中|上传的|我传的|我发的).{0,8}"
+    r"(?:文件|文档|合同|协议|表格|材料|简历|报告|清单|标书|判决书|裁定书|图片|截图|照片|图)",
+    r"(?:图片|截图|照片|图像)",
+    r"(?:读取|看一下|看看|读一下|分析|审查|审阅|批注).{0,4}(?:文件|文档|合同|附件|图片)",
 )
 ARCHITECTURE_PATTERNS = (
     r"架构|代码|后端|前端|接口|模块|重构|迁移|上下文|记忆系统|agent|prompt|测试|实现",
@@ -74,34 +85,55 @@ def _ordered_focus(*items: str) -> list[str]:
     return result or [GENERAL_FOCUS]
 
 
+def _history_text(history: list[dict] | None, *, roles: set[str] | None = None) -> str:
+    """按角色过滤历史文本；默认剔除助手自己的输出。"""
+    allowed = roles or {"user"}
+    lines = []
+    for msg in (history or [])[-4:]:
+        if not isinstance(msg, dict):
+            continue
+        if str(msg.get("role") or "") not in allowed:
+            continue
+        lines.append(str(msg.get("content") or ""))
+    return "\n".join(lines)
+
+
 def route_intent_rules(content: str, history: list[dict] | None = None) -> dict[str, Any]:
     text = str(content or "")
-    recent_history = "\n".join(
-        str(msg.get("content") or "")
-        for msg in (history or [])[-4:]
-        if isinstance(msg, dict)
-    )
-    combined = f"{recent_history}\n{text}"
-    legal_score = _score_patterns(combined, LEGAL_PATTERNS)
-    file_score = _score_patterns(combined, FILE_PATTERNS)
-    architecture_score = _score_patterns(combined, ARCHITECTURE_PATTERNS)
-    memory_score = _score_patterns(combined, MEMORY_PATTERNS)
+    # 规则层的工具建议只看本轮；历史用户主题仅补充焦点。
+    # 不使用助手欢迎语，也不让历史关键词抬高本轮置信度而跳过语义路由。
+    history_topic = _history_text(history, roles={"user"})
+    topic_text = f"{history_topic}\n{text}"
+    legal_score = _score_patterns(text, LEGAL_PATTERNS)
+    legal_topic_score = _score_patterns(topic_text, LEGAL_PATTERNS)
+    current_file_score = _score_patterns(text, FILE_PATTERNS)
+    attachment_score = _score_patterns(text, FILE_ATTACHMENT_PATTERNS)
+    file_score = _score_patterns(topic_text, FILE_PATTERNS)
+    architecture_score = _score_patterns(text, ARCHITECTURE_PATTERNS)
+    memory_score = _score_patterns(text, MEMORY_PATTERNS)
 
     reasons: list[str] = []
     focus = [GENERAL_FOCUS]
     task_type = "general"
     confidence = 0.55
 
-    if legal_score:
+    if legal_topic_score:
         reasons.append("legal_keyword")
         focus.append(LEGAL_FOCUS)
         task_type = "legal_retrieval"
-        confidence = max(confidence, 0.74 + min(legal_score, 2) * 0.08)
+        if legal_score:
+            confidence = max(confidence, 0.74 + min(legal_score, 2) * 0.08)
     if file_score:
         reasons.append("file_keyword")
         focus.append(FILE_FOCUS)
-        task_type = "file_processing" if not legal_score else "legal_file_review"
-        confidence = max(confidence, 0.76 + min(file_score, 2) * 0.07)
+        task_type = "file_processing" if not legal_topic_score else "legal_file_review"
+        if current_file_score:
+            confidence = max(confidence, 0.76 + min(current_file_score, 2) * 0.07)
+    if attachment_score:
+        reasons.append("attachment_keyword")
+        focus.append(FILE_FOCUS)
+        task_type = "file_processing" if not legal_topic_score else "legal_file_review"
+        confidence = max(confidence, 0.76)
     if architecture_score and not legal_score and not file_score:
         reasons.append("architecture_keyword")
         task_type = "architecture"
@@ -118,8 +150,8 @@ def route_intent_rules(content: str, history: list[dict] | None = None) -> dict[
         "reasons": reasons or ["default_general"],
         "source": "rules",
         "requires_legal_evidence": bool(legal_score),
-        "requires_file_read": bool(file_score),
-        "requires_workspace_listing": bool(file_score),
+        "requires_file_read": bool(attachment_score),
+        "requires_workspace_listing": bool(attachment_score),
         "requires_memory_deep_search": bool(memory_score),
     }
 
@@ -189,7 +221,7 @@ async def classify_intent_with_llm(content: str, history: list[dict] | None = No
     recent = [
         {"role": msg.get("role"), "content": str(msg.get("content") or "")[:1200]}
         for msg in (history or [])[-6:]
-        if isinstance(msg, dict)
+        if isinstance(msg, dict) and str(msg.get("role") or "") == "user"
     ]
     prompt = json.dumps(
         {
@@ -230,6 +262,8 @@ async def resolve_intent(content: str, history: list[dict] | None = None) -> dic
 
     merged = dict(llm_intent)
     merged["focus"] = _ordered_focus(*(list(rules.get("focus", [])) + list(llm_intent.get("focus", []))))
+    # 路由只提供回答前的工具建议，不再驱动最终回答后的修复循环。
+    # 保留语义路由对指代附件、历史追问和记忆检索的补充能力。
     for key in (
         "requires_legal_evidence",
         "requires_file_read",
