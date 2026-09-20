@@ -17,6 +17,11 @@ from mcp.memory_client import (
 )
 from memory_system import MemoryRevisionConflict, prune_conversation_memory
 from mcp.pkulaw_client import ensure_law_database_ready
+from mcp.legal_search_router import (
+    ensure_civil_law_database_ready,
+    ensure_common_law_database_ready,
+    ensure_islamic_database_ready,
+)
 
 
 default_tools = registry.schemas("agent")

@@ -255,9 +255,19 @@ def split_tokens(query: str) -> List[str]:
 
 def detect_country(text: str) -> str:
     """从提问里识别国家。识别不出返回空串（不过滤）。"""
-    lowered = str(text or "").lower()
+    raw = str(text or "")
+    lowered = raw.lower()
+    # 短别名（印尼）与全称一并识别
+    chinese_aliases = {
+        "ID": ("印度尼西亚", "印尼"),
+        "TH": ("泰国",),
+        "VN": ("越南",),
+    }
+    for code, aliases in chinese_aliases.items():
+        if any(alias in raw for alias in aliases):
+            return code
     for _, code, label in COUNTRIES:
-        if label in text:
+        if label in raw:
             return code
     if re.search(r"(?<![a-z])indonesia(?![a-z])", lowered):
         return "ID"

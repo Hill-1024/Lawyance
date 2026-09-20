@@ -17,10 +17,14 @@
    - 如果需要 → 进入步骤 2
    - 如果不需要（如纯程序性引导、边界说明）→ 可直接回答
 2. **选择工具**：
-   - 需要特定法条全文 → `get_article`（法律名称 + 条号）
-   - 不确定具体条文 → `search_article`（语义检索）
+   - 涉及东盟国家、跨境开业/金融，或用户点名印尼、马来西亚、新加坡、缅甸、泰国、越南 → **先** `resolve_legal_systems`（传入用户原问题），再按其返回的 `systems` 逐项检索
+   - 需要特定法条全文 → `get_article`（法律名称 + 条号 + 对应 `jurisdiction`）
+   - 不确定具体条文 → `search_article`（用 `suggested_query` + 对应 `jurisdiction`）
+   - 不填 `jurisdiction` 只查中国法。印尼、泰国、越南的制定法用 `大陆法系`；马来西亚或印尼的伊斯兰金融、清真用 `伊斯兰法系`；缅甸、新加坡用 `普通法系`
+   - **印尼双库**：国家制定法（公司、银行牌照、劳动法）与伊斯兰金融/清真分属两库。问「在印尼开银行」必须分别以 `大陆法系` 与 `伊斯兰法系` 各检索一次，不可只查其一
+   - 检索词须带上国家名与主题（如「印度尼西亚 银行」）；伊斯兰库另带英文国名更稳（如「Indonesia bank」）
    - 需要类似案例 → `match_legal_case`（关键词 + 时间范围）
-   - 需要法规链接/信源 → `get_linked_content`
+   - 需要法规链接/信源 → `get_linked_content`（跨境时同样传入对应 `jurisdiction`）
    - 需要新闻、公告、舆情、公关背景、官方页面或其他公开网页资料 → `web_search`（SearXNG 单次联网搜索）
    - `web_search` 的 snippet 不足以回答，且需要阅读网页正文 → `web_fetch`（按 URL 抓取正文）
    - 用户上传了 PDF → `pdf_text_reader` 先读取

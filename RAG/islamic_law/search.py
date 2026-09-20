@@ -366,10 +366,27 @@ class IslamicLawSearchEngine:
         terms = build_query_terms(query)
         country_filter = None
         upper = query.upper()
-        for code, label in COUNTRY_LABELS.items():
-            if re.search(rf"\b{code}\b", upper) or label.lower() in query.lower():
+        lowered = query.lower()
+        # 中文/别名优先，避免仅依赖英文国名
+        _country_aliases = {
+            "ID": ("indonesia", "印度尼西亚", "印尼"),
+            "MY": ("malaysia", "马来西亚"),
+            "BN": ("brunei", "文莱"),
+            "SG": ("singapore", "新加坡"),
+            "PH": ("philippines", "菲律宾"),
+            "TH": ("thailand", "泰国"),
+            "VN": ("vietnam", "越南"),
+            "MM": ("myanmar", "缅甸"),
+        }
+        for code, aliases in _country_aliases.items():
+            if re.search(rf"\b{code}\b", upper) or any(a in lowered or a in query for a in aliases):
                 country_filter = code
                 break
+        if country_filter is None:
+            for code, label in COUNTRY_LABELS.items():
+                if re.search(rf"\b{code}\b", upper) or label.lower() in lowered:
+                    country_filter = code
+                    break
 
         candidates: list[tuple[int, dict[str, Any]]] = []
         with closing(self._connect()) as conn:

@@ -10,7 +10,13 @@ import re
 from typing import Any
 
 from mcp.deli_client import match_legal_case
-from mcp.pkulaw_client import get_article, get_linked_content, search_article
+from mcp.legal_search_router import (
+    JURISDICTION_HELP,
+    get_article,
+    get_linked_content,
+    resolve_legal_systems,
+    search_article,
+)
 from mcp.searxng_client import web_fetch, web_search
 from mcp.PDF_processor import pdf_commit_by_sentence, pdf_text_reader
 from mcp.text_file_client import TEXT_FILE_EXTENSIONS, txt_md_reader, txt_md_writer
@@ -397,19 +403,45 @@ def _register_agent_tools() -> None:
         text_coercer=_keywords_text,
     )
     registry.register(
+        name="resolve_legal_systems",
+        schema=_tool_schema(
+            "resolve_legal_systems",
+            (
+                "识别用户提问涉及的国家与应查法系，返回建议的 jurisdiction 与检索词。"
+                "涉及东盟/跨境/印尼银行或金融、马来西亚、新加坡、缅甸、泰国、越南时，"
+                "在调用 search_article / get_article 之前必须先调用本工具；"
+                "再按返回的 systems 逐项检索，不可只查中国法。"
+            ),
+            {
+                "question": {
+                    "type": "string",
+                    "description": "用户原问题或改写后的完整法律问题，需保留国家与主题词",
+                },
+            },
+            ["question"],
+        ),
+        handler=lambda arguments, _scope: resolve_legal_systems(
+            str(arguments.get("question") or ""),
+        ),
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+        text_coercer=_text_field("question"),
+    )
+    registry.register(
         name="get_article",
         schema=_tool_schema(
             "get_article",
-            "查询法律知识库。当需要根据法律名称和条号，精确获取指定法条的完整内容时，必须调用此工具。",
+            "查询法律知识库。当需要根据法律名称和条号，精确获取指定法条的完整内容时，必须调用此工具。不填 jurisdiction 时查中国法。跨境问题先调用 resolve_legal_systems。",
             {
                 "title": {"type": "string", "description": "具体的法律名称，应提取自用户查询的核心意图"},
                 "number": {"type": "string", "description": "具体的法条号，应提取自用户查询的核心意图，形式如['第九条','第十七条']"},
+                "jurisdiction": {"type": "string", "description": JURISDICTION_HELP},
             },
             ["title", "number"],
         ),
         handler=lambda arguments, _scope: get_article(
             str(arguments.get("title") or ""),
             str(arguments.get("number") or ""),
+            str(arguments.get("jurisdiction") or ""),
         ),
         exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_article_text,
@@ -418,12 +450,24 @@ def _register_agent_tools() -> None:
         name="search_article",
         schema=_tool_schema(
             "search_article",
-            "查询法律知识库。当需要通过自然语言描述，语义检索相关的法律条文时，必须调用此工具。",
-            {"query": {"type": "string", "description": "语义检索关键词或自然语言描述，应提取自用户查询的核心意图"}},
+            (
+                "查询法律知识库。当需要通过自然语言描述，语义检索相关的法律条文时，必须调用此工具。"
+                "不填 jurisdiction 时查中国法。"
+                "跨境/东盟问题须先 resolve_legal_systems，再按返回的 jurisdiction 与 suggested_query 分别检索；"
+                "同一问题可涉及多个法系时必须多次调用本工具。"
+            ),
+            {
+                "query": {
+                    "type": "string",
+                    "description": "语义检索关键词；跨境检索应包含国家名与主题（可用 resolve_legal_systems 的 suggested_query）",
+                },
+                "jurisdiction": {"type": "string", "description": JURISDICTION_HELP},
+            },
             ["query"],
         ),
         handler=lambda arguments, _scope: search_article(
             str(arguments.get("query") or ""),
+            str(arguments.get("jurisdiction") or ""),
         ),
         exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("query"),
@@ -432,12 +476,16 @@ def _register_agent_tools() -> None:
         name="get_linked_content",
         schema=_tool_schema(
             "get_linked_content",
-            "获取相关法规信息的来源链接，当出现法规条文、法律概念和相关术语，必须调用此工具确认来源!!!",
-            {"message": {"type": "string", "description": "包含法规条文、法律概念和相关术语的文本"}},
+            "获取相关法规信息的来源链接，当出现法规条文、法律概念和相关术语，必须调用此工具确认来源!!!不填 jurisdiction 时查中国法。",
+            {
+                "message": {"type": "string", "description": "包含法规条文、法律概念和相关术语的文本"},
+                "jurisdiction": {"type": "string", "description": JURISDICTION_HELP},
+            },
             ["message"],
         ),
         handler=lambda arguments, _scope: get_linked_content(
             str(arguments.get("message") or ""),
+            str(arguments.get("jurisdiction") or ""),
         ),
         exposure=AGENT_OCP_PLAN_AND_SOLVE_COURT,
         text_coercer=_text_field("message"),
