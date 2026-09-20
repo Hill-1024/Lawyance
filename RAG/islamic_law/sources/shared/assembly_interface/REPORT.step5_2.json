@@ -1,5 +1,5 @@
 {
-  "verified_at": "2026-09-16",
+  "verified_at": "2026-09-20",
   "step": "5.2",
   "all_pass": true,
   "pass_count": 5,
@@ -8,7 +8,7 @@
     "mode": "reuse",
     "schema_version": 3,
     "db_path": "/Users/liujinyu/Documents/Lawyance/Lawyance/RAG/islamic_law/cache/islamic_rules.db",
-    "content_sha256": "903371e7032401d9ef35e6ca5b35b8d7293129bebb8f89ff58ae9aa8da89ff42"
+    "content_sha256": "09696cf8704a9e25a186e656ccca3c0bb17aac77c5835a4b0b0c4df469879476"
   },
   "cases": [
     {

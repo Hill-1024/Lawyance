@@ -1,6 +1,6 @@
 # 5.2 总装接口冒烟报告
 
-- verified_at: `2026-09-16`
+- verified_at: `2026-09-20`
 - all_pass: **PASS** (5/5)
 - 接口文档: `INTERFACE.md`
 

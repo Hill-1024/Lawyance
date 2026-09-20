@@ -276,7 +276,7 @@ class IslamicRule:
         return _row_to_dataclass(cls, data)
 
     def to_canonical_result(self, principle: ShariaPrinciple | None = None) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "law_name": self.law_name,
             "article_number": self.article_number,
             "content": self.content,

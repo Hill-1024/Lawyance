@@ -228,6 +228,8 @@ RULE_PACKS = [
     BASE / "data" / "ID" / "id_halal_uu33_pp42_rules.json",
     BASE / "data" / "ID" / "id_islamic_finance_formal.json",
     BASE / "data" / "ID" / "id_islamic_finance_rules.json",
+    BASE / "data" / "ID" / "statute_articles.json",
+    BASE / "data" / "MY" / "statute_articles.json",
 ]
 PRINCIPLE_PACKS = [
     BASE / "data" / "shared" / "riba_scripture_principle.json",

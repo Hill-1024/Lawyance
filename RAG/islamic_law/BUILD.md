@@ -73,6 +73,19 @@
 
 另有支撑包条款（CHAIN / Pasal / Section 级）随种子入库，见 `data/MY/*_rules.json`、`data/ID/id_*_rules.json`。
 
+另有 **成文法原文层 1008 条**（`record_grade=support`，不是第 17 条以后的 formal）：
+
+| 文件 | 条数 | 来源 |
+| --- | --- | --- |
+| `data/ID/statute_articles.json` | 618 | 本地 PDF：UU 33/2014、PP 42/2024、UU 21/2008、POJK 16/2022、POJK 18/2015，含非「Cukup jelas」的 Penjelasan |
+| `data/MY/statute_articles.json` | 390 | 本地 PDF：IFSA 2013（2021 修订转载本）291 条、CBA 2009 99 条 |
+
+由 `scripts/extract_statute_articles.py` 从 `sources/` 已有 PDF 切出，未逐条人工核验，`status=unknown`。正式合规结论仍只看上面 16 条 formal。重新切分：
+
+```bash
+.venv/bin/python -m RAG.islamic_law.scripts.extract_statute_articles
+```
+
 ---
 
 ## 3. 待核验清单

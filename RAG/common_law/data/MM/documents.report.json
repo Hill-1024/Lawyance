@@ -1,0 +1,19 @@
+{
+  "status": "complete",
+  "documents_written": 685,
+  "provision_candidates_included": 12792,
+  "languages": {
+    "my": 618,
+    "en": 59,
+    "my+en": 8
+  },
+  "skipped": {
+    "download_not_success": 58,
+    "unreadable_or_unmerged": 4
+  },
+  "output": "RAG/common_law/data/MM/documents.jsonl",
+  "content_sha256": "e474e49e1d1ea1b958aff0eac8442360ac1017b815d3e48accba06bf5b5ab872",
+  "authority_policy": "source_language_controls_no_translation_generated",
+  "verification_policy": "machine_extracted_and_machine_split_records_remain_review_required",
+  "legal_system": "common"
+}

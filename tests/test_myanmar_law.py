@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from RAG.myanmar_law.search import MyanmarLawSearchEngine
+from RAG.common_law.myanmar import MyanmarLawSearchEngine
 
 
 def _engine(tmp_path):

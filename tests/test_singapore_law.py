@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from RAG.singapore_law import (
+from RAG.common_law.singapore import (
     ensure_singapore_law_database_ready,
     exact_search,
     fuzzy_search,
@@ -22,7 +22,7 @@ def decode(value: str) -> dict:
 
 
 def test_seed_contract_and_provenance() -> None:
-    seed_path = Path("RAG/singapore_law/data/official_seed.json")
+    seed_path = Path("RAG/common_law/data/SG/official_seed.json")
     records = json.loads(seed_path.read_text(encoding="utf-8"))
     assert len(records) == 10
     assert len({item["rule_id"] for item in records}) == 10
