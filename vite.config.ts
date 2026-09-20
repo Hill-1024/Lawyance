@@ -21,7 +21,7 @@ const buildInfo = {
   description: packageJson.description || '工大法智团队的中文法律 AI 助手原型',
   environment: buildEnvironment,
   buildTime: new Date().toLocaleString('zh-CN', { hour12: false }),
-  projectUrl: packageJson.appConfig?.projectUrl || 'https://github.com/Hill-1024/Lawyance',
+  projectUrl: packageJson.appConfig?.projectUrl || 'https://github.com/Meteor109/Lawyance',
 }
 
 // https://vitejs.dev/config/

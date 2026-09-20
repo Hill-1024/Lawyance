@@ -19,7 +19,7 @@ const FALLBACK_BUILD_INFO: LawverBuildInfo = {
   description: '工大法智团队的中文法律 AI 助手原型',
   environment: 'Development',
   buildTime: 'unknown',
-  projectUrl: 'https://github.com/Hill-1024/Lawyance',
+  projectUrl: 'https://github.com/Meteor109/Lawyance',
 };
 
 export const BUILD_INFO: LawverBuildInfo = typeof __LAWVER_BUILD_INFO__ !== 'undefined'

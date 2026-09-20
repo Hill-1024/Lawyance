@@ -17,6 +17,7 @@ class FileDB {
   private version = 3; // Incremented version to add court session store
   private migrationPromise: Promise<void> | null = null;
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private activeDb: IDBDatabase | null = null;
 
   private buildFileId(convId: string, fileName: string, path?: string) {
     return `${convId}::${path || fileName}`;
@@ -52,20 +53,62 @@ class FileDB {
     return Math.max(...candidates.filter(value => Number.isFinite(value)), 0);
   }
 
+  /** 浏览器空闲/后台回收后会关掉 IDB；缓存句柄必须一并丢弃。 */
+  private forgetConnection(db?: IDBDatabase | null) {
+    if (db && this.activeDb && this.activeDb !== db) {
+      return;
+    }
+    this.activeDb = null;
+    this.dbPromise = null;
+  }
+
+  private isConnectionError(error: unknown): boolean {
+    const message = String((error as Error)?.message || error || '');
+    return /InvalidStateError|database connection is closing|connection is closing|database connection is closed|Connection to Indexed Database server lost/i.test(
+      message
+    ) || (error as DOMException)?.name === 'InvalidStateError';
+  }
+
+  private async withDB<T>(operation: (db: IDBDatabase) => Promise<T>): Promise<T> {
+    try {
+      return await operation(await this.getDB());
+    } catch (error) {
+      if (!this.isConnectionError(error)) {
+        throw error;
+      }
+      this.forgetConnection(this.activeDb);
+      return await operation(await this.getDB());
+    }
+  }
+
   private async getDB(): Promise<IDBDatabase> {
-    if (this.dbPromise) return this.dbPromise;
+    if (this.activeDb) {
+      return this.activeDb;
+    }
+    if (this.dbPromise) {
+      return this.dbPromise;
+    }
 
     this.dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, this.version);
       request.onerror = () => {
-        this.dbPromise = null;
+        this.forgetConnection();
         reject(request.error);
       };
       request.onsuccess = async () => {
         const db = request.result;
+        this.activeDb = db;
+        // 正常 close() 不一定触发 onclose，versionchange 里仍需主动清理。
         db.onversionchange = () => {
-          db.close();
-          this.dbPromise = null;
+          try {
+            db.close();
+          } catch {
+            /* ignore */
+          }
+          this.forgetConnection(db);
+        };
+        db.onclose = () => {
+          this.forgetConnection(db);
         };
         try {
           await this.ensurePreviousDataMigrated(db);
@@ -86,8 +129,17 @@ class FileDB {
           db.createObjectStore(this.courtStoreName, { keyPath: 'id' });
         }
       };
+      request.onblocked = () => {
+        console.warn('Lawver IndexedDB open blocked; close other tabs using the same origin DB');
+      };
     });
-    return this.dbPromise;
+
+    try {
+      return await this.dbPromise;
+    } catch (error) {
+      this.forgetConnection();
+      throw error;
+    }
   }
 
   private async ensurePreviousDataMigrated(db: IDBDatabase): Promise<void> {
@@ -167,24 +219,22 @@ class FileDB {
   // --- File Methods ---
 
   async saveFile(convId: string, fileName: string, blob: Blob, path: string) {
-    const db = await this.getDB();
     // 主键含路径，必须先把路径归一成 TEMP/… 相对形式：否则同一个文件一次以
     // 绝对路径写入、一次以相对路径写入会留下两条记录，界面上看起来是两份。
     const normalizedPath = normalizeWorkspacePath(path);
     const id = this.buildFileId(convId, fileName, normalizedPath);
-    return new Promise<void>((resolve, reject) => {
+    return this.withDB(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readwrite');
       const store = transaction.objectStore(this.storeName);
       const request = store.put({ id, convId, fileName, blob, path: normalizedPath, timestamp: Date.now() });
       request.onerror = () => reject(request.error);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
-    });
+    }));
   }
 
   async getFilesByConvId(convId: string): Promise<{fileName: string, blob: Blob, path: string, id: string}[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDB(db => new Promise((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readonly');
       const store = transaction.objectStore(this.storeName);
       const request = store.getAll();
@@ -198,23 +248,23 @@ class FileDB {
         })));
       };
       request.onerror = () => reject(request.error);
-    });
+      transaction.onerror = () => reject(transaction.error);
+    }));
   }
 
   async getAllFiles(): Promise<any[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDB(db => new Promise((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readonly');
       const store = transaction.objectStore(this.storeName);
       const request = store.getAll();
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
-    });
+      transaction.onerror = () => reject(transaction.error);
+    }));
   }
 
   async deleteFilesByConvId(convId: string) {
-    const db = await this.getDB();
-    return new Promise<void>((resolve, reject) => {
+    return this.withDB(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readwrite');
       const store = transaction.objectStore(this.storeName);
       const request = store.getAll();
@@ -225,12 +275,11 @@ class FileDB {
       request.onerror = () => reject(request.error);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
-    });
+    }));
   }
 
   async deleteFile(convId: string, fileName: string, path?: string) {
-    const db = await this.getDB();
-    return new Promise<void>((resolve, reject) => {
+    return this.withDB(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.storeName, 'readwrite');
       const store = transaction.objectStore(this.storeName);
 
@@ -248,14 +297,13 @@ class FileDB {
 
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
-    });
+    }));
   }
 
   // --- Conversation Methods ---
 
   async saveConversations(conversations: Conversation[]) {
-    const db = await this.getDB();
-    return new Promise<void>((resolve, reject) => {
+    return this.withDB(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.convStoreName, 'readwrite');
       const store = transaction.objectStore(this.convStoreName);
 
@@ -272,24 +320,22 @@ class FileDB {
       keysReq.onerror = () => reject(keysReq.error);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
-    });
+    }));
   }
 
   async addConversations(conversations: Conversation[]) {
-    const db = await this.getDB();
-    return new Promise<void>((resolve, reject) => {
+    return this.withDB(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.convStoreName, 'readwrite');
       const store = transaction.objectStore(this.convStoreName);
       
       conversations.forEach(conv => store.put(conv));
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
-    });
+    }));
   }
 
   async getConversations(): Promise<Conversation[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDB(db => new Promise((resolve, reject) => {
       const transaction = db.transaction(this.convStoreName, 'readonly');
       const store = transaction.objectStore(this.convStoreName);
       const request = store.getAll();
@@ -300,14 +346,14 @@ class FileDB {
         resolve(conversations);
       };
       request.onerror = () => reject(request.error);
-    });
+      transaction.onerror = () => reject(transaction.error);
+    }));
   }
 
   // --- Court Session Methods ---
 
   async saveCourtSessions(courtSessions: CourtSession[]) {
-    const db = await this.getDB();
-    return new Promise<void>((resolve, reject) => {
+    return this.withDB(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.courtStoreName, 'readwrite');
       const store = transaction.objectStore(this.courtStoreName);
 
@@ -324,24 +370,22 @@ class FileDB {
       keysReq.onerror = () => reject(keysReq.error);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
-    });
+    }));
   }
 
   async addCourtSessions(courtSessions: CourtSession[]) {
-    const db = await this.getDB();
-    return new Promise<void>((resolve, reject) => {
+    return this.withDB(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.courtStoreName, 'readwrite');
       const store = transaction.objectStore(this.courtStoreName);
 
       courtSessions.forEach(session => store.put(session));
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
-    });
+    }));
   }
 
   async getCourtSessions(): Promise<CourtSession[]> {
-    const db = await this.getDB();
-    return new Promise((resolve, reject) => {
+    return this.withDB(db => new Promise((resolve, reject) => {
       const transaction = db.transaction(this.courtStoreName, 'readonly');
       const store = transaction.objectStore(this.courtStoreName);
       const request = store.getAll();
@@ -352,19 +396,19 @@ class FileDB {
         resolve(courtSessions);
       };
       request.onerror = () => reject(request.error);
-    });
+      transaction.onerror = () => reject(transaction.error);
+    }));
   }
 
   async deleteCourtSession(id: string) {
-    const db = await this.getDB();
-    return new Promise<void>((resolve, reject) => {
+    return this.withDB(db => new Promise<void>((resolve, reject) => {
       const transaction = db.transaction(this.courtStoreName, 'readwrite');
       const store = transaction.objectStore(this.courtStoreName);
       const request = store.delete(id);
       request.onerror = () => reject(request.error);
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
-    });
+    }));
   }
 
   // --- Storage Utils ---

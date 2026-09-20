@@ -10,7 +10,7 @@
   },
   "appConfig": {
     "environment": "Web/Vite",
-    "projectUrl": "https://github.com/Hill-1024/Lawyance"
+    "projectUrl": "https://github.com/Meteor109/Lawyance"
   },
   "scripts": {
     "dev": "python agent.py",
