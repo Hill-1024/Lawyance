@@ -191,6 +191,64 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
             "aligned": True,
         })
 
+    async def test_wrong_language_is_repaired_once(self):
+        query = "中国企业能否100%持有泰国公司的股权？"
+        response = (
+            '{"language":"zh","jurisdiction":"TH",'
+            '"mentioned_jurisdictions":["CN","TH"],'
+            '"aligned_query":"中国企业能否100%持有泰国公司的股权？"}'
+        )
+        with patch.dict(os.environ, {
+            "POLYLM_BASE_URL": "http://127.0.0.1:8001/v1",
+            "POLYLM_MODEL": "semantic-model",
+            "POLYLM_API_KEY": "sample-key",
+        }), patch(
+            "services.query_detection._call_polylm",
+            new_callable=AsyncMock,
+        ) as call, patch(
+            "services.query_detection._repair_aligned_query",
+            new_callable=AsyncMock,
+        ) as repair:
+            call.return_value = response
+            repair.return_value = "บริษัทจีนสามารถถือหุ้นในบริษัทไทยได้ 100% หรือไม่?"
+            result = await align_query_with_polylm(query)
+
+        repair.assert_awaited_once_with(
+            query,
+            "th",
+            "http://127.0.0.1:8001/v1",
+            "semantic-model",
+            "sample-key",
+        )
+        self.assertTrue(result.aligned)
+        self.assertEqual(result.alignment_language, "th")
+        self.assertIn("บริษัท", result.aligned_query)
+
+    async def test_wrong_language_after_repair_falls_back(self):
+        query = "中国企业能否100%持有泰国公司的股权？"
+        response = (
+            '{"language":"zh","jurisdiction":"TH",'
+            '"mentioned_jurisdictions":["CN","TH"],'
+            '"aligned_query":"中国企业能否100%持有泰国公司的股权？"}'
+        )
+        with patch.dict(os.environ, {
+            "POLYLM_BASE_URL": "http://127.0.0.1:8001/v1",
+            "POLYLM_MODEL": "semantic-model",
+        }), patch(
+            "services.query_detection._call_polylm",
+            new_callable=AsyncMock,
+        ) as call, patch(
+            "services.query_detection._repair_aligned_query",
+            new_callable=AsyncMock,
+        ) as repair:
+            call.return_value = response
+            repair.return_value = query
+            result = await align_query_with_polylm(query)
+
+        self.assertFalse(result.aligned)
+        self.assertEqual(result.aligned_query, query)
+        self.assertEqual(result.detection.source, "rules_fallback")
+
     async def test_ambiguous_comparison_stays_single_source_language_query(self):
         query = "Compare Chinese and Thai law on foreign ownership"
         response = (

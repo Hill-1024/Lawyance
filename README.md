@@ -292,7 +292,7 @@ python agent.py
 - `POST /api/query/detect`：保留原有检测协议，返回 `language`、ISO 国家码 `jurisdiction`、`mentioned_jurisdictions` 和 `source`。
 - `POST /api/query/align`：在检测字段之外返回 `jurisdiction_label`、`original_query`、`aligned_query`、`alignment_language` 和 `aligned`。其中 `jurisdiction` 对齐数据库的 `country` 国家码；`jurisdiction_label` 对齐数据库协议中的 `country_label` / `jurisdiction` 显示名。
 
-`source=polylm` 表示模型结果，`rules` 表示未配置模型，`rules_fallback` 表示模型调用或解析失败。降级时 `aligned=false`，`aligned_query` 保持原始查询，系统不会用规则猜测翻译。网关始终只返回一个字符串查询；Multi-view Retrieval 留待后续实现。
+`source=polylm` 表示模型结果，`rules` 表示未配置模型，`rules_fallback` 表示模型调用或解析失败。网关会校验 `aligned_query` 的实际语言；若与目标语料语言明显不符，只进行一次定向翻译修复，修复后仍不匹配则安全降级。降级时 `aligned=false`，`aligned_query` 保持原始查询，系统不会用规则猜测翻译。网关始终只返回一个字符串查询；该修复重试不会生成多个查询视图，Multi-view Retrieval 留待后续实现。
 
 ## Android APK 发布与更新
 
