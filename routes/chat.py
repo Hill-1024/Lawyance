@@ -8,12 +8,13 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import Field
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from function_calling import call
 from output_sanitizer import strip_think_blocks, strip_wrapper_tags
-from schemas import ChatRequest, MemorySyncRequest, ResumeAckRequest, StreamCancelRequest, SummarizeRequest
+from schemas import ChatRequest, MemorySyncRequest, RequestModel, ResumeAckRequest, StreamCancelRequest, SummarizeRequest
 from services.auth_dependencies import get_current_user
 from services.chat_pipeline import CHAT_FAILURE_MESSAGE, prepare_chat_turn, run_agent_once, run_agent_stream
 from services.memory_coordinator import (
@@ -22,12 +23,17 @@ from services.memory_coordinator import (
     sync_memory_cache,
 )
 from services import stream_buffer
+from services.query_detection import align_query_with_polylm, detect_query_with_polylm
 from services.workspace_service import get_workspace_scope
 
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+class QueryGatewayRequest(RequestModel):
+    query: str = Field(min_length=1, max_length=4000)
 
 
 def _sse_event(payload: dict) -> str:
@@ -190,6 +196,23 @@ async def chat_endpoint(request: ChatRequest, current_user: str = Depends(get_cu
     except Exception:
         logger.exception("Non-stream chat request failed")
         raise HTTPException(status_code=500, detail=CHAT_FAILURE_MESSAGE)
+
+
+@router.post("/api/query/detect")
+async def detect_query_endpoint(
+    request: QueryGatewayRequest,
+    current_user: str = Depends(get_current_user),
+):
+    return (await detect_query_with_polylm(request.query)).as_payload()
+
+
+@router.post("/api/query/align")
+async def align_query_endpoint(
+    request: QueryGatewayRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """Return one aligned query; retrieval remains a separate subsystem."""
+    return (await align_query_with_polylm(request.query)).as_payload()
 
 
 @router.get("/api/chat/resume/{stream_id}")

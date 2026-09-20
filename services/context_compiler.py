@@ -11,6 +11,7 @@ from typing import Any
 
 from context_usage import estimate_text_tokens, trim_text_to_token_budget
 from services.prompt_focus import resolve_intent
+from services.query_detection import COUNTRY_LABELS, SemanticGatewayResult, align_query_with_polylm
 
 
 WORKING_CONTEXT_BUDGET_ENV = "CONTEXT_WORKING_CONTEXT_TOKEN_BUDGET"
@@ -154,7 +155,9 @@ def _context_lines(
     intent: dict[str, Any],
     memory_lines: list[str],
     policy: dict[str, Any],
+    gateway: SemanticGatewayResult,
 ) -> list[str]:
+    detection = gateway.detection
     task_type = _safe_context_text(intent.get("task_type", "general"), 80) or "general"
     intent_source = _safe_context_text(intent.get("source", "rules"), 40) or "rules"
     lines = [
@@ -162,6 +165,19 @@ def _context_lines(
         f"本轮任务: {task_type} (confidence={round(_safe_confidence(intent.get('confidence', 0)), 2)}, source={intent_source})",
         f"当前用户请求: {_safe_context_text(content, 520)}",
     ]
+    if detection.language != "und":
+        lines.append(f"输入语言: {detection.language}；回答优先沿用用户语言。")
+    if detection.jurisdiction:
+        code = detection.jurisdiction
+        lines.append(f"法域线索: {code}（{COUNTRY_LABELS[code]}）；仅为本轮文本推测，法律适用须核实。")
+    elif detection.mentioned_jurisdictions:
+        lines.append(f"法域线索: {', '.join(detection.mentioned_jurisdictions)}；涉及多个国家，勿擅定单一适用法。")
+    if gateway.aligned:
+        lines.append(
+            f"单路语义对齐查询（{gateway.alignment_language}）: "
+            f"{_safe_context_text(gateway.aligned_query, 520)}"
+        )
+        lines.append("如需法律检索，query/message 参数优先使用上述单条查询；它不是法律结论，回答仍以原始请求为准。")
     if memory_lines:
         lines.append("已知上下文/记忆:")
         lines.extend(f"- {line}" for line in memory_lines[:MAX_MEMORY_LINES])
@@ -255,8 +271,11 @@ async def compile_context(
     memory_payload: dict[str, Any] | None = None,
 ) -> CompiledContext:
     intent = await resolve_intent(content, history)
+    gateway = await align_query_with_polylm(content)
     trace: dict[str, Any] = {
         "intent": intent,
+        "query_detection": gateway.detection.as_payload(),
+        "semantic_gateway": gateway.as_payload(),
         "memory_item_count": len((memory_payload or {}).get("items") or []),
     }
     policy = _execution_policy_from_intent(intent)
@@ -271,6 +290,7 @@ async def compile_context(
             intent=intent,
             memory_lines=memory_lines,
             policy=policy,
+            gateway=gateway,
         ),
         trace,
     )

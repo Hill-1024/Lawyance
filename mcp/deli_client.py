@@ -15,11 +15,20 @@ load_dotenv(".env")
 DELI_APPID = os.getenv("DELI_APPID") # 示例ID，请使用您自己的
 DELI_SECRET = os.getenv("DELI_SECRET")  # 示例Secret，请使用您自己的
 
-# 异常检测
-if not DELI_APPID:
-    raise ValueError("DELI_APPID is not set in the environment variables.")
-if not DELI_SECRET:
-    raise ValueError("DELI_SECRET is not set in the environment variables.")
+
+class DELIConfigurationError(RuntimeError):
+    """得理服务未启用或凭据不完整。"""
+
+
+def is_deli_configured() -> bool:
+    return bool(DELI_APPID and DELI_SECRET)
+
+
+def is_deli_enabled() -> bool:
+    configured = (os.getenv("DELI_ENABLED") or "").strip().lower()
+    if configured in {"0", "false", "no", "off", "disabled"}:
+        return False
+    return is_deli_configured()
 
 class DELIClient:
     def __init__(self, appid = DELI_APPID, secret = DELI_SECRET):
@@ -106,6 +115,11 @@ class DELIClient:
             return {"success": False, "message": f"案例检索响应解析失败: {e}"}
 
 def build_client():
+    if not is_deli_enabled():
+        raise DELIConfigurationError(
+            "得理案例检索服务未启用；如需启用，请配置 DELI_APPID 和 DELI_SECRET，"
+            "并确保 DELI_ENABLED 未设置为 0。"
+        )
     Client = DELIClient(
         appid=DELI_APPID,
         secret=DELI_SECRET

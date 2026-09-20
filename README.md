@@ -146,6 +146,154 @@ pnpm run dev:frontend
 | `pnpm run mobile:android:test` | 运行 Android debug 单元测试 |
 | `pnpm run mobile:android:apk` | 构建 Android debug APK |
 
+## 本地部署 Qwen-SEA-LION-v4-8B-VL PolyLM
+
+Lawver 通过 OpenAI 兼容的 Chat Completions API 调用模型。本节将
+[`aisingapore/Qwen-SEA-LION-v4-8B-VL`](https://huggingface.co/aisingapore/Qwen-SEA-LION-v4-8B-VL)
+部署为多语种法律语义网关的 PolyLM 接口联调模型；推荐将 vLLM 作为独立进程运行，不要把 vLLM 安装进 Lawver 的应用虚拟环境。
+
+该模型基于 Qwen3-VL-8B-Instruct，模型仓库约 17.5 GB，权重为 BF16，原生上下文上限为 256K。模型卡声明支持英语以及缅甸语、印度尼西亚语、菲律宾语、马来语、泰米尔语、泰语和越南语，但不等于覆盖全部东盟语言，也不是法律领域专用模型。模型卡还明确说明模型没有做安全对齐，可能产生幻觉；法律场景必须保留资料检索、输出审查、来源核验和人工复核。
+
+### 1. 检查 GPU
+
+先在模型服务器上执行：
+
+```bash
+nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader
+```
+
+vLLM 的 NVIDIA 预编译版本要求 Linux，以及计算能力 7.5 或更高的 GPU。BF16 权重本身约占 17.5 GB，此外还需要视觉编码器运行空间、CUDA 工作区和 KV cache。以下仅作为部署起点，实际容量取决于上下文长度、图片大小和并发数：
+
+| GPU 显存 | 建议 |
+| --- | --- |
+| 少于 20 GB | 原始 BF16 权重通常无法可靠装入；应更换更大显存 GPU、使用多卡，或另行评估可信的量化版本 |
+| 24 GB | 从 8K～16K 上下文、单请求或低并发开始，必须实测是否 OOM |
+| 48 GB 或更高 | 可逐步提高上下文与并发，但不要直接假设能承载 256K 上下文 |
+| 多张同型号 GPU | 启动时增加 `--tensor-parallel-size GPU数量` |
+
+除模型目录外，vLLM、PyTorch 和下载缓存也会占用空间，建议至少预留 40 GB 可用磁盘。
+
+### 2. 创建独立的 vLLM 环境
+
+下面假定项目部署在 `$HOME/Lawver-ASEAN/Lawyance`，模型与虚拟环境放在它的上级目录：
+
+```bash
+export LAWVER_HOME="$HOME/Lawver-ASEAN"
+export SEALION_VENV="$LAWVER_HOME/vllm-sealion"
+export SEALION_MODEL_DIR="$LAWVER_HOME/models/Qwen-SEA-LION-v4-8B-VL"
+
+uv python install 3.12
+uv venv "$SEALION_VENV" --python 3.12 --seed
+
+uv pip install \
+  --python "$SEALION_VENV/bin/python" \
+  -U vllm huggingface_hub \
+  --torch-backend=auto
+
+"$SEALION_VENV/bin/vllm" --version
+"$SEALION_VENV/bin/hf" version
+```
+
+这里故意通过 `--python` 指定目标解释器，而不依赖当前 shell 激活了哪个环境。使用独立环境可以避免 vLLM 自带的 PyTorch、CUDA 运行库与 Lawver 应用依赖互相覆盖。
+
+如果曾误把 vLLM 安装进 Lawver 应用环境，应先按上面的命令确认专用环境已经安装成功，再回到项目目录，用锁文件恢复应用环境：
+
+```bash
+source "$HOME/Lawver-ASEAN/Lawver-ASEAN/bin/activate"
+cd "$HOME/Lawver-ASEAN/Lawyance"
+uv sync --active --locked --no-dev
+uv pip check
+```
+
+`uv sync` 会移除锁文件之外的 vLLM 及其额外依赖，但不会删除单独存放在 `$HOME/Lawver-ASEAN/models` 下的模型权重。
+
+### 3. 下载权重
+
+权重最终必须存在于服务器本地磁盘。直接把 Hugging Face 仓库 ID 传给 `vllm serve` 时，vLLM 会在第一次启动时自动下载到 Hugging Face 缓存；生产部署更推荐提前显式下载，便于观察进度、断点续传和固定存放位置：
+
+```bash
+mkdir -p "$SEALION_MODEL_DIR"
+
+"$SEALION_VENV/bin/hf" download aisingapore/Qwen-SEA-LION-v4-8B-VL \
+  --local-dir "$SEALION_MODEL_DIR"
+
+du -sh "$SEALION_MODEL_DIR"
+```
+
+模型是公开仓库，正常情况下不需要 Hugging Face Token。需要完全可复现的部署时，应额外用 `--revision` 指定经过验证的完整 commit SHA，而不是长期跟随 `main`。
+
+### 4. 启动 OpenAI 兼容服务
+
+以下是单张 GPU 的保守起始配置。它保留图片输入、关闭视频输入，并启用 Lawver 所需的自动工具调用解析：
+
+```bash
+"$HOME/Lawver-ASEAN/vllm-sealion/bin/vllm" serve \
+  "$HOME/Lawver-ASEAN/models/Qwen-SEA-LION-v4-8B-VL" \
+  --served-model-name Qwen-SEA-LION-v4-8B-VL \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --dtype auto \
+  --max-model-len 16384 \
+  --gpu-memory-utilization 0.90 \
+  --max-num-seqs 4 \
+  --limit-mm-per-prompt.video 0 \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes
+```
+
+如果 24 GB GPU 启动时 OOM，先把 `--max-model-len` 降为 `8192`、把 `--max-num-seqs` 降为 `1`；仍然 OOM 时不要继续挤占显存，应改用更多显存或经过验证的量化方案。多卡部署需增加例如 `--tensor-parallel-size 2`。首次排障应以前台方式运行，确认稳定后再交给 systemd 等进程管理器。
+
+默认只监听 loopback，不能被公网直接访问。如果模型与 Lawver 分布在不同主机，应使用私网、防火墙和 API Key 鉴权，不要把未鉴权的 vLLM 端口暴露到公网。
+
+### 5. 验证模型 API
+
+另开一个终端执行：
+
+```bash
+curl -s http://127.0.0.1:8001/v1/models
+
+curl -s http://127.0.0.1:8001/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "Qwen-SEA-LION-v4-8B-VL",
+    "messages": [
+      {"role": "user", "content": "请用印度尼西亚语简要介绍东盟。"}
+    ],
+    "max_tokens": 256,
+    "temperature": 0.2
+  }'
+```
+
+返回 JSON 且 `choices[0].message.content` 包含文本，表示 OpenAI 兼容接口可用。上线前还应使用 Lawver 的真实工具定义验证 `tool_choice=auto`，因为模型宣称具备工具能力不代表每个业务工具都能稳定、正确调用。
+
+### 6. 接入 Multilingual Legal Semantic Gateway
+
+生产环境可将 [`iic/nlp_polylm_qwen_7b_text_generation`](https://www.modelscope.cn/models/iic/nlp_polylm_qwen_7b_text_generation/summary) 通过同一 OpenAI 兼容接口接入；上面的 SEA-LION 部署也可用于接口联调。`POLYLM_MODEL` 必须填写实际的 `--served-model-name`。网关一次完成语言检测、目标法域检测和**单条**法律语义对齐，不执行数据库检索，也不生成 Multi-view 查询。在 Lawver 根目录的 `.env` 中配置：
+
+```env
+POLYLM_BASE_URL="http://127.0.0.1:8001/v1"
+POLYLM_MODEL="PolyLM-Qwen-7B"
+POLYLM_API_KEY="EMPTY"
+POLYLM_API_MODE="completion"
+```
+
+PolyLM-Qwen-7B 是文本生成预训练底座，示例直接使用 `completion`。指令微调模型可显式设为 `chat`；不确定服务端是否配置 chat template 时可设为 `auto`，代码会先调用 Chat Completions，并在服务端返回 400 时改用普通 Completions。vLLM 未设置 `--api-key` 时，`POLYLM_API_KEY` 可以省略；代码会自动使用非空占位值。`API_KEY`、`BASE_URL` 和 `LLM_MODEL` 仍用于 Lawver 的主聊天及工具调用模型，例如配置为部署方选择的 DeepSeek 或其他 OpenAI 兼容模型，不应因启用 PolyLM 而被覆盖。随后切回应用环境并启动 Lawver：
+
+```bash
+source "$HOME/Lawver-ASEAN/Lawver-ASEAN/bin/activate"
+cd "$HOME/Lawver-ASEAN/Lawyance"
+python agent.py
+```
+
+配置后，聊天流程会把 PolyLM 返回的一条 `aligned_query` 放入本轮工作上下文，供后续法律检索使用；原问题仍是回答依据，模型生成的对齐语句不是法律结论。对齐语言默认采用目标法域语料的主要语言，例如泰国为 `th`、越南为 `vi`、印度尼西亚为 `id`；普通法系目标按数据库协调约定默认使用 `en`，目标法域不明确时沿用输入语言。
+
+已登录用户可调用以下两个接口，请求体均为 `{"query":"中国企业能否持有泰国公司股权？"}`：
+
+- `POST /api/query/detect`：保留原有检测协议，返回 `language`、ISO 国家码 `jurisdiction`、`mentioned_jurisdictions` 和 `source`。
+- `POST /api/query/align`：在检测字段之外返回 `jurisdiction_label`、`original_query`、`aligned_query`、`alignment_language` 和 `aligned`。其中 `jurisdiction` 对齐数据库的 `country` 国家码；`jurisdiction_label` 对齐数据库协议中的 `country_label` / `jurisdiction` 显示名。
+
+`source=polylm` 表示模型结果，`rules` 表示未配置模型，`rules_fallback` 表示模型调用或解析失败。降级时 `aligned=false`，`aligned_query` 保持原始查询，系统不会用规则猜测翻译。网关始终只返回一个字符串查询；Multi-view Retrieval 留待后续实现。
+
 ## Android APK 发布与更新
 
 Android 正式发布通过 GitHub Actions 的 `vX.Y.Z` 标签工作流构建 release APK。工作流会校验 tag 与 `package.json.version` 一致，使用 GitHub Secrets 中的长期 release keystore 签名，并把 `Lawver-${version}.apk` 与 `android-version.json` 上传到 GitHub Release。
@@ -257,6 +405,7 @@ TXT/Markdown 文件通过 `txt_md_reader` / `txt_md_writer` 处理，只能访�
 
 可选环境变量：
 
+- `DELI_ENABLED=0`：禁用得理案例检索。未配置 `DELI_APPID` / `DELI_SECRET` 时也会自动禁用；禁用后 `match_legal_case` 不会暴露给模型，且不影响应用启动。
 - `SEARXNG_BASE_URL`：SearXNG 实例地址，默认 `https://serp.mutsumi.moe/`
 - `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`：Cloudflare Access Service Auth 头；兼容旧的 `SEARXNG_CF_ACCESS_CLIENT_ID` / `SEARXNG_CF_ACCESS_CLIENT_SECRET`
 - `SEARXNG_ENGINES`、`SEARXNG_CATEGORIES`、`SEARXNG_LANGUAGE`、`SEARXNG_SAFE_SEARCH`：默认搜索参数覆盖；通常让服务端 `settings.yml` 和 `categories` 路由决定 engines，仅在需要固定精确引擎时设置 `SEARXNG_ENGINES`

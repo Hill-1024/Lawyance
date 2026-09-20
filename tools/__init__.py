@@ -9,7 +9,7 @@ import os
 import re
 from typing import Any
 
-from mcp.deli_client import match_legal_case
+from mcp.deli_client import is_deli_enabled, match_legal_case
 from mcp.legal_search_router import (
     JURISDICTION_HELP,
     get_article,
@@ -372,36 +372,37 @@ def _register_agent_tools() -> None:
         handler=_ask_user,
         exposure=AGENT_PLAN_AND_SOLVE,
     )
-    registry.register(
-        name="match_legal_case",
-        schema=_tool_schema(
-            "match_legal_case",
-            "查询法律案例知识库。当需要根据用户语义和时间范围获取类似案例、判决结果或司法实践参考时，必须调用此工具。",
-            {
-                "keywords": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "用于案例检索的关键语句列表，应提取自用户查询的核心意图，如['案件类型'、'争议焦点']，关键语句数量应小于三个",
+    if is_deli_enabled():
+        registry.register(
+            name="match_legal_case",
+            schema=_tool_schema(
+                "match_legal_case",
+                "查询法律案例知识库。当需要根据用户语义和时间范围获取类似案例、判决结果或司法实践参考时，必须调用此工具。",
+                {
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "用于案例检索的关键语句列表，应提取自用户查询的核心意图，如['案件类型'、'争议焦点']，关键语句数量应小于三个",
+                    },
+                    "start_year": {
+                        "type": "string",
+                        "description": "案例查询的起始时间，格式为YYYY-MM-DD，用于筛选此日期之后判决的案例。如不指定，默认为2020-12-22。",
+                    },
+                    "end_year": {
+                        "type": "string",
+                        "description": "案例查询的截止时间，格式为YYYY-MM-DD，用于筛选此日期之前判决的案例。如不指定，默认为2025-12-22。",
+                    },
                 },
-                "start_year": {
-                    "type": "string",
-                    "description": "案例查询的起始时间，格式为YYYY-MM-DD，用于筛选此日期之后判决的案例。如不指定，默认为2020-12-22。",
-                },
-                "end_year": {
-                    "type": "string",
-                    "description": "案例查询的截止时间，格式为YYYY-MM-DD，用于筛选此日期之前判决的案例。如不指定，默认为2025-12-22。",
-                },
-            },
-            ["keywords"],
-        ),
-        handler=lambda arguments, _scope: match_legal_case(
-            keywords=arguments.get("keywords") or [],
-            start_year=arguments.get("start_year") or "2020-12-22",
-            end_year=arguments.get("end_year") or "2025-12-22",
-        ),
-        exposure=AGENT_PLAN_AND_SOLVE_COURT,
-        text_coercer=_keywords_text,
-    )
+                ["keywords"],
+            ),
+            handler=lambda arguments, _scope: match_legal_case(
+                keywords=arguments.get("keywords") or [],
+                start_year=arguments.get("start_year") or "2020-12-22",
+                end_year=arguments.get("end_year") or "2025-12-22",
+            ),
+            exposure=AGENT_PLAN_AND_SOLVE_COURT,
+            text_coercer=_keywords_text,
+        )
     registry.register(
         name="resolve_legal_systems",
         schema=_tool_schema(
