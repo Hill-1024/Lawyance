@@ -161,26 +161,48 @@ def _configured_base_url() -> str:
     return base_url.rstrip("/") + "/"
 
 
+def _is_local_base_url(base_url: str) -> bool:
+    """判断 base URL 主机是否为本机/内网地址（这类地址通常不经过 Cloudflare Access）。"""
+    try:
+        hostname = urlsplit(str(base_url or "")).hostname or ""
+    except ValueError:
+        return False
+    hostname = hostname.strip().strip("[]").rstrip(".").lower()
+    if not hostname:
+        return False
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private or ip.is_link_local
+
+
 def _access_headers() -> tuple[dict[str, str], tuple[str, str] | None]:
     client_id = _env_value("SEARXNG_CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_ID")
     client_secret = _env_value("SEARXNG_CF_ACCESS_CLIENT_SECRET", "CF_ACCESS_CLIENT_SECRET")
+    if client_id and client_secret:
+        return {
+            "Accept": "application/json",
+            "User-Agent": SEARCH_USER_AGENT,
+            "CF-Access-Client-Id": client_id,
+            "CF-Access-Client-Secret": client_secret,
+        }, None
+    if _is_local_base_url(_configured_base_url()):
+        return {
+            "Accept": "application/json",
+            "User-Agent": SEARCH_USER_AGENT,
+        }, None
     if bool(client_id) != bool(client_secret):
         return {}, (
             "CONFIG_ERROR",
             "Cloudflare Access Service Token 配置不完整，请同时设置 Client ID 和 Client Secret。",
         )
-    if not client_id or not client_secret:
-        return {}, (
-            "CONFIG_ERROR",
-            "缺少 Cloudflare Access Service Token，请设置 CF_ACCESS_CLIENT_ID 和 CF_ACCESS_CLIENT_SECRET。",
-        )
-
-    return {
-        "Accept": "application/json",
-        "User-Agent": SEARCH_USER_AGENT,
-        "CF-Access-Client-Id": client_id,
-        "CF-Access-Client-Secret": client_secret,
-    }, None
+    return {}, (
+        "CONFIG_ERROR",
+        "缺少 Cloudflare Access Service Token，请设置 CF_ACCESS_CLIENT_ID 和 CF_ACCESS_CLIENT_SECRET。",
+    )
 
 
 def _redact_url(raw_url: Any) -> str:

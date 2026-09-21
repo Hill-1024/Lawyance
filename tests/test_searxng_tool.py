@@ -116,6 +116,26 @@ class SearxngToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "CONFIG_ERROR")
         self.assertIn("配置不完整", result["error_message"])
 
+    def test_web_search_allows_local_base_url_without_access_token(self):
+        from mcp.searxng_client import web_search
+
+        captured = {}
+
+        def fake_get(url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return _FakeResponse(json.dumps({"results": [{"title": "Local", "url": "https://example.com/"}]}))
+
+        with mock.patch.dict(os.environ, {"SEARXNG_BASE_URL": "http://127.0.0.1:10099"}, clear=True):
+            with mock.patch("mcp.searxng_client.requests.get", side_effect=fake_get):
+                result = json.loads(web_search("local"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["results"][0]["title"], "Local")
+        self.assertEqual(captured["url"], "http://127.0.0.1:10099/search")
+        self.assertNotIn("CF-Access-Client-Id", captured["headers"])
+        self.assertNotIn("CF-Access-Client-Secret", captured["headers"])
+
     def test_web_search_reports_access_denied_without_leaking_body(self):
         from mcp.searxng_client import web_search
 
