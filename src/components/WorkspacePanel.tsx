@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { HoverInfo } from './HoverInfo';
 import { downloadWorkspaceFile } from '../lib/download';
 import { useAppDialog } from '../contexts/DialogContext';
+import { useTranslation } from '../contexts/LocaleContext';
 import { FileUploadProgress } from './FileUploadProgress';
 import type { WorkspaceFile } from '../types';
 
@@ -23,6 +24,7 @@ const WorkspaceFileItem: React.FC<{
   onDeleteFile: (filePath: string) => void;
   disableHoverInfo: boolean;
 }> = React.memo(({ file, onDeleteFile, disableHoverInfo }) => {
+  const t = useTranslation();
   const { showAlert } = useAppDialog();
 
   return (
@@ -44,30 +46,30 @@ const WorkspaceFileItem: React.FC<{
       </div>
       {!file.isUploading && (
         <div className="flex items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
-          <HoverInfo label="Download" placement="top" disabled={disableHoverInfo}>
+          <HoverInfo label={t('common.download')} placement="top" disabled={disableHoverInfo}>
             <button
               onClick={async () => {
                 try {
                   await downloadWorkspaceFile(file.path, file.name);
                 } catch (error: any) {
                   await showAlert({
-                    title: '下载失败',
-                    message: error?.message || 'Download failed',
+                    title: t('workspace.downloadFailed'),
+                    message: error?.message || t('workspace.downloadFailed'),
                     tone: 'danger',
                   });
                 }
               }}
               className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)] xl:h-8 xl:w-8 lg:rounded-[8px]"
-              aria-label="Download"
+              aria-label={t('common.download')}
             >
               <Download size={14} strokeWidth={2} />
             </button>
           </HoverInfo>
-          <HoverInfo label="Delete" placement="top" disabled={disableHoverInfo}>
+          <HoverInfo label={t('common.delete')} placement="top" disabled={disableHoverInfo}>
             <button
               onClick={() => onDeleteFile(file.path)}
               className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] xl:h-8 xl:w-8 lg:rounded-[8px]"
-              aria-label="Delete"
+              aria-label={t('common.delete')}
             >
               <Trash2 size={14} strokeWidth={2} />
             </button>
@@ -95,6 +97,7 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
   onDeleteFile,
   isDesktopLayout
 }) => {
+  const t = useTranslation();
   const uploadedFiles = useMemo(() => workspaceFiles.filter(f => f.type === 'upload'), [workspaceFiles]);
   const generatedFiles = useMemo(() => workspaceFiles.filter(f => f.type === 'generated'), [workspaceFiles]);
   const panelAnimation = useMemo(() => isDesktopLayout
@@ -148,9 +151,9 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
           }`}>
             <h3 className="t-title-m flex items-center gap-2.5 text-[15px]">
               <Folder size={18} strokeWidth={2} className="text-[var(--accent)]" />
-              Workspace
+              {t('workspace.title')}
             </h3>
-            <button onClick={() => setIsWorkspaceOpen(false)} className="lawver-drawer-close lawver-pressable inline-flex items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close workspace">
+            <button onClick={() => setIsWorkspaceOpen(false)} className="lawver-drawer-close lawver-pressable inline-flex items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label={t('workspace.close')}>
               <X size={21} strokeWidth={2} />
             </button>
           </div>
@@ -159,11 +162,11 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
             {/* Uploaded Section */}
             <section>
               <h4 className="t-label-s t-weak mb-3 px-1">
-                Uploaded Documents
+                {t('workspace.uploaded')}
               </h4>
               <div className="flex flex-col gap-2">
                 {uploadedFiles.length === 0 ? (
-                  <p className="t-body-s t-weak px-1 italic">No uploaded files</p>
+                  <p className="t-body-s t-weak px-1 italic">{t('workspace.noUploaded')}</p>
                 ) : (
                   uploadedFiles.map(file => (
                     <WorkspaceFileItem
@@ -180,11 +183,11 @@ const WorkspacePanelComponent: React.FC<WorkspacePanelProps> = ({
             {/* Generated Section */}
             <section>
               <h4 className="t-label-s t-weak mb-3 px-1">
-                Generated Results
+                {t('workspace.generated')}
               </h4>
               <div className="flex flex-col gap-2">
                 {generatedFiles.length === 0 ? (
-                  <p className="t-body-s t-weak px-1 italic">No generated files</p>
+                  <p className="t-body-s t-weak px-1 italic">{t('workspace.noGenerated')}</p>
                 ) : (
                   generatedFiles.map(file => (
                     <WorkspaceFileItem

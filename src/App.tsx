@@ -11,8 +11,10 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useChat } from './hooks/useChat';
 import { useWorkspace } from './hooks/useWorkspace';
 import { useStorage } from './hooks/useStorage';
+import { useTranslation } from './contexts/LocaleContext';
 import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
 import { isNative } from './lib/platform';
+import { isUntitledConversation } from './lib/conversation-title';
 import { exitNativeApp, useBackButton } from './hooks/useBackButton';
 import { useAppBack, useAppBackUp } from './hooks/useAppBack';
 import { Header } from './components/Header';
@@ -62,6 +64,7 @@ const AnimatedRouteSurface: React.FC<{ children: React.ReactNode }> = ({ childre
 };
 
 function App() {
+  const t = useTranslation();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [userRole, setUserRole] = useState<Role>('user');
@@ -356,15 +359,15 @@ function App() {
         <div className="flex items-start gap-3">
           <ShieldAlert size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--color-warning-500)]" />
           <div className="text-sm leading-6">
-            <div className="font-medium">当前正在通过 IP 访问。</div>
-            <div>建议改用 <span className="font-semibold">https://{SECURE_DOMAIN}</span> 进行安全访问，避免证书与登录状态问题。</div>
+            <div className="font-medium">{t('app.ipWarning.title')}</div>
+            <div>{t('app.ipWarning.body', { domain: SECURE_DOMAIN })}</div>
           </div>
         </div>
         <a
           href={secureAccessUrl}
           className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-warning-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#9A6F22]"
         >
-          前往安全地址
+          {t('app.ipWarning.action')}
           <ExternalLink size={16} strokeWidth={2} />
         </a>
       </div>
@@ -406,7 +409,7 @@ function App() {
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {secureAccessBanner}
         <Header
-          title={currentConversation.title}
+          title={isUntitledConversation(currentConversation) ? t('sidebar.untitled') : currentConversation.title}
           isSidebarOpen={isSidebarOpen}
           setIsSidebarOpen={setIsSidebarOpen}
           isWorkspaceOpen={isWorkspaceOpen}
@@ -422,8 +425,8 @@ function App() {
                 <div className="pointer-events-none absolute inset-x-0 top-1/4 mx-auto h-72 max-w-xl rounded-full bg-[var(--accent)] opacity-[0.06] blur-3xl" />
                 <div className="relative max-w-md px-6 text-center">
                   <BrandMark className="mx-auto mb-6 h-[72px] w-[72px] text-[var(--accent)]" />
-                  <h2 className="t-headline-l">Welcome to Lawver</h2>
-                  <p className="t-body-l t-muted mt-2 text-[15px]">Start a conversation or upload a document to begin.</p>
+                  <h2 className="t-headline-l">{t('app.welcome.title')}</h2>
+                  <p className="t-body-l t-muted mt-2 text-[15px]">{t('app.welcome.subtitle')}</p>
                 </div>
               </div>
             ) : (
@@ -494,7 +497,7 @@ function App() {
             <Route path="/" element={chatLayout} />
             <Route path="/court" element={<React.Suspense fallback={<RouteLoadingFallback />}><CourtPage onBack={() => goBack('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} /></React.Suspense>} />
             <Route path="/settings/*" element={<AnimatedRouteSurface><React.Suspense fallback={<RouteLoadingFallback />}><SettingsPage /></React.Suspense></AnimatedRouteSurface>} />
-            <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'sudo' || userRole === 'admin' ? <React.Suspense fallback={<RouteLoadingFallback />}><AdminDashboard role={userRole} /></React.Suspense> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>} />
+            <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'sudo' || userRole === 'admin' ? <React.Suspense fallback={<RouteLoadingFallback />}><AdminDashboard role={userRole} /></React.Suspense> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">{t('app.forbidden')}</div>}</AnimatedRouteSurface>} />
           </Routes>
         </React.Fragment>
       </AnimatePresence>

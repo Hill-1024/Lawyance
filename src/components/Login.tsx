@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import { login, type LoginResult } from '../services/api';
+import { useTranslation } from '../contexts/LocaleContext';
 import { BrandMark } from './Brand';
 
 interface LoginProps {
@@ -11,6 +12,7 @@ interface LoginProps {
 }
 
 export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+  const t = useTranslation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -19,7 +21,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim() || !password.trim()) {
-      setError('请输入账号和密码');
+      setError(t('login.error.empty'));
       return;
     }
 
@@ -30,7 +32,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       const result = await login(username, password);
       onLoginSuccess(result);
     } catch (err: any) {
-      setError(err.message || '登录失败，请检查账号密码');
+      setError(err.message || t('login.error.failed'));
     } finally {
       setIsLoading(false);
     }
@@ -42,10 +44,10 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         <div className="text-center">
           <BrandMark className="mx-auto h-14 w-14 text-[var(--accent)]" />
           <h2 className="t-headline-m mt-4">
-            登录 Lawver
+            {t('login.title')}
           </h2>
           <p className="t-body-s t-muted mt-2">
-            仅限内部人员使用
+            {t('login.subtitle')}
           </p>
         </div>
         <form className="space-y-5" onSubmit={handleSubmit}>
@@ -57,28 +59,28 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           <div className="space-y-4">
             <div>
               <label className="sr-only" htmlFor="username">
-                账号
+                {t('login.username')}
               </label>
               <input
                 id="username"
                 type="text"
                 required
                 className="md3-input"
-                placeholder="账号"
+                placeholder={t('login.username')}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
               />
             </div>
             <div>
               <label className="sr-only" htmlFor="password">
-                密码
+                {t('login.password')}
               </label>
               <input
                 id="password"
                 type="password"
                 required
                 className="md3-input"
-                placeholder="密码"
+                placeholder={t('login.password')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -91,7 +93,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               disabled={isLoading}
               className="md3-btn-filled lawver-pressable w-full rounded-[var(--radius-md)] py-3"
             >
-              {isLoading ? '登录中…' : '登录'}
+              {isLoading ? t('login.submitting') : t('login.submit')}
             </button>
           </div>
         </form>

@@ -4,7 +4,10 @@
 
 import React, { useState } from 'react';
 import { Gavel, Landmark, Lock, Scale, ShieldCheck, Sparkles } from 'lucide-react';
+import { useTranslation } from '../contexts/LocaleContext';
 import type { CourtCaseType, CourtSession } from '../types';
+
+type Translate = ReturnType<typeof useTranslation>;
 
 type CreateInput = {
   case_type: CourtCaseType;
@@ -29,30 +32,31 @@ type SetupForm = {
   risk_notes: string;
 };
 
-const CASE_OPTIONS: Array<{ value: CourtCaseType; label: string; hint: string }> = [
-  { value: 'civil', label: '民事', hint: '原告 / 被告' },
-  { value: 'administrative', label: '行政', hint: '相对人 / 行政机关' },
-  { value: 'criminal', label: '刑事', hint: '公诉 / 辩护' }
+// value 是传给服务端的立场标识，保持中文常量；仅 label / hint 随界面语言变化。
+const buildCaseOptions = (t: Translate): Array<{ value: CourtCaseType; label: string; hint: string }> => [
+  { value: 'civil', label: t('court.setup.case.civil'), hint: t('court.setup.case.civilHint') },
+  { value: 'administrative', label: t('court.setup.case.administrative'), hint: t('court.setup.case.administrativeHint') },
+  { value: 'criminal', label: t('court.setup.case.criminal'), hint: t('court.setup.case.criminalHint') }
 ];
 
-const SIDE_OPTIONS_BY_CASE_TYPE: Record<CourtCaseType, Array<{ value: string; label: string; hint: string }>> = {
+const buildSideOptions = (t: Translate): Record<CourtCaseType, Array<{ value: string; label: string; hint: string }>> => ({
   civil: [
-    { value: '原告', label: '原告', hint: '提出诉讼请求' },
-    { value: '被告', label: '被告', hint: '抗辩并反驳请求' }
+    { value: '原告', label: t('court.setup.side.plaintiff'), hint: t('court.setup.side.plaintiffHint') },
+    { value: '被告', label: t('court.setup.side.defendant'), hint: t('court.setup.side.defendantHint') }
   ],
   administrative: [
-    { value: '原告（行政相对人）', label: '行政相对人', hint: '起诉行政行为一方' },
-    { value: '行政机关（被告）', label: '行政机关', hint: '被诉机关一方' }
+    { value: '原告（行政相对人）', label: t('court.setup.side.administrativeRelative'), hint: t('court.setup.side.administrativeRelativeHint') },
+    { value: '行政机关（被告）', label: t('court.setup.side.administrativeAgency'), hint: t('court.setup.side.administrativeAgencyHint') }
   ],
   criminal: [
-    { value: '辩护方', label: '辩护方', hint: '为被告人辩护' },
-    { value: '公诉方', label: '公诉方', hint: '指控与举证一方' }
+    { value: '辩护方', label: t('court.setup.side.defense'), hint: t('court.setup.side.defenseHint') },
+    { value: '公诉方', label: t('court.setup.side.prosecution'), hint: t('court.setup.side.prosecutionHint') }
   ]
-};
+});
 
-const charCount = (value: string) => {
+const charCount = (value: string, t: Translate) => {
   const length = value.trim().length;
-  return length > 0 ? `${length} 字` : '未填写';
+  return length > 0 ? t('court.setup.charCount', { count: length }) : t('court.setup.charCountEmpty');
 };
 
 const SetupField: React.FC<{
@@ -62,31 +66,35 @@ const SetupField: React.FC<{
   onChange: (value: string) => void;
   rows?: number;
   tone?: 'public' | 'private';
-}> = ({ label, hint, value, onChange, rows = 4, tone = 'public' }) => (
-  <label className="flex min-w-0 flex-col gap-1.5">
-    <span className="flex items-baseline justify-between gap-3">
-      <span className="text-[13px] font-semibold text-[var(--fg-1)]">{label}</span>
-      <span
-        className={`text-[11px] ${
-          tone === 'private' && value.trim()
-            ? 'text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
-            : 'text-[var(--fg-4)]'
-        }`}
-      >
-        {charCount(value)}
+}> = ({ label, hint, value, onChange, rows = 4, tone = 'public' }) => {
+  const t = useTranslation();
+  return (
+    <label className="flex min-w-0 flex-col gap-1.5">
+      <span className="flex items-baseline justify-between gap-3">
+        <span className="text-[13px] font-semibold text-[var(--fg-1)]">{label}</span>
+        <span
+          className={`text-[11px] ${
+            tone === 'private' && value.trim()
+              ? 'text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
+              : 'text-[var(--fg-4)]'
+          }`}
+        >
+          {charCount(value, t)}
+        </span>
       </span>
-    </span>
-    <textarea
-      value={value}
-      onChange={event => onChange(event.target.value)}
-      rows={rows}
-      placeholder={hint}
-      className="custom-scrollbar w-full resize-none rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-[14px] leading-6 text-[var(--fg-1)] outline-none transition-colors placeholder:text-[var(--fg-4)] focus:border-[var(--accent)] focus:shadow-[0_0_0_1px_var(--accent)]"
-    />
-  </label>
-);
+      <textarea
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        rows={rows}
+        placeholder={hint}
+        className="custom-scrollbar w-full resize-none rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-[14px] leading-6 text-[var(--fg-1)] outline-none transition-colors placeholder:text-[var(--fg-4)] focus:border-[var(--accent)] focus:shadow-[0_0_0_1px_var(--accent)]"
+      />
+    </label>
+  );
+};
 
 export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) => {
+  const t = useTranslation();
   const [form, setForm] = useState<SetupForm>({
     case_type: 'civil',
     user_side: '原告',
@@ -98,7 +106,9 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
     risk_notes: ''
   });
 
-  const sideOptions = SIDE_OPTIONS_BY_CASE_TYPE[form.case_type];
+  const caseOptions = buildCaseOptions(t);
+  const sideOptionsByCaseType = buildSideOptions(t);
+  const sideOptions = sideOptionsByCaseType[form.case_type];
   const canCreate = [form.summary, form.claims, form.evidence].some(value => value.trim().length > 0);
 
   const setField = <K extends keyof SetupForm>(key: K, value: SetupForm[K]) => {
@@ -109,7 +119,7 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
     setForm(prev => ({
       ...prev,
       case_type: caseType,
-      user_side: SIDE_OPTIONS_BY_CASE_TYPE[caseType][0].value
+      user_side: sideOptionsByCaseType[caseType][0].value
     }));
   };
 
@@ -140,18 +150,18 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
             <Gavel size={22} strokeWidth={2} className="sm:size-6" />
           </span>
           <div className="min-w-0">
-            <h1 className="t-headline-s">开启一场模拟法庭</h1>
+            <h1 className="t-headline-s">{t('court.setup.title')}</h1>
             <p className="mt-1.5 text-[14px] leading-6 text-[var(--fg-3)]">
-              你出庭代理一方，法官与对方律师由相互独立、记忆隔离的 AI 出演。一场完整庭审会压力测试你的论证链，提前暴露漏洞与庭上突发情况。
+              {t('court.setup.intro')}
             </p>
           </div>
         </div>
 
         {/* 案件类型 */}
         <section className="mt-8">
-          <h2 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--fg-3)]">案件类型</h2>
+          <h2 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--fg-3)]">{t('court.setup.caseType')}</h2>
           <div className="mt-3 grid grid-cols-3 gap-2">
-            {CASE_OPTIONS.map(option => {
+            {caseOptions.map(option => {
               const active = form.case_type === option.value;
               return (
                 <button
@@ -176,7 +186,7 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
 
         {/* 用户立场 */}
         <section className="mt-6">
-          <h2 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--fg-3)]">你出庭代理</h2>
+          <h2 className="text-[13px] font-semibold uppercase tracking-[0.06em] text-[var(--fg-3)]">{t('court.setup.side')}</h2>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {sideOptions.map(option => {
               const active = form.user_side === option.value;
@@ -217,27 +227,27 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
               <Landmark size={18} strokeWidth={2} />
             </span>
             <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-[var(--fg-1)]">公开案卷</h2>
-              <p className="text-[12px] leading-5 text-[var(--fg-3)]">法官与对方律师都会读到这部分——只写双方都已知的事实。</p>
+              <h2 className="text-[15px] font-semibold text-[var(--fg-1)]">{t('court.setup.dossier.title')}</h2>
+              <p className="text-[12px] leading-5 text-[var(--fg-3)]">{t('court.setup.dossier.hint')}</p>
             </div>
           </div>
           <div className="mt-4 flex flex-col gap-4">
             <SetupField
-              label="案情与争议焦点"
-              hint="简述案件事实经过、双方争议的核心问题"
+              label={t('court.setup.field.summary')}
+              hint={t('court.setup.field.summaryHint')}
               value={form.summary}
               onChange={value => setField('summary', value)}
               rows={5}
             />
             <SetupField
-              label="诉求 / 指控"
-              hint="原告诉讼请求、公诉指控或被诉行政行为"
+              label={t('court.setup.field.claims')}
+              hint={t('court.setup.field.claimsHint')}
               value={form.claims}
               onChange={value => setField('claims', value)}
             />
             <SetupField
-              label="公开证据线索"
-              hint="已进入庭审、双方都知道的证据与材料"
+              label={t('court.setup.field.evidence')}
+              hint={t('court.setup.field.evidenceHint')}
               value={form.evidence}
               onChange={value => setField('evidence', value)}
             />
@@ -251,33 +261,33 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
               <Lock size={17} strokeWidth={2} />
             </span>
             <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-[var(--fg-1)]">你的作战笔记</h2>
+              <h2 className="text-[15px] font-semibold text-[var(--fg-1)]">{t('court.setup.notes.title')}</h2>
               <p className="flex items-center gap-1.5 text-[12px] leading-5 text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
                 <ShieldCheck size={13} strokeWidth={2} className="shrink-0" />
-                仅你与复盘员可见 · 法官和对方律师永远看不到
+                {t('court.setup.notes.hint')}
               </p>
             </div>
           </div>
           <div className="mt-4 flex flex-col gap-4">
             <SetupField
               tone="private"
-              label="庭审策略"
-              hint="你打算怎么打这场庭、想达成什么"
+              label={t('court.setup.field.strategy')}
+              hint={t('court.setup.field.strategyHint')}
               value={form.strategy}
               onChange={value => setField('strategy', value)}
               rows={4}
             />
             <SetupField
               tone="private"
-              label="证据链与推理路径"
-              hint="你的核心论证链条、想让法庭采信的逻辑"
+              label={t('court.setup.field.logicChain')}
+              hint={t('court.setup.field.logicChainHint')}
               value={form.logic_chain}
               onChange={value => setField('logic_chain', value)}
             />
             <SetupField
               tone="private"
-              label="担心的漏洞与突发情况"
-              hint="你自己也没把握的环节，复盘员会重点检验"
+              label={t('court.setup.field.riskNotes')}
+              hint={t('court.setup.field.riskNotesHint')}
               value={form.risk_notes}
               onChange={value => setField('risk_notes', value)}
             />
@@ -290,12 +300,12 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
           <div className="mx-auto flex w-full max-w-2xl flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <p className="flex items-center gap-1.5 text-[12px] text-[var(--fg-3)]">
               <Sparkles size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
-              {canCreate ? '默认中国法语境' : '请至少填写一项公开案卷信息'}
+              {canCreate ? t('court.setup.ready') : t('court.setup.notReady')}
             </p>
             <div className="flex items-center justify-end gap-2">
               {onCancel && (
                 <button onClick={onCancel} className="md3-btn-text lawver-pressable">
-                  取消
+                  {t('court.setup.cancel')}
                 </button>
               )}
               <button
@@ -304,7 +314,7 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel }) =>
                 className="md3-btn-filled lawver-pressable min-w-[7.5rem]"
               >
                 <Gavel size={18} strokeWidth={2} />
-                开庭
+                {t('court.setup.submit')}
               </button>
             </div>
           </div>

@@ -6,11 +6,13 @@ import React from 'react';
 import { X, Plus, Trash2, LogOut, ShieldAlert, Gavel, Settings } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Conversation } from '../types';
+import { useTranslation } from '../contexts/LocaleContext';
 import { StorageIndicator } from './StorageIndicator';
 import { BrandLockup } from './Brand';
 import { HoverInfo } from './HoverInfo';
 import { BranchRails } from './BranchRails';
 import { flattenBranchTree } from '../lib/branchTree';
+import { isUntitledConversation } from '../lib/conversation-title';
 
 const SIDEBAR_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
@@ -46,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   isDesktopLayout
 }) => {
+  const t = useTranslation();
   const panelAnimation = isDesktopLayout
     ? {
       width: isSidebarOpen ? SIDEBAR_WIDTH : 0,
@@ -98,7 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }>
             <BrandLockup />
             {!isDesktopLayout && (
-              <button onClick={() => setIsSidebarOpen(false)} className="lawver-drawer-close lawver-pressable inline-flex items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label="Close conversations">
+              <button onClick={() => setIsSidebarOpen(false)} className="lawver-drawer-close lawver-pressable inline-flex items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]" aria-label={t('sidebar.close')}>
                 <X size={21} strokeWidth={2} />
               </button>
             )}
@@ -109,7 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="md3-btn-filled lawver-pressable w-full whitespace-nowrap py-3 sm:py-3.5"
             >
               <Plus size={20} strokeWidth={2} />
-              New Chat
+              {t('sidebar.newChat')}
             </button>
             {onCourtClick && (
               <button
@@ -117,7 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="md3-btn-tonal lawver-pressable mt-2 w-full whitespace-nowrap py-2.5 sm:py-3"
               >
                 <Gavel size={18} strokeWidth={2} />
-                模拟法庭
+                {t('sidebar.court')}
               </button>
             )}
           </div>
@@ -126,7 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div
                 key={conv.id}
                 className="flex w-full items-stretch"
-                title={conv.parent_id ? '由其他会话分叉而来' : undefined}
+                title={conv.parent_id ? t('sidebar.branchedFrom') : undefined}
               >
                 <BranchRails ancestorTrails={ancestorTrails} isLastSibling={isLastSibling} />
                 <div
@@ -138,12 +141,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     conv.id === currentId ? 'bg-[var(--accent-quiet)] font-medium text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.05)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
                   }`}
                 >
-                  <span className="truncate pr-2 text-[13px] sm:text-[14px]">{conv.title}</span>
-                  <HoverInfo label="Delete chat" placement="top">
+                  <span className="truncate pr-2 text-[13px] sm:text-[14px]">
+                    {isUntitledConversation(conv) ? t('sidebar.untitled') : conv.title}
+                  </span>
+                  <HoverInfo label={t('sidebar.deleteChat')} placement="top">
                     <button
                       onClick={(e) => deleteConversation(conv.id, e)}
                       className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] xl:h-8 xl:w-8 xl:opacity-0 xl:group-hover:opacity-100"
-                      aria-label="Delete chat"
+                      aria-label={t('sidebar.deleteChat')}
                     >
                       <Trash2 size={16} strokeWidth={2} />
                     </button>
@@ -162,7 +167,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="md3-btn-tonal lawver-pressable w-full rounded-[var(--radius-md)] py-2.5 text-sm"
               >
                 <Settings size={16} strokeWidth={2} />
-                设置
+                {t('common.settings')}
               </button>
             )}
             {userRole !== 'user' && onAdminClick && (
@@ -171,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="md3-btn-tonal lawver-pressable w-full rounded-[var(--radius-md)] py-2.5 text-sm"
               >
                 <ShieldAlert size={16} strokeWidth={2} />
-                管理后台
+                {t('sidebar.admin')}
               </button>
             )}
             {onLogout && (
@@ -180,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="lawver-pressable flex min-h-11 w-full items-center justify-center gap-2 rounded-[var(--radius-md)] px-4 py-2.5 text-sm font-medium text-[var(--color-danger-500)] transition-colors hover:bg-[rgba(176,70,62,0.08)]"
               >
                 <LogOut size={16} strokeWidth={2} />
-                退出登录
+                {t('sidebar.logout')}
               </button>
             )}
             <StorageIndicator />

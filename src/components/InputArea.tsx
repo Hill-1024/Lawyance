@@ -9,6 +9,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { AnimatedSwitch } from './AnimatedSwitch';
 import { HoverInfo } from './HoverInfo';
 import { UserChoicePrompt } from './UserChoicePrompt';
+import { useTranslation } from '../contexts/LocaleContext';
 import { useAutoGrowTextarea } from '../hooks/useAutoGrowTextarea';
 import { computeComposerViewportBudget, planComposerActionBar } from '../lib/composer-autosize';
 import type { ContextUsage, PendingUpload, UserChoiceRequest } from '../types';
@@ -22,20 +23,21 @@ const formatTokenCount = (tokens: number) => {
 };
 
 const ContextUsageInfo: React.FC<{ usage?: ContextUsage | null }> = ({ usage }) => {
+  const t = useTranslation();
   if (!usage) {
-    return <span className="text-[var(--fg-2)]">上下文用量未知</span>;
+    return <span className="text-[var(--fg-2)]">{t('composer.context.unknown')}</span>;
   }
   const rows: Array<{ label: string; value: string }> = [
-    { label: '当前用量', value: formatTokenCount(usage.prompt_tokens) },
-    { label: '压缩阈值', value: formatTokenCount(usage.threshold_tokens) },
-    { label: '最大上下文', value: formatTokenCount(usage.max_context_tokens) }
+    { label: t('composer.context.current'), value: formatTokenCount(usage.prompt_tokens) },
+    { label: t('composer.context.threshold'), value: formatTokenCount(usage.threshold_tokens) },
+    { label: t('composer.context.max'), value: formatTokenCount(usage.max_context_tokens) }
   ];
   if (usage.cached_tokens) {
-    rows.push({ label: '缓存命中', value: formatTokenCount(usage.cached_tokens) });
+    rows.push({ label: t('composer.context.cached'), value: formatTokenCount(usage.cached_tokens) });
   }
   return (
     <div className="flex min-w-[160px] flex-col gap-1.5">
-      <div className="font-semibold text-[var(--fg-1)]">上下文用量</div>
+      <div className="font-semibold text-[var(--fg-1)]">{t('composer.context.title')}</div>
       <div className="flex flex-col gap-1">
         {rows.map(row => (
           <div key={row.label} className="flex items-center justify-between gap-4">
@@ -45,13 +47,14 @@ const ContextUsageInfo: React.FC<{ usage?: ContextUsage | null }> = ({ usage }) 
         ))}
       </div>
       {usage.over_threshold && (
-        <div className="text-[var(--color-warning-500)]">已超过压缩阈值，下一轮将触发压缩</div>
+        <div className="text-[var(--color-warning-500)]">{t('composer.context.over')}</div>
       )}
     </div>
   );
 };
 
 const ContextUsageMeter: React.FC<{ usage?: ContextUsage | null }> = ({ usage }) => {
+  const t = useTranslation();
   const threshold = usage?.threshold_tokens || DEFAULT_CONTEXT_THRESHOLD_TOKENS;
   const promptTokens = usage?.prompt_tokens || 0;
   const progress = usage ? Math.min(Math.max(promptTokens / threshold, 0), 1) : 0;
@@ -60,8 +63,8 @@ const ContextUsageMeter: React.FC<{ usage?: ContextUsage | null }> = ({ usage })
   const meterColor = overThreshold ? 'var(--color-warning-500)' : 'var(--accent)';
   const trackColor = 'rgba(20,23,31,0.12)';
   const ariaLabel = usage
-    ? `上下文 ${formatTokenCount(promptTokens)} / ${formatTokenCount(threshold)}`
-    : '上下文用量未知';
+    ? t('composer.context.label', { used: formatTokenCount(promptTokens), limit: formatTokenCount(threshold) })
+    : t('composer.context.unknown');
 
   return (
     <HoverInfo label={<ContextUsageInfo usage={usage} />} placement="top">
@@ -138,6 +141,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
   onSettingsClearanceChange,
   onComposerHeightChange
 }) => {
+  const t = useTranslation();
   const [stackReferenceWidth, setStackReferenceWidth] = useState<number | null>(null);
   const [visibleActionCount, setVisibleActionCount] = useState(0);
   const { ref: textareaRef, isMultiline, isStacked } = useAutoGrowTextarea(input, {
@@ -361,12 +365,12 @@ export const InputArea: React.FC<InputAreaProps> = ({
             <div className="relative z-[1] flex min-h-12 items-center justify-between gap-4 px-4 py-2.5">
               <div className="flex min-w-0 items-center gap-3">
                 <Settings2 size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-3)]" />
-                <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">Enable Streaming Output</span>
+                <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">{t('composer.streaming.label')}</span>
               </div>
               <AnimatedSwitch
                 checked={isStreaming}
                 onCheckedChange={setIsStreaming}
-                ariaLabel="切换流式输出"
+                ariaLabel={t('composer.streaming.toggle')}
               />
             </div>
 
@@ -374,29 +378,29 @@ export const InputArea: React.FC<InputAreaProps> = ({
               <div className="flex min-w-0 items-center gap-3">
                 <Settings2 size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-3)]" />
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">Output Check Process (OCP)</span>
-                  <span className="shrink-0 rounded bg-[rgba(20,23,31,0.08)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--fg-3)]">Beta</span>
+                  <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">{t('composer.ocp.label')}</span>
+                  <span className="shrink-0 rounded bg-[rgba(20,23,31,0.08)] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--fg-3)]">{t('composer.beta')}</span>
                 </div>
               </div>
               <AnimatedSwitch
                 checked={isOCPEnabled}
                 onCheckedChange={setIsOCPEnabled}
-                ariaLabel="切换 OCP"
+                ariaLabel={t('composer.ocp.toggle')}
               />
             </div>
             <div className="relative z-[1] mx-4 h-px bg-[var(--border-default)]" />
             <div className="relative z-[1] flex min-h-12 items-center justify-between gap-4 px-4 py-2.5">
               <div className="flex min-w-0 items-center gap-3">
                 <Settings2 size={18} strokeWidth={2} className="shrink-0 text-[var(--fg-3)]" />
-                <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">Agent Mode</span>
+                <span className="truncate text-sm font-medium text-[var(--fg-1)] sm:text-[15px]">{t('composer.agentMode.label')}</span>
               </div>
               <select
                 value={agentMode}
                 onChange={(e) => setAgentMode(e.target.value)}
                 className="lawver-pressable h-11 w-32 shrink-0 cursor-pointer rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[rgba(255,255,255,0.5)] px-3 text-sm font-medium text-[var(--fg-1)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)] dark:bg-white/[0.05]"
               >
-                <option value="default">Default</option>
-                <option value="plan_and_solve">Plan & Solve</option>
+                <option value="default">{t('composer.agentMode.default')}</option>
+                <option value="plan_and_solve">{t('composer.agentMode.planAndSolve')}</option>
               </select>
             </div>
           </motion.div>
@@ -459,13 +463,13 @@ export const InputArea: React.FC<InputAreaProps> = ({
                   <span className="max-w-[120px] truncate text-xs sm:max-w-[200px] sm:text-sm">{file.name}</span>
                   {file.kind === 'image' && (
                     <span className="shrink-0 rounded-sm bg-[var(--accent-quiet)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
-                      图片
+                      {t('composer.imageBadge')}
                     </span>
                   )}
                   <button
                     onClick={() => removeUploadedFile(index)}
                     className="lawver-pressable rounded-full p-1 text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-                    aria-label={`移除 ${file.name}`}
+                    aria-label={t('composer.removeFile', { name: file.name })}
                   >
                     <X size={12} strokeWidth={2} className="sm:size-3.5" />
                   </button>
@@ -511,7 +515,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 <button
                   onClick={() => setIsInputExpanded(!isInputExpanded)}
                   className={`lawver-composer-action lawver-pressable transition-colors ${isInputExpanded ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
-                  aria-label="Open composer settings"
+                  aria-label={t('composer.openSettings')}
                   aria-expanded={isInputExpanded}
                 >
                   <Settings2 size={20} strokeWidth={2} />
@@ -523,12 +527,12 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 transition={{ layout: { duration: 0.24, ease: [0.2, 0, 0, 1] } }}
                 className="lawver-composer-action-slot"
               >
-                <HoverInfo label="上传材料 (最大 50MB)" placement="top">
+                <HoverInfo label={t('composer.uploadMaterial')} placement="top">
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isLoading}
                     className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
-                    aria-label="上传材料 (最大 50MB)"
+                    aria-label={t('composer.uploadMaterial')}
                   >
                     <Paperclip size={20} strokeWidth={2} />
                   </button>
@@ -551,12 +555,12 @@ export const InputArea: React.FC<InputAreaProps> = ({
                 transition={{ layout: { duration: 0.24, ease: [0.2, 0, 0, 1] } }}
                 className="lawver-composer-action-slot"
               >
-                <HoverInfo label="上传图片 (多模态识别)" placement="top">
+                <HoverInfo label={t('composer.uploadImage')} placement="top">
                   <button
                     onClick={() => imageInputRef.current?.click()}
                     disabled={isLoading}
                     className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-50 dark:hover:bg-white/[0.06]"
-                    aria-label="上传图片 (多模态识别)"
+                    aria-label={t('composer.uploadImage')}
                   >
                     <ImagePlus size={20} strokeWidth={2} />
                   </button>
@@ -590,7 +594,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={hasActiveChoicePrompt}
-              placeholder="输入问题…"
+              placeholder={t('composer.placeholder')}
               className="composer-textarea lawver-composer-textarea custom-scrollbar min-w-0 flex-1 resize-none border-0 bg-transparent text-[var(--fg-1)] outline-none placeholder:text-[var(--fg-4)] disabled:opacity-60 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
               rows={1}
             />
@@ -604,7 +608,7 @@ export const InputArea: React.FC<InputAreaProps> = ({
                   ? 'bg-[var(--accent)] text-[var(--accent-on)] hover:bg-[var(--accent-hover)]'
                   : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] shadow-none dark:bg-white/[0.08]'
               }`}
-              aria-label={isLoading ? '停止生成' : isUploadingFiles ? '文件上传完成前暂不能发送' : 'Send message'}
+              aria-label={isLoading ? t('composer.stop') : isUploadingFiles ? t('composer.uploadPending') : t('composer.send')}
             >
               {isLoading ? <Square size={18} strokeWidth={2.4} fill="currentColor" /> : <Send size={20} strokeWidth={2} />}
             </button>

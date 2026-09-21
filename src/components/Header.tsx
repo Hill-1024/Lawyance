@@ -1,11 +1,13 @@
 /*
- * 模块描述：聊天页顶部栏组件，提供侧栏、工作区、标题和设置入口。
+ * 模块描述：聊天页顶部栏组件，提供侧栏、工作区、语言、标题和设置入口。
  */
 
 import React from 'react';
 import { Menu, Folder, Settings } from 'lucide-react';
+import { useTranslation } from '../contexts/LocaleContext';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
+import { LanguageMenu } from './LanguageMenu';
 
 interface HeaderProps {
   title: string;
@@ -26,13 +28,14 @@ export const Header: React.FC<HeaderProps> = ({
   workspaceFilesCount,
   onSettingsClick
 }) => {
+  const t = useTranslation();
   return (
     <header className="lawver-topbar sticky top-0 z-30 flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-2.5 pb-2 pt-[calc(0.625rem+var(--safe-top))] text-[var(--fg-1)] sm:px-4 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
           className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-          aria-label="Toggle conversations"
+          aria-label={t('header.toggleConversations')}
         >
           <Menu size={20} strokeWidth={2} className="sm:size-[22px]" />
         </button>
@@ -42,11 +45,12 @@ export const Header: React.FC<HeaderProps> = ({
         </h1>
       </div>
       <div className="relative flex shrink-0 items-center gap-0.5 sm:gap-1">
-        <HoverInfo label="Workspace" placement="bottom" disabled={isWorkspaceOpen}>
+        <LanguageMenu />
+        <HoverInfo label={t('header.workspace')} placement="bottom" disabled={isWorkspaceOpen}>
           <button
             onClick={() => setIsWorkspaceOpen(!isWorkspaceOpen)}
             className={`lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors ${isWorkspaceOpen ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'}`}
-            aria-label="Toggle workspace"
+            aria-label={t('header.toggleWorkspace')}
           >
             <div className="relative">
               <Folder size={18} strokeWidth={2} className="sm:size-5" />
@@ -56,11 +60,11 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </button>
         </HoverInfo>
-        <HoverInfo label="设置" placement="bottom">
+        <HoverInfo label={t('common.settings')} placement="bottom">
           <button
             onClick={onSettingsClick}
             className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-            aria-label="设置"
+            aria-label={t('common.settings')}
           >
             <Settings size={18} strokeWidth={2} className="sm:size-5" />
           </button>

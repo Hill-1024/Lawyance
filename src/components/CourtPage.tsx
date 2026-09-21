@@ -35,14 +35,18 @@ import type { PendingUpload } from '../types';
 import { BrandMark, BrandLockup } from './Brand';
 import { BranchRails } from './BranchRails';
 import { HoverInfo } from './HoverInfo';
+import { LanguageMenu } from './LanguageMenu';
 import { StorageIndicator } from './StorageIndicator';
 import { CourtSetup } from './CourtSetup';
-import { CourtTranscript, SPEAKER_META, phaseLabel } from './CourtTranscript';
+import { CourtTranscript, buildSpeakerMeta, phaseLabel } from './CourtTranscript';
 import { useAppDialog } from '../contexts/DialogContext';
+import { useTranslation } from '../contexts/LocaleContext';
 import { FileUploadProgress } from './FileUploadProgress';
 
 const PANEL_WIDTH = 320;
 const PANEL_TRANSITION = { duration: 0.28, ease: [0.2, 0, 0, 1] } as const;
+
+type Translate = ReturnType<typeof useTranslation>;
 
 interface CourtPageProps {
   onBack: () => void;
@@ -51,12 +55,12 @@ interface CourtPageProps {
   windowWidth: number;
 }
 
-const AGENT_STATUS_META: Record<CourtAgentState['status'], { label: string; dotClass: string; pulse: boolean }> = {
-  idle: { label: '待命', dotClass: 'bg-[var(--fg-4)]', pulse: false },
-  running: { label: '思考中', dotClass: 'bg-[var(--accent)]', pulse: true },
-  done: { label: '已发言', dotClass: 'bg-[var(--brand-tertiary-500)]', pulse: false },
-  error: { label: '异常', dotClass: 'bg-[var(--color-danger-500)]', pulse: false }
-};
+const buildAgentStatusMeta = (t: Translate): Record<CourtAgentState['status'], { label: string; dotClass: string; pulse: boolean }> => ({
+  idle: { label: t('court.page.agent.idle'), dotClass: 'bg-[var(--fg-4)]', pulse: false },
+  running: { label: t('court.page.agent.running'), dotClass: 'bg-[var(--accent)]', pulse: true },
+  done: { label: t('court.page.agent.done'), dotClass: 'bg-[var(--brand-tertiary-500)]', pulse: false },
+  error: { label: t('court.page.agent.error'), dotClass: 'bg-[var(--color-danger-500)]', pulse: false }
+});
 
 const AGENT_ORDER: Array<Extract<CourtSpeaker, 'judge' | 'opponent' | 'reviewer'>> = ['judge', 'opponent', 'reviewer'];
 
@@ -76,6 +80,7 @@ const CourtSidebar: React.FC<{
   onDelete: (id: string) => void;
   isDesktopLayout: boolean;
 }> = ({ isOpen, setIsOpen, sessions, currentId, onSelect, onCreate, onBack, onDelete, isDesktopLayout }) => {
+  const t = useTranslation();
   const panelAnimation = isDesktopLayout
     ? { width: isOpen ? PANEL_WIDTH : 0, opacity: isOpen ? 1 : 0, borderRightWidth: isOpen ? 1 : 0 }
     : { x: isOpen ? 0 : '-100%', opacity: isOpen ? 1 : 0 };
@@ -117,7 +122,7 @@ const CourtSidebar: React.FC<{
               <button
                 onClick={() => setIsOpen(false)}
                 className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-                aria-label="关闭庭审列表"
+                aria-label={t('court.page.sidebar.close')}
               >
                 <X size={20} strokeWidth={2} className="sm:size-[22px]" />
               </button>
@@ -127,20 +132,20 @@ const CourtSidebar: React.FC<{
           <div className="flex flex-col gap-2 px-3 pb-3 sm:px-4">
             <button onClick={onCreate} className="md3-btn-filled lawver-pressable w-full whitespace-nowrap py-3 sm:py-3.5">
               <Gavel size={19} strokeWidth={2} />
-              新建庭审
+              {t('court.page.newHearing')}
             </button>
             <button onClick={onBack} className="md3-btn-tonal lawver-pressable w-full whitespace-nowrap py-2.5 sm:py-3">
               <ArrowLeft size={17} strokeWidth={2} />
-              返回法律咨询
+              {t('court.page.backToChat')}
             </button>
           </div>
 
           <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3 pb-2">
             {sessions.length === 0 ? (
               <p className="px-3 py-8 text-center text-[13px] leading-6 text-[var(--fg-3)]">
-                暂无庭审记录，
+                {t('court.page.sidebar.empty1')}
                 <br />
-                新建后会保存在这里。
+                {t('court.page.sidebar.empty2')}
               </p>
             ) : (
               sessionRows.map(({ item: session, ancestorTrails, isLastSibling }) => {
@@ -149,7 +154,7 @@ const CourtSidebar: React.FC<{
                   <div
                     key={session.id}
                     className="flex w-full items-stretch"
-                    title={session.parent_id ? '由其他庭审分叉而来' : undefined}
+                    title={session.parent_id ? t('court.page.sidebar.branchedFrom') : undefined}
                   >
                     <BranchRails ancestorTrails={ancestorTrails} isLastSibling={isLastSibling} />
                     <div
@@ -168,24 +173,24 @@ const CourtSidebar: React.FC<{
                             active ? 'text-[var(--brand-primary-700)] dark:text-[var(--accent)]' : 'text-[var(--fg-1)]'
                           }`}
                         >
-                          {session.title || '未命名庭审'}
+                          {session.title || t('court.page.sidebar.untitled')}
                         </div>
                         <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-[var(--fg-3)]">
-                          <span className="shrink-0">{phaseLabel(session.court_state.phase)}</span>
+                          <span className="shrink-0">{phaseLabel(session.court_state.phase, t)}</span>
                           <span className="text-[var(--fg-4)]">·</span>
                           <span className="truncate">{session.user_side}</span>
                           {session.court_state.trial_over && (
                             <span className="ml-auto shrink-0 rounded-full bg-[var(--bg-inset)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--fg-3)]">
-                              已结束
+                              {t('court.page.sidebar.ended')}
                             </span>
                           )}
                         </div>
                       </button>
-                      <HoverInfo label="删除庭审" placement="top">
+                      <HoverInfo label={t('court.page.deleteHearing')} placement="top">
                         <button
                           onClick={() => onDelete(session.id)}
                           className="lawver-pressable mr-1 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] opacity-100 transition-opacity hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:h-8 lg:w-8 lg:opacity-0 lg:group-hover:opacity-100"
-                          aria-label="删除庭审"
+                          aria-label={t('court.page.deleteHearing')}
                         >
                           <Trash2 size={15} strokeWidth={2} />
                         </button>
@@ -208,16 +213,19 @@ const CourtSidebar: React.FC<{
 
 /* ── 案件面板 ─────────────────────────────────────────────── */
 
-const DossierBlock: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div>
-    <div className="mb-1 text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--fg-3)]">{label}</div>
-    {value.trim() ? (
-      <p className="whitespace-pre-wrap text-[13px] leading-6 text-[var(--fg-2)]">{value}</p>
-    ) : (
-      <p className="text-[13px] italic text-[var(--fg-4)]">未填写</p>
-    )}
-  </div>
-);
+const DossierBlock: React.FC<{ label: string; value: string }> = ({ label, value }) => {
+  const t = useTranslation();
+  return (
+    <div>
+      <div className="mb-1 text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--fg-3)]">{label}</div>
+      {value.trim() ? (
+        <p className="whitespace-pre-wrap text-[13px] leading-6 text-[var(--fg-2)]">{value}</p>
+      ) : (
+        <p className="text-[13px] italic text-[var(--fg-4)]">{t('court.page.emptyValue')}</p>
+      )}
+    </div>
+  );
+};
 
 const CourtCasePanel: React.FC<{
   isOpen: boolean;
@@ -229,6 +237,9 @@ const CourtCasePanel: React.FC<{
   isDesktopLayout: boolean;
 }> = ({ isOpen, setIsOpen, session, files, onRequestUpload, onDeleteFile, isDesktopLayout }) => {
   const { showAlert } = useAppDialog();
+  const t = useTranslation();
+  const speakerMeta = buildSpeakerMeta(t);
+  const agentStatusMeta = buildAgentStatusMeta(t);
   const panelAnimation = isDesktopLayout
     ? { width: isOpen ? PANEL_WIDTH : 0, opacity: isOpen ? 1 : 0, borderLeftWidth: isOpen ? 1 : 0 }
     : { x: isOpen ? 0 : '100%', opacity: isOpen ? 1 : 0 };
@@ -238,8 +249,8 @@ const CourtCasePanel: React.FC<{
       await downloadWorkspaceFile(file.path, file.name);
     } catch (error: any) {
       await showAlert({
-        title: '下载失败',
-        message: error?.message || '下载失败',
+        title: t('court.page.downloadFailed'),
+        message: error?.message || t('court.page.downloadFailed'),
         tone: 'danger',
       });
     }
@@ -276,12 +287,12 @@ const CourtCasePanel: React.FC<{
           <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3 sm:px-5 sm:py-4">
             <h3 className="t-title-m flex items-center gap-2.5 text-[15px]">
               <Briefcase size={18} strokeWidth={2} className="text-[var(--accent)]" />
-              案件面板
+              {t('court.page.casePanel')}
             </h3>
             <button
               onClick={() => setIsOpen(false)}
               className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-              aria-label="关闭案件面板"
+              aria-label={t('court.page.closeCasePanel')}
             >
               <X size={18} strokeWidth={2} />
             </button>
@@ -290,13 +301,13 @@ const CourtCasePanel: React.FC<{
           <div className="custom-scrollbar flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:gap-6 sm:p-5">
             {/* 参与者 */}
             <section>
-              <h4 className="t-label-s t-weak mb-3 px-1">出庭参与者 · 记忆隔离</h4>
+              <h4 className="t-label-s t-weak mb-3 px-1">{t('court.page.participants')}</h4>
               <div className="flex flex-col gap-2">
                 {AGENT_ORDER.map(role => {
-                  const meta = SPEAKER_META[role];
+                  const meta = speakerMeta[role];
                   const Icon = meta.icon;
                   const agentState = session.agent_states[role];
-                  const statusMeta = AGENT_STATUS_META[agentState?.status || 'idle'];
+                  const statusMeta = agentStatusMeta[agentState?.status || 'idle'];
                   return (
                     <div
                       key={role}
@@ -325,16 +336,16 @@ const CourtCasePanel: React.FC<{
                       <Bot size={17} strokeWidth={2} />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-semibold text-[var(--fg-1)]">我方代理</div>
-                      <div className="text-[12px] text-[var(--fg-3)]">用户方 AI 出庭代理</div>
+                      <div className="text-[13px] font-semibold text-[var(--fg-1)]">{t('court.page.userAgent')}</div>
+                      <div className="text-[12px] text-[var(--fg-3)]">{t('court.page.userAgentRole')}</div>
                     </div>
                     <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-[var(--fg-3)]">
                       <span
-                        className={`h-1.5 w-1.5 rounded-full ${AGENT_STATUS_META[session.agent_states.user?.status || 'idle'].dotClass} ${AGENT_STATUS_META[session.agent_states.user?.status || 'idle'].pulse ? 'lawver-bloom-dot' : ''}`}
+                        className={`h-1.5 w-1.5 rounded-full ${agentStatusMeta[session.agent_states.user?.status || 'idle'].dotClass} ${agentStatusMeta[session.agent_states.user?.status || 'idle'].pulse ? 'lawver-bloom-dot' : ''}`}
                       />
                       {session.court_state.user_agent_enabled
-                        ? AGENT_STATUS_META[session.agent_states.user?.status || 'idle'].label
-                        : '未启用'}
+                        ? agentStatusMeta[session.agent_states.user?.status || 'idle'].label
+                        : t('court.page.notEnabled')}
                     </span>
                   </div>
                 )}
@@ -345,12 +356,12 @@ const CourtCasePanel: React.FC<{
             <section>
               <h4 className="t-label-s t-weak mb-3 flex items-center gap-1.5 px-1">
                 <Landmark size={13} strokeWidth={2} />
-                公开案卷
+                {t('court.page.publicDossier')}
               </h4>
               <div className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] p-3.5">
-                <DossierBlock label="案情与争议焦点" value={session.shared_dossier.summary} />
-                <DossierBlock label="诉求 / 指控" value={session.shared_dossier.claims} />
-                <DossierBlock label="公开证据线索" value={session.shared_dossier.evidence} />
+                <DossierBlock label={t('court.page.field.summary')} value={session.shared_dossier.summary} />
+                <DossierBlock label={t('court.page.field.claims')} value={session.shared_dossier.claims} />
+                <DossierBlock label={t('court.page.field.evidence')} value={session.shared_dossier.evidence} />
               </div>
             </section>
 
@@ -358,30 +369,30 @@ const CourtCasePanel: React.FC<{
             <section>
               <h4 className="t-label-s mb-3 flex items-center gap-1.5 px-1 text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
                 <Lock size={13} strokeWidth={2} />
-                你的作战笔记 · 仅你可见
+                {t('court.page.privateNotes')}
               </h4>
               <div className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[rgba(44,118,112,0.22)] bg-[rgba(44,118,112,0.05)] p-3.5">
-                <DossierBlock label="庭审策略" value={session.private_brief.strategy} />
-                <DossierBlock label="证据链与推理" value={session.private_brief.logic_chain} />
-                <DossierBlock label="担心的漏洞" value={session.private_brief.risk_notes} />
+                <DossierBlock label={t('court.page.field.strategy')} value={session.private_brief.strategy} />
+                <DossierBlock label={t('court.page.field.logicChain')} value={session.private_brief.logic_chain} />
+                <DossierBlock label={t('court.page.field.riskNotes')} value={session.private_brief.risk_notes} />
               </div>
             </section>
 
             {/* 共享文件 */}
             <section>
               <div className="mb-3 flex items-center justify-between px-1">
-                <h4 className="t-label-s t-weak">共享文件</h4>
+                <h4 className="t-label-s t-weak">{t('court.page.sharedFiles')}</h4>
                 <button
                   onClick={onRequestUpload}
                   className="lawver-pressable inline-flex min-h-11 items-center gap-1 rounded-full px-3 py-1 text-[12px] font-medium text-[var(--accent)] transition-colors hover:bg-[var(--accent-quiet)]"
                 >
                   <Upload size={13} strokeWidth={2} />
-                  上传
+                  {t('court.page.upload')}
                 </button>
               </div>
               <div className="flex flex-col gap-2">
                 {files.length === 0 ? (
-                  <p className="px-1 text-[13px] italic text-[var(--fg-4)]">暂无共享文件</p>
+                  <p className="px-1 text-[13px] italic text-[var(--fg-4)]">{t('court.page.noSharedFiles')}</p>
                 ) : (
                   files.map(file => (
                     <div
@@ -395,20 +406,20 @@ const CourtCasePanel: React.FC<{
                       </div>
                       {!file.isUploading && (
                         <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
-                          <HoverInfo label="下载" placement="top">
+                          <HoverInfo label={t('court.page.download')} placement="top">
                             <button
                               onClick={() => handleDownload(file)}
                               className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)] lg:h-8 lg:w-8"
-                              aria-label="下载文件"
+                              aria-label={t('court.page.downloadFile')}
                             >
                               <Download size={14} strokeWidth={2} />
                             </button>
                           </HoverInfo>
-                          <HoverInfo label="删除" placement="top">
+                          <HoverInfo label={t('court.page.delete')} placement="top">
                             <button
                               onClick={() => onDeleteFile(file.path)}
                               className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-[8px] text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] lg:h-8 lg:w-8"
-                              aria-label="删除文件"
+                              aria-label={t('court.page.deleteFile')}
                             >
                               <Trash2 size={14} strokeWidth={2} />
                             </button>
@@ -447,6 +458,7 @@ const CourtComposerDock: React.FC<{
   /** 发言区实际高度上报，供庭审记录在输入框增高时保持贴底。 */
   onComposerHeightChange?: (height: number) => void;
 }> = ({ session, isRunning, status, value, onChange, onSend, onRunNext, onForceAdvance, onSetAutoMode, onSetUserAgentMode, onRequestUpload, isUploadingFiles, pendingMaterials, onRemoveMaterial, onComposerHeightChange }) => {
+  const t = useTranslation();
   const state = session.court_state;
   const trialOver = state.trial_over;
   const awaitingUser = state.awaiting_user;
@@ -463,26 +475,26 @@ const CourtComposerDock: React.FC<{
   }, [awaitingUser, isRunning, trialOver, userAgentEnabled]);
 
   const statusText = trialOver
-    ? '庭审已结束 · 复盘意见已写入记录'
+    ? t('court.page.status.trialOver')
     : isRunning
-      ? status || '庭审进行中'
+      ? status || t('court.page.status.running')
       : awaitingUser
         ? userAgentEnabled
-          ? `我方代理待发言（${session.user_side}）`
-          : `轮到你陈述（${session.user_side}）`
-        : status || '可推进下一轮';
+          ? t('court.page.status.agentTurn', { side: session.user_side })
+          : t('court.page.status.yourTurn', { side: session.user_side })
+        : status || t('court.page.status.ready');
 
   const placeholder = trialOver
-    ? '庭审已结束'
+    ? t('court.page.placeholder.trialOver')
     : isUploadingFiles
-      ? '文件上传完成后可继续发送'
+      ? t('court.page.placeholder.uploading')
     : isRunning
-      ? '发言中…你的输入会作为插话排队'
+      ? t('court.page.placeholder.running')
       : awaitingUser
         ? userAgentEnabled
-          ? '我方代理将代为发言；输入可即时接管本轮'
-          : `轮到你陈述（${session.user_side}）`
-        : '输入发言或插话…';
+          ? t('court.page.placeholder.agentTurn')
+          : t('court.page.status.yourTurn', { side: session.user_side })
+        : t('court.page.placeholder.idle');
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const sendTriggered = IS_APPLE_PLATFORM ? event.metaKey && event.key === 'Enter' : event.ctrlKey && event.key === 'Enter';
@@ -520,11 +532,11 @@ const CourtComposerDock: React.FC<{
         {/* 阶段控制条 */}
         <div className="mb-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-3">
           <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto sm:flex-1">
-            <span className="md3-chip md3-chip-primary shrink-0">{phaseLabel(state.phase)}</span>
+            <span className="md3-chip md3-chip-primary shrink-0">{phaseLabel(state.phase, t)}</span>
             {pendingCount > 0 && (
-              <HoverInfo label="插话已排队，当前发言结束后会进入公开记录并由法官优先处理" placement="top">
+              <HoverInfo label={t('court.page.interjectionQueueHint')} placement="top">
                 <span className="shrink-0 rounded-[var(--radius-sm)] bg-[rgba(184,132,42,0.14)] px-2 py-1 text-[12px] font-medium text-[var(--color-warning-500)]">
-                  插话 {pendingCount}
+                  {t('court.page.interjectionCount', { count: pendingCount })}
                 </span>
               </HoverInfo>
             )}
@@ -542,8 +554,8 @@ const CourtComposerDock: React.FC<{
               <HoverInfo
                 label={
                   userAgentEnabled
-                    ? '关闭后，轮到你时由你打字'
-                    : '开启后，轮到你时由 AI 代理代为出庭（可读你的私有 brief）'
+                    ? t('court.page.agentToggle.off')
+                    : t('court.page.agentToggle.on')
                 }
                 placement="top"
               >
@@ -557,11 +569,11 @@ const CourtComposerDock: React.FC<{
                   }`}
                 >
                   <Bot size={14} strokeWidth={2} />
-                  我方代理
+                  {t('court.page.userAgent')}
                 </button>
               </HoverInfo>
 
-              <HoverInfo label="跳过当前阶段，请法庭推进" placement="top">
+              <HoverInfo label={t('court.page.forceAdvanceHint')} placement="top">
                 <button
                   type="button"
                   onClick={onForceAdvance}
@@ -569,7 +581,7 @@ const CourtComposerDock: React.FC<{
                   className="lawver-pressable inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-[12px] font-medium text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-40 dark:hover:bg-white/[0.06] sm:min-h-10 sm:w-auto"
                 >
                   <ChevronsRight size={15} strokeWidth={2} />
-                  推进阶段
+                  {t('court.page.forceAdvance')}
                 </button>
               </HoverInfo>
 
@@ -587,7 +599,7 @@ const CourtComposerDock: React.FC<{
                         active ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'
                       }`}
                     >
-                      {isAuto ? '自动' : '手动'}
+                      {isAuto ? t('court.page.mode.auto') : t('court.page.mode.manual')}
                     </button>
                   );
                 })}
@@ -601,7 +613,7 @@ const CourtComposerDock: React.FC<{
                   className="md3-btn-tonal lawver-pressable min-h-11 w-full !px-3.5 !py-1.5 text-[13px] sm:min-h-10 sm:w-auto"
                 >
                   <Play size={15} strokeWidth={2} />
-                  继续
+                  {t('court.page.continue')}
                 </button>
               )}
             </div>
@@ -620,14 +632,14 @@ const CourtComposerDock: React.FC<{
                 <span className="max-w-[140px] truncate sm:max-w-[220px]">{file.name}</span>
                 {file.kind === 'image' && (
                   <span className="shrink-0 rounded-sm bg-[var(--accent-quiet)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
-                    图片
+                    {t('court.page.image')}
                   </span>
                 )}
                 <button
                   type="button"
                   onClick={() => onRemoveMaterial(index)}
                   className="lawver-pressable shrink-0 rounded-full p-1 text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-                  aria-label={`移除 ${file.name}`}
+                  aria-label={t('court.page.removeFile', { name: file.name })}
                 >
                   <X size={12} strokeWidth={2} />
                 </button>
@@ -640,13 +652,13 @@ const CourtComposerDock: React.FC<{
         <div className="lawver-composer-shell" data-multiline={isMultiline ? 'true' : 'false'}>
           {/* 与主聊天共用控件组：庭审只有一个控件，竖排与横排等价 */}
           <div className="lawver-composer-actions">
-            <HoverInfo label="上传共享文件" placement="top">
+            <HoverInfo label={t('court.page.uploadSharedFile')} placement="top">
               <button
                 type="button"
                 onClick={onRequestUpload}
                 disabled={trialOver}
                 className="lawver-composer-action lawver-pressable text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] disabled:opacity-40 dark:hover:bg-white/[0.06]"
-                aria-label="上传共享文件"
+                aria-label={t('court.page.uploadSharedFile')}
               >
                 <Paperclip size={20} strokeWidth={2} />
               </button>
@@ -671,7 +683,7 @@ const CourtComposerDock: React.FC<{
                 ? 'bg-[var(--accent)] text-[var(--accent-on)] shadow-[var(--shadow-1)] hover:bg-[var(--accent-hover)]'
                 : 'cursor-not-allowed bg-[rgba(20,23,31,0.08)] text-[var(--fg-4)] dark:bg-white/[0.08]'
             }`}
-            aria-label={isUploadingFiles ? '文件上传完成前暂不能发送' : '发送'}
+            aria-label={isUploadingFiles ? t('court.page.uploadPending') : t('court.page.send')}
           >
             <Send size={20} strokeWidth={2} />
           </button>
@@ -712,6 +724,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
 
   const workspace = useWorkspace(currentCourtId, Boolean(currentCourtId));
   const { showAlert } = useAppDialog();
+  const t = useTranslation();
   const isDesktopLayout = windowWidth >= 1024;
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => windowWidth >= 1024);
@@ -739,9 +752,9 @@ export const CourtPage: React.FC<CourtPageProps> = ({
   }, [isInitialized, courtSessions.length]);
 
   const subtitle = useMemo(() => {
-    if (showSetup || !currentCourtSession) return '模拟法庭博弈';
-    return `${phaseLabel(currentCourtSession.court_state.phase)} · ${currentCourtSession.user_side}`;
-  }, [showSetup, currentCourtSession]);
+    if (showSetup || !currentCourtSession) return t('court.page.subtitle');
+    return `${phaseLabel(currentCourtSession.court_state.phase, t)} · ${currentCourtSession.user_side}`;
+  }, [showSetup, currentCourtSession, t]);
 
   const handleCreate = (input: Parameters<typeof createCourtSession>[0]) => {
     createCourtSession(input);
@@ -805,14 +818,21 @@ export const CourtPage: React.FC<CourtPageProps> = ({
         if (result.status === 'fulfilled') return [];
         const reason = result.reason instanceof Error
           ? result.reason.message
-          : String(result.reason || '未知错误');
-        return [`${selectedFiles[index]?.name || '未命名文件'}：${reason}`];
+          : String(result.reason || t('court.page.unknownError'));
+        return [t('court.page.uploadRejectedItem', {
+          name: selectedFiles[index]?.name || t('court.page.unnamedFile'),
+          reason
+        })];
       });
 
       if (rejected.length > 0) {
         await showAlert({
-          title: rejected.length === selectedFiles.length ? '文件上传未完成' : '部分文件上传未完成',
-          message: `已处理 ${selectedFiles.length - rejected.length} 个，未完成 ${rejected.length} 个。\n${rejected.join('\n')}`,
+          title: rejected.length === selectedFiles.length ? t('court.page.uploadFailedTitle') : t('court.page.uploadPartialTitle'),
+          message: t('court.page.uploadResult', {
+            done: selectedFiles.length - rejected.length,
+            failed: rejected.length,
+            details: rejected.join('\n')
+          }),
           tone: 'danger',
         });
       }
@@ -856,14 +876,14 @@ export const CourtPage: React.FC<CourtPageProps> = ({
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-              aria-label="庭审列表"
+              aria-label={t('court.page.hearingList')}
             >
               <Menu size={20} strokeWidth={2} className="sm:size-[22px]" />
             </button>
             <BrandMark className="hidden h-8 w-8 shrink-0 text-[var(--accent)] sm:block" />
             <div className="min-w-0 flex-1">
               <h1 className="lawver-header-title t-title-l truncate">
-                {showSetup || !session ? '新建庭审' : session.title || '模拟法庭'}
+                {showSetup || !session ? t('court.page.newHearing') : session.title || t('court.page.title')}
               </h1>
               <div className="truncate text-[12px] text-[var(--fg-3)]">{subtitle}</div>
             </div>
@@ -871,7 +891,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
 
           <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
             {showTrial && (
-              <HoverInfo label="案件面板" placement="bottom">
+              <HoverInfo label={t('court.page.casePanel')} placement="bottom">
                 <button
                   onClick={() => setIsCasePanelOpen(!isCasePanelOpen)}
                   className={`lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors ${
@@ -879,7 +899,7 @@ export const CourtPage: React.FC<CourtPageProps> = ({
                       ? 'bg-[var(--accent-quiet)] text-[var(--accent)]'
                       : 'text-[var(--fg-3)] hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]'
                   }`}
-                  aria-label="案件面板"
+                  aria-label={t('court.page.casePanel')}
                 >
                   <div className="relative">
                     <Briefcase size={18} strokeWidth={2} className="sm:size-5" />
@@ -890,11 +910,12 @@ export const CourtPage: React.FC<CourtPageProps> = ({
                 </button>
               </HoverInfo>
             )}
-            <HoverInfo label="设置" placement="bottom">
+            <LanguageMenu />
+            <HoverInfo label={t('court.page.settings')} placement="bottom">
               <button
                 onClick={onSettingsClick}
                 className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-                aria-label="设置"
+                aria-label={t('court.page.settings')}
               >
                 <Settings size={18} strokeWidth={2} className="sm:size-5" />
               </button>

@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { HoverInfo } from './HoverInfo';
 import { isNative } from '../lib/platform';
 import { useAppDialog } from '../contexts/DialogContext';
+import { useTranslation } from '../contexts/LocaleContext';
 import { backupPassphraseMinLength } from '../lib/backup-crypto';
 
 interface StorageIndicatorProps {
@@ -17,6 +18,7 @@ interface StorageIndicatorProps {
 }
 
 export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) => {
+  const t = useTranslation();
   const { usage, quota, usageRatio, isLowStorage, isPersistent, requestPersistence, updateEstimate, error } = useStorage();
   const { showAlert } = useAppDialog();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,8 +43,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
     try {
       const result = await storageService.garbageCollect();
       await showAlert({
-        title: '清理完成',
-        message: `已移除 ${result.cleanedCount} 个无效文件。`,
+        title: t('storage.gc.doneTitle'),
+        message: t('storage.gc.doneMessage', { count: result.cleanedCount }),
         tone: 'success',
       });
     } finally {
@@ -54,8 +56,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
   const handleRequestPersistence = async () => {
     if (!window.isSecureContext) {
       await showAlert({
-        title: '无法开启永久保护',
-        message: '必须在 HTTPS 安全环境（或 localhost）下才能申请此权限。',
+        title: t('storage.persistence.insecureTitle'),
+        message: t('storage.persistence.insecureMessage'),
         tone: 'warning',
       });
       return;
@@ -64,20 +66,20 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
     const granted = await requestPersistence();
     if (granted) {
       await showAlert({
-        title: '开启成功',
-        message: '已启用永久保护模式。浏览器将绝对不会在磁盘紧张时自动清理本应用的数据。',
+        title: t('storage.persistence.grantedTitle'),
+        message: t('storage.persistence.grantedMessage'),
         tone: 'success',
       });
     } else if (isNative()) {
       await showAlert({
-        title: '原生客户端',
-        message: '本地数据由应用沙箱管理，无需安装为 PWA。',
+        title: t('storage.persistence.nativeTitle'),
+        message: t('storage.persistence.nativeMessage'),
         tone: 'info',
       });
     } else {
       await showAlert({
-        title: '当前无法开启',
-        message: '原因：浏览器尚未授予此站点的持久化权限。\n\n解决办法：\n1. 继续使用一段时间（增加站点互动得分）\n2. 点击地址栏右侧图标，将本站安装为应用（PWA）\n3. 将本站加入书签',
+        title: t('storage.persistence.deniedTitle'),
+        message: t('storage.persistence.deniedMessage'),
         tone: 'warning',
       });
     }
@@ -85,14 +87,14 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
 
   if (compact) {
     return (
-      <HoverInfo label="查看存储状态" placement="top">
+      <HoverInfo label={t('storage.view')} placement="top">
         <button
           type="button"
           className={`lawver-pressable flex min-h-11 min-w-11 cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-3 py-1.5 transition-colors ${
             isLowStorage ? 'bg-[rgba(184,132,42,0.12)] text-[var(--color-warning-500)]' : 'text-[var(--fg-2)] hover:bg-[rgba(20,23,31,0.06)] dark:hover:bg-white/[0.06]'
           }`}
           onClick={() => setIsModalOpen(true)}
-          aria-label="查看存储状态"
+          aria-label={t('storage.view')}
         >
           <Database size={16} strokeWidth={2} />
           <span className="t-label-m">
@@ -110,13 +112,13 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
         <div className="flex items-center justify-between mb-3">
           <div className="t-title-s flex items-center gap-2">
             <Database size={18} strokeWidth={2} className="text-[var(--accent)]" />
-            <span>本地存储状态</span>
+            <span>{t('storage.title')}</span>
           </div>
           <button 
             onClick={() => setIsModalOpen(true)}
             className="lawver-pressable t-label-m inline-flex min-h-11 min-w-11 items-center justify-center rounded-full px-2 text-[var(--accent)] hover:underline"
           >
-            管理
+            {t('storage.manage')}
           </button>
         </div>
 
@@ -135,8 +137,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                 />
               </div>
               <div className="t-label-s t-muted flex justify-between">
-                <span>已用: {formatSize(usage)}</span>
-                <span>总量: {formatSize(quota)}</span>
+                <span>{t('storage.used', { size: formatSize(usage) })}</span>
+                <span>{t('storage.quota', { size: formatSize(quota) })}</span>
               </div>
             </>
           )}
@@ -148,14 +150,14 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
             className="lawver-pressable t-label-m mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] px-3 py-1.5 text-[var(--brand-primary-700)] transition-colors hover:bg-[rgba(59,98,184,0.16)] dark:text-[var(--accent)]"
           >
             <ShieldAlert size={14} strokeWidth={2} />
-            开启永久保护模式
+            {t('storage.enablePersistent')}
           </button>
         )}
         
         {showPersistenceControls && isPersistent && (
           <div className="t-label-s mt-3 flex items-center justify-center gap-1.5 text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]">
             <ShieldCheck size={14} strokeWidth={2} />
-            系统持久化模式已开启
+            {t('storage.persistentOn')}
           </div>
         )}
       </div>
@@ -182,8 +184,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                     <Database size={24} strokeWidth={2} />
                   </div>
                   <div>
-                    <h3 className="t-title-l">存储管理</h3>
-                    <p className="t-body-m t-muted">数据全本地化存储，无后端云端备份</p>
+                    <h3 className="t-title-l">{t('storage.modal.title')}</h3>
+                    <p className="t-body-m t-muted">{t('storage.modal.subtitle')}</p>
                   </div>
                 </div>
 
@@ -191,9 +193,9 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                   <div className="mb-6 flex gap-3 rounded-[var(--radius-md)] border border-[rgba(184,132,42,0.3)] bg-[rgba(184,132,42,0.1)] p-4">
                     <AlertTriangle className="shrink-0 text-[var(--color-warning-500)]" size={20} strokeWidth={2} />
                     <div>
-                      <p className="t-title-s text-[#5C3F0E] dark:text-[#FBEBC8]">存储空间不足</p>
+                      <p className="t-title-s text-[#5C3F0E] dark:text-[#FBEBC8]">{t('storage.low.title')}</p>
                       <p className="t-body-s mt-1 text-[#5C3F0E]/80 dark:text-[#FBEBC8]/80">
-                        可用空间已不足 20%，为防止数据丢失，请及时备份并清理旧数据。
+                        {t('storage.low.body')}
                       </p>
                     </div>
                   </div>
@@ -202,7 +204,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                 <div className="space-y-4">
                   <div className="flex flex-col gap-2">
                     <div className="flex justify-between">
-                      <span className="t-body-m">总体使用率</span>
+                      <span className="t-body-m">{t('storage.usageRate')}</span>
                       <span className="t-title-s">{Math.round(usageRatio * 100)}%</span>
                     </div>
                     <div className="h-3 overflow-hidden rounded-full bg-[var(--bg-inset)]">
@@ -215,7 +217,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                     </div>
                     <div className="t-body-s t-muted flex justify-between">
                       <span>{formatSize(usage)}</span>
-                      <span>总额 {formatSize(quota)}</span>
+                      <span>{t('storage.total', { size: formatSize(quota) })}</span>
                     </div>
                   </div>
 
@@ -230,8 +232,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                           <Trash2 size={20} strokeWidth={2} />
                         </div>
                         <div className="text-left">
-                          <p className="t-title-s">智能清理缓存</p>
-                          <p className="t-body-s t-muted">移除冗余的系统级日志和过期缓存</p>
+                          <p className="t-title-s">{t('storage.gc.action')}</p>
+                          <p className="t-body-s t-muted">{t('storage.gc.actionHint')}</p>
                         </div>
                       </div>
                       {isCleaning && <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-warning-500)] border-t-transparent" />}
@@ -240,42 +242,42 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
 
                   <div className="border-t border-[var(--border-subtle)] pt-6">
                     <div className="mb-4 flex items-center">
-                      <h4 className="t-label-s t-weak">数据导入与导出</h4>
+                      <h4 className="t-label-s t-weak">{t('storage.backup.section')}</h4>
                     </div>
                     
                     <div className="mb-4 rounded-[var(--radius-md)] border border-[rgba(59,98,184,0.18)] bg-[rgba(59,98,184,0.06)] p-4">
                       <div className="flex gap-3">
                         <AlertTriangle className="shrink-0 text-[var(--accent)]" size={18} strokeWidth={2} />
                         <p className="t-body-s leading-relaxed text-[var(--brand-primary-800)] dark:text-[var(--accent)]">
-                          新备份使用口令派生密钥与 AES-GCM 加密，并校验文件完整性（.lawver）。口令不会保存，遗忘后无法恢复；旧版备份仍可只读导入。
+                          {t('storage.backup.notice')}
                           <br />
-                          <strong className="text-[var(--accent)]">注意：</strong> 为保证迁移的极速和安全性，导出的文件仅包含文字对话与庭审记录，不包含臃肿的附件，附件需在新设备重新上传。
+                          <strong className="text-[var(--accent)]">{t('storage.backup.noticeStrong')}</strong> {t('storage.backup.noticeRest')}
                         </p>
                       </div>
                     </div>
 
                     <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2" id="backup-passphrase-help">
                       <label className="flex min-w-0 flex-col gap-1.5">
-                        <span className="t-label-s text-[var(--fg-2)]">备份口令</span>
+                        <span className="t-label-s text-[var(--fg-2)]">{t('storage.backup.passphrase')}</span>
                         <input
                           type="password"
                           value={backupPassphrase}
                           onChange={event => setBackupPassphrase(event.target.value)}
                           autoComplete="new-password"
                           className="md3-input min-h-11 w-full"
-                          placeholder={`至少 ${backupPassphraseMinLength} 个字符`}
+                          placeholder={t('storage.backup.passphrasePlaceholder', { min: backupPassphraseMinLength })}
                           aria-describedby="backup-passphrase-help"
                         />
                       </label>
                       <label className="flex min-w-0 flex-col gap-1.5">
-                        <span className="t-label-s text-[var(--fg-2)]">确认口令（导出时）</span>
+                        <span className="t-label-s text-[var(--fg-2)]">{t('storage.backup.confirmPassphrase')}</span>
                         <input
                           type="password"
                           value={backupPassphraseConfirm}
                           onChange={event => setBackupPassphraseConfirm(event.target.value)}
                           autoComplete="new-password"
                           className="md3-input min-h-11 w-full"
-                          placeholder="再次输入口令"
+                          placeholder={t('storage.backup.confirmPlaceholder')}
                           aria-describedby="backup-passphrase-help"
                         />
                       </label>
@@ -292,7 +294,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                           } catch (err) {
                             console.error(err);
                             await showAlert({
-                              title: '导出失败',
+                              title: t('storage.export.failedTitle'),
                               message: (err as Error).message,
                               tone: 'danger',
                             });
@@ -306,7 +308,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                         <div className="rounded-[var(--radius-sm)] bg-[var(--accent-quiet)] p-2 text-[var(--accent)] transition-transform group-hover:scale-105">
                           <Download size={20} strokeWidth={2} />
                         </div>
-                        <span className="t-title-s">导出记录</span>
+                        <span className="t-title-s">{t('storage.export.action')}</span>
                       </button>
 
                       <div className="relative">
@@ -323,8 +325,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             try {
                               const count = await storageService.importConversationsFromFile(file, backupPassphrase);
                               await showAlert({
-                                title: '导入完成',
-                                message: `成功导入 ${count} 条记录。\n列表已自动刷新，可直接切换查看。`,
+                                title: t('storage.import.doneTitle'),
+                                message: t('storage.import.doneMessage', { count }),
                                 tone: 'success',
                               });
                               setBackupPassphrase('');
@@ -333,8 +335,8 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                             } catch (err) {
                               console.error(err);
                               await showAlert({
-                                title: '导入失败',
-                                message: (err as Error).message || '请确保口令正确，且文件格式有效、未被篡改。',
+                                title: t('storage.import.failedTitle'),
+                                message: (err as Error).message || t('storage.import.failedHint'),
                                 tone: 'danger',
                               });
                             } finally {
@@ -353,7 +355,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                           <div className="rounded-[var(--radius-sm)] bg-[rgba(44,118,112,0.12)] p-2 text-[var(--brand-tertiary-700)] transition-transform group-hover:scale-105 dark:text-[#8ecdc7]">
                             <Database size={20} strokeWidth={2} />
                           </div>
-                          <span className="t-title-s">导入记录</span>
+                          <span className="t-title-s">{t('storage.import.action')}</span>
                         </button>
                       </div>
                     </div>
@@ -366,7 +368,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                   onClick={() => setIsModalOpen(false)}
                   className="md3-btn-tonal px-6 py-2"
                 >
-                  关闭
+                  {t('storage.modal.close')}
                 </button>
               </div>
             </motion.div>

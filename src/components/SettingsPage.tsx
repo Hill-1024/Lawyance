@@ -41,6 +41,8 @@ import {
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
+import { LOCALE_LABELS, LOCALES, type MessageKey } from '../locales';
+import { useLocale, useTranslation } from '../contexts/LocaleContext';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
 import { BUILD_INFO } from '../lib/buildInfo';
 import { HoverInfo } from './HoverInfo';
@@ -76,12 +78,12 @@ import {
 
 const MODE_OPTIONS: Array<{
   value: ThemeMode;
-  label: string;
+  labelKey: MessageKey;
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
 }> = [
-    { value: 'light', label: '浅色', icon: Sun },
-    { value: 'system', label: '系统', icon: Monitor },
-    { value: 'dark', label: '深色', icon: Moon },
+    { value: 'light', labelKey: 'settings.appearance.mode.light', icon: Sun },
+    { value: 'system', labelKey: 'settings.appearance.mode.system', icon: Monitor },
+    { value: 'dark', labelKey: 'settings.appearance.mode.dark', icon: Moon },
   ];
 
 const COLOR_PRESETS = [
@@ -95,10 +97,10 @@ const COLOR_PRESETS = [
   '#16a34a',
 ];
 
-const COLOR_SOURCE_LABEL: Record<ColorSource, string> = {
-  default: '默认品牌色',
-  custom: '自定义种子色',
-  monet: 'Material You',
+const COLOR_SOURCE_LABEL: Record<ColorSource, MessageKey> = {
+  default: 'settings.appearance.source.defaultLabel',
+  custom: 'settings.appearance.source.customLabel',
+  monet: 'settings.appearance.source.monetLabel',
 };
 
 const isHexColor = (value: string) => /^#[0-9a-f]{6}$/i.test(value);
@@ -402,6 +404,7 @@ const WebDavSection: React.FC = () => {
 };
 
 const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
+  const t = useTranslation();
   const [cfg, setCfg] = useState<WebDavConfig>(emptyWebDavConfig);
 
   useEffect(() => {
@@ -415,11 +418,15 @@ const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
       icon={<Cloud size={20} strokeWidth={2} />}
       title={
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate">WebDAV 数据同步</span>
-          <StatusChip tone={configured ? 'ok' : 'muted'}>{configured ? '已配置' : '未配置'}</StatusChip>
+          <span className="truncate">{t('settings.webdav.entryTitle')}</span>
+          <StatusChip tone={configured ? 'ok' : 'muted'}>
+            {configured ? t('settings.webdav.configured') : t('settings.webdav.unconfigured')}
+          </StatusChip>
         </span>
       }
-      description={configured ? `${getWebDavHostLabel(cfg)} · ${cfg.directory || '/Lawver/'}` : '备份到自己的 WebDAV 云盘'}
+      description={configured
+        ? `${getWebDavHostLabel(cfg)} · ${cfg.directory || '/Lawver/'}`
+        : t('settings.webdav.entryDescription')}
       trailing={<ChevronRight size={18} strokeWidth={2} className="text-[var(--fg-4)]" />}
       onClick={onOpen}
     />
@@ -436,20 +443,20 @@ const PROVIDER_ICONS: Record<string, React.ComponentType<{ size?: number; stroke
   embedding: Link2,
 };
 
-const PROVIDER_LABELS: Record<string, string> = {
-  llm: '大模型 (LLM)',
-  deli: '得理法搜',
-  searxng: '网页检索 (SearXNG)',
-  qcc: '企业信息 (企查查)',
-  embedding: '嵌入模型 (Embedding)',
+const PROVIDER_LABELS: Record<string, MessageKey> = {
+  llm: 'settings.provider.llm.label',
+  deli: 'settings.provider.deli.label',
+  searxng: 'settings.provider.searxng.label',
+  qcc: 'settings.provider.qcc.label',
+  embedding: 'settings.provider.embedding.label',
 };
 
-const PROVIDER_DESCS: Record<string, string> = {
-  llm: 'OpenAI 兼容聊天模型，主聊天、标题生成和代理流程都通过这里。',
-  deli: '案例检索和类案匹配。',
-  searxng: '自托管联网检索。',
-  qcc: '企业画像、工商登记和联系方式查询。',
-  embedding: '文本转向量，用于 RAG 召回。',
+const PROVIDER_DESCS: Record<string, MessageKey> = {
+  llm: 'settings.provider.llm.desc',
+  deli: 'settings.provider.deli.desc',
+  searxng: 'settings.provider.searxng.desc',
+  qcc: 'settings.provider.qcc.desc',
+  embedding: 'settings.provider.embedding.desc',
 };
 
 const PROVIDER_FIELDS: Record<string, { key: string; label: string; placeholder?: string; hint?: string }[]> = {
@@ -493,8 +500,9 @@ const PROVIDER_SECRETS: Record<string, { key: string; label: string; placeholder
 const PROVIDER_ORDER = ['deli', 'searxng', 'qcc', 'embedding'];
 
 const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => {
+  const t = useTranslation();
   const { showAlert } = useAppDialog();
-  const label = PROVIDER_LABELS[providerKey] || providerKey;
+  const label = PROVIDER_LABELS[providerKey] ? t(PROVIDER_LABELS[providerKey]) : providerKey;
   const fields = PROVIDER_FIELDS[providerKey] || [];
   const secrets = PROVIDER_SECRETS[providerKey] || [];
   const [settings, setSettings] = useState<Record<string, any> | null>(null);
@@ -626,7 +634,7 @@ const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => 
                   {statusOk ? '已就绪' : provider.enabled ? '已启用，待检测' : '未启用'}
                 </StatusChip>
               </div>
-              <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">{PROVIDER_DESCS[providerKey]}</p>
+              <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">{PROVIDER_DESCS[providerKey] && t(PROVIDER_DESCS[providerKey])}</p>
             </div>
           </div>
           <label className="flex min-h-11 shrink-0 cursor-pointer items-center gap-2.5 text-[13px] text-[var(--fg-2)]">
@@ -836,34 +844,80 @@ const HelpSection: React.FC<{ onStartTour: () => void }> = ({ onStartTour }) => 
 
 /* ── 关于 ──────────────────────────────────────────────────────────────── */
 
-const AboutSection: React.FC = () => (
-  <SettingsGroup label="关于">
-    <SettingsRow
-      icon={<BrandMark className="h-5 w-5 [--brand-logo-ink:var(--accent)]" />}
-      title={BUILD_INFO.appName}
-      description={BUILD_INFO.description}
-    />
-    <SettingsRow dense icon={<PackageCheck size={17} strokeWidth={2} />} title="版本" trailing={<span className="font-medium tabular-nums">{BUILD_INFO.version}</span>} />
-    <SettingsRow dense icon={<Server size={17} strokeWidth={2} />} title="构建环境" trailing={<span className="font-medium">{BUILD_INFO.environment}</span>} />
-    <SettingsRow dense icon={<Clock3 size={17} strokeWidth={2} />} title="构建时间" trailing={<span className="font-mono text-[12px] tabular-nums">{BUILD_INFO.buildTime}</span>} />
-    <SettingsRow
-      dense
-      icon={<Link2 size={17} strokeWidth={2} />}
-      title="项目地址"
-      trailing={
-        <a
-          href={BUILD_INFO.projectUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex min-w-0 max-w-[46vw] items-center gap-1.5 text-[12px] transition-opacity hover:opacity-80 hover:underline sm:max-w-none"
-        >
-          <span className="truncate font-mono">{BUILD_INFO.projectUrl}</span>
-          <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
-        </a>
-      }
-    />
-  </SettingsGroup>
-);
+const AboutSection: React.FC = () => {
+  const t = useTranslation();
+  return (
+    <SettingsGroup label={t('settings.about.group')}>
+      <SettingsRow
+        icon={<BrandMark className="h-5 w-5 [--brand-logo-ink:var(--accent)]" />}
+        title={BUILD_INFO.appName}
+        description={BUILD_INFO.description}
+      />
+      <SettingsRow dense icon={<PackageCheck size={17} strokeWidth={2} />} title={t('settings.about.version')} trailing={<span className="font-medium tabular-nums">{BUILD_INFO.version}</span>} />
+      <SettingsRow dense icon={<Server size={17} strokeWidth={2} />} title={t('settings.about.environment')} trailing={<span className="font-medium">{BUILD_INFO.environment}</span>} />
+      <SettingsRow dense icon={<Clock3 size={17} strokeWidth={2} />} title={t('settings.about.buildTime')} trailing={<span className="font-mono text-[12px] tabular-nums">{BUILD_INFO.buildTime}</span>} />
+      <SettingsRow
+        dense
+        icon={<Link2 size={17} strokeWidth={2} />}
+        title={t('settings.about.projectUrl')}
+        trailing={
+          <a
+            href={BUILD_INFO.projectUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-w-0 max-w-[46vw] items-center gap-1.5 text-[12px] transition-opacity hover:opacity-80 hover:underline sm:max-w-none"
+          >
+            <span className="truncate font-mono">{BUILD_INFO.projectUrl}</span>
+            <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
+          </a>
+        }
+      />
+    </SettingsGroup>
+  );
+};
+
+/* ── 语言 ──────────────────────────────────────────────────────────────── */
+
+const LanguageSection: React.FC = () => {
+  const t = useTranslation();
+  const { locale, setLocale } = useLocale();
+
+  return (
+    <SettingsGroup label={t('settings.language.group')} hint={t('settings.language.hint')}>
+      <div className="flex min-w-0 flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <span className="min-w-0">
+          <span className="block text-[14px] font-medium leading-5 text-[var(--fg-1)]">
+            {t('settings.language.title')}
+          </span>
+          <span className="mt-0.5 block text-[12px] leading-5 text-[var(--fg-3)]">
+            {t('settings.language.description')}
+          </span>
+        </span>
+        {/* 选项用本语言自称，用户在任何当前语言下都能认出自己的母语。 */}
+        <div className="grid shrink-0 grid-cols-2 gap-2 rounded-[var(--radius-md)] bg-[var(--bg-inset)] p-1.5">
+          {LOCALES.map(value => {
+            const active = locale === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setLocale(value)}
+                aria-pressed={active}
+                lang={value}
+                className={`lawver-pressable flex h-10 items-center justify-center rounded-[var(--radius-sm)] px-3 text-[13px] font-medium transition-colors sm:min-w-[96px] ${active
+                  ? 'bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)]'
+                  : 'text-[var(--fg-3)] hover:text-[var(--fg-1)]'
+                  }`}
+              >
+                {LOCALE_LABELS[value]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </SettingsGroup>
+  );
+};
 
 /* ── 外观 ──────────────────────────────────────────────────────────────── */
 
@@ -892,6 +946,7 @@ const AppearanceCard: React.FC<{
   refreshMonet,
   resolvedTheme,
 }) => {
+  const t = useTranslation();
   const [seedDraft, setSeedDraft] = useState(customSeed);
   const seedValid = isHexColor(seedDraft);
 
@@ -901,12 +956,12 @@ const AppearanceCard: React.FC<{
 
   // 纯字符串选择，比 useMemo 本身还便宜，直接每次渲染计算。
   const monetDescription = (() => {
-    if (!isMonetAvailableOnPlatform) return '需 Android 客户端';
-    if (monetStatus === 'available') return '跟随系统壁纸';
-    if (monetStatus === 'loading') return '正在读取系统色';
-    if (monetStatus === 'unavailable') return '此设备不支持';
-    if (monetStatus === 'error') return '读取系统色失败';
-    return '跟随系统壁纸';
+    if (!isMonetAvailableOnPlatform) return t('settings.appearance.monet.platform');
+    if (monetStatus === 'available') return t('settings.appearance.monet.followWallpaper');
+    if (monetStatus === 'loading') return t('settings.appearance.monet.loading');
+    if (monetStatus === 'unavailable') return t('settings.appearance.monet.unsupported');
+    if (monetStatus === 'error') return t('settings.appearance.monet.error');
+    return t('settings.appearance.monet.followWallpaper');
   })();
 
   const applySeedDraft = () => {
@@ -930,9 +985,12 @@ const AppearanceCard: React.FC<{
           <Palette size={20} strokeWidth={2} />
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="t-title-m">外观与配色</h2>
+          <h2 className="t-title-m">{t('settings.appearance.title')}</h2>
           <p className="mt-0.5 text-[12px] leading-5 text-[var(--fg-3)]">
-            当前 {resolvedTheme === 'dark' ? '深色' : '浅色'} · {COLOR_SOURCE_LABEL[colorSource]}
+            {t('settings.appearance.current', {
+              theme: resolvedTheme === 'dark' ? t('settings.appearance.mode.dark') : t('settings.appearance.mode.light'),
+              colorSource: t(COLOR_SOURCE_LABEL[colorSource]),
+            })}
           </p>
         </div>
         <span
@@ -944,7 +1002,7 @@ const AppearanceCard: React.FC<{
 
       <div className="flex min-w-0 flex-col gap-5 p-4 sm:p-5">
         <div className="min-w-0">
-          <p className="mb-2 text-[12px] font-medium text-[var(--fg-3)]">显示模式</p>
+          <p className="mb-2 text-[12px] font-medium text-[var(--fg-3)]">{t('settings.appearance.displayMode')}</p>
           <div className="grid grid-cols-3 gap-2 rounded-[var(--radius-md)] bg-[var(--bg-inset)] p-1.5">
             {MODE_OPTIONS.map(option => {
               const Icon = option.icon;
@@ -961,7 +1019,7 @@ const AppearanceCard: React.FC<{
                     }`}
                 >
                   <Icon size={16} strokeWidth={2} />
-                  {option.label}
+                  {t(option.labelKey)}
                 </button>
               );
             })}
@@ -969,22 +1027,22 @@ const AppearanceCard: React.FC<{
         </div>
 
         <div className="min-w-0">
-          <p className="mb-2 text-[12px] font-medium text-[var(--fg-3)]">配色来源</p>
+          <p className="mb-2 text-[12px] font-medium text-[var(--fg-3)]">{t('settings.appearance.colorSource')}</p>
           <div className="grid gap-2 sm:grid-cols-3">
             <button type="button" onClick={resetColors} className={sourceButtonClass('default')} aria-pressed={colorSource === 'default'}>
               <span className="flex w-full items-center justify-between gap-2">
-                <span className="text-[13px] font-medium">默认</span>
+                <span className="text-[13px] font-medium">{t('settings.appearance.source.default')}</span>
                 {colorSource === 'default' && <Check size={16} strokeWidth={2.4} className="text-[var(--accent)]" />}
               </span>
-              <span className="text-[11px] leading-4 text-[var(--fg-3)]">Lawver 司法蓝</span>
+              <span className="text-[11px] leading-4 text-[var(--fg-3)]">{t('settings.appearance.source.defaultHint')}</span>
             </button>
 
             <button type="button" onClick={() => setColorSource('custom')} className={sourceButtonClass('custom')} aria-pressed={colorSource === 'custom'}>
               <span className="flex w-full items-center justify-between gap-2">
-                <span className="text-[13px] font-medium">自定义</span>
+                <span className="text-[13px] font-medium">{t('settings.appearance.source.custom')}</span>
                 {colorSource === 'custom' && <Check size={16} strokeWidth={2.4} className="text-[var(--accent)]" />}
               </span>
-              <span className="text-[11px] leading-4 text-[var(--fg-3)]">用种子色生成色板</span>
+              <span className="text-[11px] leading-4 text-[var(--fg-3)]">{t('settings.appearance.source.customHint')}</span>
             </button>
 
             <button
@@ -1022,7 +1080,7 @@ const AppearanceCard: React.FC<{
                     setCustomSeed(event.target.value);
                   }}
                   className="h-11 w-14 cursor-pointer rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-transparent p-1"
-                  aria-label="自定义种子色"
+                  aria-label={t('settings.appearance.seedLabel')}
                 />
                 <input
                   value={seedDraft}
@@ -1033,7 +1091,7 @@ const AppearanceCard: React.FC<{
                   }}
                   className={`h-11 w-32 rounded-[var(--radius-md)] border bg-[var(--bg-surface)] px-3 font-mono text-sm tabular-nums outline-none transition-colors ${seedValid ? 'border-[var(--border-default)] focus:border-[var(--accent)]' : 'border-[var(--color-danger-500)]'
                     }`}
-                  aria-label="十六进制颜色"
+                  aria-label={t('settings.appearance.hexLabel')}
                   aria-invalid={!seedValid}
                 />
               </label>
@@ -1051,7 +1109,7 @@ const AppearanceCard: React.FC<{
                       : 'border-[var(--border-default)]'
                       }`}
                     style={{ backgroundColor: color }}
-                    aria-label={`选择 ${color}`}
+                    aria-label={t('settings.appearance.selectColor', { color })}
                     title={color}
                   />
                 ))}
@@ -1064,7 +1122,7 @@ const AppearanceCard: React.FC<{
                   className="md3-btn-text lawver-pressable !min-h-10 shrink-0 !px-3 !text-[12px]"
                 >
                   <RotateCcw size={14} strokeWidth={2} />
-                  重置
+                  {t('settings.appearance.reset')}
                 </button>
               </div>
             </div>
@@ -1080,6 +1138,7 @@ const AppearanceCard: React.FC<{
 export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const t = useTranslation();
   // 返回一律走退栈，避免用 navigate(父级) 压栈导致返回错乱。
   const goBack = useAppBack();
   const {
@@ -1108,21 +1167,21 @@ export const SettingsPage: React.FC = () => {
   const isLlmRoute = isProviderRoute && providerKey === 'llm';
 
   const pageTitle = isWebDavRoute
-    ? 'WebDAV 同步'
+    ? t('settings.webdav.pageTitle')
     : isHelpRoute
-      ? '帮助与指引'
+      ? t('settings.help.pageTitle')
       : isProviderRoute
-        ? (PROVIDER_LABELS[providerKey] || providerKey)
-        : '设置';
+        ? (PROVIDER_LABELS[providerKey] ? t(PROVIDER_LABELS[providerKey]) : providerKey)
+        : t('settings.title');
   const pageSubtitle = isWebDavRoute
-    ? '备份与恢复'
+    ? t('settings.webdav.pageSubtitle')
     : isHelpRoute
-      ? '功能手册与首次使用指引'
+      ? t('settings.help.pageSubtitle')
       : isLlmRoute
-        ? '模型配置档案与一键切换'
+        ? t('settings.capability.llmSubtitle')
         : isProviderRoute
-          ? '服务端能力配置'
-          : '外观、同步与应用信息';
+          ? t('settings.capability.providerSubtitle')
+          : t('settings.subtitle');
 
   const handleBack = () => {
     if (isProviderRoute || isWebDavRoute || isHelpRoute) {
@@ -1160,29 +1219,32 @@ export const SettingsPage: React.FC = () => {
   const providerStatusOf = (key: string) => providerStatusByKey.get(key);
 
   const statusLabel = isWebDavRoute
-    ? '数据同步'
+    ? t('settings.webdav.statusLabel')
     : isHelpRoute
-      ? '使用手册'
-      : `${resolvedTheme === 'dark' ? '深色' : '浅色'} · ${COLOR_SOURCE_LABEL[colorSource]}`;
+      ? t('settings.help.statusLabel')
+      : t('settings.appearance.current', {
+        theme: resolvedTheme === 'dark' ? t('settings.appearance.mode.dark') : t('settings.appearance.mode.light'),
+        colorSource: t(COLOR_SOURCE_LABEL[colorSource]),
+      });
   const isIndexRoute = !isWebDavRoute && !isHelpRoute && !isProviderRoute;
 
   return (
     <div className="flex min-h-[100dvh] w-full max-w-full flex-col overflow-x-hidden bg-[var(--bg-app)] text-[var(--fg-1)]">
       <header className="lawver-topbar sticky top-0 z-30 flex w-full max-w-full shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-2 pt-[calc(0.625rem+var(--safe-top))] sm:px-5 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]">
         <div className="flex min-w-0 items-center gap-2">
-          <HoverInfo label={isIndexRoute ? '返回' : '返回设置'} placement="bottom">
+          <HoverInfo label={isIndexRoute ? t('common.back') : t('settings.backToSettings')} placement="bottom">
             <button
               onClick={handleBack}
               className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-              aria-label="返回"
+              aria-label={t('common.back')}
             >
               <ArrowLeft size={20} strokeWidth={2} />
             </button>
           </HoverInfo>
           <div className="min-w-0">
             {!isIndexRoute && (
-              <nav aria-label="面包屑" className="mb-0.5 flex items-center gap-1 text-[11px] leading-4 text-[var(--fg-4)]">
-                <span>设置</span>
+              <nav aria-label={t('settings.breadcrumb')} className="mb-0.5 flex items-center gap-1 text-[11px] leading-4 text-[var(--fg-4)]">
+                <span>{t('settings.title')}</span>
                 <ChevronRight size={11} strokeWidth={2} />
                 <span className="text-[var(--fg-3)]">{pageTitle}</span>
               </nav>
@@ -1223,17 +1285,19 @@ export const SettingsPage: React.FC = () => {
                 resolvedTheme={resolvedTheme}
               />
 
-              <SettingsGroup label="数据与同步" hint="备份、恢复与断线续传">
+              <LanguageSection />
+
+              <SettingsGroup label={t('settings.data.group')} hint={t('settings.data.hint')}>
                 <WebDavEntry onOpen={() => navigate('/settings/webdav')} />
                 <SettingsRow
                   icon={<RotateCcw size={20} strokeWidth={2} />}
-                  title="断线续传"
-                  description="回答中断时临时使用服务器内存缓存，最多 45 分钟，设备确认接收后删除。"
+                  title={t('settings.data.resume.title')}
+                  description={t('settings.data.resume.description')}
                   trailing={
                     <AnimatedSwitch
                       checked={resumeEnabled}
                       onCheckedChange={updateResumeEnabled}
-                      ariaLabel="切换断线续传"
+                      ariaLabel={t('settings.data.resume.toggle')}
                     />
                   }
                 />
@@ -1241,22 +1305,26 @@ export const SettingsPage: React.FC = () => {
 
               {userRole === 'sudo' && (
                 <SettingsGroup
-                  label="连接与能力"
-                  hint="管理远端服务端的模型、法源与检索服务"
+                  label={t('settings.capability.group')}
+                  hint={t('settings.capability.hint')}
                 >
                   <SettingsRow
                     icon={<Sparkles size={20} strokeWidth={2} />}
                     title={
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate">大模型 (LLM)</span>
+                        <span className="truncate">{t('settings.capability.llm')}</span>
                         <StatusChip
                           tone={providerStatusOf('llm')?.ok ? 'ok' : providerStatusOf('llm')?.configured ? 'warn' : 'muted'}
                         >
-                          {providerStatusOf('llm')?.ok ? '已就绪' : providerStatusOf('llm')?.configured ? '待启用' : '未配置'}
+                          {providerStatusOf('llm')?.ok
+                            ? t('settings.status.ready')
+                            : providerStatusOf('llm')?.configured
+                              ? t('settings.status.pending')
+                              : t('settings.status.unconfigured')}
                         </StatusChip>
                       </span>
                     }
-                    description="保存多套模型配置档案并一键切换，无需重启服务。"
+                    description={t('settings.capability.llm.description')}
                     trailing={<ChevronRight size={18} strokeWidth={2} className="text-[var(--fg-4)]" />}
                     onClick={() => navigate('/settings/providers/llm')}
                   />
@@ -1269,13 +1337,17 @@ export const SettingsPage: React.FC = () => {
                         icon={<Icon size={19} strokeWidth={2} />}
                         title={
                           <span className="flex min-w-0 items-center gap-2">
-                            <span className="truncate">{PROVIDER_LABELS[key]}</span>
+                            <span className="truncate">{t(PROVIDER_LABELS[key])}</span>
                             <StatusChip tone={status?.ok && status?.enabled ? 'ok' : status?.configured ? 'warn' : 'muted'}>
-                              {status?.ok && status?.enabled ? '已就绪' : status?.configured ? '待启用' : '未配置'}
+                              {status?.ok && status?.enabled
+                                ? t('settings.status.ready')
+                                : status?.configured
+                                  ? t('settings.status.pending')
+                                  : t('settings.status.unconfigured')}
                             </StatusChip>
                           </span>
                         }
-                        description={PROVIDER_DESCS[key]}
+                        description={t(PROVIDER_DESCS[key])}
                         trailing={<ChevronRight size={18} strokeWidth={2} className="text-[var(--fg-4)]" />}
                         onClick={() => navigate(`/settings/providers/${key}`)}
                       />
@@ -1284,16 +1356,16 @@ export const SettingsPage: React.FC = () => {
                 </SettingsGroup>
               )}
 
-              <SettingsGroup label="帮助">
+              <SettingsGroup label={t('settings.help.group')}>
                 <SettingsRow
                   icon={<BookOpen size={20} strokeWidth={2} />}
                   title={
                     <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">帮助与指引</span>
-                      <StatusChip tone="accent">功能地图</StatusChip>
+                      <span className="truncate">{t('settings.help.title')}</span>
+                      <StatusChip tone="accent">{t('settings.help.badge')}</StatusChip>
                     </span>
                   }
-                  description="查看按钮手册，随时重播首次使用导览"
+                  description={t('settings.help.description')}
                   trailing={<ChevronRight size={18} strokeWidth={2} className="text-[var(--fg-4)]" />}
                   onClick={() => navigate('/settings/help')}
                 />
