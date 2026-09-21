@@ -211,7 +211,7 @@ async def align_query_endpoint(
     request: QueryGatewayRequest,
     current_user: str = Depends(get_current_user),
 ):
-    """Return one aligned query; retrieval remains a separate subsystem."""
+    """Return semantic gateway metadata; retrieval remains a separate subsystem."""
     return (await align_query_with_polylm(request.query)).as_payload()
 
 

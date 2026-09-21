@@ -61,7 +61,8 @@ const GREETING_MESSAGE = `您好，我是 **Lawver**，由 **工大法智团队*
 请问有什么法律问题需要我协助分析？`;
 
 const CONTEXT_COMPRESSION_THRESHOLD_TOKENS = 500000;
-const HISTORY_COMPRESSION_STATUS = '正在整理较早上下文';
+const SEMANTIC_ALIGNMENT_STATUS = '正在进行多语种语义对齐…';
+const SEMANTIC_ALIGNMENT_WITH_COMPRESSION_STATUS = '正在进行多语种语义对齐，并整理较早上下文…';
 const CJK_CHAR_PATTERN = /[\u3400-\u9fff\uf900-\ufaff]/g;
 const STREAM_COMMIT_THROTTLE_MS = 48;
 const NATIVE_DRAIN_BATCH_SIZE = 128;
@@ -1310,6 +1311,8 @@ export function useChat() {
         activeNativeStreamRef.current = null;
         throw parseHttpStreamError(head.error);
       }
+      // 与 Web 流一致：服务端首个事件到达后，交由回答/思考区继续反馈进度。
+      setComposerStatus(null);
     }
 
     const encoder = new TextEncoder();
@@ -1640,7 +1643,11 @@ export function useChat() {
       userMessage
     ]);
     setIsLoading(true);
-    setComposerStatus(shouldShowCompressionStatus ? HISTORY_COMPRESSION_STATUS : null);
+    setComposerStatus(
+      shouldShowCompressionStatus
+        ? SEMANTIC_ALIGNMENT_WITH_COMPRESSION_STATUS
+        : SEMANTIC_ALIGNMENT_STATUS
+    );
 
     const abortController = new AbortController();
     activeAbortRef.current?.abort();
@@ -1654,7 +1661,6 @@ export function useChat() {
       ]);
       resumeEnabledRef.current = resumeEnabled;
       if (isStreaming && isNativeAndroid()) {
-        setComposerStatus(null);
         const completed = await sendNativeChatWithMemoryRetry(selectedValue, history, convId, memorySnapshot, 'merge', lastContextTokens, resumeEnabled, onFileGenerated, abortController.signal);
         if (!completed) return;
       } else {
@@ -1761,7 +1767,11 @@ export function useChat() {
     setInput('');
     setPendingUploads([]);
     setIsLoading(true);
-    setComposerStatus(shouldShowCompressionStatus ? HISTORY_COMPRESSION_STATUS : null);
+    setComposerStatus(
+      shouldShowCompressionStatus
+        ? SEMANTIC_ALIGNMENT_WITH_COMPRESSION_STATUS
+        : SEMANTIC_ALIGNMENT_STATUS
+    );
 
     const abortController = new AbortController();
     activeAbortRef.current?.abort();
@@ -1776,7 +1786,6 @@ export function useChat() {
       ]);
       resumeEnabledRef.current = resumeEnabled;
       if (isStreaming && isNativeAndroid()) {
-        setComposerStatus(null);
         const completed = await sendNativeChatWithMemoryRetry(messageContent, history, convId, memorySnapshot, 'merge', lastContextTokens, resumeEnabled, onFileGenerated, abortController.signal);
         if (!completed) return;
       } else {
@@ -1884,7 +1893,11 @@ export function useChat() {
     updateMessages(convId, () => retainedMessages);
     updateConversationMemory(convId, memorySnapshot);
     setIsLoading(true);
-    setComposerStatus(shouldShowCompressionStatus ? HISTORY_COMPRESSION_STATUS : null);
+    setComposerStatus(
+      shouldShowCompressionStatus
+        ? SEMANTIC_ALIGNMENT_WITH_COMPRESSION_STATUS
+        : SEMANTIC_ALIGNMENT_STATUS
+    );
 
     const abortController = new AbortController();
     activeAbortRef.current?.abort();
@@ -1910,7 +1923,6 @@ export function useChat() {
       updateMessages(convId, prev => [...prev, userMessage]);
 
       if (isStreaming && isNativeAndroid()) {
-        setComposerStatus(null);
         const completed = await sendNativeChatWithMemoryRetry(content, history, convId, memorySnapshot, 'rebuild', lastContextTokens, resumeEnabled, onFileGenerated, abortController.signal);
         if (!completed) return;
       } else {

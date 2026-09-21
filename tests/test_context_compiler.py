@@ -112,17 +112,36 @@ class ContextCompilerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_context_uses_polylm_semantic_gateway_result(self):
         query = "กฎหมายเวียดนามใช้กับกรณีนี้หรือไม่?"
+        legal_intent = {
+            "task_type": "legal_retrieval",
+            "confidence": 0.9,
+            "focus": ["general_gate", "legal_retrieval"],
+            "reasons": ["test_legal_retrieval"],
+            "source": "test",
+            "requires_legal_evidence": True,
+            "requires_file_read": False,
+            "requires_workspace_listing": False,
+            "requires_memory_deep_search": False,
+        }
         gateway = SemanticGatewayResult(
             original_query=query,
             detection=QueryDetection("th", "VN", ("VN",), "polylm"),
             aligned_query="áp dụng pháp luật Việt Nam cho vụ việc",
             alignment_language="vi",
             aligned=True,
+            english_pivot="Whether Vietnamese law applies to this matter",
+            legal_concepts=("applicable law", "choice of law"),
         )
-        with patch(
-            "services.context_compiler.align_query_with_polylm",
-            new=AsyncMock(return_value=gateway),
-        ) as semantic_gateway:
+        with (
+            patch(
+                "services.context_compiler.resolve_intent",
+                new=AsyncMock(return_value=legal_intent),
+            ),
+            patch(
+                "services.context_compiler.align_query_with_polylm",
+                new=AsyncMock(return_value=gateway),
+            ) as semantic_gateway,
+        ):
             compiled = await compile_context(
                 content=query,
                 history=[],
@@ -134,8 +153,31 @@ class ContextCompilerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("法域线索: VN（越南）", compiled.working_context_text)
         self.assertIn("单路语义对齐查询（vi）", compiled.working_context_text)
         self.assertIn("áp dụng pháp luật Việt Nam cho vụ việc", compiled.working_context_text)
+        self.assertIn("English Pivot: Whether Vietnamese law applies", compiled.working_context_text)
+        self.assertIn("Legal Concepts（仅作检索提示", compiled.working_context_text)
+        self.assertIn("applicable law, choice of law", compiled.working_context_text)
         self.assertEqual(compiled.attention_trace["query_detection"]["source"], "polylm")
         self.assertTrue(compiled.attention_trace["semantic_gateway"]["aligned"])
+        self.assertTrue(compiled.attention_trace["semantic_gateway_required"])
+        self.assertFalse(compiled.attention_trace["semantic_gateway_skipped"])
+
+    async def test_non_legal_request_skips_polylm_semantic_gateway(self):
+        query = "请帮我把这句话改得更简洁。"
+        with patch(
+            "services.context_compiler.align_query_with_polylm",
+            new=AsyncMock(),
+        ) as semantic_gateway:
+            compiled = await compile_context(
+                content=query,
+                history=[],
+                memory_context="",
+            )
+
+        semantic_gateway.assert_not_awaited()
+        self.assertFalse(compiled.attention_trace["semantic_gateway_required"])
+        self.assertTrue(compiled.attention_trace["semantic_gateway_skipped"])
+        self.assertEqual(compiled.attention_trace["query_detection"]["source"], "rules")
+        self.assertFalse(compiled.attention_trace["semantic_gateway"]["aligned"])
 
 
 if __name__ == "__main__":

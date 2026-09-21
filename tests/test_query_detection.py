@@ -120,8 +120,13 @@ class PolyLMDetectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["model"], "polylm")
         self.assertEqual(captured["temperature"], 0)
         self.assertIn("aligned_query", captured["messages"][0]["content"])
+        self.assertIn("english_pivot", captured["messages"][0]["content"])
+        self.assertIn("legal_concepts", captured["messages"][0]["content"])
         self.assertIn("never multiple views", captured["messages"][0]["content"])
         self.assertIn("ข้อความทดสอบ", captured["messages"][1]["content"])
+        schema = captured["response_format"]["json_schema"]["schema"]
+        self.assertIn("english_pivot", schema["required"])
+        self.assertIn("legal_concepts", schema["required"])
         self.assertIn('"jurisdiction":"TH"', content)
 
     async def test_base_model_can_use_completions_endpoint(self):
@@ -154,6 +159,7 @@ class PolyLMDetectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Input JSON", captured["prompt"])
         self.assertIn("中国企业投资泰国", captured["prompt"])
         self.assertNotIn("messages", captured)
+        self.assertIn("json", captured["extra_body"]["structured_outputs"])
         self.assertIn('"aligned_query"', content)
 
 
@@ -163,7 +169,10 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
         response = (
             '{"language":"zh","jurisdiction":"TH",'
             '"mentioned_jurisdictions":["CN","TH"],'
-            '"aligned_query":"บริษัทจีนถือหุ้น 100% ในบริษัทไทย"}'
+            '"aligned_query":"บริษัทจีนถือหุ้น 100% ในบริษัทไทย",'
+            '"english_pivot":"Whether a Chinese company may own 100% of a Thai company",'
+            '"legal_concepts":["foreign ownership","foreign ownership",'
+            '"foreign investment restriction"]}'
         )
         with patch.dict(os.environ, {
             "POLYLM_BASE_URL": "http://127.0.0.1:8001/v1",
@@ -189,6 +198,8 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
             "aligned_query": "บริษัทจีนถือหุ้น 100% ในบริษัทไทย",
             "alignment_language": "th",
             "aligned": True,
+            "english_pivot": "Whether a Chinese company may own 100% of a Thai company",
+            "legal_concepts": ["foreign ownership", "foreign investment restriction"],
         })
 
     async def test_wrong_language_is_repaired_once(self):
@@ -196,7 +207,9 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
         response = (
             '{"language":"zh","jurisdiction":"TH",'
             '"mentioned_jurisdictions":["CN","TH"],'
-            '"aligned_query":"中国企业能否100%持有泰国公司的股权？"}'
+            '"aligned_query":"中国企业能否100%持有泰国公司的股权？",'
+            '"english_pivot":"Whether a Chinese company may own 100% of a Thai company",'
+            '"legal_concepts":["foreign ownership"]}'
         )
         with patch.dict(os.environ, {
             "POLYLM_BASE_URL": "http://127.0.0.1:8001/v1",
@@ -223,13 +236,20 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.aligned)
         self.assertEqual(result.alignment_language, "th")
         self.assertIn("บริษัท", result.aligned_query)
+        self.assertEqual(
+            result.english_pivot,
+            "Whether a Chinese company may own 100% of a Thai company",
+        )
+        self.assertEqual(result.legal_concepts, ("foreign ownership",))
 
     async def test_wrong_language_after_repair_falls_back(self):
         query = "中国企业能否100%持有泰国公司的股权？"
         response = (
             '{"language":"zh","jurisdiction":"TH",'
             '"mentioned_jurisdictions":["CN","TH"],'
-            '"aligned_query":"中国企业能否100%持有泰国公司的股权？"}'
+            '"aligned_query":"中国企业能否100%持有泰国公司的股权？",'
+            '"english_pivot":"Whether a Chinese company may own 100% of a Thai company",'
+            '"legal_concepts":["foreign ownership"]}'
         )
         with patch.dict(os.environ, {
             "POLYLM_BASE_URL": "http://127.0.0.1:8001/v1",
@@ -254,7 +274,9 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
         response = (
             '{"language":"en","jurisdiction":null,'
             '"mentioned_jurisdictions":["CN","TH"],'
-            '"aligned_query":"compare foreign ownership restrictions under Chinese and Thai law"}'
+            '"aligned_query":"compare foreign ownership restrictions under Chinese and Thai law",'
+            '"english_pivot":"A paraphrase that must not replace the English input",'
+            '"legal_concepts":["foreign ownership","comparative law"]}'
         )
         with patch.dict(os.environ, {
             "POLYLM_BASE_URL": "http://127.0.0.1:8001/v1",
@@ -267,6 +289,8 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.alignment_language, "en")
         self.assertIsInstance(result.aligned_query, str)
         self.assertTrue(result.aligned)
+        self.assertEqual(result.english_pivot, query)
+        self.assertEqual(result.legal_concepts, ("foreign ownership", "comparative law"))
 
     async def test_invalid_alignment_falls_back_without_guessing_translation(self):
         query = "中国企业能否持有泰国公司的股权？"
@@ -276,7 +300,9 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
         }), patch("services.query_detection._call_polylm", new_callable=AsyncMock) as call:
             call.return_value = (
                 '{"language":"zh","jurisdiction":"TH",'
-                '"mentioned_jurisdictions":["CN","TH"],"aligned_query":""}'
+                '"mentioned_jurisdictions":["CN","TH"],"aligned_query":"",'
+                '"english_pivot":"Whether a Chinese company may own a Thai company",'
+                '"legal_concepts":["foreign ownership"]}'
             )
             result = await align_query_with_polylm(query)
 
@@ -284,6 +310,15 @@ class SemanticGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.aligned_query, query)
         self.assertEqual(result.alignment_language, "zh")
         self.assertEqual(result.detection.source, "rules_fallback")
+
+    async def test_unconfigured_english_query_reuses_original_as_pivot(self):
+        query = "Can a Chinese company wholly own a Thai company?"
+        with patch.dict(os.environ, {"POLYLM_BASE_URL": "", "POLYLM_MODEL": ""}):
+            result = await align_query_with_polylm(query)
+
+        self.assertFalse(result.aligned)
+        self.assertEqual(result.english_pivot, query)
+        self.assertEqual(result.legal_concepts, ())
 
 
 if __name__ == "__main__":

@@ -11,7 +11,12 @@ from typing import Any
 
 from context_usage import estimate_text_tokens, trim_text_to_token_budget
 from services.prompt_focus import resolve_intent
-from services.query_detection import COUNTRY_LABELS, SemanticGatewayResult, align_query_with_polylm
+from services.query_detection import (
+    COUNTRY_LABELS,
+    SemanticGatewayResult,
+    align_query_with_polylm,
+    rule_based_gateway_result,
+)
 
 
 WORKING_CONTEXT_BUDGET_ENV = "CONTEXT_WORKING_CONTEXT_TOKEN_BUDGET"
@@ -178,6 +183,17 @@ def _context_lines(
             f"{_safe_context_text(gateway.aligned_query, 520)}"
         )
         lines.append("如需法律检索，query/message 参数优先使用上述单条查询；它不是法律结论，回答仍以原始请求为准。")
+    if gateway.english_pivot:
+        lines.append(
+            "English Pivot: "
+            f"{_safe_context_text(gateway.english_pivot, 520)}"
+        )
+    if gateway.legal_concepts:
+        concepts = ", ".join(gateway.legal_concepts)
+        lines.append(
+            "Legal Concepts（仅作检索提示，不是法律结论）: "
+            f"{_safe_context_text(concepts, 520)}"
+        )
     if memory_lines:
         lines.append("已知上下文/记忆:")
         lines.extend(f"- {line}" for line in memory_lines[:MAX_MEMORY_LINES])
@@ -271,11 +287,18 @@ async def compile_context(
     memory_payload: dict[str, Any] | None = None,
 ) -> CompiledContext:
     intent = await resolve_intent(content, history)
-    gateway = await align_query_with_polylm(content)
+    requires_semantic_gateway = bool(intent.get("requires_legal_evidence"))
+    gateway = (
+        await align_query_with_polylm(content)
+        if requires_semantic_gateway
+        else rule_based_gateway_result(content)
+    )
     trace: dict[str, Any] = {
         "intent": intent,
         "query_detection": gateway.detection.as_payload(),
         "semantic_gateway": gateway.as_payload(),
+        "semantic_gateway_required": requires_semantic_gateway,
+        "semantic_gateway_skipped": not requires_semantic_gateway,
         "memory_item_count": len((memory_payload or {}).get("items") or []),
     }
     policy = _execution_policy_from_intent(intent)

@@ -268,7 +268,7 @@ curl -s http://127.0.0.1:8001/v1/chat/completions \
 
 ### 6. 接入 Multilingual Legal Semantic Gateway
 
-生产环境可将 [`iic/nlp_polylm_qwen_7b_text_generation`](https://www.modelscope.cn/models/iic/nlp_polylm_qwen_7b_text_generation/summary) 通过同一 OpenAI 兼容接口接入；上面的 SEA-LION 部署也可用于接口联调。`POLYLM_MODEL` 必须填写实际的 `--served-model-name`。网关一次完成语言检测、目标法域检测和**单条**法律语义对齐，不执行数据库检索，也不生成 Multi-view 查询。在 Lawver 根目录的 `.env` 中配置：
+生产环境可将 [`iic/nlp_polylm_qwen_7b_text_generation`](https://www.modelscope.cn/models/iic/nlp_polylm_qwen_7b_text_generation/summary) 通过同一 OpenAI 兼容接口接入；上面的 SEA-LION 部署也可用于接口联调。`POLYLM_MODEL` 必须填写实际的 `--served-model-name`。网关一次生成语言与法域检测、目标语料语言的单条 `aligned_query`、`english_pivot` 和英文 `legal_concepts`；不执行数据库检索或结果融合。在 Lawver 根目录的 `.env` 中配置：
 
 ```env
 POLYLM_BASE_URL="http://127.0.0.1:8001/v1"
@@ -277,7 +277,7 @@ POLYLM_API_KEY="EMPTY"
 POLYLM_API_MODE="completion"
 ```
 
-PolyLM-Qwen-7B 是文本生成预训练底座，示例直接使用 `completion`。指令微调模型可显式设为 `chat`；不确定服务端是否配置 chat template 时可设为 `auto`，代码会先调用 Chat Completions，并在服务端返回 400 时改用普通 Completions。vLLM 未设置 `--api-key` 时，`POLYLM_API_KEY` 可以省略；代码会自动使用非空占位值。`API_KEY`、`BASE_URL` 和 `LLM_MODEL` 仍用于 Lawver 的主聊天及工具调用模型，例如配置为部署方选择的 DeepSeek 或其他 OpenAI 兼容模型，不应因启用 PolyLM 而被覆盖。随后切回应用环境并启动 Lawver：
+PolyLM-Qwen-7B 是文本生成预训练底座，示例直接使用 `completion`。Qwen-SEA-LION-v4-8B-VL 是带 chat template 的指令模型，应配置实际模型名并使用 `POLYLM_API_MODE="chat"`。不确定服务端是否配置 chat template 时可设为 `auto`，代码会先调用 Chat Completions，并在服务端返回 400 时改用普通 Completions。网关会通过 vLLM structured outputs 的 JSON Schema 约束返回形状，同时仍在应用侧校验字段与语言。vLLM 未设置 `--api-key` 时，`POLYLM_API_KEY` 可以省略；代码会自动使用非空占位值。`API_KEY`、`BASE_URL` 和 `LLM_MODEL` 仍用于 Lawver 的主聊天及工具调用模型，不应因启用 PolyLM 而被覆盖。随后切回应用环境并启动 Lawver：
 
 ```bash
 source "$HOME/Lawver-ASEAN/Lawver-ASEAN/bin/activate"
@@ -285,14 +285,16 @@ cd "$HOME/Lawver-ASEAN/Lawyance"
 python agent.py
 ```
 
-配置后，聊天流程会把 PolyLM 返回的一条 `aligned_query` 放入本轮工作上下文，供后续法律检索使用；原问题仍是回答依据，模型生成的对齐语句不是法律结论。对齐语言默认采用目标法域语料的主要语言，例如泰国为 `th`、越南为 `vi`、印度尼西亚为 `id`；普通法系目标按数据库协调约定默认使用 `en`，目标法域不明确时沿用输入语言。
+配置后，聊天流程仅在意图路由返回 `requires_legal_evidence=true` 时调用 Semantic Gateway，并把 `aligned_query`、`english_pivot` 和 `legal_concepts` 放入本轮工作上下文；一般问候、改写、代码讨论等不需要法律检索的请求只进行本地语言/法域规则检测，不调用 PolyLM。消息发出后，前端会立即显示“正在进行多语种语义对齐…”，直到服务端开始返回回答流；较长会话会同时提示正在整理较早上下文。原问题仍是回答依据，这些字段只是检索提示，不是法律结论。对齐语言默认采用目标法域语料的主要语言，例如泰国为 `th`、越南为 `vi`、印度尼西亚为 `id`；普通法系目标默认使用 `en`，目标法域不明确时沿用输入语言。英文输入不再转换 `english_pivot`，应用会直接复用规范化空白后的原查询。
 
 已登录用户可调用以下两个接口，请求体均为 `{"query":"中国企业能否持有泰国公司股权？"}`：
 
 - `POST /api/query/detect`：保留原有检测协议，返回 `language`、ISO 国家码 `jurisdiction`、`mentioned_jurisdictions` 和 `source`。
-- `POST /api/query/align`：在检测字段之外返回 `jurisdiction_label`、`original_query`、`aligned_query`、`alignment_language` 和 `aligned`。其中 `jurisdiction` 对齐数据库的 `country` 国家码；`jurisdiction_label` 对齐数据库协议中的 `country_label` / `jurisdiction` 显示名。
+- `POST /api/query/align`：在检测字段之外返回 `jurisdiction_label`、`original_query`、`aligned_query`、`alignment_language`、`aligned`、`english_pivot` 和 `legal_concepts`。其中 `jurisdiction` 对齐数据库的 `country` 国家码；`jurisdiction_label` 对齐数据库协议中的 `country_label` / `jurisdiction` 显示名。
 
-`source=polylm` 表示模型结果，`rules` 表示未配置模型，`rules_fallback` 表示模型调用或解析失败。网关会校验 `aligned_query` 的实际语言；若与目标语料语言明显不符，只进行一次定向翻译修复，修复后仍不匹配则安全降级。降级时 `aligned=false`，`aligned_query` 保持原始查询，系统不会用规则猜测翻译。网关始终只返回一个字符串查询；该修复重试不会生成多个查询视图，Multi-view Retrieval 留待后续实现。
+`POST /api/query/align` 是显式诊断/调用接口，因此不受聊天意图闸门影响；调用该接口时仍会直接运行 Semantic Gateway。
+
+`source=polylm` 表示模型结果，`rules` 表示未配置模型，`rules_fallback` 表示模型调用或解析失败。网关会校验 `aligned_query`、`english_pivot` 与 `legal_concepts` 的类型、长度和语言；`aligned_query` 语言错误时只进行一次定向修复。降级时 `aligned=false`、`aligned_query` 保持原查询；英文原查询仍可直接作为 `english_pivot`，其他语言不猜测翻译，`legal_concepts` 返回空列表。Multi-view Retrieval 和检索结果融合留待后续实现。
 
 ## Android APK 发布与更新
 
