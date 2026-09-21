@@ -1,11 +1,11 @@
 {
-  "id": "/",
+  "id": "./",
   "name": "Lawver",
   "short_name": "Lawver",
   "description": "工大法智团队的中文法律 AI 助手原型",
   "lang": "zh-CN",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
   "background_color": "#f6f8fb",
@@ -15,13 +15,13 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/pwa-icon-192.png",
+      "src": "pwa-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/pwa-icon-512.png",
+      "src": "pwa-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -31,10 +31,10 @@
     {
       "name": "新对话",
       "short_name": "新对话",
-      "url": "/",
+      "url": "./",
       "icons": [
         {
-          "src": "/pwa-icon-192.png",
+          "src": "pwa-icon-192.png",
           "sizes": "192x192",
           "type": "image/png"
         }
@@ -43,10 +43,10 @@
     {
       "name": "设置",
       "short_name": "设置",
-      "url": "/settings",
+      "url": "settings",
       "icons": [
         {
-          "src": "/pwa-icon-192.png",
+          "src": "pwa-icon-192.png",
           "sizes": "192x192",
           "type": "image/png"
         }

@@ -346,6 +346,29 @@ python -m pytest
 
 启动日志会打印实际生效的后端：`Redis 请求防护：available=... prefix=...` 与 `会话布隆过滤器预热完成：...`。
 
+## 区域路径分流部署
+
+同一份构建产物可以挂在网关的不同路径前缀下，由网关把 `/cn`、`/asean` 分流到各自区域的后端，例如 `lawver.dev/cn` 与 `lawver.dev/asean`。前缀列表写在 `package.json` 的 `appConfig.regions`，构建产物按相对路径引用资源，运行时的前缀由网关注入的 `<base>` 决定。
+
+**网关必须静态注入 `<base href="/cn/">`。** 应用内的静态资源是相对引用（`./assets/...`），浏览器按 `<base>` 解析；而 `<base>` 必须是 HTML 流里的静态标签——用脚本在运行时插入会晚于浏览器的预加载扫描器，扫描器会用「去掉尾斜杠的前缀目录」作基准，先把 `./assets/...` 请求成 `/assets/...`，这些请求会落到网关的默认区域，导致静态资源串区（`/asean` 页面加载 `cn` 区域的资源）。正确做法见 [docs/cloudflare-worker-router.js](docs/cloudflare-worker-router.js)：
+
+```js
+// 仅在返回 HTML 时注入，前缀取自命中的路由
+const injected = `<base href="${prefix}/">`;
+return new HTMLRewriter()
+  .on('head', { element: el => el.prepend(injected, { html: true }) })
+  .transform(response);
+```
+
+应用侧据此推导出四项行为，无需额外配置：
+
+- **前端路由**：`BrowserRouter` 以该前缀为 `basename`，`/cn/settings` 按 `/settings` 匹配，站内跳转自动保留前缀。
+- **接口请求**：所有 `apiFetch` 走 `前缀 + /api/...`，与页面落在同一区域后端。
+- **Service Worker**：注册在 `前缀/sw.js`，scope 为前缀目录，不会跨区域接管页面。
+- **PWA manifest**：`start_url`、`scope`、图标全部使用相对路径，装到桌面后仍落在对应区域。
+
+网关未注入 `<base>` 时，应用会退回按 `appConfig.regions` 判断前缀，保证 SPA 仍能渲染，但静态资源会请求到默认区域，并在控制台给出告警。
+
 ## 安全注意
 
 - `.env`、真实合同、客户材料、生成结果和日志都可能包含敏感信息，不应随意提交。

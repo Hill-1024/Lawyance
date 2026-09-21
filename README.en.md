@@ -314,6 +314,16 @@ Optional environment variables:
 
 Startup logs report the backend actually in use: `Redis 请求防护：available=... prefix=...` and `会话布隆过滤器预热完成：...`.
 
+## Region Path Routing
+
+One build can be served under several gateway path prefixes, with the gateway routing `/cn`, `/asean`, and so on to their regional backends (for example `lawver.dev/cn` and `lawver.dev/asean`). The prefix list lives in `package.json` under `appConfig.regions`; the build references assets by relative path, and the runtime prefix comes from the `<base>` injected by the gateway.
+
+**The gateway must inject `<base href="/cn/">` statically.** Assets are referenced relatively (`./assets/...`) and resolved against `<base>`, which has to be a static tag in the HTML stream. Inserting it from a script at runtime runs after the browser's preload scanner: the scanner resolves `./assets/...` against the prefix directory without its trailing slash (`/cn` becomes `/`), requests `/assets/...`, and those hit the default route — so an `/asean` page loads assets from the `cn` region. See [docs/cloudflare-worker-router.js](docs/cloudflare-worker-router.js) for the working example.
+
+From that prefix the app derives four behaviors with no extra configuration: the router `basename` (so `/cn/settings` matches `/settings`), all API paths (`prefix + /api/...`), the service worker registration and scope, and the PWA manifest paths — each stays inside its own region.
+
+If the gateway injects no `<base>`, the app falls back to `appConfig.regions` so the SPA still renders, but assets go to the default region and the console reports a warning.
+
 ## Security Notes
 
 - `.env`, real contracts, client materials, generated results, and logs may contain sensitive information and should not be committed casually.
