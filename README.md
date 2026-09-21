@@ -350,8 +350,7 @@ python -m pytest
 
 - `.env`、真实合同、客户材料、生成结果和日志都可能包含敏感信息，不应随意提交。
 - 首次部署必须配置 `SECRET_KEY`（至少 32 位随机值）和一次性的 `INITIAL_ADMIN_PASSWORD`；账号库创建后应移除初始密码环境变量。
-- 默认 CORS、限流和认证策略适合内部原型阶段，公开部署前需要按实际域名和安全策略收紧。
-- 所有非 GET 的 `/api` 请求都要求可信 Origin 或 Referer。可通过 `LAWVER_ALLOWED_ORIGINS`（兼容 `ALLOWED_ORIGINS`）追加生产前端域名；本地开发回环地址默认放行。
+- 来源控制（CORS / Origin 校验）不在应用内实现，统一由网关层（反向代理/CDN）配置；应用内保留限流、JSON 体限长与访问日志等防护。
 - 默认只从 loopback 代理读取 `CF-Connecting-IP` / `X-Forwarded-For`；如果生产反代不在本机，请通过 `LAWVER_TRUSTED_PROXY_CIDRS` 明确列入。
 - 限流计数与会话布隆过滤器默认是进程内状态。多 worker（`UVICORN_WORKERS>1`）或多实例部署应配置 `LAWVER_REDIS_URL`，否则每个 worker 各自计数，真实上限会被放大到 worker 数量倍。
 - 后台接口具备账号管理和日志读取能力，`/api/admin/logs` 仅限 sudo，账号与设备接口 sudo/admin 按层级受限，应只暴露给可信人员。
