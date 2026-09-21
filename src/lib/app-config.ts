@@ -5,6 +5,8 @@
 export interface LawverAppConfig {
   domain: string;
   origin: string;
+  /** 原生客户端直连的后端地址，绕开网关路径分流（缺省时与 origin 相同）。 */
+  nativeApiBase: string;
 }
 
 declare const __LAWVER_APP_CONFIG__: LawverAppConfig | undefined;
@@ -19,6 +21,7 @@ declare global {
 const FALLBACK_APP_CONFIG: LawverAppConfig = {
   domain: 'cn.lawver.dev',
   origin: 'https://cn.lawver.dev',
+  nativeApiBase: 'https://cn-origin.lawver.dev',
 };
 
 const CONFIGURED_REGIONS: string[] = typeof __LAWVER_REGIONS__ !== 'undefined' ? __LAWVER_REGIONS__ : [];

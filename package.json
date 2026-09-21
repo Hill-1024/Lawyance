@@ -1,7 +1,7 @@
 {
   "name": "lawver",
   "private": true,
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "工大法智团队的中文法律 AI 助手原型",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
@@ -12,6 +12,7 @@
     "environment": "Web/Vite",
     "projectUrl": "https://github.com/Hill-1024/Lawyance",
     "domain": "cn.lawver.dev",
+    "nativeApiBase": "https://cn-origin.lawver.dev",
     "port": 8080,
     "devPort": 5173,
     "regions": ["cn", "asean"]
