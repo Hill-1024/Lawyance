@@ -19,8 +19,7 @@ registerPwa();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-<<<<<<< HEAD
-    <BrowserRouter>
+    <BrowserRouter basename={BASE_PATH || undefined}>
       <LocaleProvider>
         <ThemeProvider>
           <DialogProvider>
@@ -28,14 +27,6 @@ createRoot(document.getElementById('root')!).render(
           </DialogProvider>
         </ThemeProvider>
       </LocaleProvider>
-=======
-    <BrowserRouter basename={BASE_PATH || undefined}>
-      <ThemeProvider>
-        <DialogProvider>
-          <App />
-        </DialogProvider>
-      </ThemeProvider>
->>>>>>> 55d2921728183769bb93bae063fe5f940965e76b
     </BrowserRouter>
   </StrictMode>,
 );

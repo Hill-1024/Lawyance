@@ -14,11 +14,8 @@ import { useStorage } from './hooks/useStorage';
 import { useTranslation } from './contexts/LocaleContext';
 import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
 import { isNative } from './lib/platform';
-<<<<<<< HEAD
 import { isUntitledConversation } from './lib/conversation-title';
-=======
 import { APP_CONFIG } from './lib/app-config';
->>>>>>> 55d2921728183769bb93bae063fe5f940965e76b
 import { exitNativeApp, useBackButton } from './hooks/useBackButton';
 import { useAppBack, useAppBackUp } from './hooks/useAppBack';
 import { Header } from './components/Header';
