@@ -11,6 +11,7 @@ import { LocaleProvider } from './contexts/LocaleContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { setupNativeChrome } from './lib/native-bootstrap';
 import { registerPwa } from './lib/pwa';
+import { BASE_PATH } from './lib/app-config';
 import './index.css';
 
 setupNativeChrome().catch(console.error);
@@ -18,6 +19,7 @@ registerPwa();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+<<<<<<< HEAD
     <BrowserRouter>
       <LocaleProvider>
         <ThemeProvider>
@@ -26,6 +28,14 @@ createRoot(document.getElementById('root')!).render(
           </DialogProvider>
         </ThemeProvider>
       </LocaleProvider>
+=======
+    <BrowserRouter basename={BASE_PATH || undefined}>
+      <ThemeProvider>
+        <DialogProvider>
+          <App />
+        </DialogProvider>
+      </ThemeProvider>
+>>>>>>> 55d2921728183769bb93bae063fe5f940965e76b
     </BrowserRouter>
   </StrictMode>,
 );

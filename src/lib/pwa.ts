@@ -3,6 +3,7 @@
  */
 
 import { isNative } from './platform';
+import { BASE_PATH } from './app-config';
 
 const canRegisterPwa = () => {
   if (typeof window === 'undefined') return false;
@@ -17,7 +18,8 @@ export const registerPwa = () => {
   if (!canRegisterPwa()) return;
 
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(error => {
+    // 区域前缀部署时，service worker 与 scope 都要落在前缀内，否则会跨区域接管。
+    navigator.serviceWorker.register(`${BASE_PATH}/sw.js`, { scope: `${BASE_PATH}/` }).catch(error => {
       console.warn('[PWA] Service worker registration failed:', error);
     });
   });

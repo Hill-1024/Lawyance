@@ -328,28 +328,6 @@ class ApiBoundaryTests(unittest.TestCase):
         self.assertEqual(verify_old_token.status_code, 401)
         self.assertEqual(new_login.status_code, 200)
 
-    def test_cross_site_unsafe_api_request_is_rejected(self):
-        response = self.client.post("/api/logout", headers={"origin": "https://evil.example"})
-
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("Forbidden origin", response.text)
-
-    def test_cookie_authenticated_unsafe_api_requires_origin_or_referer(self):
-        login = self.client.post(
-            "/api/login",
-            json={"username": "admin", "password": "bootstrap-password"},
-            headers={"origin": "http://localhost:5173"},
-        )
-        self.assertEqual(login.status_code, 200)
-
-        response = self.client.post("/api/logout")
-
-        self.assertEqual(response.status_code, 403)
-        self.assertIn("Missing origin", response.text)
-
-        allowed = self.client.post("/api/logout", headers={"origin": "http://localhost:5173"})
-        self.assertEqual(allowed.status_code, 200)
-
     def test_admin_can_clear_usage_logs(self):
         login = self.client.post(
             "/api/login",
@@ -371,26 +349,6 @@ class ApiBoundaryTests(unittest.TestCase):
         with open(log_path, encoding="utf-8") as f:
             self.assertEqual(f.read(), "")
         self.assertFalse(os.path.exists(f"{log_path}.1"))
-
-    def test_cors_allows_configured_origin_but_not_arbitrary_origin(self):
-        allowed = self.client.options(
-            "/api/verify_auth",
-            headers={
-                "origin": "https://law.mutsumi.moe",
-                "access-control-request-method": "GET",
-            },
-        )
-        denied = self.client.options(
-            "/api/verify_auth",
-            headers={
-                "origin": "https://evil.example",
-                "access-control-request-method": "GET",
-            },
-        )
-
-        self.assertEqual(allowed.status_code, 200)
-        self.assertEqual(allowed.headers.get("access-control-allow-origin"), "https://law.mutsumi.moe")
-        self.assertNotEqual(denied.headers.get("access-control-allow-origin"), "https://evil.example")
 
     def test_forwarded_ip_headers_are_only_trusted_from_configured_proxies(self):
         app_security = importlib.import_module("services.app_security")

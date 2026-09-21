@@ -160,7 +160,7 @@ Android 正式发布通过 GitHub Actions 的 `vX.Y.Z` 标签工作流构建 rel
 - `LAWVER_RELEASE_SYNC_ON_STARTUP`：是否启动时同步 GitHub Release，默认 `1`。
 - `LAWVER_RELEASE_REPO`：GitHub Release 来源仓库，默认 `Hill-1024/Lawyance`。
 - `LAWVER_RELEASE_DIR`：APK 缓存目录，默认 `data/releases/android/`。
-- `LAWVER_PUBLIC_BASE_URL`：对外生产域名，默认按请求推断，生产建议设为 `https://law.mutsumi.moe`。
+- `LAWVER_PUBLIC_BASE_URL`：对外生产域名，默认按请求推断，兜底取 package.json `appConfig.domain`（当前 `https://cn.lawver.dev`）。
 - `LAWVER_APK_DOWNLOAD_RPM`：APK 下载接口单 IP 每分钟限制，默认 `6`。
 - `LAWVER_TRUSTED_PROXY_CIDRS`：额外可信反向代理 CIDR，默认只信任 loopback；只有这些来源的 `CF-Connecting-IP` / `X-Forwarded-For` 会用于限流和日志。
 - `LAWVER_GITHUB_TOKEN`：私有仓库或 GitHub API 限流时使用的只读 token。
@@ -262,6 +262,8 @@ TXT/Markdown 文件通过 `txt_md_reader` / `txt_md_writer` 处理，只能访�
 - `SEARXNG_ENGINES`、`SEARXNG_CATEGORIES`、`SEARXNG_LANGUAGE`、`SEARXNG_SAFE_SEARCH`：默认搜索参数覆盖；通常让服务端 `settings.yml` 和 `categories` 路由决定 engines，仅在需要固定精确引擎时设置 `SEARXNG_ENGINES`
 - `SEARXNG_TIMEOUT`、`SEARXNG_MAX_RESULTS`、`SEARXNG_MAX_RESPONSE_BYTES`：请求和结果规模限制，默认搜索超时 20 秒、结果数 10 条
 
+管理后台保存的 provider 配置优先于环境变量：启动时与保存后都会同步到运行时进程，环境变量作为回退（配置被清空时自动还原）。本地/内网地址（如 `http://localhost:10099`）不需要 Cloudflare Access Token，不会因缺少 token 而报配置错误。
+
 ## 对话记忆与 RAG 权重
 
 记忆系统仍以对话级结构化记忆为主，召回时会融合关键词、语义标签、实体、时效、优先级和焦点等多路信号。可选开启 embedding 召回后，向量相似度会作为其中一路 `embedding` 信号进入同一套 RAG 权重排序，而不是替换现有多路召回。
@@ -346,12 +348,34 @@ python -m pytest
 
 启动日志会打印实际生效的后端：`Redis 请求防护：available=... prefix=...` 与 `会话布隆过滤器预热完成：...`。
 
+## 区域路径分流部署
+
+同一份构建产物可以挂在网关的不同路径前缀下，由网关把 `/cn`、`/asean` 分流到各自区域的后端，例如 `lawver.dev/cn` 与 `lawver.dev/asean`。前缀列表写在 `package.json` 的 `appConfig.regions`，构建产物按相对路径引用资源，运行时的前缀由网关注入的 `<base>` 决定。
+
+**网关必须静态注入 `<base href="/cn/">`。** 应用内的静态资源是相对引用（`./assets/...`），浏览器按 `<base>` 解析；而 `<base>` 必须是 HTML 流里的静态标签——用脚本在运行时插入会晚于浏览器的预加载扫描器，扫描器会用「去掉尾斜杠的前缀目录」作基准，先把 `./assets/...` 请求成 `/assets/...`，这些请求会落到网关的默认区域，导致静态资源串区（`/asean` 页面加载 `cn` 区域的资源）。正确做法见 [docs/cloudflare-worker-router.js](docs/cloudflare-worker-router.js)：
+
+```js
+// 仅在返回 HTML 时注入，前缀取自命中的路由
+const injected = `<base href="${prefix}/">`;
+return new HTMLRewriter()
+  .on('head', { element: el => el.prepend(injected, { html: true }) })
+  .transform(response);
+```
+
+应用侧据此推导出四项行为，无需额外配置：
+
+- **前端路由**：`BrowserRouter` 以该前缀为 `basename`，`/cn/settings` 按 `/settings` 匹配，站内跳转自动保留前缀。
+- **接口请求**：所有 `apiFetch` 走 `前缀 + /api/...`，与页面落在同一区域后端。
+- **Service Worker**：注册在 `前缀/sw.js`，scope 为前缀目录，不会跨区域接管页面。
+- **PWA manifest**：`start_url`、`scope`、图标全部使用相对路径，装到桌面后仍落在对应区域。
+
+网关未注入 `<base>` 时，应用会退回按 `appConfig.regions` 判断前缀，保证 SPA 仍能渲染，但静态资源会请求到默认区域，并在控制台给出告警。
+
 ## 安全注意
 
 - `.env`、真实合同、客户材料、生成结果和日志都可能包含敏感信息，不应随意提交。
 - 首次部署必须配置 `SECRET_KEY`（至少 32 位随机值）和一次性的 `INITIAL_ADMIN_PASSWORD`；账号库创建后应移除初始密码环境变量。
-- 默认 CORS、限流和认证策略适合内部原型阶段，公开部署前需要按实际域名和安全策略收紧。
-- 所有非 GET 的 `/api` 请求都要求可信 Origin 或 Referer。可通过 `LAWVER_ALLOWED_ORIGINS`（兼容 `ALLOWED_ORIGINS`）追加生产前端域名；本地开发回环地址默认放行。
+- 来源控制（CORS / Origin 校验）不在应用内实现，统一由网关层（反向代理/CDN）配置；应用内保留限流、JSON 体限长与访问日志等防护。
 - 默认只从 loopback 代理读取 `CF-Connecting-IP` / `X-Forwarded-For`；如果生产反代不在本机，请通过 `LAWVER_TRUSTED_PROXY_CIDRS` 明确列入。
 - 限流计数与会话布隆过滤器默认是进程内状态。多 worker（`UVICORN_WORKERS>1`）或多实例部署应配置 `LAWVER_REDIS_URL`，否则每个 worker 各自计数，真实上限会被放大到 worker 数量倍。
 - 后台接口具备账号管理和日志读取能力，`/api/admin/logs` 仅限 sudo，账号与设备接口 sudo/admin 按层级受限，应只暴露给可信人员。
