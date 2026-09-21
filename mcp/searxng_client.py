@@ -29,6 +29,8 @@ import tldextract
 import trafilatura
 from dotenv import load_dotenv
 
+from app_config import ORIGIN
+
 
 load_dotenv(".env")
 
@@ -41,7 +43,7 @@ MAX_QUERY_LENGTH = 500
 SNIPPET_MAX_CHARS = 500
 DEFAULT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 SEARCH_USER_AGENT = "Lawver/0.1 SearXNG-web-search"
-FETCH_USER_AGENT = "Mozilla/5.0 (compatible; Lawver/0.1; +https://law.mutsumi.moe)"
+FETCH_USER_AGENT = f"Mozilla/5.0 (compatible; Lawver/0.1; +{ORIGIN})"
 
 FETCH_CONNECT_TIMEOUT = 5.0
 FETCH_READ_TIMEOUT = 15.0

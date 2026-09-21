@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 import requests
 from fastapi import FastAPI, Request
 
+from app_config import ORIGIN
 from services import rate_limit
 from services.app_security import client_ip_for_request
 
@@ -76,7 +77,7 @@ def public_base_url(request: Request | None = None) -> str:
         return configured
     if request is not None:
         return str(request.base_url).rstrip("/")
-    return "https://law.mutsumi.moe"
+    return ORIGIN
 
 
 def apk_download_rpm() -> int:

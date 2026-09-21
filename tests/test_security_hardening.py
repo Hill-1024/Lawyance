@@ -376,7 +376,7 @@ class ApiBoundaryTests(unittest.TestCase):
         allowed = self.client.options(
             "/api/verify_auth",
             headers={
-                "origin": "https://law.mutsumi.moe",
+                "origin": "https://cn.lawver.dev",
                 "access-control-request-method": "GET",
             },
         )
@@ -389,7 +389,7 @@ class ApiBoundaryTests(unittest.TestCase):
         )
 
         self.assertEqual(allowed.status_code, 200)
-        self.assertEqual(allowed.headers.get("access-control-allow-origin"), "https://law.mutsumi.moe")
+        self.assertEqual(allowed.headers.get("access-control-allow-origin"), "https://cn.lawver.dev")
         self.assertNotEqual(denied.headers.get("access-control-allow-origin"), "https://evil.example")
 
     def test_forwarded_ip_headers_are_only_trusted_from_configured_proxies(self):

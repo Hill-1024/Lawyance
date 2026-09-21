@@ -4,11 +4,12 @@
 
 import type { ConversationMemory, CourtSession } from '../types';
 import { clearAuthToken, getAuthToken, setAuthToken } from '../lib/auth-storage';
+import { APP_CONFIG } from '../lib/app-config';
 import { isNative } from '../lib/platform';
 
 const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
 const API_BASE = isNative()
-  ? (env.VITE_LAWVER_API_BASE || 'https://law.mutsumi.moe')
+  ? (env.VITE_LAWVER_API_BASE || APP_CONFIG.origin)
   : '';
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;

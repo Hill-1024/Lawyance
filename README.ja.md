@@ -160,7 +160,7 @@ Android の正式リリースは GitHub Actions の `vX.Y.Z` タグ workflow で
 - `LAWVER_RELEASE_SYNC_ON_STARTUP`: 起動時に GitHub Release を同期するか。既定値は `1`
 - `LAWVER_RELEASE_REPO`: GitHub Release の取得元。既定値は `Hill-1024/Lawyance`
 - `LAWVER_RELEASE_DIR`: APK キャッシュディレクトリ。既定値は `data/releases/android/`
-- `LAWVER_PUBLIC_BASE_URL`: 外部公開 URL。本番では `https://law.mutsumi.moe` を推奨
+- `LAWVER_PUBLIC_BASE_URL`: 外部公開 URL。既定では package.json の `appConfig.domain`（現在 `https://cn.lawver.dev`）にフォールバック
 - `LAWVER_APK_DOWNLOAD_RPM`: APK ダウンロードの単一 IP RPM 制限。既定値は `6`
 - `LAWVER_TRUSTED_PROXY_CIDRS`: 追加で信頼する reverse proxy の CIDR。既定では loopback のみを信頼し、信頼済み送信元からの `CF-Connecting-IP` / `X-Forwarded-For` だけをログとレート制限に使います
 - `LAWVER_GITHUB_TOKEN`: private repository または GitHub API rate limit 用の読み取り専用 token

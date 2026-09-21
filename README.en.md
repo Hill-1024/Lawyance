@@ -160,7 +160,7 @@ Optional environment variables:
 - `LAWVER_RELEASE_SYNC_ON_STARTUP`: sync GitHub Release on startup, default `1`.
 - `LAWVER_RELEASE_REPO`: GitHub Release source repository, default `Hill-1024/Lawyance`.
 - `LAWVER_RELEASE_DIR`: APK cache directory, default `data/releases/android/`.
-- `LAWVER_PUBLIC_BASE_URL`: public production base URL. Production should set `https://law.mutsumi.moe`.
+- `LAWVER_PUBLIC_BASE_URL`: public production base URL. Falls back to package.json `appConfig.domain` (currently `https://cn.lawver.dev`).
 - `LAWVER_APK_DOWNLOAD_RPM`: per-IP RPM limit for APK downloads, default `6`.
 - `LAWVER_TRUSTED_PROXY_CIDRS`: additional trusted reverse-proxy CIDRs. By default only loopback is trusted; only trusted sources may supply `CF-Connecting-IP` / `X-Forwarded-For` for logs and rate limits.
 - `LAWVER_GITHUB_TOKEN`: read-only token for private repositories or GitHub API rate limits.

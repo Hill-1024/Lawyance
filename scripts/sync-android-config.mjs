@@ -1,5 +1,5 @@
 /*
- * 模块描述：从 package.json 同步 Android versionName 与 versionCode。
+ * 模块描述：从 package.json 同步 Android versionName、versionCode 与生产域名。
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -10,6 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '..');
 const packagePath = join(rootDir, 'package.json');
 const gradlePath = join(rootDir, 'android', 'app', 'build.gradle');
+const networkSecurityPath = join(rootDir, 'android', 'app', 'src', 'main', 'res', 'xml', 'network_security_config.xml');
 
 const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
 const version = packageJson.version;
@@ -19,6 +20,12 @@ const semverMatch = typeof version === 'string'
 
 if (!semverMatch) {
   console.error(`Invalid package.json version "${version}". Expected SemVer like x.y.z or x.y.z-prerelease.`);
+  process.exit(1);
+}
+
+const domain = packageJson.appConfig?.domain;
+if (typeof domain !== 'string' || !domain.trim()) {
+  console.error('Missing package.json appConfig.domain. Expected the production domain, e.g. "cn.lawver.dev".');
   process.exit(1);
 }
 
@@ -38,4 +45,19 @@ if (nextGradle !== gradle) {
   console.log(`Synced Android versionName ${version} and versionCode ${versionCode}.`);
 } else {
   console.log(`Android version already matches package.json (${version}, code ${versionCode}).`);
+}
+
+const domainEntry = /<domain includeSubdomains="false">([^<]*)<\/domain>/.exec(readFileSync(networkSecurityPath, 'utf8'));
+if (!domainEntry) {
+  console.error(`Failed to sync domain into network_security_config.xml: no <domain> entry matched in ${networkSecurityPath}.`);
+  process.exit(1);
+}
+
+if (domainEntry[1] !== domain) {
+  const nextNetworkSecurity = readFileSync(networkSecurityPath, 'utf8')
+    .replace(/<domain includeSubdomains="false">[^<]*<\/domain>/, `<domain includeSubdomains="false">${domain}</domain>`);
+  writeFileSync(networkSecurityPath, nextNetworkSecurity, 'utf8');
+  console.log(`Synced Android network security domain to ${domain}.`);
+} else {
+  console.log(`Android network security domain already matches package.json (${domain}).`);
 }

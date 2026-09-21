@@ -10,13 +10,16 @@
   },
   "appConfig": {
     "environment": "Web/Vite",
-    "projectUrl": "https://github.com/Hill-1024/Lawyance"
+    "projectUrl": "https://github.com/Hill-1024/Lawyance",
+    "domain": "cn.lawver.dev",
+    "port": 8080,
+    "devPort": 5173
   },
   "scripts": {
     "dev": "python agent.py",
-    "dev:frontend": "LAWVER_BUILD_ENV=Development vite --port=5173",
-    "sync-version": "node scripts/sync-android-version.mjs",
-    "build": "pnpm run sync-version && vite build",
+    "dev:frontend": "LAWVER_BUILD_ENV=Development vite",
+    "sync-android-config": "node scripts/sync-android-config.mjs",
+    "build": "pnpm run sync-android-config && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",

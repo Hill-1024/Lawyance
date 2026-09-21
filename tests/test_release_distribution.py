@@ -109,7 +109,7 @@ class ReleaseDistributionTests(unittest.TestCase):
         self.assertEqual(status["status"], "synced")
         cached = self.release_sync.cached_manifest()
         self.assertEqual(cached["versionCode"], 1001)
-        self.assertEqual(cached["apkUrl"], "https://law.mutsumi.moe/api/releases/android/apk")
+        self.assertEqual(cached["apkUrl"], "https://cn.lawver.dev/api/releases/android/apk")
         with open(self.release_sync.cached_apk_path(), "rb") as f:
             self.assertEqual(f.read(), apk)
 
@@ -155,10 +155,10 @@ class ReleaseDistributionTests(unittest.TestCase):
         cache.apk_path.write_bytes(apk)
         cache.manifest_path.write_text(json.dumps(self._manifest(apk)), encoding="utf-8")
 
-        with TestClient(self._app(), base_url="https://law.mutsumi.moe") as client:
+        with TestClient(self._app(), base_url="https://cn.lawver.dev") as client:
             latest = client.get("/api/releases/android/latest")
             self.assertEqual(latest.status_code, 200)
-            self.assertEqual(latest.json()["apkUrl"], "https://law.mutsumi.moe/api/releases/android/apk")
+            self.assertEqual(latest.json()["apkUrl"], "https://cn.lawver.dev/api/releases/android/apk")
 
             self.assertEqual(client.get("/api/releases/android/apk").status_code, 200)
             self.assertEqual(client.get("/api/releases/android/apk").status_code, 200)
