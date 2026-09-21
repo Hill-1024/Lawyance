@@ -28,10 +28,16 @@ import { addLocalStorageDataChangeListener } from '../services/storageEvents';
 import { useAppDialog } from '../contexts/DialogContext';
 import {
   ChatStreamResponseError,
+  isRetryableResumeUnavailable,
   isSuccessfulChatStream,
+  recordResumeAttempt,
   reduceChatStreamOutcome,
+  RESUME_RETRY_LIMIT,
   shouldAckBufferedStream,
-  throwIfChatStreamFailed
+  shouldStartResumeAttempt,
+  throwIfChatStreamFailed,
+  type ResumeAttemptState,
+  type ResumeUnavailableReason
 } from '../lib/stream-run-guards';
 
 const generateUUID = () => {
@@ -67,6 +73,9 @@ const STREAM_COMMIT_THROTTLE_MS = 48;
 const NATIVE_DRAIN_BATCH_SIZE = 128;
 const NATIVE_STREAM_SESSIONS_KEY = 'lawver:native-stream-sessions';
 const NATIVE_STREAM_SESSION_TTL_MS = 60 * 60 * 1000;
+// 本地流多久没有任何字节（含服务端 15s 一次的心跳注释行）就算停滞：停滞才允许被续传接管，
+// 否则"本端正在接收"的流会被自己的续传打断。
+const LOCAL_STREAM_STALL_MS = 75 * 1000;
 
 type NativeStreamSessionRecord = {
   streamId: string;
@@ -74,6 +83,28 @@ type NativeStreamSessionRecord = {
   messageId: string;
   createdAt: string;
 };
+
+/** 本端正在接收的一次回答（Web SSE 或原生前台服务）。 */
+type LocalStreamRun = {
+  /** `${convId}:${messageId}`：原生流 id 与服务端 turn_id 不同名，所以按消息识别。 */
+  key: string;
+  convId: string;
+  messageId: string | null;
+  /** 是否掌握前台 UI（加载态、停止按钮）；后台续传不参与，免得抢占用户正在看的回答。 */
+  foreground: boolean;
+  lastActivityAt: number;
+};
+
+const isRunLive = (run: LocalStreamRun | null, now: number) => (
+  run !== null && now - run.lastActivityAt < LOCAL_STREAM_STALL_MS
+);
+
+const runKey = (convId: string, messageId: string | null) => `${convId}:${messageId ?? ''}`;
+
+/** slow_reader / reader_limit 只是本读者被踢下线，缓冲仍在，重连即可；其余原因才是真的取不回来。 */
+const isTerminalResumeUnavailable = (reason: ResumeUnavailableReason | null) => (
+  reason !== null && !isRetryableResumeUnavailable(reason)
+);
 
 const isAbortError = (error: unknown) => (
   typeof error === 'object' &&
@@ -350,6 +381,16 @@ export function useChat() {
   const resumingStreamsRef = useRef<Set<string>>(new Set());
   const processingStreamIdsRef = useRef<Set<string>>(new Set());
   const promptedDisconnectsRef = useRef<Set<string>>(new Set());
+  // 本端正在接收的回答。续传前必须先确认这里为空（或已停滞）——否则会把一个活着的流
+  // 当成断流来"续传"，既重复挂上一个读者，又在收尾时清掉别人（正常回答）的加载态与停止按钮。
+  const localRunRef = useRef<LocalStreamRun | null>(null);
+  // 每条消息的续传退避状态（键为 convId:messageId），成功推进内容后清空。
+  const resumeAttemptsRef = useRef<Record<string, ResumeAttemptState>>({});
+  // 断流时的服务端原因（键同上）：慢读被踢下线只是"补齐落下的内容"，不是连接断了，
+  // 状态文案要跟着区分，否则好好的会话也会显示成"连接中断"。
+  const resumeReasonsRef = useRef<Record<string, ResumeUnavailableReason | undefined>>({});
+  // 一趟续传扫描同时只跑一次，避免聚焦/切前台/断流尾部叠加出多趟并发续传互抢 UI。
+  const resumePassRef = useRef(false);
   const regenerateMessageRef = useRef<((convId: string, messageId: string, onFileGenerated?: (name: string, path: string) => void, syncFiles?: () => Promise<void>) => Promise<void>) | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistConversationsRef = useRef<(snapshot: Conversation[]) => Promise<void>>(async () => {});
@@ -857,7 +898,7 @@ export function useChat() {
       streamId?: string;
       buffered: boolean;
       seenDone: boolean;
-      resumeUnavailable: boolean;
+      resumeUnavailable: ResumeUnavailableReason | null;
       errorMessage?: string;
       finalSeq?: number;
       status: NonNullable<Message['stream_status']>;
@@ -873,7 +914,10 @@ export function useChat() {
       state.streamId = data.stream_id || state.streamId;
       state.buffered = Boolean(data.buffered);
       state.status = 'streaming';
-      if (state.buffered && state.streamId) activeServerStreamRef.current = state.streamId;
+      // 后台续传不抢占"当前服务端流"，否则用户按停止会打断后台那条而不是眼前这条。
+      if (state.buffered && state.streamId && localRunRef.current?.foreground !== false) {
+        activeServerStreamRef.current = state.streamId;
+      }
       if (state.streamId) processingStreamIdsRef.current.add(state.streamId);
     } else if (data.type === 'content') {
       state.bodyText += data.content || '';
@@ -919,8 +963,9 @@ export function useChat() {
     } else if (data.type === 'content_replace') {
       state.bodyText = data.content || '';
     } else if (data.type === 'resume_unavailable') {
-      // 仅表示本次回答没有可续传的缓冲，不是业务失败；等流结束后再决定如何收尾。
-      state.resumeUnavailable = true;
+      // 仅表示本次回答没有可续传的缓冲，不是业务失败；记下原因，等流结束后再决定如何收尾。
+      // slow_reader / reader_limit 只是本读者被踢下线，内容仍在缓冲区，重连续传即可。
+      state.resumeUnavailable = typeof data.reason === 'string' && data.reason ? data.reason : 'unknown';
     } else if (data.type === 'error') {
       const message = typeof data.content === 'string' && data.content.trim()
         ? data.content.trim()
@@ -978,7 +1023,8 @@ export function useChat() {
     convId: string,
     onFileGenerated?: (name: string, path: string) => void,
     signal?: AbortSignal,
-    nativeStreamId?: string
+    nativeStreamId?: string,
+    foreground = true
   ): Promise<boolean> => {
     const reader = response.body?.getReader();
     if (!reader) {
@@ -1004,7 +1050,19 @@ export function useChat() {
         updated_at: now
       }]);
     }
-    setActiveAssistantMessageId(agentMessageId);
+    // 后台续传（其他会话里断掉的回答）不抢占"正在回答的那条"，免得用户眼前这条被顶掉。
+    if (foreground) setActiveAssistantMessageId(agentMessageId);
+
+    // 登记"本端正在接收这条回答"：续传据此让路，收尾时也只有登记方才能清 UI 与停止按钮。
+    const localRun: LocalStreamRun = {
+      key: runKey(convId, agentMessageId),
+      convId,
+      messageId: agentMessageId,
+      foreground,
+      lastActivityAt: Date.now()
+    };
+    localRunRef.current = localRun;
+    const ownsLocalRun = () => localRunRef.current === localRun;
 
     const existing = conversationsRef.current
       .find(conv => conv.id === convId)
@@ -1023,7 +1081,7 @@ export function useChat() {
       streamId: existing?.stream_id,
       buffered: existing?.stream_buffered === true,
       seenDone: false,
-      resumeUnavailable: false,
+      resumeUnavailable: null as ResumeUnavailableReason | null,
       errorMessage: undefined as string | undefined,
       finalSeq: undefined as number | undefined,
       status: (existing?.stream_status || 'streaming') as NonNullable<Message['stream_status']>,
@@ -1108,6 +1166,9 @@ export function useChat() {
       while (true) {
         if (!isStreamActive()) return false;
         const { done, value } = await reader.read();
+        // 只要还有字节（含服务端 15s 一次的 ": ping" 注释行）就说明连接活着，
+        // 续传让路判定据此区分"真停滞"与"思考期没有正文"。
+        localRun.lastActivityAt = Date.now();
         if (done) break;
         if (!isStreamActive()) return false;
 
@@ -1122,7 +1183,7 @@ export function useChat() {
       }
       scheduleAssistantStateCommit(true);
       if (!isStreamActive()) return false;
-      if (!streamState.seenDone && streamState.resumeUnavailable) {
+      if (!streamState.seenDone && isTerminalResumeUnavailable(streamState.resumeUnavailable)) {
         const message = '本次回答未能完整接收，且服务器临时缓存不可用，请重新生成。';
         const outcome = reduceChatStreamOutcome(streamState, { type: 'error', message });
         streamState.status = outcome.status;
@@ -1137,9 +1198,7 @@ export function useChat() {
       if (!streamState.seenDone && !streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
       } else if (!streamState.seenDone && streamState.buffered && streamState.streamId) {
-        setTimeout(() => {
-          resumePendingStreams().catch(console.error);
-        }, 0);
+        scheduleResumeFor(convId, agentMessageId, streamState.resumeUnavailable);
       }
       return isStreamActive() && isSuccessfulChatStream(streamState);
     } catch (err) {
@@ -1147,7 +1206,7 @@ export function useChat() {
       if (isAbortError(err) || !isStreamActive()) return false;
       console.error('Stream read error:', err);
       scheduleAssistantStateCommit(true);
-      if (streamState.resumeUnavailable) {
+      if (isTerminalResumeUnavailable(streamState.resumeUnavailable)) {
         // 没有可续传的缓存，跳过自动续传；仅对未完成的回答追加提示。
         if (!streamState.seenDone) {
           const message = '本次回答未能完整接收，且服务器临时缓存不可用，请重新生成。';
@@ -1163,9 +1222,7 @@ export function useChat() {
       if (!streamState.buffered && agentMessageId) {
         await showDisconnectPrompt(convId, agentMessageId, onFileGenerated);
       } else if (streamState.buffered && streamState.streamId) {
-        setTimeout(() => {
-          resumePendingStreams().catch(console.error);
-        }, 0);
+        scheduleResumeFor(convId, agentMessageId, streamState.resumeUnavailable);
       }
       return false;
     } finally {
@@ -1175,67 +1232,148 @@ export function useChat() {
       }
       reader.releaseLock();
       if (streamState.streamId) processingStreamIdsRef.current.delete(streamState.streamId);
-      if (isStreamActive()) {
-        setIsLoading(false);
-        setActiveAssistantMessageId(current => current === agentMessageId ? null : current);
-        setComposerStatus(null);
-        if (streamState.seenDone) {
-          activeServerStreamRef.current = null;
+      // 无论是否被中断都要交还"本端活跃回答"名额，否则这条已结束的流会在停滞窗口内一直挡住续传。
+      if (ownsLocalRun()) {
+        localRunRef.current = null;
+        // 只有仍然拥有名额的那次调用才能清加载态与停止按钮：
+        // 被续传接管 / 被新回答顶掉的旧任务收尾时不能打断当前这条。
+        if (isStreamActive()) {
+          setIsLoading(false);
+          setActiveAssistantMessageId(current => current === agentMessageId ? null : current);
+          setComposerStatus(null);
+          if (streamState.seenDone) {
+            activeServerStreamRef.current = null;
+          }
+          onFileGenerated?.('sync', '');
         }
-        onFileGenerated?.('sync', '');
       }
     }
   };
 
-  const resumePendingStreams = useCallback(async () => {
-    const pending: Array<{ convId: string; message: Message }> = [];
-    conversationsRef.current.forEach(conv => {
-      conv.messages.forEach(message => {
-        if (
-          message.role === 'assistant' &&
-          message.stream_status === 'streaming' &&
-          message.stream_id &&
-          message.stream_buffered === true
-        ) {
-          pending.push({ convId: conv.id, message });
-        }
-      });
-    });
+  /**
+   * 记下这次"没收到 done"的原因，并立刻安排一趟续传。
+   * 慢读被踢（slow_reader）与真断线共用这条恢复路径，但状态文案要分开，不然健康会话也会显示"连接中断"。
+   */
+  const scheduleResumeFor = (
+    convId: string,
+    messageId: string | null,
+    reason: ResumeUnavailableReason | null
+  ) => {
+    resumeReasonsRef.current[runKey(convId, messageId)] = reason ?? undefined;
+    setTimeout(() => {
+      resumePendingStreams().catch(console.error);
+    }, 0);
+  };
 
-    for (const item of pending) {
-      const streamId = item.message.stream_id;
-      if (!streamId || resumingStreamsRef.current.has(streamId) || processingStreamIdsRef.current.has(streamId)) continue;
-      resumingStreamsRef.current.add(streamId);
-      const controller = new AbortController();
-      activeAbortRef.current = controller;
-      activeServerStreamRef.current = streamId;
-      try {
-        setIsLoading(true);
-        setActiveAssistantMessageId(item.message.id);
-        setComposerStatus('连接中断，正在自动续传');
-        const response = await resumeStream(streamId, item.message.last_committed_seq ?? -1, controller.signal);
-        await processStream(response, item.message.id, item.convId, undefined, controller.signal);
-      } catch (error) {
-        if (error instanceof StreamExpiredError) {
-          updateMessages(item.convId, prev => prev.map(message =>
-            message.id === item.message.id
-              ? {
-                ...message,
-                stream_status: 'error',
-                content: `${message.content}\n\n**续传窗口已过：** 请重新生成本次回答。`,
-                updated_at: nowIso()
-              }
-              : message
-          ));
-        } else if (!isAbortError(error)) {
-          console.error('Failed to resume stream:', error);
+  const resumePendingStreams = useCallback(async () => {
+    // 一趟扫描里连着处理多条待续传消息；并发跑多趟只会互相抢 UI 与中断引用。
+    if (resumePassRef.current) return;
+    resumePassRef.current = true;
+    try {
+      const pending: Array<{ convId: string; message: Message }> = [];
+      conversationsRef.current.forEach(conv => {
+        conv.messages.forEach(message => {
+          if (
+            message.role === 'assistant' &&
+            message.stream_status === 'streaming' &&
+            message.stream_id &&
+            message.stream_buffered === true
+          ) {
+            pending.push({ convId: conv.id, message });
+          }
+        });
+      });
+
+      for (const item of pending) {
+        const streamId = item.message.stream_id;
+        if (!streamId || resumingStreamsRef.current.has(streamId) || processingStreamIdsRef.current.has(streamId)) continue;
+        const messageKey = runKey(item.convId, item.message.id);
+        // 本端正在接收一条回答时不续传：那条"断流"只是我们自己的流，续传会把它打断，
+        // 还会在收尾时清掉它的加载态与停止按钮（原生流 id 与服务端 turn_id 不同名，故按消息判定）。
+        if (!shouldStartResumeAttempt({
+          now: Date.now(),
+          attempt: resumeAttemptsRef.current[messageKey],
+          hasActiveRun: isRunLive(localRunRef.current, Date.now())
+        })) {
+          continue;
         }
-      } finally {
-        resumingStreamsRef.current.delete(streamId);
-        setIsLoading(false);
-        setActiveAssistantMessageId(null);
-        setComposerStatus(null);
+        // 只有当前会话才接管前台 UI（加载态/停止按钮）；其他会话的续传在后台静默完成，
+        // 否则用户正在看的这条会被"连接中断，正在自动续传"和发送按钮变停止按钮打断。
+        const foreground = currentIdRef.current === item.convId;
+        const seqBefore = item.message.last_committed_seq ?? -1;
+        resumeAttemptsRef.current[messageKey] = recordResumeAttempt(resumeAttemptsRef.current[messageKey], Date.now());
+
+        resumingStreamsRef.current.add(streamId);
+        const controller = new AbortController();
+        if (foreground) {
+          activeAbortRef.current = controller;
+          activeServerStreamRef.current = streamId;
+        }
+        try {
+          if (foreground) {
+            setIsLoading(true);
+            setActiveAssistantMessageId(item.message.id);
+            // 慢读被踢下线时内容还在缓冲区，是"补齐"而不是"断线重连"。
+            setComposerStatus(
+              resumeReasonsRef.current[messageKey] === 'slow_reader'
+                ? '正在补齐落下的内容'
+                : '连接中断，正在自动续传'
+            );
+          }
+          const response = await resumeStream(streamId, seqBefore, controller.signal);
+          await processStream(response, item.message.id, item.convId, undefined, controller.signal, undefined, foreground);
+        } catch (error) {
+          if (error instanceof StreamExpiredError) {
+            delete resumeAttemptsRef.current[messageKey];
+            updateMessages(item.convId, prev => prev.map(message =>
+              message.id === item.message.id
+                ? {
+                  ...message,
+                  stream_status: 'error',
+                  content: `${message.content}\n\n**续传窗口已过：** 请重新生成本次回答。`,
+                  updated_at: nowIso()
+                }
+                : message
+            ));
+          } else if (!isAbortError(error)) {
+            console.error('Failed to resume stream:', error);
+          }
+        } finally {
+          resumingStreamsRef.current.delete(streamId);
+          delete resumeReasonsRef.current[messageKey];
+          if (foreground) {
+            setIsLoading(false);
+            setActiveAssistantMessageId(null);
+            setComposerStatus(null);
+          }
+          const latest = conversationsRef.current
+            .find(conv => conv.id === item.convId)
+            ?.messages.find(message => message.id === item.message.id);
+          if ((latest?.last_committed_seq ?? -1) > seqBefore) {
+            // 内容有推进说明这次接入确实接上了，清空退避预算，下次断流立即重连。
+            delete resumeAttemptsRef.current[messageKey];
+          } else if (
+            latest?.stream_status === 'streaming' &&
+            (resumeAttemptsRef.current[messageKey]?.attempt ?? 0) >= RESUME_RETRY_LIMIT
+          ) {
+            // 连续多次接入都推不动内容（一直慢读被踢 / 反复报错）：按不可续传收尾，
+            // 免得每次切回前台都重连一次却始终没有进展。
+            delete resumeAttemptsRef.current[messageKey];
+            updateMessages(item.convId, prev => prev.map(message => (
+              message.id === item.message.id && message.stream_status === 'streaming'
+                ? {
+                  ...message,
+                  stream_status: 'error' as const,
+                  content: `${message.content}\n\n**续传不可用：** 本次回答未能完整接收，请重新生成。`,
+                  updated_at: nowIso()
+                }
+                : message
+            )));
+          }
+        }
       }
+    } finally {
+      resumePassRef.current = false;
     }
   }, []);
 
@@ -1429,6 +1567,24 @@ export function useChat() {
     }
   };
 
+  // 原生 attach 在真正进入 processStream 前还要等桥调用返回（listActive 等）。这里先同步占住
+  // "本端活跃回答"名额，免得同一拍里发起的服务端缓冲续传把同一条回答再挂上一个读者。
+  const claimLocalRun = (convId: string, messageId: string): LocalStreamRun => {
+    const run: LocalStreamRun = {
+      key: runKey(convId, messageId),
+      convId,
+      messageId,
+      foreground: true,
+      lastActivityAt: Date.now()
+    };
+    localRunRef.current = run;
+    return run;
+  };
+
+  const releaseLocalRun = (run: LocalStreamRun) => {
+    if (localRunRef.current === run) localRunRef.current = null;
+  };
+
   // WebView 被系统重建后，前台服务里的原生流仍在跑，但 JS 侧的 activeNativeStreamRef 已丢失。
   // 据持久化的 native_stream_id + listActive 找回仍存活的流并重新接上（attach 模式）。
   // 注意：服务端缓冲流（stream_buffered）由 resumePendingStreams 负责，这里只管原生前台服务流。
@@ -1473,11 +1629,12 @@ export function useChat() {
           if (activeNativeStreamRef.current?.streamId === nid) continue; // 已有活跃 pump 在 drain
           resumingStreamsRef.current.add(nid);
           const controller = new AbortController();
+          const claimedRun = claimLocalRun(conv.id, msg.id);
           setIsLoading(true);
           setActiveAssistantMessageId(msg.id);
           processNativeChatStream('', msg.id, conv.id, undefined, controller.signal, nid)
             .catch(err => { if (!isAbortError(err)) console.error('Failed to resume native stream:', err); })
-            .finally(() => { resumingStreamsRef.current.delete(nid); });
+            .finally(() => { resumingStreamsRef.current.delete(nid); releaseLocalRun(claimedRun); });
         }
       }
       // 下面按 liveIds 逐个回查会话，先建一次索引避免每个流都线性扫一遍会话列表。
@@ -1495,11 +1652,12 @@ export function useChat() {
         if (activeNativeStreamRef.current?.streamId === nid) continue;
         resumingStreamsRef.current.add(nid);
         const controller = new AbortController();
+        const claimedRun = claimLocalRun(record.convId, record.messageId);
         setIsLoading(true);
         setActiveAssistantMessageId(record.messageId);
         processNativeChatStream('', record.messageId, record.convId, undefined, controller.signal, nid)
           .catch(err => { if (!isAbortError(err)) console.error('Failed to resume native stream from record:', err); })
-          .finally(() => { resumingStreamsRef.current.delete(nid); });
+          .finally(() => { resumingStreamsRef.current.delete(nid); releaseLocalRun(claimedRun); });
       }
     })();
   };
@@ -1549,7 +1707,12 @@ export function useChat() {
       resumeTimers.add(timer);
     };
     const scheduleResumePasses = () => {
-      [0, 250, 1000, 2500].forEach(delay => {
+      // focus / visibilitychange / online / pageshow 往往在同一拍里连续触发；
+      // 同一波还没跑完就不再排新的一波，避免一次切回前台叠出十几趟续传扫描。
+      if (resumeTimers.size > 0) return;
+      // 第一趟立即跑，用来接上"离开期间"结束或仍在跑的原生流。
+      runResumePass();
+      [250, 1000, 2500].forEach(delay => {
         const timer = setTimeout(() => {
           resumeTimers.delete(timer);
           runResumePass();
@@ -1705,6 +1868,9 @@ export function useChat() {
       if (activeAbortRef.current === abortController) {
         activeAbortRef.current = null;
         setComposerStatus(null);
+        // 兜底：这次请求仍是最新操作（没被续传或新回答接管）时收尾加载态，
+        // 免得交还了"本端活跃回答"名额却没清 UI，输入框一直卡在生成中。
+        setIsLoading(false);
       }
     }
   };
@@ -1854,6 +2020,9 @@ export function useChat() {
       if (activeAbortRef.current === abortController) {
         activeAbortRef.current = null;
         setComposerStatus(null);
+        // 兜底：这次发送仍是最新操作（没被续传或新回答接管）时收尾加载态，
+        // 免得交还了"本端活跃回答"名额却没清 UI，输入框一直卡在生成中。
+        setIsLoading(false);
       }
     }
   };
@@ -1984,6 +2153,9 @@ export function useChat() {
       if (activeAbortRef.current === abortController) {
         activeAbortRef.current = null;
         setComposerStatus(null);
+        // 兜底：这次请求仍是最新操作（没被续传或新回答接管）时收尾加载态，
+        // 免得交还了"本端活跃回答"名额却没清 UI，输入框一直卡在生成中。
+        setIsLoading(false);
       }
     }
   };
