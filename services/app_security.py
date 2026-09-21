@@ -15,11 +15,12 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
+from app_config import ORIGIN
 from auth import verify_token
 from services import rate_limit
 
 
-SECURE_ORIGIN = "https://law.mutsumi.moe"
+SECURE_ORIGIN = ORIGIN
 NATIVE_CLIENT_ORIGINS = {"https://localhost", "capacitor://localhost"}
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$")

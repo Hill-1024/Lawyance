@@ -13,6 +13,7 @@ import { useWorkspace } from './hooks/useWorkspace';
 import { useStorage } from './hooks/useStorage';
 import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
 import { isNative } from './lib/platform';
+import { APP_CONFIG } from './lib/app-config';
 import { exitNativeApp, useBackButton } from './hooks/useBackButton';
 import { useAppBack, useAppBackUp } from './hooks/useAppBack';
 import { Header } from './components/Header';
@@ -29,7 +30,7 @@ const CourtPage = React.lazy(() => import('./components/CourtPage').then(module 
 const MessageList = React.lazy(() => import('./components/MessageList').then(module => ({ default: module.MessageList })));
 const SettingsPage = React.lazy(() => import('./components/SettingsPage').then(module => ({ default: module.SettingsPage })));
 
-const SECURE_DOMAIN = 'law.mutsumi.moe';
+const SECURE_DOMAIN = APP_CONFIG.domain;
 const ROUTE_TRANSITION = { duration: 0.26, ease: [0.2, 0, 0, 1] } as const;
 
 const RouteLoadingFallback = () => (

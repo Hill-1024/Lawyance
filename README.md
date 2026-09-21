@@ -160,7 +160,7 @@ Android 正式发布通过 GitHub Actions 的 `vX.Y.Z` 标签工作流构建 rel
 - `LAWVER_RELEASE_SYNC_ON_STARTUP`：是否启动时同步 GitHub Release，默认 `1`。
 - `LAWVER_RELEASE_REPO`：GitHub Release 来源仓库，默认 `Hill-1024/Lawyance`。
 - `LAWVER_RELEASE_DIR`：APK 缓存目录，默认 `data/releases/android/`。
-- `LAWVER_PUBLIC_BASE_URL`：对外生产域名，默认按请求推断，生产建议设为 `https://law.mutsumi.moe`。
+- `LAWVER_PUBLIC_BASE_URL`：对外生产域名，默认按请求推断，兜底取 package.json `appConfig.domain`（当前 `https://cn.lawver.dev`）。
 - `LAWVER_APK_DOWNLOAD_RPM`：APK 下载接口单 IP 每分钟限制，默认 `6`。
 - `LAWVER_TRUSTED_PROXY_CIDRS`：额外可信反向代理 CIDR，默认只信任 loopback；只有这些来源的 `CF-Connecting-IP` / `X-Forwarded-For` 会用于限流和日志。
 - `LAWVER_GITHUB_TOKEN`：私有仓库或 GitHub API 限流时使用的只读 token。
