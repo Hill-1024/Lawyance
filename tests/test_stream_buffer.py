@@ -255,6 +255,48 @@ class StreamBufferTests(unittest.IsolatedAsyncioTestCase):
         finally:
             stream_buffer.MAX_READERS_PER_STREAM = original
 
+    async def test_defaults_absorb_a_real_read_stall_instead_of_disconnecting(self):
+        # 读者队列同时是慢读判定的阈值：队列溢出就断开读者。默认值必须能吸收一次现实的读停顿
+        # （主线程被长回答的渲染/落盘阻塞、移动网络抖动），否则正常连接会被误判成慢读断流。
+        self.assertGreaterEqual(stream_buffer.MAX_READER_QUEUE_EVENTS, 256)
+        self.assertGreaterEqual(stream_buffer.MAX_READER_QUEUE_BYTES, 2 * 1024 * 1024)
+        await stream_buffer.create("stall", "alice")
+        reader = stream_buffer.reader("stall", -1)
+        try:
+            first = asyncio.create_task(reader.__anext__())
+            await asyncio.sleep(0)
+
+            for index in range(200):
+                await stream_buffer.append("stall", {"type": "content", "content": f"chunk-{index}"})
+
+            got = await asyncio.wait_for(first, timeout=1)
+            self.assertEqual(got["type"], "content")
+            state = await stream_buffer.get("stall", "alice")
+            self.assertEqual(len(state.readers), 1, "一次读停顿不应把读者判成慢读")
+            remaining = await asyncio.wait_for(reader.__anext__(), timeout=1)
+            self.assertEqual(remaining["content"], "chunk-1", "停顿期间的事件应逐条补齐，不丢内容")
+        finally:
+            await reader.aclose()
+            await stream_buffer.delete("stall")
+
+    async def test_long_answer_keeps_more_events_than_the_old_default(self):
+        # 逐字增量让一次长回答动辄数千条事件；条数上限若先于字节上限触发截断，
+        # 断线的一端就再也补不齐中间缺的内容（续传直接变成 quota 不可用）。
+        self.assertGreater(stream_buffer.MAX_EVENTS_PER_STREAM, 2048)
+        await stream_buffer.create("long", "alice")
+        try:
+            total = 2600
+            for index in range(total):
+                await stream_buffer.append("long", {"type": "content", "content": str(index)})
+            await stream_buffer.finish("long")
+
+            state = await stream_buffer.get("long", "alice")
+            self.assertFalse(state.truncated)
+            replay = await collect_reader("long", -1)
+            self.assertEqual([event["seq"] for event in replay], list(range(total)))
+        finally:
+            await stream_buffer.delete("long")
+
     async def test_stored_event_count_is_bounded_even_for_tiny_events(self):
         original = stream_buffer.MAX_EVENTS_PER_STREAM
         stream_buffer.MAX_EVENTS_PER_STREAM = 2

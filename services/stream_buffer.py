@@ -34,7 +34,7 @@ HARD_MAX_BYTES_PER_STREAM = 8 * 1024 * 1024
 HARD_MAX_BYTES_GLOBAL = 512 * 1024 * 1024
 HARD_MAX_TTL_SECONDS = 24 * 60 * 60
 HARD_MAX_READERS_PER_STREAM = 16
-HARD_MAX_READER_QUEUE_EVENTS = 256
+HARD_MAX_READER_QUEUE_EVENTS = 1024
 HARD_MAX_READER_QUEUE_BYTES = 4 * 1024 * 1024
 HARD_MAX_EVENTS_PER_STREAM = 8192
 MAX_STREAMS_PER_USER = min(
@@ -58,16 +58,23 @@ MAX_READERS_PER_STREAM = min(
     max(_env_int("LAWVER_RESUME_MAX_READERS_PER_STREAM", 4), 1),
     HARD_MAX_READERS_PER_STREAM,
 )
+# 读者队列是"生产端已经产完、消费端还没读走"的缓冲。它同时是慢读判定的阈值：
+# 队列溢出即判定为慢读并断开该读者，所以阈值必须能吸收一次现实的读停顿
+# （主线程被长回答的渲染/落盘阻塞、移动网络抖动），否则正常连接会被误判成慢读、
+# 让前端把一次好端端的回答当成"续传失败"。默认按"数百个事件"给量，字节上限兜底。
 MAX_READER_QUEUE_EVENTS = min(
-    max(_env_int("LAWVER_RESUME_MAX_READER_QUEUE_EVENTS", 64), 1),
+    max(_env_int("LAWVER_RESUME_MAX_READER_QUEUE_EVENTS", 256), 1),
     HARD_MAX_READER_QUEUE_EVENTS,
 )
 MAX_READER_QUEUE_BYTES = min(
-    max(_env_int("LAWVER_RESUME_MAX_READER_QUEUE_BYTES", 1024 * 1024), 64 * 1024),
+    max(_env_int("LAWVER_RESUME_MAX_READER_QUEUE_BYTES", 2 * 1024 * 1024), 64 * 1024),
     HARD_MAX_READER_QUEUE_BYTES,
 )
+# 事件条数上限只用于兜底极小事件的条数，字节上限才是真正的裁剪线：
+# 默认值与硬上限一致，长回答（一次回答动辄数千条增量事件）才不会在字节还没满时
+# 就被判定为不可续传——截断一旦发生，断线的那一端就再也补不齐中间缺的内容。
 MAX_EVENTS_PER_STREAM = min(
-    max(_env_int("LAWVER_RESUME_MAX_EVENTS_PER_STREAM", 2048), 1),
+    max(_env_int("LAWVER_RESUME_MAX_EVENTS_PER_STREAM", HARD_MAX_EVENTS_PER_STREAM), 1),
     HARD_MAX_EVENTS_PER_STREAM,
 )
 
