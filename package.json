@@ -13,7 +13,8 @@
     "projectUrl": "https://github.com/Hill-1024/Lawyance",
     "domain": "cn.lawver.dev",
     "port": 8080,
-    "devPort": 5173
+    "devPort": 5173,
+    "regions": ["cn", "asean"]
   },
   "scripts": {
     "dev": "python agent.py",
