@@ -316,8 +316,7 @@ Redis を設定すると、レート制限カウンタとセッション用ビ�
 
 - `.env`、実際の契約書、クライアント資料、生成結果、ログには機密情報が含まれる可能性があります。安易にコミットしないでください。
 - 初回デプロイでは 32 文字以上のランダムな `SECRET_KEY` と一度限りの `INITIAL_ADMIN_PASSWORD` を設定してください。認証 DB 作成後は初期パスワード用の環境変数を削除します。
-- 現在の CORS、レート制限、認証の既定値は内部プロトタイプ向けです。公開デプロイ前には実際のドメインと安全方針に合わせて強化してください。
-- GET 以外の `/api` リクエストは信頼できる Origin か Referer を必須とします。本番のフロントエンドドメインは `LAWVER_ALLOWED_ORIGINS`（旧名 `ALLOWED_ORIGINS` も互換）で追加してください。ローカルのループバックアドレスは既定で許可されます。
+- Origin 制御（CORS / Origin チェック）はアプリ内では実装しません。gateway 層（reverse proxy / CDN）で設定してください。アプリ内にはレート制限・JSON ボディ上限・アクセスログなどの防御を残します。
 - `CF-Connecting-IP` / `X-Forwarded-For` は既定で loopback proxy からのみ採用します。本番 proxy がローカルでない場合は `LAWVER_TRUSTED_PROXY_CIDRS` で明示してください。
 - レート制限カウンタとセッション Bloom filter は既定でプロセス内状態です。`UVICORN_WORKERS>1` や複数インスタンスで運用する場合は `LAWVER_REDIS_URL` を設定してください。設定しないと各 worker が個別にカウントし、実質上限が worker 数の倍になります。
 - 管理 API はアカウント管理とログ閲覧ができます。`/api/admin/logs` は sudo のみ、アカウント/デバイス API は sudo/admin の階層で制限されるため、信頼できる担当者だけに公開してください。

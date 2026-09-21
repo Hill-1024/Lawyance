@@ -318,8 +318,7 @@ Startup logs report the backend actually in use: `Redis 请求防护：available
 
 - `.env`, real contracts, client materials, generated results, and logs may contain sensitive information and should not be committed casually.
 - First deployment must set `SECRET_KEY` with at least 32 random characters and a one-time `INITIAL_ADMIN_PASSWORD`; remove the initial password variable after the auth database is created.
-- Current CORS, rate limit, and auth defaults fit an internal prototype. Public deployment requires domain-specific hardening.
-- Every non-GET `/api` request now requires a trusted Origin or Referer. Add production frontend origins to `LAWVER_ALLOWED_ORIGINS` (or the legacy `ALLOWED_ORIGINS`); local loopback addresses are accepted by default.
+- Origin control (CORS / Origin checks) is not implemented in the app; configure it at the gateway layer (reverse proxy / CDN). The app keeps rate limiting, JSON body limits, and access logging.
 - By default, `CF-Connecting-IP` / `X-Forwarded-For` are honored only from loopback proxies. Add production proxy ranges with `LAWVER_TRUSTED_PROXY_CIDRS` when the proxy is not local.
 - Rate-limit counters and the session Bloom filter are process-local by default. Multi-worker (`UVICORN_WORKERS>1`) or multi-instance deployments should set `LAWVER_REDIS_URL`; otherwise each worker counts on its own and the real ceiling is multiplied by the worker count.
 - Admin APIs manage accounts and read logs: `/api/admin/logs` is sudo-only, while account and device endpoints are scoped by the sudo/admin hierarchy. Expose them only to trusted staff.

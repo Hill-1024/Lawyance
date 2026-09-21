@@ -1,29 +1,22 @@
 """
-模块描述：应用级 CORS、CSRF、限流和访问日志中间件。
+模块描述：应用级限流、JSON 体限长、访问日志与请求防护中间件。
 """
 
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from urllib.parse import urlparse
 import ipaddress
 import logging
 import os
-import re
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
-from app_config import ORIGIN
 from auth import verify_token
 from services import rate_limit
 
 
-SECURE_ORIGIN = ORIGIN
-NATIVE_CLIENT_ORIGINS = {"https://localhost", "capacitor://localhost"}
-SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
-LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$")
 DEFAULT_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8", "::1/128")
 RATE_LIMIT_WINDOW_SECONDS = 60
 
@@ -83,19 +76,6 @@ def _configured_usage_log_path() -> Path:
         return Path(explicit_path)
     return Path(os.getenv("LAWVER_DATA_DIR", "data")) / "usage.log"
 
-
-def _configured_origins() -> set[str]:
-    origins = {SECURE_ORIGIN, *NATIVE_CLIENT_ORIGINS}
-    for raw_name in ("LAWVER_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
-        raw_value = os.getenv(raw_name, "")
-        for item in raw_value.split(","):
-            origin = item.strip().rstrip("/")
-            if origin and origin != "*":
-                origins.add(origin)
-    return origins
-
-
-ALLOWED_ORIGINS = sorted(_configured_origins())
 
 configured_usage_log_path = _configured_usage_log_path()
 configured_usage_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -184,22 +164,6 @@ def clear_usage_logs() -> int:
 
 def should_record_usage_log(method: str, path: str) -> bool:
     return path.startswith("/api") and not (method == "DELETE" and path == "/api/admin/logs")
-
-
-def origin_from_url(value: str | None) -> str | None:
-    if not value:
-        return None
-    parsed = urlparse(value)
-    if not parsed.scheme or not parsed.netloc:
-        return None
-    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
-
-
-def is_trusted_origin(origin: str | None) -> bool:
-    if not origin:
-        return False
-    normalized = origin.rstrip("/")
-    return normalized in ALLOWED_ORIGINS or bool(LOCAL_ORIGIN_RE.match(normalized))
 
 
 def is_local_host(hostname: str | None) -> bool:
@@ -321,19 +285,6 @@ async def security_and_logging_middleware(request: Request, call_next):
     client_ip = client_ip_for_request(request)
     method = request.method
     path = request.url.path
-
-    if path.startswith("/api") and method not in SAFE_HTTP_METHODS:
-        origin = request.headers.get("origin")
-        referer_origin = origin_from_url(request.headers.get("referer"))
-        origin_trusted = bool(origin and is_trusted_origin(origin))
-        referer_trusted = bool(referer_origin and is_trusted_origin(referer_origin))
-        # 任意非 GET API 都必须能从 Origin 或 Referer 中找到一个可信来源,避免无头脚本绕过同源策略。
-        if origin and not origin_trusted:
-            return Response(content="Forbidden origin", status_code=403)
-        if not origin_trusted and referer_origin and not referer_trusted:
-            return Response(content="Forbidden referer", status_code=403)
-        if not origin_trusted and not referer_trusted:
-            return Response(content="Missing origin", status_code=403)
 
     # 限流放在读取请求体之前：无效洪水应当只花一次计数，而不是先把 40MB 读进来。
     if path.startswith("/api") and method != "OPTIONS":

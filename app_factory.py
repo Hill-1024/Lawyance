@@ -7,13 +7,12 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 import auth as auth_service
 from infra import redis_backend
 from routes import admin, auth, chat, court, releases, settings, spa, webdav, workspace
 from services import law_cache, release_sync, stream_buffer, workspace_cleanup
-from services.app_security import ALLOWED_ORIGINS, LOCAL_ORIGIN_RE, security_and_logging_middleware
+from services.app_security import security_and_logging_middleware
 
 
 _logger = logging.getLogger("lawver.startup")
@@ -48,14 +47,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=ALLOWED_ORIGINS,
-        allow_origin_regex=LOCAL_ORIGIN_RE.pattern,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # 来源控制（CORS/Origin 校验）交由网关层处理，应用内不再注册 CORSMiddleware。
 
     # 1. 安全/日志中间件必须在路由前注册。
     app.middleware("http")(security_and_logging_middleware)
