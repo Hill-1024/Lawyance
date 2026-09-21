@@ -227,6 +227,66 @@ class SettingsRouteTests(unittest.TestCase):
         response = self.client.get("/api/providers/test/not-a-provider")
         self.assertEqual(response.status_code, 422)
 
+    # ─── settings 优先、环境变量兜底：apply_provider_env 语义 ────────────────
+
+    def _save_searxng_base_url(self, base_url) -> None:
+        response = self.client.post(
+            "/api/settings",
+            json={"providers": {"searxng": {"enabled": True, "base_url": base_url}}},
+            headers={"origin": LOCAL_ORIGIN},
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def _restore_searxng_env(self, original) -> None:
+        if original is None:
+            os.environ.pop("SEARXNG_BASE_URL", None)
+        else:
+            os.environ["SEARXNG_BASE_URL"] = original
+
+    def test_saved_searxng_base_url_overrides_environment_variable(self):
+        original = os.environ.get("SEARXNG_BASE_URL")
+        os.environ["SEARXNG_BASE_URL"] = "https://fallback.example/"
+        try:
+            self._save_searxng_base_url("http://localhost:10099")
+            self.assertEqual(os.environ["SEARXNG_BASE_URL"], "http://localhost:10099")
+        finally:
+            self._restore_searxng_env(original)
+
+    def test_cleared_searxng_base_url_restores_environment_fallback(self):
+        original = os.environ.get("SEARXNG_BASE_URL")
+        os.environ["SEARXNG_BASE_URL"] = "https://fallback.example/"
+        try:
+            self._save_searxng_base_url("http://localhost:10099")
+            self.assertEqual(os.environ["SEARXNG_BASE_URL"], "http://localhost:10099")
+
+            self._save_searxng_base_url("")
+            self.assertEqual(os.environ["SEARXNG_BASE_URL"], "https://fallback.example/")
+
+            self._save_searxng_base_url("http://localhost:10099")
+            self._save_searxng_base_url(None)
+            self.assertEqual(os.environ["SEARXNG_BASE_URL"], "https://fallback.example/")
+        finally:
+            self._restore_searxng_env(original)
+
+    def test_apply_provider_env_is_idempotent(self):
+        from services import settings_service
+
+        original = os.environ.get("SEARXNG_BASE_URL")
+        os.environ["SEARXNG_BASE_URL"] = "https://fallback.example/"
+        try:
+            self._save_searxng_base_url("http://localhost:10099")
+            settings_service.apply_provider_env()
+            settings_service.apply_provider_env()
+            self.assertEqual(os.environ["SEARXNG_BASE_URL"], "http://localhost:10099")
+
+            # 清空后重复同步仍应回到 .env 兜底值，而不是把覆盖值当作原值。
+            self._save_searxng_base_url("")
+            settings_service.apply_provider_env()
+            settings_service.apply_provider_env()
+            self.assertEqual(os.environ["SEARXNG_BASE_URL"], "https://fallback.example/")
+        finally:
+            self._restore_searxng_env(original)
+
 
 if __name__ == "__main__":
     unittest.main()

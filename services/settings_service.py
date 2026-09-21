@@ -225,6 +225,50 @@ def _provider_saved_settings(provider_key: str) -> dict:
     return provider if isinstance(provider, dict) else {}
 
 
+_EXPORTED_ENV_VALUES: dict[str, str] = {}
+
+
+def _sync_exported_env(env_name: str, value: str) -> None:
+    """把 settings 值叠加到环境变量；value 为空时还原被 settings 覆盖前的原值。"""
+    if env_name not in _EXPORTED_ENV_VALUES:
+        _EXPORTED_ENV_VALUES[env_name] = os.environ.get(env_name) or ""
+    if value:
+        os.environ[env_name] = value
+        return
+    original = _EXPORTED_ENV_VALUES.pop(env_name)
+    if original:
+        os.environ[env_name] = original
+    else:
+        os.environ.pop(env_name, None)
+
+
+def apply_provider_env(provider_keys: tuple[str, ...] = ("searxng",)) -> None:
+    """settings 优先、环境变量兜底：把管理后台保存的 provider 配置同步到进程环境变量。
+
+    只导出 config_env / secret_env 的首选变量名；settings 未保存的字段会还原
+    被覆盖前的环境变量值，因此 .env 始终是兜底而不是被永久改写。
+    """
+    with _SETTINGS_LOCK:
+        providers = _normalized_saved_settings().get("providers")
+        if not isinstance(providers, dict):
+            providers = {}
+        secrets = _read_secrets()
+        for provider_key in provider_keys:
+            spec = PROVIDER_SPECS.get(provider_key)
+            if not spec:
+                continue
+            saved_provider = providers.get(provider_key)
+            if not isinstance(saved_provider, dict):
+                saved_provider = {}
+            saved_secrets = secrets.get(provider_key)
+            if not isinstance(saved_secrets, dict):
+                saved_secrets = {}
+            for field, env_names in spec["config_env"].items():
+                _sync_exported_env(env_names[0], str(saved_provider.get(field) or "").strip())
+            for field, env_names in spec["secret_env"].items():
+                _sync_exported_env(env_names[0], str(saved_secrets.get(field) or "").strip())
+
+
 def _merge_saved_and_env_fields(
     provider_key: str,
     *,
@@ -313,6 +357,7 @@ def update_settings(payload: dict) -> dict:
             current_providers[key] = merged
         _mirror_llm_provider_into_active_profile(current)
         _atomic_write_private_json(SETTINGS_FILE, current)
+        apply_provider_env()
         return get_settings()
 
 
@@ -918,6 +963,7 @@ def set_secret(provider: str, key: str, value: str):
             if active:
                 secrets.setdefault("llm_profiles", {})[active] = {"api_key": value}
         _atomic_write_private_json(SECRETS_FILE, secrets)
+        apply_provider_env()
 
 
 def clear_secret(provider: str, key: str | None = None):
@@ -942,6 +988,7 @@ def clear_secret(provider: str, key: str | None = None):
                 else:
                     secrets.pop("llm_profiles", None)
         _atomic_write_private_json(SECRETS_FILE, secrets)
+        apply_provider_env()
 
 
 def clear_profile_secret(profile_id: str) -> None:
