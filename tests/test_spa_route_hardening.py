@@ -61,6 +61,31 @@ class SpaRouteHardeningTests(unittest.TestCase):
         response = self.client.get("/api/not-real")
         self.assertEqual(response.status_code, 404)
 
+    def test_missing_asset_is_404_instead_of_html_fallback(self) -> None:
+        (self.dist / "assets").mkdir()
+
+        response = self.client.get("/assets/index-gone.js")
+
+        # 回退成 HTML 会让浏览器把 HTML 当 JS 解析，表现为只加载出基本 HTML。
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("spa-index", response.text)
+
+    def test_hashed_assets_are_immutable_while_html_revalidates(self) -> None:
+        assets = self.dist / "assets"
+        assets.mkdir()
+        (assets / "index-abc123.js").write_text("console.log(1)", encoding="utf-8")
+        (self.dist / "sw.js").write_text("// sw", encoding="utf-8")
+
+        asset = self.client.get("/assets/index-abc123.js")
+        fallback = self.client.get("/settings/help")
+        sw = self.client.get("/sw.js")
+
+        self.assertEqual(asset.status_code, 200)
+        self.assertEqual(asset.headers["cache-control"], "public, max-age=31536000, immutable")
+        # index.html 一旦被启发式缓存，用户会长期拿到引用旧哈希资源的旧页面。
+        self.assertEqual(fallback.headers["cache-control"], "no-cache")
+        self.assertEqual(sw.headers["cache-control"], "no-cache")
+
 
 if __name__ == "__main__":
     unittest.main()
