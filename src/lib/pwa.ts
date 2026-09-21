@@ -3,6 +3,7 @@
  */
 
 import { isNative } from './platform';
+import { publicBase } from './public-base';
 
 const canRegisterPwa = () => {
   if (typeof window === 'undefined') return false;
@@ -17,7 +18,9 @@ export const registerPwa = () => {
   if (!canRegisterPwa()) return;
 
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(error => {
+    const scope = publicBase();
+    const workerUrl = `${scope}sw.js`.replace(/([^:]\/)\/+/g, '$1')
+    navigator.serviceWorker.register(workerUrl, { scope }).catch(error => {
       console.warn('[PWA] Service worker registration failed:', error);
     });
   });

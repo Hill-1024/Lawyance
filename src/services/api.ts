@@ -5,11 +5,19 @@
 import type { ConversationMemory, CourtSession } from '../types';
 import { clearAuthToken, getAuthToken, setAuthToken } from '../lib/auth-storage';
 import { isNative } from '../lib/platform';
+import { publicBase } from '../lib/public-base';
 
 const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
+
+/** Web 与页面同源，并带上 Vite base（例如 /asean），这样反代剥前缀后后端仍看到 /api。 */
+const webApiBase = () => {
+  const base = publicBase().replace(/\/$/, '')
+  return base === '' ? '' : base
+}
+
 const API_BASE = isNative()
-  ? (env.VITE_LAWVER_API_BASE || 'https://law.mutsumi.moe')
-  : '';
+  ? (env.VITE_LAWVER_API_BASE || 'https://global.lawver.dev/asean')
+  : webApiBase();
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
 

@@ -20,6 +20,13 @@ from services import rate_limit
 
 
 SECURE_ORIGIN = "https://law.mutsumi.moe"
+# lawver.dev 是产品母域：cn 放国内版，global 下放东盟等板块。
+OFFICIAL_WEB_ORIGINS = {
+    "https://lawver.dev",
+    "https://www.lawver.dev",
+    "https://cn.lawver.dev",
+    "https://global.lawver.dev",
+}
 NATIVE_CLIENT_ORIGINS = {"https://localhost", "capacitor://localhost"}
 SAFE_HTTP_METHODS = {"GET", "HEAD", "OPTIONS"}
 LOCAL_ORIGIN_RE = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?$")
@@ -84,7 +91,7 @@ def _configured_usage_log_path() -> Path:
 
 
 def _configured_origins() -> set[str]:
-    origins = {SECURE_ORIGIN, *NATIVE_CLIENT_ORIGINS}
+    origins = {SECURE_ORIGIN, *OFFICIAL_WEB_ORIGINS, *NATIVE_CLIENT_ORIGINS}
     for raw_name in ("LAWVER_ALLOWED_ORIGINS", "ALLOWED_ORIGINS"):
         raw_value = os.getenv(raw_name, "")
         for item in raw_value.split(","):
