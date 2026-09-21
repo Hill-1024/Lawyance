@@ -13,6 +13,7 @@ const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.met
 const appConfig = packageJson.appConfig || {}
 const appDomain = appConfig.domain || 'cn.lawver.dev'
 const appOrigin = `https://${appDomain}`
+const nativeApiBase = appConfig.nativeApiBase || appOrigin
 const appRegions: string[] = Array.isArray(appConfig.regions)
   ? appConfig.regions.map((region: unknown) => String(region)).filter(Boolean)
   : []
@@ -59,7 +60,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), regionBasePathPlugin()],
   define: {
     __LAWVER_BUILD_INFO__: JSON.stringify(buildInfo),
-    __LAWVER_APP_CONFIG__: JSON.stringify({ domain: appDomain, origin: appOrigin }),
+    __LAWVER_APP_CONFIG__: JSON.stringify({ domain: appDomain, origin: appOrigin, nativeApiBase }),
     __LAWVER_REGIONS__: JSON.stringify(appRegions),
   },
   resolve: {

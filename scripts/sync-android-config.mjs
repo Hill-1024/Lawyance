@@ -1,5 +1,5 @@
 /*
- * 模块描述：从 package.json 同步 Android versionName、versionCode 与生产域名。
+ * 模块描述：从 package.json 同步 Android versionName、versionCode 与原生直连域名。
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -23,9 +23,15 @@ if (!semverMatch) {
   process.exit(1);
 }
 
-const domain = packageJson.appConfig?.domain;
-if (typeof domain !== 'string' || !domain.trim()) {
-  console.error('Missing package.json appConfig.domain. Expected the production domain, e.g. "cn.lawver.dev".');
+const nativeApiBase = packageJson.appConfig?.nativeApiBase;
+let nativeHostname = '';
+try {
+  nativeHostname = nativeApiBase ? new URL(nativeApiBase).hostname : '';
+} catch {
+  nativeHostname = '';
+}
+if (!nativeHostname) {
+  console.error('Missing or invalid package.json appConfig.nativeApiBase. Expected an absolute origin, e.g. "https://cn-origin.lawver.dev".');
   process.exit(1);
 }
 
@@ -53,11 +59,11 @@ if (!domainEntry) {
   process.exit(1);
 }
 
-if (domainEntry[1] !== domain) {
+if (domainEntry[1] !== nativeHostname) {
   const nextNetworkSecurity = readFileSync(networkSecurityPath, 'utf8')
-    .replace(/<domain includeSubdomains="false">[^<]*<\/domain>/, `<domain includeSubdomains="false">${domain}</domain>`);
+    .replace(/<domain includeSubdomains="false">[^<]*<\/domain>/, `<domain includeSubdomains="false">${nativeHostname}</domain>`);
   writeFileSync(networkSecurityPath, nextNetworkSecurity, 'utf8');
-  console.log(`Synced Android network security domain to ${domain}.`);
+  console.log(`Synced Android network security domain to ${nativeHostname}.`);
 } else {
-  console.log(`Android network security domain already matches package.json (${domain}).`);
+  console.log(`Android network security domain already matches package.json (${nativeHostname}).`);
 }
