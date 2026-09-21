@@ -262,6 +262,8 @@ TXT/Markdown 文件通过 `txt_md_reader` / `txt_md_writer` 处理，只能访�
 - `SEARXNG_ENGINES`、`SEARXNG_CATEGORIES`、`SEARXNG_LANGUAGE`、`SEARXNG_SAFE_SEARCH`：默认搜索参数覆盖；通常让服务端 `settings.yml` 和 `categories` 路由决定 engines，仅在需要固定精确引擎时设置 `SEARXNG_ENGINES`
 - `SEARXNG_TIMEOUT`、`SEARXNG_MAX_RESULTS`、`SEARXNG_MAX_RESPONSE_BYTES`：请求和结果规模限制，默认搜索超时 20 秒、结果数 10 条
 
+管理后台保存的 provider 配置优先于环境变量：启动时与保存后都会同步到运行时进程，环境变量作为回退（配置被清空时自动还原）。本地/内网地址（如 `http://localhost:10099`）不需要 Cloudflare Access Token，不会因缺少 token 而报配置错误。
+
 ## 对话记忆与 RAG 权重
 
 记忆系统仍以对话级结构化记忆为主，召回时会融合关键词、语义标签、实体、时效、优先级和焦点等多路信号。可选开启 embedding 召回后，向量相似度会作为其中一路 `embedding` 信号进入同一套 RAG 权重排序，而不是替换现有多路召回。
