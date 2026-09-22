@@ -332,13 +332,12 @@ export const InputArea: React.FC<InputAreaProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const isMac = /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent);
-    const isSendTriggered = isMac ? (e.metaKey && e.key === 'Enter') : (e.ctrlKey && e.key === 'Enter');
-
-    if (isSendTriggered) {
-      e.preventDefault();
-      onSendWrapper();
+    // Enter 发送；Shift+Enter 换行。中文输入法组字期间不拦截，避免误发。
+    if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) {
+      return;
     }
+    e.preventDefault();
+    onSendWrapper();
   };
 
   const settingsLayer = typeof document !== 'undefined'

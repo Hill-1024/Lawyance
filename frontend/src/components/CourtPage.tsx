@@ -64,9 +64,6 @@ const buildAgentStatusMeta = (t: Translate): Record<CourtAgentState['status'], {
 
 const AGENT_ORDER: Array<Extract<CourtSpeaker, 'judge' | 'opponent' | 'reviewer'>> = ['judge', 'opponent', 'reviewer'];
 
-// 平台判定在按键回调里做，正则提到模块作用域，避免每次按键都新建 RegExp。
-const IS_APPLE_PLATFORM = /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent);
-
 /* ── 庭审侧栏 ─────────────────────────────────────────────── */
 
 const CourtSidebar: React.FC<{
@@ -497,12 +494,13 @@ const CourtComposerDock: React.FC<{
         : t('court.page.placeholder.idle');
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const sendTriggered = IS_APPLE_PLATFORM ? event.metaKey && event.key === 'Enter' : event.ctrlKey && event.key === 'Enter';
-    if (sendTriggered) {
-      event.preventDefault();
-      if (isUploadingFiles) return;
-      onSend();
+    // Enter 发送；Shift+Enter 换行。中文输入法组字期间不拦截，避免误发。
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) {
+      return;
     }
+    event.preventDefault();
+    if (isUploadingFiles) return;
+    onSend();
   };
 
   const canSend = value.trim().length > 0 && !trialOver && !isUploadingFiles;

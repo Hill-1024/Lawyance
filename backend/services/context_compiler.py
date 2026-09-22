@@ -171,7 +171,7 @@ def _context_lines(
         f"当前用户请求: {_safe_context_text(content, 520)}",
     ]
     if detection.language != "und":
-        lines.append(f"输入语言: {detection.language}；回答优先沿用用户语言。")
+        lines.append(f"输入语言: {detection.language}；回答必须沿用用户语言。")
     if detection.jurisdiction:
         code = detection.jurisdiction
         lines.append(f"法域线索: {code}（{COUNTRY_LABELS[code]}）；仅为本轮文本推测，法律适用须核实。")
