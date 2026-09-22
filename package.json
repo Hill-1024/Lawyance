@@ -1,7 +1,7 @@
 {
   "name": "lawver",
   "private": true,
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "工大法智团队的中文法律 AI 助手原型",
   "type": "module",
   "packageManager": "pnpm@10.33.2",
@@ -10,13 +10,18 @@
   },
   "appConfig": {
     "environment": "Web/Vite",
-    "projectUrl": "https://github.com/Meteor109/Lawyance"
+    "projectUrl": "https://github.com/Meteor109/Lawyance",
+    "domain": "cn.lawver.dev",
+    "nativeApiBase": "https://cn-origin.lawver.dev",
+    "port": 8080,
+    "devPort": 5173,
+    "regions": ["cn", "asean"]
   },
   "scripts": {
     "dev": "python agent.py",
-    "dev:frontend": "LAWVER_BUILD_ENV=Development vite --port=5173",
-    "sync-version": "node scripts/sync-android-version.mjs",
-    "build": "pnpm run sync-version && vite build",
+    "dev:frontend": "LAWVER_BUILD_ENV=Development vite",
+    "sync-android-config": "node scripts/sync-android-config.mjs",
+    "build": "pnpm run sync-android-config && vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",

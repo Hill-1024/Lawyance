@@ -13,7 +13,7 @@ import { useWorkspace } from './hooks/useWorkspace';
 import { useStorage } from './hooks/useStorage';
 import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
 import { isNative } from './lib/platform';
-import { publicBase, publicOrigin } from './lib/public-base';
+import { APP_CONFIG } from './lib/app-config';
 import { exitNativeApp, useBackButton } from './hooks/useBackButton';
 import { useAppBack, useAppBackUp } from './hooks/useAppBack';
 import { Header } from './components/Header';
@@ -30,7 +30,7 @@ const CourtPage = React.lazy(() => import('./components/CourtPage').then(module 
 const MessageList = React.lazy(() => import('./components/MessageList').then(module => ({ default: module.MessageList })));
 const SettingsPage = React.lazy(() => import('./components/SettingsPage').then(module => ({ default: module.SettingsPage })));
 
-const SECURE_ORIGIN = publicOrigin();
+const SECURE_DOMAIN = APP_CONFIG.domain;
 const ROUTE_TRANSITION = { duration: 0.26, ease: [0.2, 0, 0, 1] } as const;
 
 const RouteLoadingFallback = () => (
@@ -125,8 +125,8 @@ function App() {
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
   const isIpAccess = typeof window !== 'undefined' && !isNative() && isIpHostname(window.location.hostname);
   const secureAccessUrl = typeof window !== 'undefined'
-    ? `${SECURE_ORIGIN}${window.location.pathname}${window.location.search}${window.location.hash}`
-    : SECURE_ORIGIN;
+    ? `https://${SECURE_DOMAIN}${window.location.pathname}${window.location.search}${window.location.hash}`
+    : `https://${SECURE_DOMAIN}`;
 
   useEffect(() => {
     setUnauthorizedHandler(async () => {
@@ -358,7 +358,7 @@ function App() {
           <ShieldAlert size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--color-warning-500)]" />
           <div className="text-sm leading-6">
             <div className="font-medium">当前正在通过 IP 访问。</div>
-            <div>建议改用 <span className="font-semibold">{SECURE_ORIGIN}{publicBase() === '/' ? '' : publicBase().replace(/\/$/, '')}</span> 进行安全访问，避免证书与登录状态问题。</div>
+            <div>建议改用 <span className="font-semibold">https://{SECURE_DOMAIN}</span> 进行安全访问，避免证书与登录状态问题。</div>
           </div>
         </div>
         <a

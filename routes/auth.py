@@ -18,9 +18,7 @@ from auth import (
 )
 from schemas import LoginRequest
 from services.app_security import (
-    NATIVE_CLIENT_ORIGINS,
     client_ip_for_request,
-    is_trusted_origin,
     secure_cookie_for_request,
 )
 from services.auth_dependencies import get_current_user
@@ -30,9 +28,9 @@ router = APIRouter()
 
 
 def is_native_client_request(request: Request) -> bool:
-    origin = (request.headers.get("origin") or "").rstrip("/")
+    """来源控制交由网关层，应用内只按客户端声明识别原生端（以便返回 bearer token）。"""
     client_type = (request.headers.get("x-lawver-client") or "").strip().lower()
-    return client_type == "capacitor" and (origin in NATIVE_CLIENT_ORIGINS or is_trusted_origin(origin))
+    return client_type == "capacitor"
 
 
 def _extract_token(request: Request) -> str | None:

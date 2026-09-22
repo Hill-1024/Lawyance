@@ -160,7 +160,7 @@ Optional environment variables:
 - `LAWVER_RELEASE_SYNC_ON_STARTUP`: sync GitHub Release on startup, default `1`.
 - `LAWVER_RELEASE_REPO`: GitHub Release source repository, default `Hill-1024/Lawyance`.
 - `LAWVER_RELEASE_DIR`: APK cache directory, default `data/releases/android/`.
-- `LAWVER_PUBLIC_BASE_URL`: public production base URL. Production should set `https://law.mutsumi.moe`.
+- `LAWVER_PUBLIC_BASE_URL`: public production base URL. Falls back to package.json `appConfig.domain` (currently `https://cn.lawver.dev`).
 - `LAWVER_APK_DOWNLOAD_RPM`: per-IP RPM limit for APK downloads, default `6`.
 - `LAWVER_TRUSTED_PROXY_CIDRS`: additional trusted reverse-proxy CIDRs. By default only loopback is trusted; only trusted sources may supply `CF-Connecting-IP` / `X-Forwarded-For` for logs and rate limits.
 - `LAWVER_GITHUB_TOKEN`: read-only token for private repositories or GitHub API rate limits.
@@ -314,12 +314,21 @@ Optional environment variables:
 
 Startup logs report the backend actually in use: `Redis 请求防护：available=... prefix=...` and `会话布隆过滤器预热完成：...`.
 
+## Region Path Routing
+
+One build can be served under several gateway path prefixes, with the gateway routing `/cn`, `/asean`, and so on to their regional backends (for example `lawver.dev/cn` and `lawver.dev/asean`). The prefix list lives in `package.json` under `appConfig.regions`; the build references assets by relative path, and the runtime prefix comes from the `<base>` injected by the gateway.
+
+**The gateway must inject `<base href="/cn/">` statically.** Assets are referenced relatively (`./assets/...`) and resolved against `<base>`, which has to be a static tag in the HTML stream. Inserting it from a script at runtime runs after the browser's preload scanner: the scanner resolves `./assets/...` against the prefix directory without its trailing slash (`/cn` becomes `/`), requests `/assets/...`, and those hit the default route — so an `/asean` page loads assets from the `cn` region. See [docs/cloudflare-worker-router.js](docs/cloudflare-worker-router.js) for the working example.
+
+From that prefix the app derives four behaviors with no extra configuration: the router `basename` (so `/cn/settings` matches `/settings`), all API paths (`prefix + /api/...`), the service worker registration and scope, and the PWA manifest paths — each stays inside its own region.
+
+If the gateway injects no `<base>`, the app falls back to `appConfig.regions` so the SPA still renders, but assets go to the default region and the console reports a warning.
+
 ## Security Notes
 
 - `.env`, real contracts, client materials, generated results, and logs may contain sensitive information and should not be committed casually.
 - First deployment must set `SECRET_KEY` with at least 32 random characters and a one-time `INITIAL_ADMIN_PASSWORD`; remove the initial password variable after the auth database is created.
-- Current CORS, rate limit, and auth defaults fit an internal prototype. Public deployment requires domain-specific hardening.
-- Every non-GET `/api` request now requires a trusted Origin or Referer. Add production frontend origins to `LAWVER_ALLOWED_ORIGINS` (or the legacy `ALLOWED_ORIGINS`); local loopback addresses are accepted by default.
+- Origin control (CORS / Origin checks) is not implemented in the app; configure it at the gateway layer (reverse proxy / CDN). The app keeps rate limiting, JSON body limits, and access logging.
 - By default, `CF-Connecting-IP` / `X-Forwarded-For` are honored only from loopback proxies. Add production proxy ranges with `LAWVER_TRUSTED_PROXY_CIDRS` when the proxy is not local.
 - Rate-limit counters and the session Bloom filter are process-local by default. Multi-worker (`UVICORN_WORKERS>1`) or multi-instance deployments should set `LAWVER_REDIS_URL`; otherwise each worker counts on its own and the real ceiling is multiplied by the worker count.
 - Admin APIs manage accounts and read logs: `/api/admin/logs` is sudo-only, while account and device endpoints are scoped by the sudo/admin hierarchy. Expose them only to trusted staff.

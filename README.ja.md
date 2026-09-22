@@ -160,7 +160,7 @@ Android の正式リリースは GitHub Actions の `vX.Y.Z` タグ workflow で
 - `LAWVER_RELEASE_SYNC_ON_STARTUP`: 起動時に GitHub Release を同期するか。既定値は `1`
 - `LAWVER_RELEASE_REPO`: GitHub Release の取得元。既定値は `Hill-1024/Lawyance`
 - `LAWVER_RELEASE_DIR`: APK キャッシュディレクトリ。既定値は `data/releases/android/`
-- `LAWVER_PUBLIC_BASE_URL`: 外部公開 URL。本番では `https://law.mutsumi.moe` を推奨
+- `LAWVER_PUBLIC_BASE_URL`: 外部公開 URL。既定では package.json の `appConfig.domain`（現在 `https://cn.lawver.dev`）にフォールバック
 - `LAWVER_APK_DOWNLOAD_RPM`: APK ダウンロードの単一 IP RPM 制限。既定値は `6`
 - `LAWVER_TRUSTED_PROXY_CIDRS`: 追加で信頼する reverse proxy の CIDR。既定では loopback のみを信頼し、信頼済み送信元からの `CF-Connecting-IP` / `X-Forwarded-For` だけをログとレート制限に使います
 - `LAWVER_GITHUB_TOKEN`: private repository または GitHub API rate limit 用の読み取り専用 token
@@ -312,12 +312,21 @@ Redis を設定すると、レート制限カウンタとセッション用ビ�
 
 起動ログで実際に有効なバックエンドを確認できます: `Redis 请求防护：available=... prefix=...` と `会话布隆过滤器预热完成：...`。
 
+## リージョンパス分流
+
+同じビルド成果物を複数のパスプレフィックスで配信し、gateway が `/cn`、`/asean` などを各地域のバックエンドへ振り分けます（例: `lawver.dev/cn` と `lawver.dev/asean`）。プレフィックス一覧は `package.json` の `appConfig.regions` にあり、成果物は相対パスでアセットを参照し、実行時のプレフィックスは gateway が注入する `<base>` から決まります。
+
+**gateway は `<base href="/cn/">` を静的に注入する必要があります。** アセットは相対参照（`./assets/...`）で `<base>` を基準に解決されるため、`<base>` は HTML ストリーム内の静的なタグでなければなりません。スクリプトで実行時に挿入するとブラウザの preload scanner に間に合わず、末尾スラッシュのないプレフィックスディレクトリ基準で `/assets/...` を先に要求してしまい、それがデフォルトルートに落ちて `/asean` のページが `cn` 地域のアセットを読み込みます。動作する例は [docs/cloudflare-worker-router.js](docs/cloudflare-worker-router.js) を参照してください。
+
+このプレフィックスから、アプリは追加設定なしに 4 つの挙動を導出します。ルーターの `basename`（`/cn/settings` が `/settings` にマッチ）、すべての API パス（`プレフィックス + /api/...`）、service worker の登録と scope、PWA manifest のパス。いずれも自分の地域内に留まります。
+
+gateway が `<base>` を注入しない場合、アプリは `appConfig.regions` による判定にフォールバックして SPA は描画されますが、アセットはデフォルト地域へ向かい、コンソールに警告が出ます。
+
 ## セキュリティメモ
 
 - `.env`、実際の契約書、クライアント資料、生成結果、ログには機密情報が含まれる可能性があります。安易にコミットしないでください。
 - 初回デプロイでは 32 文字以上のランダムな `SECRET_KEY` と一度限りの `INITIAL_ADMIN_PASSWORD` を設定してください。認証 DB 作成後は初期パスワード用の環境変数を削除します。
-- 現在の CORS、レート制限、認証の既定値は内部プロトタイプ向けです。公開デプロイ前には実際のドメインと安全方針に合わせて強化してください。
-- GET 以外の `/api` リクエストは信頼できる Origin か Referer を必須とします。本番のフロントエンドドメインは `LAWVER_ALLOWED_ORIGINS`（旧名 `ALLOWED_ORIGINS` も互換）で追加してください。ローカルのループバックアドレスは既定で許可されます。
+- Origin 制御（CORS / Origin チェック）はアプリ内では実装しません。gateway 層（reverse proxy / CDN）で設定してください。アプリ内にはレート制限・JSON ボディ上限・アクセスログなどの防御を残します。
 - `CF-Connecting-IP` / `X-Forwarded-For` は既定で loopback proxy からのみ採用します。本番 proxy がローカルでない場合は `LAWVER_TRUSTED_PROXY_CIDRS` で明示してください。
 - レート制限カウンタとセッション Bloom filter は既定でプロセス内状態です。`UVICORN_WORKERS>1` や複数インスタンスで運用する場合は `LAWVER_REDIS_URL` を設定してください。設定しないと各 worker が個別にカウントし、実質上限が worker 数の倍になります。
 - 管理 API はアカウント管理とログ閲覧ができます。`/api/admin/logs` は sudo のみ、アカウント/デバイス API は sudo/admin の階層で制限されるため、信頼できる担当者だけに公開してください。
