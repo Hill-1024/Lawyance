@@ -1,0 +1,47 @@
+{
+  "collected_at": "2026-09-14",
+  "step": "2.4",
+  "subject": "riba scripture: Quran 2:275–279 + related hadith numbers",
+  "collection_note": "阿语 Tanzil Uthmani，与 quran.com text_uthmani 交叉核对；英译 Saheeh International；中译马坚简体。圣训编号均在 sunnah.com 核对。辞朝演说一条编号留空待核验，不编造。legal_effect 保持 religious-guidance，不得单独作为国家合规结论。",
+  "quran": {
+    "sura": "al-Baqarah",
+    "verses": ["2:275", "2:276", "2:277", "2:278", "2:279"],
+    "arabic_source": "Tanzil Project Uthmani (Hafs)",
+    "arabic_urls": [
+      "https://tanzil.net/#2:275",
+      "https://tanzil.net/pub/download/index.php",
+      "https://api.quran.com/api/v4/verses/by_key/2:275?fields=text_uthmani"
+    ],
+    "en_translation": "Saheeh International (quran.com resource_id=20)",
+    "zh_translation": "马坚简体 (quran.com resource_id=56)",
+    "translation_urls": [
+      "https://quran.com/al-baqarah/275-279?translations=20",
+      "https://quran.com/al-baqarah/275-279?translations=56"
+    ]
+  },
+  "hadith_verified": [
+    {"collection": "Sahih Muslim", "number": "1587a", "url": "https://sunnah.com/muslim:1587a"},
+    {"collection": "Sahih Muslim", "number": "1584a", "url": "https://sunnah.com/muslim:1584a"},
+    {"collection": "Sahih Muslim", "number": "1598", "url": "https://sunnah.com/muslim:1598"},
+    {"collection": "Sahih al-Bukhari", "number": "2170", "url": "https://sunnah.com/bukhari:2170"},
+    {"collection": "Sahih al-Bukhari", "number": "4544", "url": "https://sunnah.com/bukhari:4544"},
+    {"collection": "Sunan an-Nasa'i", "number": "4558", "url": "https://sunnah.com/nasai:4558"},
+    {"collection": "Sunan an-Nasa'i", "number": "4560", "url": "https://sunnah.com/nasai:4560"},
+    {"collection": "Jami' at-Tirmidhi", "number": "1243", "url": "https://sunnah.com/tirmidhi:1243"},
+    {"collection": "Sunan an-Nasa'i", "number": "5102", "url": "https://sunnah.com/nasai:5102"},
+    {"collection": "Sunan an-Nasa'i", "number": "4665", "url": "https://sunnah.com/nasai:4665"}
+  ],
+  "hadith_pending": [
+    {
+      "note": "Khutbat al-Wada' riba abolition (Jabir) in Sahih Muslim Kitab al-Hajj; exact sunnah.com subdivision number not located",
+      "status": "pending_verification"
+    }
+  ],
+  "files": [
+    {
+      "filename": "riba经训原文_2-275-279与圣训_中文采集记录.docx",
+      "role": "collection_record"
+    }
+  ],
+  "imported_into": "data/shared/riba_scripture_principle.json → SH-PRINCIPLE-RIBA-001"
+}

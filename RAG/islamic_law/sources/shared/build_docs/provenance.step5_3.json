@@ -1,0 +1,15 @@
+{
+  "collected_at": "2026-09-16",
+  "step": "5.3",
+  "topic": "build_handover_documentation",
+  "doc": "BUILD.md",
+  "formal_count": 16,
+  "formal_breakdown": {"MY": 8, "ID": 8},
+  "covers": [
+    "已入库条目清单（编号/主题/国家/来源）",
+    "待核验清单",
+    "采集问题与解决",
+    "交接路径与验证命令"
+  ],
+  "milestone_commit_message": "feat: P1 首批 15-20 条 MY/ID 金融+halal 正式条目入库"
+}

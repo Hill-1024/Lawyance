@@ -48,11 +48,11 @@ The repository contains a FastAPI backend, a React/Vite frontend, a tool forward
 ## Architecture
 
 ```text
-React / Vite frontend
+React / Vite frontend  (frontend/)
     |
     | REST / stream / file workspace
     v
-FastAPI application
+FastAPI application    (backend/ + root agent.py entrypoint)
     |
     | agent orchestration
     v
@@ -64,29 +64,59 @@ mcps tool forwarding layer
     |
     | legal data / company data / document processors / memory client
     v
-MCP clients and local services
+MCP clients · memory_system · RAG/
+```
+
+### Directory layout
+
+```text
+Lawver/
+├── agent.py                 # Root entry: python agent.py / uvicorn agent:app
+├── backend/                 # FastAPI backend and agent runtime
+│   ├── app_factory.py
+│   ├── routes/
+│   ├── services/
+│   ├── agents/
+│   ├── tools/
+│   ├── mcps.py
+│   ├── mcp/
+│   ├── memory_system/
+│   ├── prompts/lawver/
+│   ├── llm/
+│   └── ocp.py
+├── frontend/                # React 19 + Vite frontend
+│   ├── src/
+│   ├── public/
+│   └── index.html
+├── RAG/                     # China primary library + ASEAN jurisdiction DBs
+├── android/                 # Capacitor Android project
+├── deploy/                  # Nginx / Cloudflare deployment examples
+├── docs/
+├── scripts/
+├── tests/
+├── package.json
+├── pyproject.toml
+└── dist/                    # Frontend build output (gitignored)
 ```
 
 Important paths:
 
 | Path | Purpose |
 | --- | --- |
-| `agent.py` | Keeps only the `agent:app` import contract and the `python agent.py` entrypoint; honors `PORT` and `UVICORN_WORKERS` |
-| `app_factory.py` | FastAPI application factory: middleware, routes, and lifespan tasks |
-| `routes/` | HTTP routes: auth, admin, chat, moot court, workspace, SPA fallback |
-| `services/` | Chat and court pipelines, history compression, memory coordination, law cache, workspace cleanup, security middleware |
-| `agents/tool_loop.py` | Unified native tool_calls agent loop driving both Default and Plan-and-Solve modes |
-| `function_calling.py` | OpenAI-compatible model call wrapper and tool message pairing |
-| `tools/` | Explicit business tool registry (schema / handler / coercer / exposure) |
-| `mcps.py` | Unified business tool forwarding entrypoint |
-| `mcp/` | Legal, company, PDF, Word, TXT/Markdown, memory, and SearXNG web-search tool clients |
-| `memory_system/` | Conversation-level structured memory service |
-| `RAG/` | Local statute and regulation retrieval engine |
-| `prompts/lawver/` | Dynamic prompt resources: core / modes / focus / tasks / court |
-| `workspace.py` | Workspace path boundary and upload/output validation |
-| `ocp.py` | Output Check Process (OCP) pipeline |
-| `src/` | React frontend covering both the main chat and moot court workflows |
-| `tests/` | Coverage of memory, OCP, tool loop, moot court, security hardening, prompt loader, and more |
+| `agent.py` | Root entry that adds `backend/` to the path and creates the app; honors `PORT` and `UVICORN_WORKERS` |
+| `backend/app_factory.py` | FastAPI application factory: middleware, routes, and lifespan tasks |
+| `backend/routes/` | HTTP routes: auth, admin, chat, moot court, workspace, SPA fallback |
+| `backend/services/` | Chat and court pipelines, history compression, memory coordination, law cache, workspace cleanup |
+| `backend/agents/tool_loop.py` | Unified native tool_calls agent loop |
+| `backend/tools/` | Explicit business tool registry (schema / handler / coercer / exposure) |
+| `backend/mcps.py` | Unified business tool forwarding entrypoint |
+| `backend/mcp/` | Legal, company, PDF, Word, TXT/Markdown, memory, and SearXNG clients |
+| `backend/memory_system/` | Conversation-level structured memory service |
+| `RAG/` | Local statute engine and ASEAN civil / islamic / common-law jurisdiction DBs |
+| `backend/prompts/lawver/` | Dynamic prompt resources: core / modes / focus / tasks / court |
+| `frontend/src/` | React frontend covering main chat and moot court |
+| `tests/` | Coverage of memory, OCP, tool loop, moot court, security hardening, and more |
+| `deploy/` | Production reverse-proxy and gateway examples |
 
 ## Requirements
 
@@ -183,14 +213,14 @@ The current suite has roughly 440 cases. Representative coverage:
 
 ## Backend Topology and Tool Registry
 
-`agent.py` only preserves the `agent:app` import contract and `python agent.py` entrypoint. Application assembly lives in `app_factory.py`; HTTP routes live in `routes/`; chat pipeline, history compression, memory coordination, and cleanup jobs live in `services/`.
+`agent.py` only preserves the `agent:app` import contract and `python agent.py` entrypoint. Application assembly lives in `backend/app_factory.py`; HTTP routes live in `backend/routes/`; chat pipeline, history compression, memory coordination, and cleanup jobs live in `backend/services/`.
 
-Route registration order must remain: auth → admin → chat → moot court → APK release distribution → workspace/upload/download → SPA catch-all. `routes/spa.py` must be registered last so `/api/*` is never swallowed by the frontend fallback.
+Route registration order must remain: auth → admin → chat → moot court → APK release distribution → workspace/upload/download → SPA catch-all. `backend/routes/spa.py` must be registered last so `/api/*` is never swallowed by the frontend fallback.
 
-Business tools still reach agents through `mcps.py`. To add a tool:
+Business tools still reach agents through `backend/mcps.py`. To add a tool:
 
-1. Implement the real client or handler under `mcp/`.
-2. Register its schema, handler, coercer, and `exposure` explicitly in `tools/__init__.py`.
+1. Implement the real client or handler under `backend/mcp/`.
+2. Register its schema, handler, coercer, and `exposure` explicitly in `backend/tools/__init__.py`.
 3. Call it through `mcps.use_tools()`; agents, routes, and services should not bypass `mcps`.
 
 `exposure` is the single source of truth for tool visibility:
@@ -201,7 +231,7 @@ Business tools still reach agents through `mcps.py`. To add a tool:
 - `ocp_reviewer`: read-only legal source tools available to OCP.
 - `internal`: backend-dispatchable tools that are hidden from the LLM tool schema.
 
-Workspace path validation lives in `workspace.py`, shared by `mcps.py` and `tools/*`, so registry modules never need to import back from `mcps`.
+Workspace path validation lives in `backend/workspace.py`, shared by `backend/mcps.py` and `backend/tools/*`, so registry modules never need to import back from `mcps`.
 
 OCP is a post-answer formatting review pass. Main-model failures still follow the main-model error path; OCP timeout, network failure, tool failure, or reviewer failure must not raise into the user path. It falls back to deterministic sanitizer-only output while preserving the main-model answer.
 
@@ -212,7 +242,7 @@ This architecture work does not include Lawver naming cleanup, tool naming rewri
 Every request is accepted and forwarded through exactly two routers; cross-module direct calls are forbidden:
 
 ```text
-routes/  ->  services/  ->  services/agent_builder.py (paradigm router)
+backend/routes/  ->  backend/services/  ->  services/agent_builder.py (paradigm router)
                                  |-- execute_tool  = mcps.use_tools(..., capability)
                                  |-- output_review = services/ocp_service.build_output_review(...)
                                           |
@@ -220,19 +250,19 @@ routes/  ->  services/  ->  services/agent_builder.py (paradigm router)
                              agents/ToolLoopAgent (single agent loop, only calls injected handlers)
                                           |
                                           v
-                             mcps.py (the only capability router)
+                             backend/mcps.py (the only capability router)
                                  |-- tools/registry.py
                                  |-- mcp/* · memory_system/ · RAG/
 ```
 
 Invariants are locked by `tests/test_architecture_boundaries.py`:
 
-- Only `mcps.py` and `tools/**` may import `tools` / `tools.registry`.
-- `agents/**` must not import `ocp`, `services/**`, `tools`, `mcp`, `memory_system`, or `RAG`.
-- `tools/**` must not import `services/**`.
-- `services/**` and `routes/**` must not import `tools`, `mcp`, `memory_system`, `RAG`, or `ocp` directly; everything goes through `mcps`. Only `services/ocp_service.py` may construct `ocp`.
+- Only `backend/mcps.py` and `backend/tools/**` may import `tools` / `tools.registry`.
+- `backend/agents/**` must not import `ocp`, `services/**`, `tools`, `mcp`, `memory_system`, or `RAG`.
+- `backend/tools/**` must not import `services/**`.
+- `backend/services/**` and `backend/routes/**` must not import `tools`, `mcp`, `memory_system`, `RAG`, or `ocp` directly; everything goes through `mcps`. Only `services/ocp_service.py` may construct `ocp`.
 - The production import graph must be acyclic.
-- Neutral shared modules (`workspace.py`, `media.py`, `context_usage.py`, `infra/`) must not depend back on `services/`.
+- Neutral shared modules (`backend/workspace.py`, `backend/media.py`, `backend/context_usage.py`, `backend/infra/`) must not depend back on `services/`.
 
 OCP follows the same shape as default / plan_and_solve / court: `services/agent_builder.py` resolves it into an `output_review` injected into `ToolLoopAgent`, and the agent loop never imports `ocp` itself. Known exception: model-profile reads for the main model and OCP (`function_calling` / `services.ocp_service` → `services.settings_service`) remain a config-store dependency; it does not depend back on its callers and forms no cycle.
 
@@ -272,7 +302,7 @@ Backend entrypoint: `routes/court.py`; pipeline: `services/court_pipeline.py` an
 
 ## Development Boundaries
 
-- `mcps.py` is the unified business-facing tool entry point for agents. New tools should be implemented in `mcp/` clients and exposed through `mcps`, instead of being called directly by agents or API routes.
+- `backend/mcps.py` is the unified business-facing tool entry point for agents. New tools should be implemented in `backend/mcp/` clients and exposed through `mcps`, instead of being called directly by agents or API routes.
 - The memory system is conversation-level structured memory. It is not user-level profiling; optional embedding is only a retrieval weight signal.
 - Uploaded and generated files must stay inside the user/conversation workspace boundary.
 - Legal answers should preserve a verifiable chain: facts, statutes, cases, or source links should remain traceable.

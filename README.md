@@ -48,11 +48,11 @@ Lawver 是工大法智团队的中文法律 AI 助手项目。它把法律咨询
 ## 架构
 
 ```text
-React / Vite frontend
+React / Vite frontend  (frontend/)
     |
     | REST / stream / file workspace
     v
-FastAPI application
+FastAPI application    (backend/ + 根目录 agent.py 启动入口)
     |
     | agent orchestration
     v
@@ -64,29 +64,60 @@ mcps tool forwarding layer
     |
     | legal data / company data / document processors / memory client
     v
-MCP clients and local services
+MCP clients · memory_system · RAG/
+```
+
+### 目录结构
+
+```text
+Lawver/
+├── agent.py                 # 根启动契约：python agent.py / uvicorn agent:app
+├── backend/                 # FastAPI 后端与 Agent 运行时
+│   ├── app_factory.py       # 应用工厂
+│   ├── routes/              # HTTP 路由
+│   ├── services/            # 业务服务与流水线
+│   ├── agents/              # ToolLoop Agent
+│   ├── tools/               # 工具 schema / handler 注册
+│   ├── mcps.py              # 工具转发入口
+│   ├── mcp/                 # 法条、案例、企业、文档、联网等客户端
+│   ├── memory_system/       # 对话级记忆
+│   ├── prompts/lawver/      # 动态 prompt
+│   ├── llm/                 # 模型客户端封装
+│   └── ocp.py               # 输出审查
+├── frontend/                # React 19 + Vite 前端
+│   ├── src/                 # 页面、组件、hooks、API 客户端
+│   ├── public/              # PWA / 静态资源
+│   └── index.html
+├── RAG/                     # 中国法主库 + 东盟管辖库（civil / islamic / common）
+├── android/                 # Capacitor Android 工程
+├── deploy/                  # Nginx / Cloudflare 等部署示例
+├── docs/                    # 设计与对接文档
+├── scripts/                 # 构建与前端单测脚本
+├── tests/                   # 后端与集成测试
+├── assets/                  # 品牌资源
+├── package.json             # 前端依赖与常用脚本
+├── pyproject.toml           # Python 依赖
+└── dist/                    # 前端构建产物（gitignore，供 SPA / Capacitor 使用）
 ```
 
 关键路径：
 
 | 路径 | 说明 |
 | --- | --- |
-| `agent.py` | 仅保留 `agent:app` 与 `python agent.py` 启动契约，支持 `PORT` 与 `UVICORN_WORKERS` 环境变量 |
-| `app_factory.py` | FastAPI 应用工厂，集中注册中间件、路由和生命周期任务 |
-| `routes/` | 认证、管理员、聊天、模拟法庭、工作区、SPA fallback 等 HTTP 路由 |
-| `services/` | 聊天与庭审流水线、历史压缩、记忆协调、法库缓存、工作区清理、安全中间件 |
-| `agents/tool_loop.py` | 统一原生 tool_calls Agent 循环，承载默认模式与 Plan-and-Solve |
-| `function_calling.py` | OpenAI 兼容模型调用封装与工具消息配对 |
-| `tools/` | 业务工具显式注册表（schema / handler / coercer / exposure） |
-| `mcps.py` | 业务工具统一转发入口 |
-| `mcp/` | 法律、企业、PDF、Word、TXT/Markdown、记忆、SearXNG 联网搜索等工具客户端 |
-| `memory_system/` | 对话级结构化记忆服务 |
-| `RAG/` | 本地法律法规检索引擎 |
-| `prompts/lawver/` | 核心、模式、焦点、任务、模拟法庭等动态 prompt 资源 |
-| `workspace.py` | 工作区路径边界与上传/生成文件验证 |
-| `ocp.py` | 输出审查（OCP）流水线 |
-| `src/` | React 前端，含主聊天与模拟法庭两个工作流 |
-| `tests/` | 覆盖记忆、OCP、工具循环、模拟法庭、安全加固、提示词加载等 |
+| `agent.py` | 根入口，把 `backend/` 加入路径后创建应用；支持 `PORT` 与 `UVICORN_WORKERS` |
+| `backend/app_factory.py` | FastAPI 应用工厂，集中注册中间件、路由和生命周期任务 |
+| `backend/routes/` | 认证、管理员、聊天、模拟法庭、工作区、SPA fallback 等 HTTP 路由 |
+| `backend/services/` | 聊天与庭审流水线、历史压缩、记忆协调、法库缓存、工作区清理 |
+| `backend/agents/tool_loop.py` | 统一原生 tool_calls Agent 循环 |
+| `backend/tools/` | 业务工具显式注册表（schema / handler / coercer / exposure） |
+| `backend/mcps.py` | 业务工具统一转发入口 |
+| `backend/mcp/` | 法律、企业、PDF、Word、TXT/Markdown、记忆、SearXNG 等客户端 |
+| `backend/memory_system/` | 对话级结构化记忆服务 |
+| `RAG/` | 本地法库与东盟大陆法 / 伊斯兰法 / 普通法管辖库 |
+| `backend/prompts/lawver/` | 核心、模式、焦点、任务、模拟法庭等动态 prompt |
+| `frontend/src/` | React 前端（主聊天与模拟法庭） |
+| `tests/` | 记忆、OCP、工具循环、模拟法庭、安全加固、架构边界等测试 |
+| `deploy/` | 生产反代与网关配置示例 |
 
 ## 环境要求
 
@@ -146,6 +177,156 @@ pnpm run dev:frontend
 | `pnpm run mobile:android:test` | 运行 Android debug 单元测试 |
 | `pnpm run mobile:android:apk` | 构建 Android debug APK |
 
+## 本地部署 Qwen-SEA-LION-v4-8B-VL PolyLM
+
+Lawver 通过 OpenAI 兼容的 Chat Completions API 调用模型。本节将
+[`aisingapore/Qwen-SEA-LION-v4-8B-VL`](https://huggingface.co/aisingapore/Qwen-SEA-LION-v4-8B-VL)
+部署为多语种法律语义网关的 PolyLM 接口联调模型；推荐将 vLLM 作为独立进程运行，不要把 vLLM 安装进 Lawver 的应用虚拟环境。
+
+该模型基于 Qwen3-VL-8B-Instruct，模型仓库约 17.5 GB，权重为 BF16，原生上下文上限为 256K。模型卡声明支持英语以及缅甸语、印度尼西亚语、菲律宾语、马来语、泰米尔语、泰语和越南语，但不等于覆盖全部东盟语言，也不是法律领域专用模型。模型卡还明确说明模型没有做安全对齐，可能产生幻觉；法律场景必须保留资料检索、输出审查、来源核验和人工复核。
+
+### 1. 检查 GPU
+
+先在模型服务器上执行：
+
+```bash
+nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader
+```
+
+vLLM 的 NVIDIA 预编译版本要求 Linux，以及计算能力 7.5 或更高的 GPU。BF16 权重本身约占 17.5 GB，此外还需要视觉编码器运行空间、CUDA 工作区和 KV cache。以下仅作为部署起点，实际容量取决于上下文长度、图片大小和并发数：
+
+| GPU 显存 | 建议 |
+| --- | --- |
+| 少于 20 GB | 原始 BF16 权重通常无法可靠装入；应更换更大显存 GPU、使用多卡，或另行评估可信的量化版本 |
+| 24 GB | 从 8K～16K 上下文、单请求或低并发开始，必须实测是否 OOM |
+| 48 GB 或更高 | 可逐步提高上下文与并发，但不要直接假设能承载 256K 上下文 |
+| 多张同型号 GPU | 启动时增加 `--tensor-parallel-size GPU数量` |
+
+除模型目录外，vLLM、PyTorch 和下载缓存也会占用空间，建议至少预留 40 GB 可用磁盘。
+
+### 2. 创建独立的 vLLM 环境
+
+下面假定项目部署在 `$HOME/Lawver-ASEAN/Lawver`，模型与虚拟环境放在它的上级目录：
+
+```bash
+export LAWVER_HOME="$HOME/Lawver-ASEAN"
+export SEALION_VENV="$LAWVER_HOME/vllm-sealion"
+export SEALION_MODEL_DIR="$LAWVER_HOME/models/Qwen-SEA-LION-v4-8B-VL"
+
+uv python install 3.12
+uv venv "$SEALION_VENV" --python 3.12 --seed
+
+uv pip install \
+  --python "$SEALION_VENV/bin/python" \
+  -U vllm huggingface_hub \
+  --torch-backend=auto
+
+"$SEALION_VENV/bin/vllm" --version
+"$SEALION_VENV/bin/hf" version
+```
+
+这里故意通过 `--python` 指定目标解释器，而不依赖当前 shell 激活了哪个环境。使用独立环境可以避免 vLLM 自带的 PyTorch、CUDA 运行库与 Lawver 应用依赖互相覆盖。
+
+如果曾误把 vLLM 安装进 Lawver 应用环境，应先按上面的命令确认专用环境已经安装成功，再回到项目目录，用锁文件恢复应用环境：
+
+```bash
+source "$HOME/Lawver-ASEAN/Lawver-ASEAN/bin/activate"
+cd "$HOME/Lawver-ASEAN/Lawver"
+uv sync --active --locked --no-dev
+uv pip check
+```
+
+`uv sync` 会移除锁文件之外的 vLLM 及其额外依赖，但不会删除单独存放在 `$HOME/Lawver-ASEAN/models` 下的模型权重。
+
+### 3. 下载权重
+
+权重最终必须存在于服务器本地磁盘。直接把 Hugging Face 仓库 ID 传给 `vllm serve` 时，vLLM 会在第一次启动时自动下载到 Hugging Face 缓存；生产部署更推荐提前显式下载，便于观察进度、断点续传和固定存放位置：
+
+```bash
+mkdir -p "$SEALION_MODEL_DIR"
+
+"$SEALION_VENV/bin/hf" download aisingapore/Qwen-SEA-LION-v4-8B-VL \
+  --local-dir "$SEALION_MODEL_DIR"
+
+du -sh "$SEALION_MODEL_DIR"
+```
+
+模型是公开仓库，正常情况下不需要 Hugging Face Token。需要完全可复现的部署时，应额外用 `--revision` 指定经过验证的完整 commit SHA，而不是长期跟随 `main`。
+
+### 4. 启动 OpenAI 兼容服务
+
+以下是单张 GPU 的保守起始配置。它保留图片输入、关闭视频输入，并启用 Lawver 所需的自动工具调用解析：
+
+```bash
+"$HOME/Lawver-ASEAN/vllm-sealion/bin/vllm" serve \
+  "$HOME/Lawver-ASEAN/models/Qwen-SEA-LION-v4-8B-VL" \
+  --served-model-name Qwen-SEA-LION-v4-8B-VL \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --dtype auto \
+  --max-model-len 16384 \
+  --gpu-memory-utilization 0.90 \
+  --max-num-seqs 4 \
+  --limit-mm-per-prompt.video 0 \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes
+```
+
+如果 24 GB GPU 启动时 OOM，先把 `--max-model-len` 降为 `8192`、把 `--max-num-seqs` 降为 `1`；仍然 OOM 时不要继续挤占显存，应改用更多显存或经过验证的量化方案。多卡部署需增加例如 `--tensor-parallel-size 2`。首次排障应以前台方式运行，确认稳定后再交给 systemd 等进程管理器。
+
+默认只监听 loopback，不能被公网直接访问。如果模型与 Lawver 分布在不同主机，应使用私网、防火墙和 API Key 鉴权，不要把未鉴权的 vLLM 端口暴露到公网。
+
+### 5. 验证模型 API
+
+另开一个终端执行：
+
+```bash
+curl -s http://127.0.0.1:8001/v1/models
+
+curl -s http://127.0.0.1:8001/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "Qwen-SEA-LION-v4-8B-VL",
+    "messages": [
+      {"role": "user", "content": "请用印度尼西亚语简要介绍东盟。"}
+    ],
+    "max_tokens": 256,
+    "temperature": 0.2
+  }'
+```
+
+返回 JSON 且 `choices[0].message.content` 包含文本，表示 OpenAI 兼容接口可用。上线前还应使用 Lawver 的真实工具定义验证 `tool_choice=auto`，因为模型宣称具备工具能力不代表每个业务工具都能稳定、正确调用。
+
+### 6. 接入 Multilingual Legal Semantic Gateway
+
+生产环境可将 [`iic/nlp_polylm_qwen_7b_text_generation`](https://www.modelscope.cn/models/iic/nlp_polylm_qwen_7b_text_generation/summary) 通过同一 OpenAI 兼容接口接入；上面的 SEA-LION 部署也可用于接口联调。`POLYLM_MODEL` 必须填写实际的 `--served-model-name`。网关一次生成语言与法域检测、目标语料语言的单条 `aligned_query`、`english_pivot` 和英文 `legal_concepts`；不执行数据库检索或结果融合。在 Lawver 根目录的 `.env` 中配置：
+
+```env
+POLYLM_BASE_URL="http://127.0.0.1:8001/v1"
+POLYLM_MODEL="PolyLM-Qwen-7B"
+POLYLM_API_KEY="EMPTY"
+POLYLM_API_MODE="completion"
+```
+
+PolyLM-Qwen-7B 是文本生成预训练底座，示例直接使用 `completion`。Qwen-SEA-LION-v4-8B-VL 是带 chat template 的指令模型，应配置实际模型名并使用 `POLYLM_API_MODE="chat"`。不确定服务端是否配置 chat template 时可设为 `auto`，代码会先调用 Chat Completions，并在服务端返回 400 时改用普通 Completions。网关会通过 vLLM structured outputs 的 JSON Schema 约束返回形状，同时仍在应用侧校验字段与语言。vLLM 未设置 `--api-key` 时，`POLYLM_API_KEY` 可以省略；代码会自动使用非空占位值。`API_KEY`、`BASE_URL` 和 `LLM_MODEL` 仍用于 Lawver 的主聊天及工具调用模型，不应因启用 PolyLM 而被覆盖。随后切回应用环境并启动 Lawver：
+
+```bash
+source "$HOME/Lawver-ASEAN/Lawver-ASEAN/bin/activate"
+cd "$HOME/Lawver-ASEAN/Lawver"
+python agent.py
+```
+
+配置后，聊天流程仅在意图路由返回 `requires_legal_evidence=true` 时调用 Semantic Gateway，并把 `aligned_query`、`english_pivot` 和 `legal_concepts` 放入本轮工作上下文；一般问候、改写、代码讨论等不需要法律检索的请求只进行本地语言/法域规则检测，不调用 PolyLM。消息发出后，前端会立即显示“正在进行多语种语义对齐…”，直到服务端开始返回回答流；较长会话会同时提示正在整理较早上下文。原问题仍是回答依据，这些字段只是检索提示，不是法律结论。对齐语言默认采用目标法域语料的主要语言，例如泰国为 `th`、越南为 `vi`、印度尼西亚为 `id`；普通法系目标默认使用 `en`，目标法域不明确时沿用输入语言。英文输入不再转换 `english_pivot`，应用会直接复用规范化空白后的原查询。
+
+已登录用户可调用以下两个接口，请求体均为 `{"query":"中国企业能否持有泰国公司股权？"}`：
+
+- `POST /api/query/detect`：保留原有检测协议，返回 `language`、ISO 国家码 `jurisdiction`、`mentioned_jurisdictions` 和 `source`。
+- `POST /api/query/align`：在检测字段之外返回 `jurisdiction_label`、`original_query`、`aligned_query`、`alignment_language`、`aligned`、`english_pivot` 和 `legal_concepts`。其中 `jurisdiction` 对齐数据库的 `country` 国家码；`jurisdiction_label` 对齐数据库协议中的 `country_label` / `jurisdiction` 显示名。
+
+`POST /api/query/align` 是显式诊断/调用接口，因此不受聊天意图闸门影响；调用该接口时仍会直接运行 Semantic Gateway。
+
+`source=polylm` 表示模型结果，`rules` 表示未配置模型，`rules_fallback` 表示模型调用或解析失败。网关会校验 `aligned_query`、`english_pivot` 与 `legal_concepts` 的类型、长度和语言；`aligned_query` 语言错误时只进行一次定向修复。降级时 `aligned=false`、`aligned_query` 保持原查询；英文原查询仍可直接作为 `english_pivot`，其他语言不猜测翻译，`legal_concepts` 返回空列表。Multi-view Retrieval 和检索结果融合留待后续实现。
+
 ## Android APK 发布与更新
 
 Android 正式发布通过 GitHub Actions 的 `vX.Y.Z` 标签工作流构建 release APK。工作流会校验 tag 与 `package.json.version` 一致，使用 GitHub Secrets 中的长期 release keystore 签名，并把 `Lawver-${version}.apk` 与 `android-version.json` 上传到 GitHub Release。
@@ -185,7 +366,7 @@ Android 正式发布通过 GitHub Actions 的 `vX.Y.Z` 标签工作流构建 rel
 
 ## 动态 Prompt
 
-Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对话上下文时都会重新读取这些片段，并在运行时最多拆成三条 system message（稳定前缀 / 动态 memory / recap）：
+Lawver 的系统 prompt 已拆分到 `backend/prompts/lawver/`，后端每次构造对话上下文时都会重新读取这些片段，并在运行时最多拆成三条 system message（稳定前缀 / 动态 memory / recap）：
 
 - `core/`：身份、硬约束、工具信源规则、输出契约、文件处理规则
 - `modes/`：`default`、`plan_and_solve` 两种 agent 模式的注意力焦点
@@ -193,7 +374,7 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 - `tasks/`：历史摘要等内部任务专用 prompt
 - `court/`：模拟法庭通用边界（`common.md`）、案由（`cases/{civil,administrative,criminal}.md`）和角色（`roles/{judge,opponent,reviewer,user_agent}.md`）
 
-工具 schema 不放进动态 prompt，也不从 prompt 目录读取；模型工具能力仍由 `function_calling.call()` 通过 `mcps.py` 中的静态工具常量传入。
+工具 schema 不放进动态 prompt，也不从 prompt 目录读取；模型工具能力仍由 `function_calling.call()` 通过 `backend/mcps.py` 中的静态工具常量传入。
 
 可选环境变量：
 
@@ -203,15 +384,16 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 
 ## 后端拓扑与工具注册
 
-后端入口 `agent.py` 只保留 `agent:app` 和 `python agent.py` 启动契约；应用组装在 `app_factory.py`，路由在 `routes/`，聊天流水线、历史压缩、记忆协调和清理任务在 `services/`。
+后端入口 `agent.py` 只保留 `agent:app` 和 `python agent.py` 启动契约；应用组装在 `backend/app_factory.py`，路由在 `backend/routes/`，聊天流水线、历史压缩、记忆协调和清理任务在 `backend/services/`。
 
-路由注册顺序必须保持为：认证 → 管理员 → 聊天 → 模拟法庭 → APK 发布分发 → 工作区/上传/下载 → SPA catch-all。`routes/spa.py` 的 catch-all 必须最后挂载，避免吞掉 `/api/*`。
+路由注册顺序必须保持为：认证 → 管理员 → 聊天 → 模拟法庭 → APK 发布分发 → 工作区/上传/下载 → SPA catch-all。`backend/routes/spa.py` 的 catch-all 必须最后挂载，避免吞掉 `/api/*`。
 
-业务工具仍统一通过 `mcps.py` 暴露给 agent。新增工具的推荐流程：
+业务工具仍统一通过 `backend/mcps.py` 暴露给 agent。新增工具的推荐流程：
 
-1. 在 `mcp/` 中实现真实客户端或处理函数。
-2. 在 `tools/__init__.py` 显式注册 schema、handler、参数 coercer 和 `exposure`。
-3. 通过 `mcps.use_tools()` 调用，不让 agent、route 或 service 直接绕过 `mcps`。
+1. 在 `backend/mcp/` 增加或扩展客户端实现。
+2. 在 `backend/tools/__init__.py` 显式注册 schema、handler、参数 coercer 和 `exposure`。
+3. 由 `backend/mcps.py` 统一转发；agent 与业务接口不要直接绕过。
+4. 需要时同步更新相关测试与 README。
 
 `exposure` 是工具可见性的唯一声明来源：
 
@@ -221,7 +403,7 @@ Lawver 的系统 prompt 已拆分到 `prompts/lawver/`，后端每次构造对�
 - `ocp_reviewer`：OCP 审查器可用的只读法律信源工具。
 - `internal`：后端内部可 dispatch，但不进入 LLM tool schema 的工具。
 
-工作区路径校验集中在 `workspace.py`，`mcps.py` 和 `tools/*` 都依赖它，避免工具注册拆分后产生循环 import。
+工作区路径校验集中在 `backend/workspace.py`，`backend/mcps.py` 和 `backend/tools/*` 都依赖它，避免工具注册拆分后产生循环 import。
 
 OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误路径处理；OCP 自身的超时、网络异常、工具异常或审查模型异常不得向用户路径抛出，必须降级为 deterministic fallback：保留主模型正文，只在本地做 Markdown 表格修复与信源区补建（正文角标自带 URL，可离线反推文末溯源），因此任何降级路径都不会出现「有角标、无溯源」的裸输出。
 
@@ -232,7 +414,7 @@ OCP 是主回复后的格式审查 pass。主模型失败仍按主模型错误�
 所有请求只经过两条路由接受和转发，禁止跨模块直连：
 
 ```text
-routes/  ->  services/  ->  services/agent_builder.py（范式路由）
+backend/routes/  ->  backend/services/  ->  services/agent_builder.py（范式路由）
                                  |-- execute_tool  = mcps.use_tools(..., capability)
                                  |-- output_review = services/ocp_service.build_output_review(...)
                                           |
@@ -240,21 +422,21 @@ routes/  ->  services/  ->  services/agent_builder.py（范式路由）
                              agents/ToolLoopAgent（统一 agent 循环，只调用注入的处理器）
                                           |
                                           v
-                             mcps.py（唯一能力路由）
+                             backend/mcps.py（唯一能力路由）
                                  |-- tools/registry.py
                                  |-- mcp/* · memory_system/ · RAG/
 ```
 
 不变量由 `tests/test_architecture_boundaries.py` 锁定：
 
-- 只有 `mcps.py` 与 `tools/**` 可以 import `tools` / `tools.registry`。
-- `agents/**` 不得 import `ocp`、`services/**`、`tools`、`mcp`、`memory_system`、`RAG`。
-- `tools/**` 不得 import `services/**`。
-- `services/**`、`routes/**` 不得直接 import `tools`、`mcp`、`memory_system`、`RAG`、`ocp`，一律经 `mcps` 转发；`ocp` 只允许 `services/ocp_service.py` 构造。
+- 只有 `backend/mcps.py` 与 `backend/tools/**` 可以 import `tools` / `tools.registry`。
+- `backend/agents/**` 不得 import `ocp`、`services/**`、`tools`、`mcp`、`memory_system`、`RAG`。
+- `backend/tools/**` 不得 import `services/**`。
+- `backend/services/**`、`backend/routes/**` 不得直接 import `tools`、`mcp`、`memory_system`、`RAG`、`ocp`，一律经 `mcps` 转发；`ocp` 只允许 `services/ocp_service.py` 构造。
 - 生产模块的 import 图无环。
-- 中性共享模块（`workspace.py`、`media.py`、`context_usage.py`、`infra/`）不得反向依赖 `services/`。
+- 中性共享模块（`backend/workspace.py`、`backend/media.py`、`backend/context_usage.py`、`backend/infra/`）不得反向依赖 `services/`。
 
-OCP 与 default / plan_and_solve / court 同构：由 `services/agent_builder.py` 解析成 `output_review` 注入 `ToolLoopAgent`，agent 循环不直接 import `ocp`。已知例外：主模型与 OCP 的模型档案读取（`function_calling` / `services.ocp_service` → `services.settings_service`）保留为配置存储依赖，它不反向依赖调用方，不构成环。
+OCP 与 default / plan_and_solve / court 同构：由 `backend/services/agent_builder.py` 解析成 `output_review` 注入 `ToolLoopAgent`，agent 循环不直接 import `ocp`。已知例外：主模型与 OCP 的模型档案读取（`function_calling` / `services.ocp_service` → `services.settings_service`）保留为配置存储依赖，它不反向依赖调用方，不构成环。
 
 联网搜索工具通过自托管 SearXNG 提供，不依赖 Tavily、SerpAPI 等第三方搜索 API。`web_search` 只返回结构化搜索结果和 snippets；需要阅读网页正文时由模型再调用 `web_fetch`。`web_fetch` 返回内容会被标记为非可信网页数据，不能作为指令执行。
 
@@ -262,6 +444,7 @@ TXT/Markdown 文件通过 `txt_md_reader` / `txt_md_writer` 处理，只能访�
 
 可选环境变量：
 
+- `DELI_ENABLED=0`：禁用得理案例检索。未配置 `DELI_APPID` / `DELI_SECRET` 时也会自动禁用；禁用后 `match_legal_case` 不会暴露给模型，且不影响应用启动。
 - `SEARXNG_BASE_URL`：SearXNG 实例地址，默认 `https://serp.mutsumi.moe/`
 - `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`：Cloudflare Access Service Auth 头；兼容旧的 `SEARXNG_CF_ACCESS_CLIENT_ID` / `SEARXNG_CF_ACCESS_CLIENT_SECRET`
 - `SEARXNG_ENGINES`、`SEARXNG_CATEGORIES`、`SEARXNG_LANGUAGE`、`SEARXNG_SAFE_SEARCH`：默认搜索参数覆盖；通常让服务端 `settings.yml` 和 `categories` 路由决定 engines，仅在需要固定精确引擎时设置 `SEARXNG_ENGINES`
@@ -290,7 +473,7 @@ TXT/Markdown 文件通过 `txt_md_reader` / `txt_md_writer` 处理，只能访�
 - **事实与法源边界**：角色发言只能基于共享卷宗、公开庭审记录与工具返回结果，未公开事实需标注「待核实」；对方律师可提出可能事实假设，但必须用「可能/不排除/请法庭查明」等限定语。
 - **撤回与分支**：可回退到任意公开事件后重算结构化状态并清空 AI 私有记忆；也可以从该点派生新庭审 session，共享卷宗但独立推进。
 
-后端入口为 `routes/court.py`，流水线在 `services/court_pipeline.py` 与 `services/court_fsm.py`；前端在 `src/components/CourtPage.tsx` 与 `src/hooks/useCourtSession.ts`。
+后端入口为 `backend/routes/court.py`，流水线在 `backend/services/court_pipeline.py` 与 `backend/services/court_fsm.py`；前端在 `frontend/src/components/CourtPage.tsx` 与 `frontend/src/hooks/useCourtSession.ts`。
 
 ## 测试
 
@@ -310,12 +493,12 @@ python -m pytest
 
 ## 开发边界
 
-- `mcps.py` 是业务工具面向 agent 的统一入口。新增工具时应先接入 `mcp/` 客户端，再由 `mcps` 暴露，而不是让 agent 或业务接口直接绕过。
+- `backend/mcps.py` 是业务工具面向 agent 的统一入口。新增工具时应先接入 `backend/mcp/` 客户端，再由 `mcps` 暴露，而不是让 agent 或业务接口直接绕过。
 - 记忆系统当前定位是对话级结构化记忆，不是用户级长期画像；可选 embedding 只作为召回权重信号参与排序。
 - 上传文件和生成文件必须落在用户/对话隔离的工作区内，避免跨会话读取或写入。
 - 法律回答应尽量保留依据链路：事实、法条、案例或来源链接要能被继续核验。
 - 前端迁移和 UI 调整应尊重 Lawver 设计系统，不通过 padding 或临时兼容层掩盖布局问题。
-- 页面返回必须走 `src/hooks/useAppBack.ts`（决策逻辑在同目录 `src/lib/app-history.ts`），不要在返回按钮里直接写 `navigate(父级路径)`。后者会往 history 栈压入新记录，用户再按返回就会「前进」回刚离开的子页，表现为返回错乱、需连按多次才能退出。规则由 `pnpm run test:app-back` 锁定：栈内有记录时退栈；深链/刷新进入（history idx 为 0）时改用 replace 落到父级，避免退栈离开应用；已在根路由则交由调用方退出应用。
+- 页面返回必须走 `frontend/src/hooks/useAppBack.ts`（决策逻辑在同目录 `frontend/src/lib/app-history.ts`），不要在返回按钮里直接写 `navigate(父级路径)`。后者会往 history 栈压入新记录，用户再按返回就会「前进」回刚离开的子页，表现为返回错乱、需连按多次才能退出。规则由 `pnpm run test:app-back` 锁定：栈内有记录时退栈；深链/刷新进入（history idx 为 0）时改用 replace 落到父级，避免退栈离开应用；已在根路由则交由调用方退出应用。
 
 ## 账号与权限
 

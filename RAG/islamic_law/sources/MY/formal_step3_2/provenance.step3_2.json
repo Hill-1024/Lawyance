@@ -1,0 +1,27 @@
+{
+  "collected_at": "2026-09-15",
+  "step": "3.2",
+  "record_grade": "formal",
+  "formal_rule_ids": [
+    "MY-SUKUK-BNM-SAC-001",
+    "MY-TAKAFUL-BNM-SAC-001",
+    "MY-IFSA-2013-GOV-S28-29-001",
+    "MY-IFSA-2013-GOV-S30-38-001",
+    "MY-BNM-SGP-2019-FORMAL-001",
+    "MY-HALAL-ACT730-FORMAL-001",
+    "MY-HALAL-MS1500-FORMAL-001"
+  ],
+  "principle_map": {
+    "MY-SUKUK-BNM-SAC-001": "SH-PRINCIPLE-SUKUK-001",
+    "MY-TAKAFUL-BNM-SAC-001": "SH-PRINCIPLE-TAKAFUL-001",
+    "MY-IFSA-2013-GOV-S28-29-001": "SH-PRINCIPLE-GOVERNANCE-001",
+    "MY-IFSA-2013-GOV-S30-38-001": "SH-PRINCIPLE-GOVERNANCE-001",
+    "MY-BNM-SGP-2019-FORMAL-001": "SH-PRINCIPLE-GOVERNANCE-001",
+    "MY-HALAL-ACT730-FORMAL-001": "SH-PRINCIPLE-HALAL-HARAM-001",
+    "MY-HALAL-MS1500-FORMAL-001": "SH-PRINCIPLE-HALAL-HARAM-001"
+  },
+  "note": "采集记录中的 SH-PRINCIPLE-01..08 已映射到库内 SH-PRINCIPLE-* 编号；治理类新增 SH-PRINCIPLE-GOVERNANCE-001。",
+  "collection_record": "马来西亚第二批金融方向_7条目_SH-PRINCIPLE挂接_中文采集记录.docx",
+  "data_file": "data/MY/my_step3_2_formal.json",
+  "sac_local_md5": "08e35a8c9aa2faafc5285d8d9d794484"
+}

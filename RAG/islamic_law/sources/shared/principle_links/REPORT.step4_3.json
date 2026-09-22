@@ -1,0 +1,53 @@
+{
+  "verified_at": "2026-09-16",
+  "step": "4.3",
+  "all_pass": true,
+  "principle_counts": {
+    "SH-PRINCIPLE-GOVERNANCE-001": 14,
+    "SH-PRINCIPLE-HALAL-HARAM-001": 17,
+    "SH-PRINCIPLE-RIBA-001": 37,
+    "SH-PRINCIPLE-SUKUK-001": 14,
+    "SH-PRINCIPLE-TAKAFUL-001": 11
+  },
+  "id_rule_count": 27,
+  "formal_count": 16,
+  "api_samples": [
+    {
+      "check": "rules_by_principle",
+      "sharia_principle_id": "SH-PRINCIPLE-RIBA-001",
+      "total_count": 37,
+      "by_country": {
+        "ID": 11,
+        "MY": 26
+      },
+      "missing_required_id": [],
+      "pass": true
+    },
+    {
+      "check": "rules_by_principle",
+      "sharia_principle_id": "SH-PRINCIPLE-SUKUK-001",
+      "total_count": 14,
+      "by_country": {
+        "ID": 4,
+        "MY": 10
+      },
+      "missing_required_id": [],
+      "pass": true
+    },
+    {
+      "check": "rules_by_principle",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "total_count": 17,
+      "by_country": {
+        "ID": 12,
+        "MY": 5
+      },
+      "missing_required_id": [],
+      "pass": true
+    }
+  ],
+  "failure_count": 0,
+  "failures": [],
+  "checks_pass": 51,
+  "checks_total": 51
+}

@@ -1,0 +1,12 @@
+{
+  "collected_at": "2026-09-16",
+  "step": "5.1",
+  "topic": "full_selftest_exact_semantic_link",
+  "scope": "MY+ID",
+  "all_pass": true,
+  "pass_count": 16,
+  "formal_count": 16,
+  "zh_pass_count": 16,
+  "script": "scripts/verify_full_selftest.py",
+  "note": "不修改 tools/__init__.py / mcps.py；仅准备管辖库自测"
+}

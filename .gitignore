@@ -16,6 +16,7 @@ Result
 /data/
 .DS_Store
 RAG/cache/
+RAG/islamic_law/cache/
 RAG/data_doc/
 RAG/__pycache__/
 .claude/

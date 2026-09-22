@@ -1,0 +1,31 @@
+{
+  "collected_at": "2026-09-16",
+  "step": "4.4",
+  "topic": "cross_country_comparison",
+  "requirement": "同一原则下 ≥2 个国家转化实例；禁止 riba 须同时见 MY + ID",
+  "core_scenario": {
+    "query": "禁止 riba",
+    "principle": "SH-PRINCIPLE-RIBA-001",
+    "rules_by_principle_countries": [
+      "ID",
+      "MY"
+    ],
+    "semantic_countries": [
+      "ID",
+      "MY"
+    ],
+    "link_countries": [
+      "ID",
+      "MY"
+    ],
+    "pass": true
+  },
+  "all_pass": true,
+  "scripts": [
+    "scripts/verify_cross_country.py"
+  ],
+  "report": [
+    "REPORT.step4_4.md",
+    "REPORT.step4_4.json"
+  ]
+}

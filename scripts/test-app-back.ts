@@ -10,7 +10,7 @@ import {
   planAppBack,
   readHistoryIndex,
   resolveParentPath,
-} from '../src/lib/app-history';
+} from '../frontend/src/lib/app-history';
 
 /* ── readHistoryIndex：只信任合法的 idx ── */
 assert.equal(readHistoryIndex({ idx: 0 }), 0);

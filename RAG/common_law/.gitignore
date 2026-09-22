@@ -1,0 +1,4 @@
+# 构建产物：SQLite 索引与指纹清单由 data/ 语料在启动时重建，不入库。
+cache/
+__pycache__/
+.mimosa/
