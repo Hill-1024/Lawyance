@@ -1,0 +1,510 @@
+/*
+ * 模块描述：React 应用根组件，串联认证状态、聊天布局、工作区、主题和管理路由。
+ */
+
+import React, { useCallback, useState, useEffect } from 'react';
+import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { App as CapacitorApp } from '@capacitor/app';
+import { SplashScreen } from '@capacitor/splash-screen';
+import { ShieldAlert, ExternalLink } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { useChat } from './hooks/useChat';
+import { useWorkspace } from './hooks/useWorkspace';
+import { useStorage } from './hooks/useStorage';
+import { useTranslation } from './contexts/LocaleContext';
+import { sendHeartbeat, verifyAuth, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
+import { isNative } from './lib/platform';
+import { isUntitledConversation } from './lib/conversation-title';
+import { APP_CONFIG } from './lib/app-config';
+import { exitNativeApp, useBackButton } from './hooks/useBackButton';
+import { useAppBack, useAppBackUp } from './hooks/useAppBack';
+import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
+import { WorkspacePanel } from './components/WorkspacePanel';
+import { InputArea } from './components/InputArea';
+import { Login } from './components/Login';
+import { BrandMark } from './components/Brand';
+import { UpdateGate } from './components/UpdateGate';
+import { GuidedTour } from './components/GuidedTour';
+
+const AdminDashboard = React.lazy(() => import('./components/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
+const CourtPage = React.lazy(() => import('./components/CourtPage').then(module => ({ default: module.CourtPage })));
+const MessageList = React.lazy(() => import('./components/MessageList').then(module => ({ default: module.MessageList })));
+const SettingsPage = React.lazy(() => import('./components/SettingsPage').then(module => ({ default: module.SettingsPage })));
+
+const SECURE_DOMAIN = APP_CONFIG.domain;
+const ROUTE_TRANSITION = { duration: 0.26, ease: [0.2, 0, 0, 1] } as const;
+
+const RouteLoadingFallback = () => (
+  <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--bg-app)] text-[var(--accent)]">
+    <div className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--accent-quiet)] border-t-[var(--accent)]" />
+  </div>
+);
+
+const isIpHostname = (hostname: string) => {
+  if (!hostname) return false;
+  const isIpv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+  const isIpv6 = hostname.includes(':');
+  return isIpv4 || isIpv6;
+};
+
+const AnimatedRouteSurface: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-[var(--bg-app)]"
+      initial={reduceMotion ? false : { opacity: 0, x: 24, scale: 0.995 }}
+      animate={reduceMotion ? { opacity: 1 } : { opacity: 1, x: 0, scale: 1 }}
+      exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 18, scale: 0.995 }}
+      transition={reduceMotion ? { duration: 0.01 } : ROUTE_TRANSITION}
+      style={{ willChange: reduceMotion ? undefined : 'opacity, transform' }}
+    >
+      {children}
+    </motion.div>
+  );
+};
+
+function App() {
+  const t = useTranslation();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [userRole, setUserRole] = useState<Role>('user');
+  const navigate = useNavigate();
+  // 返回上级一律退栈；深链进入时改用 replace，避免压栈造成"返回又前进"。
+  const goBack = useAppBack();
+  const goUp = useAppBackUp();
+  const location = useLocation();
+
+  const {
+    conversations,
+    currentId,
+    setCurrentId,
+    input,
+    setInput,
+    isLoading,
+    composerStatus,
+    isStreaming,
+    setIsStreaming,
+    agentMode,
+    setAgentMode,
+    isOCPEnabled,
+    setIsOCPEnabled,
+    isInitialized,
+    currentConversation,
+    contextUsage,
+    messages,
+    activeAssistantMessageId,
+    handleNewChat,
+    deleteConversation,
+    handleSend,
+    handleRegenerateMessage,
+    handleUserChoice,
+    stopActiveGeneration,
+    handleUndo,
+    handleEdit,
+    branchConversation
+  } = useChat();
+
+  const {
+    isWorkspaceOpen,
+    setIsWorkspaceOpen,
+    workspaceFiles,
+    pendingUploads,
+    setPendingUploads,
+    restorePendingUploads,
+    isUploadingFiles,
+    handleFileUpload,
+    handleGeneratedFile,
+    removeUploadedFile,
+    deleteFile,
+    syncFiles
+  } = useWorkspace(currentId, isAuthenticated && isInitialized);
+  const { isLowStorage, requestPersistence } = useStorage();
+
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const isIpAccess = typeof window !== 'undefined' && !isNative() && isIpHostname(window.location.hostname);
+  const secureAccessUrl = typeof window !== 'undefined'
+    ? `https://${SECURE_DOMAIN}${window.location.pathname}${window.location.search}${window.location.hash}`
+    : `https://${SECURE_DOMAIN}`;
+
+  useEffect(() => {
+    setUnauthorizedHandler(async () => {
+      setIsAuthenticated(false);
+      setUserRole('user');
+      navigate('/');
+    });
+    return () => setUnauthorizedHandler(null);
+  }, [navigate]);
+
+  const handleLogout = async () => {
+    try {
+      await apiLogout();
+      setIsAuthenticated(false);
+      setUserRole('user');
+      navigate('/');
+    } catch (e) {
+      console.error("Logout failed:", e);
+      // Fallback: clear auth state anyway
+      setIsAuthenticated(false);
+      setUserRole('user');
+      navigate('/');
+    }
+  };
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const data = await verifyAuth();
+        setIsAuthenticated(true);
+        setUserRole(data.role || 'user');
+      } catch (e) {
+        setIsAuthenticated(false);
+      } finally {
+        setIsAuthChecking(false);
+        if (isNative()) {
+          requestAnimationFrame(() => {
+            SplashScreen.hide().catch(console.error);
+          });
+        }
+      }
+    };
+    checkAuth();
+    if (!isNative()) {
+      requestPersistence().catch(console.error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isNative()) return;
+
+    let listener: { remove: () => Promise<void> } | undefined;
+    // 卸载可能早于 addListener 的 Promise 落地；用 disposed 标记补摘，
+    // 否则监听器会永久留在原生层。
+    let disposed = false;
+    CapacitorApp.addListener('appStateChange', async ({ isActive }) => {
+      if (!isActive) return;
+      try {
+        const data = await verifyAuth();
+        setIsAuthenticated(true);
+        setUserRole(data.role || 'user');
+      } catch {
+        setIsAuthenticated(false);
+      }
+    }).then(handle => {
+      if (disposed) {
+        void handle.remove();
+        return;
+      }
+      listener = handle;
+    });
+
+    return () => {
+      disposed = true;
+      listener?.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    // resize 事件在一次拖拽中会连发上百次，而 windowWidth 只用于 1024 断点判定；
+    // 用 rAF 合并到每帧一次，避免整个 App 每像素重渲染一次。
+    let frame = 0;
+    const handleResize = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        setWindowWidth(window.innerWidth);
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!currentId || !isAuthenticated || !isInitialized) return;
+
+    const initialSync = async () => {
+      try {
+        await sendHeartbeat(currentId);
+        await syncFiles();
+      } catch (e) {
+        console.error("Initial heartbeat/sync failed:", e);
+      }
+    };
+    initialSync();
+
+    const interval = setInterval(() => {
+      sendHeartbeat(currentId).catch(console.error);
+    }, 5 * 60 * 1000);
+
+    const handleFocus = async () => {
+      console.log("[Reconnect] Window focused, syncing files and sending heartbeat...");
+      try {
+        await sendHeartbeat(currentId);
+        await syncFiles();
+      } catch (e) {
+        console.error("Focus sync failed:", e);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleFocus);
+    };
+  }, [currentId, isAuthenticated, isInitialized, syncFiles]);
+
+  useBackButton(useCallback(() => {
+    if (isInputExpanded) {
+      setIsInputExpanded(false);
+      return true;
+    }
+    if (isSidebarOpen) {
+      setIsSidebarOpen(false);
+      return true;
+    }
+    if (isWorkspaceOpen) {
+      setIsWorkspaceOpen(false);
+      return true;
+    }
+    // 退栈优先：深链直接进入子页时退栈会离开应用，此时由 goUp 改用 replace 落到父级。
+    if (goUp()) return true;
+    exitNativeApp().catch(console.error);
+    return true;
+  }, [isInputExpanded, isSidebarOpen, isWorkspaceOpen, goUp]), isAuthenticated && isInitialized);
+
+  const activeChoicePrompt = React.useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.role === 'assistant' && message.pending_choice && !message.pending_choice.answered) {
+        return {
+          messageId: message.id,
+          choice: message.pending_choice
+        };
+      }
+    }
+    return null;
+  }, [messages]);
+
+  // 消息列表的操作回调用 ref 持有最新实现、外层暴露稳定引用：否则输入框每敲一个键
+  // 都会让 App 重渲染并连带整列消息重新渲染（每条消息都要重跑 Markdown 解析）。
+  const messageActionsRef = React.useRef({
+    currentId,
+    handleRegenerateMessage,
+    handleUserChoice,
+    handleEdit,
+    handleUndo,
+    branchConversation,
+    handleGeneratedFile,
+    syncFiles,
+    setPendingUploads,
+    restorePendingUploads,
+  });
+  // 在 effect 里刷新而不是渲染期赋值：并发渲染下渲染可能被丢弃或重放，渲染期写 ref 不纯。
+  useEffect(() => {
+    messageActionsRef.current = {
+      currentId,
+      handleRegenerateMessage,
+      handleUserChoice,
+      handleEdit,
+      handleUndo,
+      branchConversation,
+      handleGeneratedFile,
+      syncFiles,
+      setPendingUploads,
+      restorePendingUploads,
+    };
+  });
+
+  const onRegenerateMessage = useCallback((id: string) => {
+    const actions = messageActionsRef.current;
+    return actions.handleRegenerateMessage(actions.currentId, id, actions.handleGeneratedFile, actions.syncFiles);
+  }, []);
+  const onAnswerMessageChoice = useCallback((id: string, value: string) => {
+    const actions = messageActionsRef.current;
+    return actions.handleUserChoice(id, value, actions.handleGeneratedFile, actions.syncFiles);
+  }, []);
+  const onEditMessage = useCallback((id: string) => {
+    const actions = messageActionsRef.current;
+    return actions.handleEdit(actions.currentId, id, actions.restorePendingUploads);
+  }, []);
+  const onUndoMessage = useCallback((id: string) => {
+    const actions = messageActionsRef.current;
+    return actions.handleUndo(actions.currentId, id, actions.restorePendingUploads);
+  }, []);
+  const onBranchMessage = useCallback((id: string) => {
+    const actions = messageActionsRef.current;
+    return actions.branchConversation(actions.currentId, id);
+  }, []);
+
+  if (isAuthChecking) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--bg-app)] text-[var(--accent)] transition-colors duration-300">
+        <div className="h-12 w-12 animate-spin rounded-full border-2 border-[var(--accent-quiet)] border-t-[var(--accent)]" />
+      </div>
+    );
+  }
+
+  const secureAccessBanner = isIpAccess ? (
+    <div className="mx-4 mt-4 mb-2 rounded-[var(--radius-lg)] border border-[rgba(184,132,42,0.3)] bg-[rgba(184,132,42,0.1)] px-4 py-3 text-[#5C3F0E] shadow-[var(--shadow-1)] dark:text-[#FBEBC8]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <ShieldAlert size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-[var(--color-warning-500)]" />
+          <div className="text-sm leading-6">
+            <div className="font-medium">{t('app.ipWarning.title')}</div>
+            <div>{t('app.ipWarning.body', { domain: SECURE_DOMAIN })}</div>
+          </div>
+        </div>
+        <a
+          href={secureAccessUrl}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-warning-500)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#9A6F22]"
+        >
+          {t('app.ipWarning.action')}
+          <ExternalLink size={16} strokeWidth={2} />
+        </a>
+      </div>
+    </div>
+  ) : null;
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[var(--bg-app)] transition-colors duration-300">
+        {secureAccessBanner}
+        <Login onLoginSuccess={(data) => {
+          setUserRole(data.role || 'user');
+          setIsAuthenticated(true);
+        }} />
+      </div>
+    );
+  }
+
+  if (!isInitialized) return null;
+
+  const chatLayout = (
+    <div className="lawver-chat-shell flex overflow-hidden bg-[var(--bg-app)] font-sans text-[var(--fg-1)] transition-colors duration-300">
+      <Sidebar
+        isSidebarOpen={isSidebarOpen}
+        setIsSidebarOpen={setIsSidebarOpen}
+        conversations={conversations}
+        currentId={currentId}
+        setCurrentId={setCurrentId}
+        handleNewChat={handleNewChat}
+        deleteConversation={deleteConversation}
+        userRole={userRole}
+        onAdminClick={() => navigate('/admin')}
+        onCourtClick={() => navigate('/court')}
+        onSettingsClick={() => navigate('/settings')}
+        onLogout={handleLogout}
+        isDesktopLayout={windowWidth >= 1024}
+      />
+
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {secureAccessBanner}
+        <Header
+          title={isUntitledConversation(currentConversation) ? t('sidebar.untitled') : currentConversation.title}
+          isSidebarOpen={isSidebarOpen}
+          setIsSidebarOpen={setIsSidebarOpen}
+          isWorkspaceOpen={isWorkspaceOpen}
+          setIsWorkspaceOpen={setIsWorkspaceOpen}
+          workspaceFilesCount={workspaceFiles.length}
+          onSettingsClick={() => navigate('/settings')}
+        />
+
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-app)]">
+            {messages.length === 0 ? (
+              <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden text-[var(--fg-3)]">
+                <div className="pointer-events-none absolute inset-x-0 top-1/4 mx-auto h-72 max-w-xl rounded-full bg-[var(--accent)] opacity-[0.06] blur-3xl" />
+                <div className="relative max-w-md px-6 text-center">
+                  <BrandMark className="mx-auto mb-6 h-[72px] w-[72px] text-[var(--accent)]" />
+                  <h2 className="t-headline-l">{t('app.welcome.title')}</h2>
+                  <p className="t-body-l t-muted mt-2 text-[15px]">{t('app.welcome.subtitle')}</p>
+                </div>
+              </div>
+            ) : (
+              <React.Suspense fallback={<div className="min-h-0 flex-1" aria-hidden="true" />}>
+                <MessageList
+                  conversationId={currentId}
+                  messages={messages}
+                  isLoading={isLoading}
+                  activeAssistantMessageId={activeAssistantMessageId}
+                  bottomInset={composerOverlayHeight}
+                  composerHeight={composerHeight}
+                  onRegenerate={onRegenerateMessage}
+                  onAnswerChoice={onAnswerMessageChoice}
+                  onEdit={onEditMessage}
+                  onUndo={onUndoMessage}
+                  onBranch={onBranchMessage}
+                />
+              </React.Suspense>
+            )}
+
+            <InputArea
+              input={input}
+              setInput={setInput}
+              handleSend={() => {
+                if (isUploadingFiles) return;
+                handleSend(pendingUploads, setPendingUploads, handleGeneratedFile, syncFiles, isLowStorage);
+              }}
+              handleStop={stopActiveGeneration}
+              activeChoicePrompt={activeChoicePrompt}
+              onAnswerChoice={onAnswerMessageChoice}
+              isLoading={isLoading}
+              composerStatus={composerStatus}
+              contextUsage={contextUsage}
+              pendingUploads={pendingUploads}
+              isUploadingFiles={isUploadingFiles}
+              removeUploadedFile={removeUploadedFile}
+              handleFileUpload={handleFileUpload}
+              isInputExpanded={isInputExpanded}
+              setIsInputExpanded={setIsInputExpanded}
+              isStreaming={isStreaming}
+              setIsStreaming={setIsStreaming}
+              agentMode={agentMode}
+              setAgentMode={setAgentMode}
+              isOCPEnabled={isOCPEnabled}
+              setIsOCPEnabled={setIsOCPEnabled}
+              onSettingsClearanceChange={setComposerOverlayHeight}
+              onComposerHeightChange={setComposerHeight}
+            />
+          </div>
+
+          <WorkspacePanel
+            isWorkspaceOpen={isWorkspaceOpen}
+            setIsWorkspaceOpen={setIsWorkspaceOpen}
+            workspaceFiles={workspaceFiles}
+            onDeleteFile={deleteFile}
+            isDesktopLayout={windowWidth >= 1024}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <UpdateGate>
+      <AnimatePresence mode="wait" initial={false}>
+        <React.Fragment key={location.pathname}>
+          <Routes location={location}>
+            <Route path="/" element={chatLayout} />
+            <Route path="/court" element={<React.Suspense fallback={<RouteLoadingFallback />}><CourtPage onBack={() => goBack('/')} onSettingsClick={() => navigate('/settings')} secureAccessBanner={secureAccessBanner} windowWidth={windowWidth} /></React.Suspense>} />
+            <Route path="/settings/*" element={<AnimatedRouteSurface><React.Suspense fallback={<RouteLoadingFallback />}><SettingsPage /></React.Suspense></AnimatedRouteSurface>} />
+            <Route path="/admin" element={<AnimatedRouteSurface>{userRole === 'sudo' || userRole === 'admin' ? <React.Suspense fallback={<RouteLoadingFallback />}><AdminDashboard role={userRole} /></React.Suspense> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">{t('app.forbidden')}</div>}</AnimatedRouteSurface>} />
+          </Routes>
+        </React.Fragment>
+      </AnimatePresence>
+      <GuidedTour />
+    </UpdateGate>
+  );
+}
+
+export default App;

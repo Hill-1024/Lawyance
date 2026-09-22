@@ -1,0 +1,31 @@
+{
+  "collected_at": "2026-09-15",
+  "step": "3.2",
+  "instruments": [
+    {
+      "id": "Act 730",
+      "url": "https://lom.agc.gov.my/act-detail.php?language=BI&type=original&act=730"
+    },
+    {
+      "id": "P.U.(A) 430/2011",
+      "url": "https://lom.agc.gov.my/ilims/upload/portal/akta/outputp/pua_20111230_P.U.%20(A)%20430-perintah%20perihal%20dagangan%20(takrif%20halal)%202011.pdf",
+      "local_file": "PUA430_2011_Definition_of_Halal_AGC.pdf",
+      "md5": "3962a2323202b1dedbb5cbe90fc781b7",
+      "pages": 9
+    },
+    {
+      "id": "P.U.(A) 431/2011",
+      "url": null,
+      "note": "AGC standalone PDF URL not stably retrieved; number cross-checked; no fabricated link"
+    },
+    {
+      "id": "MS 1500:2019 / MPPHM / portals",
+      "urls": [
+        "https://www.halal.gov.my",
+        "https://myehalal.halal.gov.my",
+        "https://mysol.jsm.gov.my"
+      ]
+    }
+  ],
+  "data_file": "data/MY/jakim_halal_rules.json"
+}

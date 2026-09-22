@@ -27,16 +27,16 @@ dev = [
 ]
 
 [tool.pyright]
-include = ["."]
+include = ["backend", "tests", "agent.py"]
 exclude = [
     "**/node_modules",
     "**/__pycache__",
-    "src",
+    "frontend",
     "dist",
     ".venv"
 ]
-extraPaths = ["."]
+extraPaths = ["backend"]
 
 [tool.pyrefly]
-search-path = ["."]
+search-path = ["backend"]
 disable-search-path-heuristics = true

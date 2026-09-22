@@ -1,0 +1,51 @@
+{
+  "collected_at": "2026-09-14",
+  "instrument": {
+    "law_name": "Islamic Financial Services Act 2013",
+    "short_name": "IFSA 2013",
+    "act_number": "Act 759",
+    "title_zh": "2013年伊斯兰金融服务法",
+    "royal_assent": "2013-03-18",
+    "gazetted": "2013-03-22",
+    "effective_date": "2013-06-30",
+    "effective_date_note": "P.U.(B) 277/2013",
+    "language_authentic": "en",
+    "regulator": "Bank Negara Malaysia"
+  },
+  "collection_note": "IFSA 2013 全文未出现 riba 一词；禁止利息通过 Shariah 合规义务间接实现。正式引用以英文原文为准。AGC reprint 封面声明 NOT AN AUTHENTIC TEXT，但 lom.agc.gov.my 为官方对外发布门户。",
+  "primary_text": "revised2021",
+  "files": [
+    {
+      "filename": "IFSA2013_Act759_AGC_revised2021.pdf",
+      "role": "primary",
+      "pages": 309,
+      "reprint": "As at 11 February 2021",
+      "md5": "c74b2925949ad6458fc544d1c0f1272e",
+      "url": "https://lom.agc.gov.my/ilims/upload/portal/akta/outputaktap/1691495_BI/11022021%20ACT%20759%20final.pdf"
+    },
+    {
+      "filename": "IFSA2013_Act759_AGC_2013original.pdf",
+      "role": "original",
+      "pages": 276,
+      "md5": "218a94f7b328d4c3e9b0221f5c560ff3",
+      "url": "https://lom.agc.gov.my/ilims/upload/portal/akta/outputaktap/20130322_759_BI_Combined.pdf"
+    },
+    {
+      "filename": "IFSA2013_riba利息禁止条款_中文采集记录.docx",
+      "role": "collection_record",
+      "url": ""
+    }
+  ],
+  "related_urls": [
+    "https://lom.agc.gov.my/",
+    "https://www.bnm.gov.my/en/legislation",
+    "https://www.bnm.gov.my/-/financial-services-act-2013-and-islamic-financial-services-act-2013-come-into-force",
+    "https://www.bnm.gov.my/committees/sac",
+    "https://www.bnm.gov.my/documents/20124/9198675/shariah_resolutions_2nd_edition_EN.pdf"
+  ],
+  "keyword_audit": {
+    "riba_in_ifsa": false,
+    "interest_as_usury_in_ifsa": false,
+    "interest_other_senses": "equity/interest in shares etc."
+  }
+}

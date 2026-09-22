@@ -1,0 +1,17 @@
+{
+  "collected_at": "2026-09-15",
+  "step": "3.1",
+  "layer": "shared",
+  "legal_effect": "religious-guidance",
+  "note": "仅扩展宗教法源共享层；未做国家转化。定义保持简短；阿语取自 quran.com text_uthmani，英译 Saheeh International，中译马坚。gharar 核心依据为 Sahih Muslim 1513（圣训阿语全文待核录入库）。sukuk 经文无该词，依据买卖许可与双方同意交易原则。",
+  "principles": [
+    "SH-PRINCIPLE-RIBA-001",
+    "SH-PRINCIPLE-GHARAR-001",
+    "SH-PRINCIPLE-MAYSIR-001",
+    "SH-PRINCIPLE-SUKUK-001",
+    "SH-PRINCIPLE-TAKAFUL-001",
+    "SH-PRINCIPLE-HALAL-HARAM-001"
+  ],
+  "data_file": "data/shared/principles_step3_1.json",
+  "existing_riba": "data/shared/riba_scripture_principle.json"
+}

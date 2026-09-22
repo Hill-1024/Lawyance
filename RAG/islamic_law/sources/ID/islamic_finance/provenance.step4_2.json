@@ -1,0 +1,50 @@
+{
+  "collected_at": "2026-09-15",
+  "step": "4.2",
+  "country": "ID",
+  "topic": "islamic_finance_riba_banking_sukuk",
+  "chain": "Fatwa MUI 1/2004 (禁息) → UU 21/2008 (银行母法) → POJK 16/2022 (BUS) + POJK 18/2015 (Sukuk)",
+  "formal_rule_ids": [
+    "ID-FIN-MUI-BUNGA-2004-001",
+    "ID-FIN-UU21-2008-001",
+    "ID-FIN-POJK16-2022-001",
+    "ID-FIN-POJK18-2015-001"
+  ],
+  "principles": {
+    "ID-FIN-MUI-BUNGA-2004-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-UU21-2008-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-POJK16-2022-001": "SH-PRINCIPLE-RIBA-001",
+    "ID-FIN-POJK18-2015-001": "SH-PRINCIPLE-SUKUK-001"
+  },
+  "files": {
+    "fatwa_pdf": "Fatwa_MUI_1_2004_Bunga.pdf",
+    "fatwa_md5": "c889656a9993093ef1ca8470d2e0ef43",
+    "fatwa_url": "https://fatwamui.com/storage/405/Ijtima%27-Ulama-Tentang-Bunga.pdf",
+    "fatwa_dsn_index": "https://dsnmui.or.id/",
+    "uu_pdf": "UU_21_2008_Perbankan_Syariah.pdf",
+    "uu_md5": "e44a2f390a76668307bcf9bf6fb76d8c",
+    "uu_url": "https://ojk.go.id/id/regulasi/Documents/Pages/UU-Republik-Indonesia-Nomor-21-Tahun-2008-tentang-Perbankan-Syariah/UU%20Nomor%2021%20Tahun%202008.pdf",
+    "pojk16_pdf": "POJK_16_2022_Bank_Umum_Syariah.pdf",
+    "pojk16_md5": "18d0d7846d4eebc6e903594b2a6b3d08",
+    "pojk16_url": "https://www.ojk.go.id/id/regulasi/Documents/Pages/Bank-Umum-Syariah/POJK%2016%20-%202022.pdf",
+    "pojk18_pdf": "POJK_18_2015_Sukuk.pdf",
+    "pojk18_md5": "580f8b080fc93d32210202b5a935caca",
+    "pojk18_url": "https://www.ojk.go.id/id/kanal/syariah/regulasi/peraturan-ojk-terkait-syariah/Documents/Pages/POJK-Nomor-18POJK042015-Penerbitan-Persyaratan-Sukuk/pojk18042015-penerbitan-persyaratan-sukuk.pdf"
+  },
+  "pending_verification": [
+    "UU 21/2008 Pasal 68 经 UU 4/2023 (P2SK) 及后续再修订后的现行综合文本",
+    "peraturan.go.id 交叉链接（采集环境不可抓取时以 OJK 库为准）",
+    "DSN-MUI 产品级合同法特瓦编号（murabahah/mudharabah 等）",
+    "Google Drive 官方挂载 PDF 在可访问环境下复核（本批用 fatwamui.com 同份原件）"
+  ],
+  "data_files": [
+    "data/ID/id_islamic_finance_formal.json",
+    "data/ID/id_islamic_finance_rules.json"
+  ],
+  "language_note": "印尼语官方文本为准；中文为导读；法特瓦无 LN/TLN 属正常",
+  "notes": [
+    "POJK 18/2015 ≠ POJK 18/2023",
+    "Fatwa 非国家立法但被监管援引",
+    "PBI 旧规已被 POJK 16/2022 Pasal 148 废止"
+  ]
+}

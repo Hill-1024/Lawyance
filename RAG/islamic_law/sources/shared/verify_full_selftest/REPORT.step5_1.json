@@ -1,0 +1,1806 @@
+{
+  "verified_at": "2026-09-16",
+  "step": "5.1",
+  "scope": "MY+ID formal only",
+  "top_n": 15,
+  "min_methods": 2,
+  "criterion": "每条正式条目至少被 exact/semantic/link 中的 2 种命中；且中文 semantic query 必须命中（跨语言）",
+  "formal_count": 16,
+  "pass_count": 16,
+  "zh_pass_count": 16,
+  "all_pass": true,
+  "results": [
+    {
+      "rule_id": "MY-RIBA-IFSA-2013-001",
+      "country": "MY",
+      "sharia_principle_id": "SH-PRINCIPLE-RIBA-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Islamic Financial Services Act 2013",
+          "article": "MY-RIBA-FORMAL"
+        },
+        "hit_rule_id": "MY-RIBA-IFSA-2013-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "马来西亚禁止 riba 利息 IFSA",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "马来西亚禁止 riba 利息 IFSA",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "马来西亚伊斯兰金融法禁止利息",
+              "rank": null,
+              "returned": 0
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Malaysia IFSA riba prohibition formal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Malaysia IFSA riba prohibition formal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "Islamic Financial Services Act Shariah compliance riba",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Malaysia larangan riba IFSA",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Malaysia larangan riba IFSA",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "Akta Perkhidmatan Kewangan Islam riba",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "马来西亚禁止 riba 利息 IFSA",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "马来西亚禁止 riba 利息 IFSA",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Malaysia IFSA riba prohibition formal",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Malaysia larangan riba IFSA",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "MY-SUKUK-BNM-SAC-001",
+      "country": "MY",
+      "sharia_principle_id": "SH-PRINCIPLE-SUKUK-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Shariah Resolutions in Islamic Finance (2nd edition)",
+          "article": "MY-SUKUK-FORMAL"
+        },
+        "hit_rule_id": "MY-SUKUK-BNM-SAC-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "马来西亚 sukuk 伊斯兰债券 SAC",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "马来西亚 sukuk 伊斯兰债券 SAC",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "BNM SAC sukuk 正式条目",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Malaysia BNM SAC sukuk formal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Malaysia BNM SAC sukuk formal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "sukuk ijarah murabahah resolution",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Malaysia sukuk resolusi SAC",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Malaysia sukuk resolusi SAC",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "bon Islam sukuk BNM",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "马来西亚 sukuk 伊斯兰债券 SAC",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "马来西亚 sukuk 伊斯兰债券 SAC",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Malaysia BNM SAC sukuk formal",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Malaysia sukuk resolusi SAC",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "MY-TAKAFUL-BNM-SAC-001",
+      "country": "MY",
+      "sharia_principle_id": "SH-PRINCIPLE-TAKAFUL-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Shariah Resolutions in Islamic Finance (2nd edition)",
+          "article": "MY-TAKAFUL-FORMAL"
+        },
+        "hit_rule_id": "MY-TAKAFUL-BNM-SAC-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "马来西亚 takaful 伊斯兰保险",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "马来西亚 takaful 伊斯兰保险",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "BNM SAC takaful tabarru",
+              "rank": 3,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Malaysia takaful BNM SAC formal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Malaysia takaful BNM SAC formal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "takaful wakalah tabarru surplus",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Malaysia takaful insurans Islam",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Malaysia takaful insurans Islam",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "tabarru wakalah takaful SAC",
+              "rank": 3,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "马来西亚 takaful 伊斯兰保险",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "马来西亚 takaful 伊斯兰保险",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Malaysia takaful BNM SAC formal",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Malaysia takaful insurans Islam",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "MY-IFSA-2013-GOV-S28-29-001",
+      "country": "MY",
+      "sharia_principle_id": "SH-PRINCIPLE-GOVERNANCE-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Islamic Financial Services Act 2013",
+          "article": "MY-IFSA-GOV-2829"
+        },
+        "hit_rule_id": "MY-IFSA-2013-GOV-S28-29-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "IFSA 沙里亚合规义务 section 28",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "IFSA 沙里亚合规义务 section 28",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "遵从 SAC 裁决视为符合 Shariah",
+              "rank": null,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "IFSA s.29 Bank Shariah standards",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "IFSA section 28 Shariah compliance duty",
+              "rank": 5,
+              "returned": 15
+            },
+            {
+              "query": "IFSA s.29 Bank Shariah standards",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "kepatuhan Shariah IFSA s.28",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "IFSA pematuhan Syariah seksyen 28",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "kepatuhan Shariah IFSA s.28",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "IFSA 沙里亚合规义务 section 28",
+          "rank": 2
+        },
+        "attempts": [
+          {
+            "query": "IFSA 沙里亚合规义务 section 28",
+            "rank": 2,
+            "returned": 15
+          },
+          {
+            "query": "IFSA section 28 Shariah compliance duty",
+            "rank": 5,
+            "returned": 15
+          },
+          {
+            "query": "IFSA pematuhan Syariah seksyen 28",
+            "rank": 2,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "MY-IFSA-2013-GOV-S30-38-001",
+      "country": "MY",
+      "sharia_principle_id": "SH-PRINCIPLE-GOVERNANCE-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Islamic Financial Services Act 2013",
+          "article": "MY-IFSA-GOV-3038"
+        },
+        "hit_rule_id": "MY-IFSA-2013-GOV-S30-38-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "沙里亚合规审计 section 37 38",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "IFSA 沙里亚委员会设立",
+              "rank": 3,
+              "returned": 15
+            },
+            {
+              "query": "沙里亚合规审计 section 37 38",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "IFSA Shariah committee sections 30-38",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "IFSA Shariah committee sections 30-38",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "fit and proper Shariah committee",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Jawatankuasa Syariah IFSA",
+            "rank": 3
+          },
+          "attempts": [
+            {
+              "query": "Jawatankuasa Syariah IFSA",
+              "rank": 3,
+              "returned": 15
+            },
+            {
+              "query": "komite Syariah seksyen 30",
+              "rank": 9,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "IFSA Shariah committee sections 30-38",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "IFSA 沙里亚委员会设立",
+            "rank": 3,
+            "returned": 15
+          },
+          {
+            "query": "IFSA Shariah committee sections 30-38",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Jawatankuasa Syariah IFSA",
+            "rank": 3,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "MY-BNM-SGP-2019-FORMAL-001",
+      "country": "MY",
+      "sharia_principle_id": "SH-PRINCIPLE-GOVERNANCE-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Shariah Governance Policy Document (BNM/RH/PD 028-100)",
+          "article": "MY-SGP-2019-FORMAL"
+        },
+        "hit_rule_id": "MY-BNM-SGP-2019-FORMAL-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "BNM 沙里亚治理政策文件 SGP 2019",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "BNM 沙里亚治理政策文件 SGP 2019",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "沙里亚风险管理审查审计",
+              "rank": null,
+              "returned": 0
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Shariah Governance Policy Document 2019",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Shariah Governance Policy Document 2019",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "BNM SGP 2019 formal",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Dokumen Polisi Tadbir Urus Syariah 2019",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Dokumen Polisi Tadbir Urus Syariah 2019",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "SGP BNM tadbir urus Syariah",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "Shariah Governance Policy Document 2019",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "BNM 沙里亚治理政策文件 SGP 2019",
+            "rank": 2,
+            "returned": 15
+          },
+          {
+            "query": "Shariah Governance Policy Document 2019",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Dokumen Polisi Tadbir Urus Syariah 2019",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "MY-HALAL-ACT730-FORMAL-001",
+      "country": "MY",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Trade Descriptions Act 2011 / P.U.(A) 430/2011 / P.U.(A) 431/2011",
+          "article": "MY-HALAL-STATUTE-FORMAL"
+        },
+        "hit_rule_id": "MY-HALAL-ACT730-FORMAL-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Trade Descriptions Act 730 JAKIM",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "马来西亚 halal 法定定义",
+              "rank": 3,
+              "returned": 15
+            },
+            {
+              "query": "Trade Descriptions Act 730 JAKIM",
+              "rank": 2,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Malaysia Trade Descriptions Act halal formal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Malaysia Trade Descriptions Act halal formal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "P.U.(A) 430 halal definition",
+              "rank": 3,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "takrif halal Malaysia JAKIM",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Akta Perihal Dagangan halal",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "takrif halal Malaysia JAKIM",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "Malaysia Trade Descriptions Act halal formal",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "马来西亚 halal 法定定义",
+            "rank": 3,
+            "returned": 15
+          },
+          {
+            "query": "Malaysia Trade Descriptions Act halal formal",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Akta Perihal Dagangan halal",
+            "rank": 2,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "MY-HALAL-MS1500-FORMAL-001",
+      "country": "MY",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "MS 1500:2019 / MPPHM / Halal Malaysia Portal",
+          "article": "MY-HALAL-TECH-FORMAL"
+        },
+        "hit_rule_id": "MY-HALAL-MS1500-FORMAL-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "MS 1500 halal 食品标准",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "MS 1500 halal 食品标准",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "马来西亚 halal 认证程序手册",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "MS 1500 halal food standard formal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "MS 1500 halal food standard formal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "MPPHM Halal Malaysia portal",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "MS 1500 piawaian makanan halal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "MS 1500 piawaian makanan halal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "manual prosedur pensijilan halal",
+              "rank": 2,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "MS 1500 halal 食品标准",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "MS 1500 halal 食品标准",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "MS 1500 halal food standard formal",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "MS 1500 piawaian makanan halal",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "ID-HALAL-UU33-2014-001",
+      "country": "ID",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Undang-Undang Nomor 33 Tahun 2014 tentang Jaminan Produk Halal",
+          "article": "ID-HALAL-UU33-FORMAL"
+        },
+        "hit_rule_id": "ID-HALAL-UU33-2014-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "印尼 UU 33/2014 清真产品保障法",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "印尼 UU 33/2014 清真产品保障法",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "BPJPH 强制清真认证母法",
+              "rank": 3,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Indonesia UU 33/2014 Jaminan Produk Halal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Indonesia UU 33/2014 Jaminan Produk Halal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "mandatory Sertifikat Halal Pasal 4",
+              "rank": 3,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Undang-Undang 33 2014 Jaminan Produk Halal",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "Undang-Undang 33 2014 Jaminan Produk Halal",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "wajib bersertifikat halal Pasal 4",
+              "rank": 8,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "Indonesia UU 33/2014 Jaminan Produk Halal",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "印尼 UU 33/2014 清真产品保障法",
+            "rank": 2,
+            "returned": 15
+          },
+          {
+            "query": "Indonesia UU 33/2014 Jaminan Produk Halal",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Undang-Undang 33 2014 Jaminan Produk Halal",
+            "rank": 2,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "ID-HALAL-PP42-2024-001",
+      "country": "ID",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Peraturan Pemerintah Nomor 42 Tahun 2024 tentang Penyelenggaraan Bidang Jaminan Produk Halal",
+          "article": "ID-HALAL-PP42-FORMAL"
+        },
+        "hit_rule_id": "ID-HALAL-PP42-2024-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "印尼 PP 42/2024 过渡期 2026-10-17",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "印尼 PP 42/2024 过渡期 2026-10-17",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "印尼 halal 分阶段强制时间表",
+              "rank": 5,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Indonesia PP 42/2024 Pasal 160 transition",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Indonesia PP 42/2024 Pasal 160 transition",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "Government Regulation 42 2024 halal",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Peraturan Pemerintah 42 2024 Pasal 160",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Peraturan Pemerintah 42 2024 Pasal 160",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "batas transisi 17 Oktober 2026 UMK",
+              "rank": 4,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "Indonesia PP 42/2024 Pasal 160 transition",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "印尼 PP 42/2024 过渡期 2026-10-17",
+            "rank": 2,
+            "returned": 15
+          },
+          {
+            "query": "Indonesia PP 42/2024 Pasal 160 transition",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Peraturan Pemerintah 42 2024 Pasal 160",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "ID-HALAL-BPJPH-2026-001",
+      "country": "ID",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "BPJPH Official Announcement — Wajib Halal mulai 18 Oktober 2026",
+          "article": "ID-HALAL-BPJPH-2026-FORMAL"
+        },
+        "hit_rule_id": "ID-HALAL-BPJPH-2026-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "2026-10-18 全面强制 官方不再延期",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "2026-10-18 全面强制 官方不再延期",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "印尼小微进口产品清真强制",
+              "rank": null,
+              "returned": 0
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "BPJPH wajib halal 18 Oktober 2026",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "BPJPH wajib halal 18 Oktober 2026",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "Indonesia mandatory halal October 2026",
+              "rank": 5,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "wajib halal mulai 18 Oktober 2026",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "wajib halal mulai 18 Oktober 2026",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "BPJPH pengumuman sertifikat halal",
+              "rank": 3,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "wajib halal mulai 18 Oktober 2026",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "2026-10-18 全面强制 官方不再延期",
+            "rank": 2,
+            "returned": 15
+          },
+          {
+            "query": "BPJPH wajib halal 18 Oktober 2026",
+            "rank": 2,
+            "returned": 15
+          },
+          {
+            "query": "wajib halal mulai 18 Oktober 2026",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "ID-HALAL-JPH-CORE-001",
+      "country": "ID",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Indonesia Halal Core Framework (UU 33/2014 + PP 42/2024 + BPJPH 2026 mandate)",
+          "article": "ID-HALAL-CORE-FORMAL"
+        },
+        "hit_rule_id": "ID-HALAL-JPH-CORE-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "印尼 halal 核心制度 UU PP BPJPH",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "印尼 halal 核心制度 UU PP BPJPH",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "Jaminan Produk Halal 全面强制",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Indonesia halal core framework formal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Indonesia halal core framework formal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "UU PP BPJPH mandatory 2026-10-18",
+              "rank": 2,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "UU 33 PP 42 BPJPH wajib halal",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "kerangka inti Jaminan Produk Halal",
+              "rank": 5,
+              "returned": 15
+            },
+            {
+              "query": "UU 33 PP 42 BPJPH wajib halal",
+              "rank": 2,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "印尼 halal 核心制度 UU PP BPJPH",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "印尼 halal 核心制度 UU PP BPJPH",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Indonesia halal core framework formal",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "kerangka inti Jaminan Produk Halal",
+            "rank": 5,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "ID-FIN-MUI-BUNGA-2004-001",
+      "country": "ID",
+      "sharia_principle_id": "SH-PRINCIPLE-RIBA-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Fatwa Majelis Ulama Indonesia Nomor 1 Tahun 2004 tentang Bunga (Interest/Fa'idah)",
+          "article": "ID-FIN-MUI-BUNGA-FORMAL"
+        },
+        "hit_rule_id": "ID-FIN-MUI-BUNGA-2004-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "印尼 Fatwa MUI 1/2004 利息 riba haram",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "印尼 Fatwa MUI 1/2004 利息 riba haram",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "DSN-MUI 禁息法特瓦",
+              "rank": 5,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Fatwa MUI 1/2004 bunga interest riba",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Fatwa MUI 1/2004 bunga interest riba",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "Indonesia fatwa interest prohibited",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Fatwa MUI Nomor 1 Tahun 2004 tentang Bunga",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Fatwa MUI Nomor 1 Tahun 2004 tentang Bunga",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "bunga bank haram riba nasi'ah",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "印尼 Fatwa MUI 1/2004 利息 riba haram",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "印尼 Fatwa MUI 1/2004 利息 riba haram",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Fatwa MUI 1/2004 bunga interest riba",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Fatwa MUI Nomor 1 Tahun 2004 tentang Bunga",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "ID-FIN-UU21-2008-001",
+      "country": "ID",
+      "sharia_principle_id": "SH-PRINCIPLE-RIBA-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Undang-Undang Republik Indonesia Nomor 21 Tahun 2008 tentang Perbankan Syariah",
+          "article": "ID-FIN-UU21-FORMAL"
+        },
+        "hit_rule_id": "ID-FIN-UU21-2008-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Bank Umum Syariah Prinsip Syariah DPS",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "印尼 UU 21/2008 伊斯兰银行法",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "Bank Umum Syariah Prinsip Syariah DPS",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Indonesia UU 21/2008 Perbankan Syariah",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "Indonesia UU 21/2008 Perbankan Syariah",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "Islamic banking parent law spin-off UUS",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Pemisahan UUS menjadi Bank Umum Syariah",
+            "rank": 2
+          },
+          "attempts": [
+            {
+              "query": "Undang-Undang 21 2008 Perbankan Syariah",
+              "rank": 3,
+              "returned": 15
+            },
+            {
+              "query": "Pemisahan UUS menjadi Bank Umum Syariah",
+              "rank": 2,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "Indonesia UU 21/2008 Perbankan Syariah",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "印尼 UU 21/2008 伊斯兰银行法",
+            "rank": 2,
+            "returned": 15
+          },
+          {
+            "query": "Indonesia UU 21/2008 Perbankan Syariah",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "Undang-Undang 21 2008 Perbankan Syariah",
+            "rank": 3,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "ID-FIN-POJK16-2022-001",
+      "country": "ID",
+      "sharia_principle_id": "SH-PRINCIPLE-RIBA-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Peraturan Otoritas Jasa Keuangan Nomor 16/POJK.03/2022 tentang Bank Umum Syariah",
+          "article": "ID-FIN-POJK16-FORMAL"
+        },
+        "hit_rule_id": "ID-FIN-POJK16-2022-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "印尼 POJK 16/2022 伊斯兰商业银行",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "印尼 POJK 16/2022 伊斯兰商业银行",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "POJK.03 废止 PBI 11/3/2009",
+              "rank": 2,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "POJK 16/2022 Bank Umum Syariah formal",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "POJK 16/2022 Bank Umum Syariah formal",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "OJK Islamic commercial bank regulation",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "POJK 16 POJK.03 2022 Bank Umum Syariah",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "POJK 16 POJK.03 2022 Bank Umum Syariah",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "mencabut PBI 11/3/PBI/2009",
+              "rank": 2,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "印尼 POJK 16/2022 伊斯兰商业银行",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "印尼 POJK 16/2022 伊斯兰商业银行",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "POJK 16/2022 Bank Umum Syariah formal",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "POJK 16 POJK.03 2022 Bank Umum Syariah",
+            "rank": 1,
+            "returned": 15
+          }
+        ]
+      }
+    },
+    {
+      "rule_id": "ID-FIN-POJK18-2015-001",
+      "country": "ID",
+      "sharia_principle_id": "SH-PRINCIPLE-SUKUK-001",
+      "methods_hit": [
+        "exact",
+        "semantic",
+        "link"
+      ],
+      "methods_hit_count": 3,
+      "zh_hit": true,
+      "pass": true,
+      "exact": {
+        "method": "exact",
+        "pass": true,
+        "query": {
+          "law_name": "Peraturan Otoritas Jasa Keuangan Nomor 18/POJK.04/2015 tentang Penerbitan dan Persyaratan Sukuk",
+          "article": "ID-FIN-POJK18-FORMAL"
+        },
+        "hit_rule_id": "ID-FIN-POJK18-2015-001",
+        "message": "ok"
+      },
+      "semantic": {
+        "method": "semantic",
+        "pass": true,
+        "zh": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "印尼 POJK 18/2015 Sukuk 发行",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "印尼 POJK 18/2015 Sukuk 发行",
+              "rank": 1,
+              "returned": 15
+            },
+            {
+              "query": "Sukuk undivided share 底层资产",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "en": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "Indonesia sukuk issuance DSN-MUI",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "POJK 18/2015 Penerbitan Persyaratan Sukuk",
+              "rank": 4,
+              "returned": 15
+            },
+            {
+              "query": "Indonesia sukuk issuance DSN-MUI",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        },
+        "local": {
+          "method": "semantic",
+          "pass": true,
+          "best": {
+            "query": "aset mendasari sukuk prinsip syariah",
+            "rank": 1
+          },
+          "attempts": [
+            {
+              "query": "POJK 18 POJK.04 2015 penerbitan sukuk",
+              "rank": 2,
+              "returned": 15
+            },
+            {
+              "query": "aset mendasari sukuk prinsip syariah",
+              "rank": 1,
+              "returned": 15
+            }
+          ]
+        }
+      },
+      "link": {
+        "method": "link",
+        "pass": true,
+        "best": {
+          "query": "印尼 POJK 18/2015 Sukuk 发行",
+          "rank": 1
+        },
+        "attempts": [
+          {
+            "query": "印尼 POJK 18/2015 Sukuk 发行",
+            "rank": 1,
+            "returned": 15
+          },
+          {
+            "query": "POJK 18/2015 Penerbitan Persyaratan Sukuk",
+            "rank": 4,
+            "returned": 15
+          },
+          {
+            "query": "POJK 18 POJK.04 2015 penerbitan sukuk",
+            "rank": 2,
+            "returned": 15
+          }
+        ]
+      }
+    }
+  ]
+}

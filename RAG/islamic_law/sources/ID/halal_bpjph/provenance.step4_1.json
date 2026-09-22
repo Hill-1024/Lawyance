@@ -1,0 +1,43 @@
+{
+  "collected_at": "2026-09-15",
+  "step": "4.1",
+  "country": "ID",
+  "topic": "halal_core",
+  "mandatory_node": {
+    "transition_end": "2026-10-17",
+    "mandatory_start": "2026-10-18",
+    "note": "2026-10-18 全面强制、官方不再延期",
+    "legal_basis": [
+      "PP 42/2024 Pasal 160–161",
+      "UU 33/2014 Pasal 67",
+      "BPJPH Berita"
+    ]
+  },
+  "formal_rule_ids": [
+    "ID-HALAL-UU33-2014-001",
+    "ID-HALAL-PP42-2024-001",
+    "ID-HALAL-BPJPH-2026-001",
+    "ID-HALAL-JPH-CORE-001"
+  ],
+  "principle": "SH-PRINCIPLE-HALAL-HARAM-001",
+  "files": {
+    "uu_pdf": "UU_33_2014_Jaminan_Produk_Halal.pdf",
+    "uu_md5": "babdc688d0067695b145e23e2a5b2ff6",
+    "uu_url": "https://cmsbl.halal.go.id/uploads/2014_UU_Nomor_33_Tahun_2014_Jaminan_Produk_Halal_2209235c2a.pdf",
+    "pp_pdf": "PP_42_2024_Penyelenggaraan_JPH.pdf",
+    "pp_md5": "170bdbf2c78ca86f848302fac2003b8e",
+    "pp_url": "https://cmsbl.halal.go.id/uploads/Salinan_PP_Nomor_42_Tahun_2024_tentang_Bidang_Penyelenggaraan_Jaminan_Produk_Halal_ce371e0e1e.pdf",
+    "ann_2026": "https://bpjph.halal.go.id/read/tak-hanya-makanan-minuman-ini-jenis-produk-yang-wajib-bersertifikat-halal-mulai-18-oktober-2026",
+    "ann_umk": "https://bpjph.halal.go.id/detail/bpjph-17-oktober-2026-produk-makanan-minuman-umk-harus-sudah-bersertifikat-halal-bagaimana-dengan-produk-luar-negeri/"
+  },
+  "pending_verification": [
+    "MUI/DSN-MUI specific fatwa numbers for product halal determinations",
+    "peraturan.go.id cross-links for UU 33/2014 and PP 42/2024 when accessible",
+    "Ministerial determination date for imported products under Pasal 160(3)"
+  ],
+  "data_files": [
+    "data/ID/id_halal_formal.json",
+    "data/ID/id_halal_uu33_pp42_rules.json"
+  ],
+  "language_note": "印尼语官方文本为准；中文为导读"
+}

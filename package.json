@@ -10,7 +10,7 @@
   },
   "appConfig": {
     "environment": "Web/Vite",
-    "projectUrl": "https://github.com/Hill-1024/Lawyance",
+    "projectUrl": "https://github.com/Meteor109/Lawyance",
     "domain": "cn.lawver.dev",
     "nativeApiBase": "https://cn-origin.lawver.dev",
     "port": 8080,

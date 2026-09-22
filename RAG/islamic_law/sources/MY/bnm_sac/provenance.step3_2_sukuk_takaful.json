@@ -1,0 +1,33 @@
+{
+  "collected_at": "2026-09-15",
+  "step": "3.2",
+  "source_pdf": "BNM_SAC_ShariahResolutions_2nd_2010.pdf",
+  "md5": "08e35a8c9aa2faafc5285d8d9d794484",
+  "official_url": "https://www.bnm.gov.my/documents/20124/9198675/shariah_resolutions_2nd_edition_EN.pdf",
+  "sukuk_resolutions": [
+    11,
+    14,
+    62,
+    63,
+    99,
+    100,
+    105,
+    108
+  ],
+  "takaful_resolutions": [
+    41,
+    43,
+    46,
+    50,
+    52,
+    55,
+    56,
+    57,
+    59,
+    91
+  ],
+  "data_files": [
+    "data/MY/bnm_sac_sukuk_rules.json",
+    "data/MY/bnm_sac_takaful_rules.json"
+  ]
+}

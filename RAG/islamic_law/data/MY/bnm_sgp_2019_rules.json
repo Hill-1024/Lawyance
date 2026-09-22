@@ -1,0 +1,35 @@
+[
+  {
+    "status": "in_force",
+    "language": "en",
+    "country": "MY",
+    "country_label": "Malaysia",
+    "madhhab": "Shafi'i",
+    "parallel_languages": "英文权威；中文仅为导读",
+    "applicability_territory": "马来西亚全境",
+    "transliteration": "待核验：拉丁转写未单独采集",
+    "rule_id": "MY-BNM-SGP-2019-001",
+    "source_id": "my_bnm_sgp_2019_001",
+    "law_name": "Shariah Governance Policy Document (BNM/RH/PD 028-100)",
+    "article_number": "SGP 2019 (Parts B–G; §§8–22)",
+    "url": "https://www.bnm.gov.my/documents/20124/761679/Shariah+Governance+Policy+Document+2019.pdf",
+    "effective_date": "2020-04-01",
+    "sharia_source_type": "Standard",
+    "fatwa_issuer": "BNM",
+    "fatwa_id": "BNM/RH/PD 028-100 (issued 2019-09-20; effective 2020-04-01)",
+    "supersedes": "Shariah Governance Framework for Islamic Financial Institutions (2010/2011 framework superseded)",
+    "legal_effect": "binding",
+    "sharia_principle_id": "SH-PRINCIPLE-GOVERNANCE-001",
+    "rule_subject": "BNM 沙里亚治理政策文件 SGP 2019",
+    "content": "record_grade supporting. BNM Shariah Governance Policy Document BNM/RH/PD 028-100, issued 20 September 2019, effective 1 April 2020 (except para 12.5 from 1 April 2023). Issued pursuant to IFSA ss.29(2), 57(1), 155. Framework: Part B board accountability; Part C Shariah committee; Part D senior management; Part E control functions — §17 Shariah risk management, §18 Shariah review, §19 Shariah audit; §22 disclosures. Official PDF: https://www.bnm.gov.my/documents/20124/761679/Shariah+Governance+Policy+Document+2019.pdf. Landing: https://www.bnm.gov.my/-/policy-document-on-shariah-governance. Local official PDF MD5 61d618f4b8488a0aa365144249e8627a (24 pages verified).",
+    "national_transformation": "落实 IFSA s.29(2)(a) 沙里亚治理标准：三层问责 + 三大控制职能。",
+    "output_annotation": "官方 PDF 已核：文号、发布/生效日、框架结构一致。",
+    "religious_anchor": "见 SH-PRINCIPLE-GOVERNANCE-001",
+    "applicability_person": "持牌伊斯兰银行、takaful/retakaful、获准经营伊斯兰业务的银行/投行/发展金融机构及沙委会成员",
+    "applicability_subject": "机构沙里亚治理安排与内部控制",
+    "arabic_text": "4:58 ۞ إِنَّ ٱللَّهَ يَأْمُرُكُمْ أَن تُؤَدُّوا۟ ٱلْأَمَـٰنَـٰتِ إِلَىٰٓ أَهْلِهَا وَإِذَا حَكَمْتُم بَيْنَ ٱلنَّاسِ أَن تَحْكُمُوا۟ بِٱلْعَدْلِ ۚ إِنَّ ٱللَّهَ نِعِمَّا يَعِظُكُم بِهِۦٓ ۗ إِنَّ ٱللَّهَ كَانَ سَمِيعًۢا بَصِيرًا",
+    "country_rule_ids": [
+      "MY-BNM-SGP-2019-001"
+    ]
+  }
+]

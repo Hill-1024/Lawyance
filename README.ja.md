@@ -48,11 +48,11 @@ Lawver は、工大法智チームによる中国語法律 AI アシスタント
 ## アーキテクチャ
 
 ```text
-React / Vite frontend
+React / Vite frontend  (frontend/)
     |
     | REST / stream / file workspace
     v
-FastAPI application
+FastAPI application    (backend/ + ルート agent.py 起動入口)
     |
     | agent orchestration
     v
@@ -64,29 +64,110 @@ mcps tool forwarding layer
     |
     | legal data / company data / document processors / memory client
     v
-MCP clients and local services
+MCP clients · memory_system · RAG/
+```
+
+### ディレクトリ構成
+
+```text
+Lawver/
+├── agent.py                 # ルート起動契約：python agent.py / uvicorn agent:app
+├── backend/                 # FastAPI バックエンドと Agent ランタイム
+│   ├── app_factory.py
+│   ├── routes/
+│   ├── services/
+│   ├── agents/
+│   ├── tools/
+│   ├── mcps.py
+│   ├── mcp/
+│   ├── memory_system/
+│   ├── prompts/lawver/
+│   ├── llm/
+│   └── ocp.py
+├── frontend/                # React 19 + Vite フロントエンド
+│   ├── src/
+│   ├── public/
+│   └── index.html
+├── infra/                   # 認証ストア、パスワードハッシュ、Redis / Bloom（ルートに残置）
+├── RAG/                     # 中国法主庫 + ASEAN 管轄庫
+├── android/                 # Capacitor Android 工程
+├── deploy/                  # Nginx / Cloudflare などデプロイ例
+├── docs/
+├── scripts/
+├── tests/
+├── package.json
+├── pyproject.toml
+└── dist/                    # フロントエンドビルド成果物（gitignore）
 ```
 
 主要パス：
 
 | Path | 説明 |
 | --- | --- |
-| `agent.py` | `agent:app` の import 契約と `python agent.py` の起動入口のみを保持。`PORT` と `UVICORN_WORKERS` 環境変数に対応 |
-| `app_factory.py` | FastAPI アプリケーションファクトリ。ミドルウェア、ルート、ライフサイクル処理を集約 |
-| `routes/` | 認証、管理者、チャット、模擬法廷、ワークスペース、SPA フォールバックの HTTP ルート |
-| `services/` | チャットと法廷のパイプライン、履歴圧縮、記憶調整、法令キャッシュ、ワークスペース清理、セキュリティミドルウェア |
-| `agents/tool_loop.py` | 標準モードと Plan-and-Solve を駆動する統一 tool_calls エージェントループ |
-| `function_calling.py` | OpenAI 互換モデル呼び出しのラッパーと tool メッセージのペアリング |
-| `tools/` | 業務ツールの明示登録（schema / handler / coercer / exposure） |
-| `mcps.py` | 業務ツールの統一転送エントリーポイント |
-| `mcp/` | 法律、企業、PDF、Word、記憶、SearXNG ウェブ検索のクライアント |
-| `memory_system/` | 会話単位の構造化記憶サービス |
-| `RAG/` | ローカル法令検索エンジン |
-| `prompts/lawver/` | core / modes / focus / tasks / court の動的 prompt リソース |
-| `workspace.py` | ワークスペースのパス境界とアップロード/生成ファイル検証 |
-| `ocp.py` | 出力レビュー（OCP）パイプライン |
-| `src/` | React フロントエンド。メインチャットと模擬法廷の二つのワークフローを含む |
-| `tests/` | 記憶、OCP、ツールループ、模擬法廷、セキュリティ、prompt ローダーなどを網羅 |
+| `agent.py` | ルート入口。`backend/` を path に追加してアプリを作成。`PORT` / `UVICORN_WORKERS` 対応 |
+| `backend/app_factory.py` | FastAPI アプリケーションファクトリ |
+| `backend/routes/` | 認証、管理者、チャット、模擬法廷、ワークスペース、SPA フォールバック |
+| `backend/services/` | チャットと法廷のパイプライン、履歴圧縮、記憶調整、法令キャッシュなど |
+| `backend/agents/tool_loop.py` | 統一 tool_calls エージェントループ |
+| `backend/tools/` | 業務ツールの明示登録（schema / handler / coercer / exposure） |
+| `backend/mcps.py` | 業務ツールの統一転送エントリーポイント |
+| `backend/mcp/` | 法律、企業、PDF、Word、記憶、SearXNG などのクライアント |
+| `backend/memory_system/` | 会話単位の構造化記憶サービス |
+| `RAG/` | ローカル法令検索と ASEAN civil / islamic / common-law 管轄庫 |
+| `backend/prompts/lawver/` | core / modes / focus / tasks / court の動的 prompt |
+| `frontend/src/` | React フロントエンド（メインチャットと模擬法廷） |
+| `tests/` | 記憶、OCP、ツールループ、模擬法廷、セキュリティなどを網羅 |
+| `deploy/` | 本番リバースプロキシとゲートウェイ設定例 |
+| `infra/` | 認証ストア、パスワードハッシュ、Redis / Bloom（リポジトリルートに残置） |
+
+### ディレクトリ移行対照（旧パス → 新パス）
+
+リポジトリは `backend/`（Python）と `frontend/`（React）に分割されています。分割前のパスを覚えている場合は、以下だけでファイルを探せます。
+
+**3 つの早見ルール：**
+
+1. 以前ルートにあったバックエンドの Python パッケージ / ファイル → `backend/` 配下へ、相対パスはそのまま。  
+   例：`mcp/searxng_client.py` → `backend/mcp/searxng_client.py`；`services/chat_pipeline.py` → `backend/services/chat_pipeline.py`。
+2. 以前のフロント `src/`、`public/`、`index.html` → `frontend/` 配下へ。  
+   例：`src/hooks/useChat.ts` → `frontend/src/hooks/useChat.ts`；`public/sw.js` → `frontend/public/sw.js`。
+3. 次は**ルートのまま未移動**：`agent.py`（起動入口）、`infra/`、`RAG/`、`tests/`、`scripts/`、`docs/`、`deploy/`、`android/`、`assets/`、`package.json`、`vite.config.ts`、`pyproject.toml`、`.env` / `.env_example`。
+
+**よく使う旧パス対照：**
+
+| 分割前（旧） | 分割後（新） | 説明 |
+| --- | --- | --- |
+| `agent.py` | `agent.py`（ルート） | 起動契約はルートのまま。内部で `backend/` へ転送 |
+| `app_factory.py` | `backend/app_factory.py` | FastAPI アプリケーションファクトリ |
+| `app_config.py` | `backend/app_config.py` | バックエンド設定 |
+| `auth.py` / `hash.py` | `backend/auth.py` / `backend/hash.py` | 認証とパスワードハッシュ CLI |
+| `function_calling.py` | `backend/function_calling.py` | モデル呼び出し |
+| `mcps.py` | `backend/mcps.py` | ツール転送入口 |
+| `schemas.py` | `backend/schemas.py` | リクエストモデル |
+| `workspace.py` / `media.py` / `context_usage.py` / `ocp.py` | `backend/` 配下の同名ファイル | ワークスペース、メディア、文脈使用量、出力検査 |
+| `agents/` | `backend/agents/` | ToolLoop エージェント |
+| `routes/` | `backend/routes/` | HTTP ルート |
+| `services/` | `backend/services/` | チャット / 法廷 / 記憶パイプライン |
+| `tools/` | `backend/tools/` | ツール登録 |
+| `mcp/` | `backend/mcp/` | 法律・企業・PDF・Word・SearXNG クライアント |
+| `llm/` | `backend/llm/` | モデルクライアント |
+| `memory_system/` | `backend/memory_system/` | 会話記憶 |
+| `prompts/` | `backend/prompts/` | 動的 prompt（`lawver/` 含む） |
+| `src/` | `frontend/src/` | React ソース |
+| `public/` | `frontend/public/` | PWA / 静的資源 |
+| `index.html` | `frontend/index.html` | Vite HTML 入口 |
+| `infra/` | `infra/`（ルート、未移動） | `backend/infra/` は存在しない |
+| `RAG/` | `RAG/`（ルート、未移動） | ローカル法令庫 |
+| `tests/` | `tests/`（ルート、未移動） | ルートで `python -m pytest` |
+| `dist/` | `dist/`（ルート） | フロントビルド成果物は引き続きルート `dist/` |
+
+**ファイル名で探す（リポジトリルートで）：**
+
+```bash
+find backend frontend infra RAG -name 'searxng_client.py'
+find frontend -name 'useChat.ts'
+```
+
+`python agent.py` / `pnpm run build` / `pnpm run dev` は必ず**リポジトリルート**で実行してください。`cd backend` してから起動すると `No module named 'infra'` になりやすいです。
 
 ## 必要環境
 
@@ -183,14 +264,14 @@ python -m pytest
 
 ## バックエンド構成とツール登録
 
-`agent.py` は `agent:app` の import 契約と `python agent.py` の起動入口だけを保持します。アプリの組み立ては `app_factory.py`、HTTP ルートは `routes/`、チャットパイプライン、履歴圧縮、記憶調整、清理タスクは `services/` にあります。
+`agent.py` は `agent:app` の import 契約と `python agent.py` の起動入口だけを保持します。アプリの組み立ては `backend/app_factory.py`、HTTP ルートは `backend/routes/`、チャットパイプライン、履歴圧縮、記憶調整、清理タスクは `backend/services/` にあります。
 
-ルート登録順序は、認証 → 管理者 → チャット → 模擬法廷 → APK リリース配布 → ワークスペース/アップロード/ダウンロード → SPA catch-all の順に固定します。`routes/spa.py` は最後に登録し、`/api/*` がフロントエンド fallback に吸われないようにします。
+ルート登録順序は、認証 → 管理者 → チャット → 模擬法廷 → APK リリース配布 → ワークスペース/アップロード/ダウンロード → SPA catch-all の順に固定します。`backend/routes/spa.py` は最後に登録し、`/api/*` がフロントエンド fallback に吸われないようにします。
 
-業務ツールは引き続き `mcps.py` を通じて agent に公開します。新しいツールを追加する流れ：
+業務ツールは引き続き `backend/mcps.py` を通じて agent に公開します。新しいツールを追加する流れ：
 
-1. `mcp/` に実際のクライアントまたは handler を実装する。
-2. `tools/__init__.py` に schema、handler、coercer、`exposure` を明示登録する。
+1. `backend/mcp/` に実際のクライアントまたは handler を実装する。
+2. `backend/tools/__init__.py` に schema、handler、coercer、`exposure` を明示登録する。
 3. 呼び出しは `mcps.use_tools()` 経由にし、agent、route、service が `mcps` を迂回しない。
 
 `exposure` はツール可視性の唯一の宣言元です：
@@ -201,7 +282,7 @@ python -m pytest
 - `ocp_reviewer`: OCP が利用できる読み取り専用の法律信源ツール。
 - `internal`: バックエンド内部では dispatch できるが、LLM tool schema には出さないツール。
 
-ワークスペースのパス検証は `workspace.py` に集約し、`mcps.py` と `tools/*` が共有します。これにより registry 側が `mcps` を逆 import する必要がなくなります。
+ワークスペースのパス検証は `backend/workspace.py` に集約し、`backend/mcps.py` と `backend/tools/*` が共有します。これにより registry 側が `mcps` を逆 import する必要がなくなります。
 
 OCP は主回答後のフォーマット審査 pass です。主モデルの失敗は従来どおり主モデルのエラー経路で扱います。一方、OCP のタイムアウト、ネットワーク障害、ツール障害、審査モデル障害はユーザー経路へ投げず、主モデル本文を保った deterministic sanitizer-only fallback に降級します。
 
@@ -212,7 +293,7 @@ OCP は主回答後のフォーマット審査 pass です。主モデルの失�
 すべてのリクエストは次の 2 つのルーターだけを通って受け付け・転送され、モジュール間の直接呼び出しは禁止です。
 
 ```text
-routes/  ->  services/  ->  services/agent_builder.py（パラダイムルーター）
+backend/routes/  ->  backend/services/  ->  services/agent_builder.py（パラダイムルーター）
                                  |-- execute_tool  = mcps.use_tools(..., capability)
                                  |-- output_review = services/ocp_service.build_output_review(...)
                                           |
@@ -220,19 +301,19 @@ routes/  ->  services/  ->  services/agent_builder.py（パラダイムルータ
                              agents/ToolLoopAgent（単一 agent ループ、注入されたハンドラのみ呼ぶ）
                                           |
                                           v
-                             mcps.py（唯一のケイパビリティルーター）
+                             backend/mcps.py（唯一のケイパビリティルーター）
                                  |-- tools/registry.py
                                  |-- mcp/* · memory_system/ · RAG/
 ```
 
 不変条件は `tests/test_architecture_boundaries.py` が固定します。
 
-- `tools` / `tools.registry` を import できるのは `mcps.py` と `tools/**` だけ。
-- `agents/**` は `ocp`、`services/**`、`tools`、`mcp`、`memory_system`、`RAG` を import してはいけない。
-- `tools/**` は `services/**` を import してはいけない。
-- `services/**`、`routes/**` は `tools`、`mcp`、`memory_system`、`RAG`、`ocp` を直接 import せず、すべて `mcps` 経由。`ocp` を構築できるのは `services/ocp_service.py` だけ。
+- `tools` / `tools.registry` を import できるのは `backend/mcps.py` と `backend/tools/**` だけ。
+- `backend/agents/**` は `ocp`、`services/**`、`tools`、`mcp`、`memory_system`、`RAG` を import してはいけない。
+- `backend/tools/**` は `services/**` を import してはいけない。
+- `backend/services/**`、`backend/routes/**` は `tools`、`mcp`、`memory_system`、`RAG`、`ocp` を直接 import せず、すべて `mcps` 経由。`ocp` を構築できるのは `services/ocp_service.py` だけ。
 - 本番モジュールの import グラフは非環状でなければならない。
-- 中性共有モジュール（`workspace.py`、`media.py`、`context_usage.py`、`infra/`）は `services/` に逆依存してはいけない。
+- 中性共有モジュール（`backend/workspace.py`、`backend/media.py`、`backend/context_usage.py`、ルートの `infra/`）は `services/` に逆依存してはいけない。
 
 OCP は default / plan_and_solve / court と同じ形です。`services/agent_builder.py` が `output_review` として解決し `ToolLoopAgent` に注入し、agent ループは `ocp` を直接 import しません。既知の例外：主モデルと OCP のモデルプロファイル読み取り（`function_calling` / `services.ocp_service` → `services.settings_service`）は設定ストア依存として残します。呼び出し側へ逆依存せず、環を作りません。
 
@@ -270,7 +351,7 @@ OCP は default / plan_and_solve / court と同じ形です。`services/agent_bu
 
 ## 開発境界
 
-- `mcps.py` は agent 向け業務ツールの統一入口です。新しいツールは `mcp/` クライアントに実装し、`mcps` から公開してください。agent や API ルートが直接迂回して呼び出すべきではありません。
+- `backend/mcps.py` は agent 向け業務ツールの統一入口です。新しいツールは `backend/mcp/` クライアントに実装し、`mcps` から公開してください。agent や API ルートが直接迂回して呼び出すべきではありません。
 - 記憶システムは会話単位の構造化記憶です。ユーザー単位の長期プロファイルではなく、任意の embedding は検索重み信号としてのみ利用します。
 - アップロードファイルと生成ファイルは、ユーザー/会話ごとのワークスペース境界内に置く必要があります。
 - 法律回答では、事実、法条、判例、出典リンクなどの検証可能な経路を残すべきです。
@@ -278,7 +359,24 @@ OCP は default / plan_and_solve / court と同じ形です。`services/agent_bu
 
 ## アカウントと権限
 
-アカウント、パスワードハッシュ、オンラインセッションは `data/account.json` ではなく、`data/` 配下の SQLite データベース `auth.sqlite3`（`secrets.json`、`settings.json`、`lockout.json` と同階層）に保存されます。初回起動時に認証 DB が空で旧 `account.json` が存在する場合、自動的にインポートし、ファイルは `account.json.imported-<タイムスタンプ>` に改名されます（ロール `admin` は `sudo` にマップ）。
+アカウント、パスワードハッシュ、オンラインセッションは `data/account.json` ではなく、`data/` 配下の SQLite データベース `auth.sqlite3`（`secrets.json`、`settings.json`、`lockout.json` と同階層）に保存されます。初回起動時に認証 DB が空で旧 `account.json` が存在する場合、自動的にインポートし、ファイルは `account.json.imported-<タイムスタンプ>` に改名されます（ロール `admin` は `sudo` にマップ）。日常のパスワード再設定は管理画面の「システム管理 → 全部账号」から行い、通常は DB を手編集する必要はありません。
+
+### CLI パスワードハッシュツール（`backend/hash.py`）
+
+リポジトリ分割後、アプリ本体は `backend/` にあり、`infra/`（`password_hashing` を含む）は**リポジトリルート**に残っています。`backend/hash.py` は `backend/` だけを `sys.path` に追加するため、`backend/` 内で直接実行したり、スクリプトパスだけを渡したりすると次のエラーになります。
+
+```text
+ModuleNotFoundError: No module named 'infra'
+```
+
+**リポジトリルート**で実行し、ルートをモジュール検索パスに含めてください。
+
+```bash
+cd /path/to/Lawyance
+PYTHONPATH=. .venv/bin/python backend/hash.py
+```
+
+`cd backend && python hash.py` や、`PYTHONPATH=.` なしの `python backend/hash.py` は使わないでください。ルートの `python agent.py` はこの問題の影響を受けません。ルートから起動するため、ルート側の `infra/` を import でき、あわせて `backend/` もパスに追加します。
 
 ロールは `sudo → admin → user` の 3 段階です。
 

@@ -1,0 +1,45 @@
+{
+  "collected_at": "2026-09-14",
+  "step": "2.2",
+  "instrument": {
+    "law_name": "Central Bank of Malaysia Act 2009",
+    "short_name": "CBA 2009",
+    "act_number": "Act 701",
+    "title_zh": "2009年马来西亚中央银行法",
+    "royal_assent": "2009-08-19",
+    "gazetted": "2009-09-03",
+    "effective_date": "2009-11-25",
+    "effective_date_note": "P.U.(B) 533/2009",
+    "reprint": "As at 1 November 2020",
+    "language_authentic": "en",
+    "regulator": "Bank Negara Malaysia"
+  },
+  "collection_note": "ss.56–58 自 2009 年立法以来未被列入修订条款清单，现行合订文本即原始有效文本。正式引用以英文原文为准。AGC reprint 为 Online Version of Updated Text of Reprint。",
+  "primary_text": "agc_reprint_2020",
+  "articles": ["56", "57", "58"],
+  "pages": "63-64",
+  "files": [
+    {
+      "filename": "CBA2009_Act701_AGC.pdf",
+      "role": "primary",
+      "pages": 112,
+      "reprint": "As at 1 November 2020",
+      "md5": "a35b8bba773355e867b3796da307a2f7",
+      "url": "https://lom.agc.gov.my/ilims/upload/portal/akta/outputaktap/1683920_BI/Draf%20Kedua%20Act%20701%20(final)(KU)%20(1).pdf"
+    },
+    {
+      "filename": "CBA2009_第56-58条_中文采集记录.docx",
+      "role": "collection_record",
+      "url": ""
+    }
+  ],
+  "related_urls": [
+    "https://lom.agc.gov.my/",
+    "https://www.bnm.gov.my/en/legislation",
+    "https://www.bnm.gov.my/committees/sac"
+  ],
+  "links_to": {
+    "ifsa2013": "IFSA s.28(2) 符合 SAC 裁决即视为符合沙里亚；SAC 设立于 CBA s.51",
+    "next_step": "2.3 BNM SAC rulings on riba (official PDF)"
+  }
+}

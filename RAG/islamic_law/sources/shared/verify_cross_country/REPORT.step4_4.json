@@ -1,0 +1,190 @@
+{
+  "verified_at": "2026-09-16",
+  "step": "4.4",
+  "min_countries": 2,
+  "top_n": 20,
+  "all_pass": true,
+  "core_scenario": {
+    "query": "禁止 riba",
+    "principle": "SH-PRINCIPLE-RIBA-001",
+    "rules_by_principle_countries": [
+      "ID",
+      "MY"
+    ],
+    "semantic_countries": [
+      "ID",
+      "MY"
+    ],
+    "link_countries": [
+      "ID",
+      "MY"
+    ],
+    "pass": true
+  },
+  "principle_checks": [
+    {
+      "check": "rules_by_principle",
+      "label": "禁止 riba",
+      "sharia_principle_id": "SH-PRINCIPLE-RIBA-001",
+      "countries": [
+        "ID",
+        "MY"
+      ],
+      "country_counts": {
+        "ID": 11,
+        "MY": 26
+      },
+      "total_count": 37,
+      "missing_countries": [],
+      "missing_formals": {},
+      "pass": true
+    },
+    {
+      "check": "rules_by_principle",
+      "label": "sukuk",
+      "sharia_principle_id": "SH-PRINCIPLE-SUKUK-001",
+      "countries": [
+        "ID",
+        "MY"
+      ],
+      "country_counts": {
+        "ID": 4,
+        "MY": 10
+      },
+      "total_count": 14,
+      "missing_countries": [],
+      "missing_formals": {},
+      "pass": true
+    },
+    {
+      "check": "rules_by_principle",
+      "label": "halal/haram",
+      "sharia_principle_id": "SH-PRINCIPLE-HALAL-HARAM-001",
+      "countries": [
+        "ID",
+        "MY"
+      ],
+      "country_counts": {
+        "ID": 12,
+        "MY": 5
+      },
+      "total_count": 17,
+      "missing_countries": [],
+      "missing_formals": {},
+      "pass": true
+    }
+  ],
+  "search_checks": [
+    {
+      "check": "semantic",
+      "query": "禁止 riba",
+      "countries": [
+        "ID",
+        "MY"
+      ],
+      "samples_by_country": {
+        "ID": [
+          "ID-FIN-MUI-BUNGA-2004-001",
+          "ID-FIN-UU21-2008-CHAIN"
+        ],
+        "MY": [
+          "MY-RIBA-IFSA-2013-001",
+          "MY-IFSA-2013-S28",
+          "MY-IFSA-2013-RIBA-CHAIN",
+          "MY-IFSA-2013-S168",
+          "MY-BNM-SAC-RES-081"
+        ]
+      },
+      "missing_countries": [],
+      "missing_rules": [],
+      "returned_count": 20,
+      "principle_hint": "SH-PRINCIPLE-RIBA-001",
+      "pass": true
+    },
+    {
+      "check": "semantic",
+      "query": "riba 利息 马来西亚 印尼",
+      "countries": [
+        "ID",
+        "MY"
+      ],
+      "samples_by_country": {
+        "ID": [
+          "ID-FIN-MUI-BUNGA-2004-001",
+          "ID-FIN-UU21-2008-001",
+          "ID-FIN-POJK18-2015-001"
+        ],
+        "MY": [
+          "MY-RIBA-IFSA-2013-001",
+          "MY-BNM-SAC-RES-083",
+          "MY-IFSA-2013-RIBA-CHAIN",
+          "MY-IFSA-2013-S28",
+          "MY-BNM-SAC-RES-037"
+        ]
+      },
+      "missing_countries": [],
+      "missing_rules": [],
+      "returned_count": 20,
+      "principle_hint": "SH-PRINCIPLE-RIBA-001",
+      "pass": true
+    },
+    {
+      "check": "link",
+      "query": "禁止 riba",
+      "countries": [
+        "ID",
+        "MY"
+      ],
+      "samples_by_country": {
+        "ID": [
+          "ID-FIN-MUI-BUNGA-2004-001",
+          "ID-FIN-UU21-2008-CHAIN"
+        ],
+        "MY": [
+          "MY-RIBA-IFSA-2013-001",
+          "MY-IFSA-2013-S28",
+          "MY-IFSA-2013-RIBA-CHAIN",
+          "MY-IFSA-2013-S168",
+          "MY-BNM-SAC-RES-081"
+        ]
+      },
+      "missing_countries": [],
+      "missing_rules": [],
+      "returned_count": 20,
+      "principle_hint": "SH-PRINCIPLE-RIBA-001",
+      "pass": true
+    },
+    {
+      "check": "link",
+      "query": "SH-PRINCIPLE-RIBA-001",
+      "countries": [
+        "ID",
+        "MY"
+      ],
+      "samples_by_country": {
+        "ID": [
+          "ID-FIN-UU21-2008-001",
+          "ID-FIN-POJK16-2022-001",
+          "ID-FIN-MUI-BUNGA-2004-001",
+          "ID-FIN-POJK16-2022-CHAIN",
+          "ID-FIN-POJK16-2022-P148"
+        ],
+        "MY": [
+          "MY-RIBA-IFSA-2013-001",
+          "MY-CBA-2009-SAC-CHAIN",
+          "MY-CBA-2009-S56",
+          "MY-CBA-2009-S57",
+          "MY-CBA-2009-S58"
+        ]
+      },
+      "missing_countries": [],
+      "missing_rules": [],
+      "returned_count": 20,
+      "principle_hint": "SH-PRINCIPLE-RIBA-001",
+      "pass": true
+    }
+  ],
+  "checks_pass": 7,
+  "checks_total": 7,
+  "failures": []
+}

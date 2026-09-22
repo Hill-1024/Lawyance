@@ -11,7 +11,7 @@ from prompt_loader import build_system_prompt
 from services.court_prompts import build_court_messages
 
 
-PROMPT_ROOT = Path(__file__).resolve().parent.parent / "prompts" / "lawver"
+PROMPT_ROOT = Path(__file__).resolve().parent.parent / "backend" / "prompts" / "lawver"
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +62,7 @@ CORE_RED_LINES = {
     "L1-3 信源标注": ["法律/案例信源", "联网搜索来源", "缺一不可"],
     "L1-4 领域边界": ["领域边界", "简短边界说明"],
     "L1-5 禁 emoji": ["emoji"],
+    "L1-6 回答语言": ["回答语言跟随用户", "立即跟随"],
 }
 
 

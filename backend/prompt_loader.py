@@ -1,0 +1,174 @@
+"""
+模块描述：动态系统 prompt 加载器，按 profile、模式、焦点和任务组合提示词片段。
+"""
+
+import os
+import re
+from pathlib import Path
+from typing import Iterable
+
+
+BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_PROMPT_PROFILE = "lawver"
+PROMPT_MODULE_DESCRIPTION_RE = re.compile(r"\A\s*<!--\s*模块描述：.*?-->\s*", re.DOTALL)
+
+# 这里只加载系统提示词文本。工具 schema 必须由 function_calling.call 直接 tools=tools 传入。
+
+CORE_SECTIONS = (
+    "core/00-identity.md",
+    "core/10-hard-constraints.md",
+    "core/20-tool-source-policy.md",
+    "core/30-output-contract.md",
+    "core/32-response-language.md",
+    # 必须排在 40-file-processing 之前：先声明直附图片已可见，
+    # 再用文件处理规范约束 PDF/Word/TXT/MD，避免模型把图片也当成"需要工具读取的文件"。
+    "core/35-multimodal-input.md",
+    "core/40-file-processing.md",
+    "core/90-disclaimer.md",
+)
+
+# 约束重申段 — 必须放在 system prompt 最尾部（利用 recency 效应）
+CONSTRAINT_RECAP_SECTION = "core/50-constraint-recap.md"
+
+MODE_SECTIONS = {
+    "default": ("modes/default.md",),
+    "plan_and_solve": ("modes/plan_and_solve.md",),
+}
+
+FOCUS_SECTIONS = {
+    "legal_retrieval": "focus/legal_retrieval.md",
+    "file_processing": "focus/file_processing.md",
+    "general_gate": "focus/general_gate.md",
+}
+
+TASK_ONLY_SECTIONS = {
+    "history_summary": ("tasks/history_summary.md",),
+    "intent_router": ("tasks/intent_router.md",),
+}
+
+OPTIONAL_SECTIONS = {
+    "examples": ("examples/legal_consultation.md", "examples/file_review.md"),
+}
+
+
+def _prompt_root() -> Path:
+    configured_root = os.getenv("LAWVER_PROMPT_ROOT")
+    if configured_root:
+        return Path(configured_root).expanduser().resolve()
+    profile = os.getenv("LAWVER_PROMPT_PROFILE", DEFAULT_PROMPT_PROFILE)
+    return (BASE_DIR / "prompts" / profile).resolve()
+
+
+def _read_section(root: Path, relative_path: str, *, required: bool = True) -> str:
+    path = (root / relative_path).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"Prompt section escapes prompt root: {relative_path}") from exc
+
+    if not path.exists():
+        if required:
+            raise FileNotFoundError(f"Prompt section not found: {path}")
+        return ""
+
+    content = path.read_text(encoding="utf-8")
+    return PROMPT_MODULE_DESCRIPTION_RE.sub("", content).strip()
+
+
+def _read_sections(root: Path, relative_paths: Iterable[str], *, required: bool = True) -> list[str]:
+    sections = []
+    for relative_path in relative_paths:
+        content = _read_section(root, relative_path, required=required)
+        if content:
+            sections.append(content)
+    return sections
+
+
+def _normalise_focus(focus: Iterable[str] | None) -> list[str]:
+    seen = set()
+    ordered_focus = []
+    for item in focus or ():
+        key = str(item or "").strip()
+        if not key or key not in FOCUS_SECTIONS or key in seen:
+            continue
+        seen.add(key)
+        ordered_focus.append(key)
+    return ordered_focus
+
+
+def _build_core_system_text(agent_mode: str = "default", *, focus: Iterable[str] | None = None) -> str:
+    root = _prompt_root()
+    mode = agent_mode if agent_mode in MODE_SECTIONS else "default"
+    sections = _read_sections(root, CORE_SECTIONS)
+    sections.extend(_read_sections(root, MODE_SECTIONS[mode]))
+
+    focus_sections = [FOCUS_SECTIONS[key] for key in _normalise_focus(focus)]
+    sections.extend(_read_sections(root, focus_sections, required=False))
+
+    if os.getenv("LAWVER_PROMPT_INCLUDE_EXAMPLES") == "1":
+        sections.extend(_read_sections(root, OPTIONAL_SECTIONS["examples"], required=False))
+
+    return "\n\n".join(section for section in sections if section)
+
+
+def _build_memory_system_text(memory_context: str = "") -> str:
+    memory = str(memory_context or "").strip()
+    if not memory:
+        return ""
+    return f"<active_conversation_context>\n{memory}\n</active_conversation_context>"
+
+
+def _build_recap_system_text() -> str:
+    root = _prompt_root()
+    return _read_section(root, CONSTRAINT_RECAP_SECTION, required=False)
+
+
+def build_system_prompt(
+    agent_mode: str = "default",
+    *,
+    task: str = "chat",
+    focus: Iterable[str] | None = None,
+    memory_context: str = "",
+) -> str:
+    root = _prompt_root()
+
+    if task in TASK_ONLY_SECTIONS:
+        sections = _read_sections(root, TASK_ONLY_SECTIONS[task])
+        return "\n\n".join(sections)
+
+    sections = [_build_core_system_text(agent_mode=agent_mode, focus=focus)]
+
+    memory_text = _build_memory_system_text(memory_context)
+    if memory_text:
+        sections.append(memory_text)
+
+    recap_text = _build_recap_system_text()
+    if recap_text:
+        sections.append(recap_text)
+
+    return "\n\n".join(section for section in sections if section)
+
+
+def build_system_memory(
+    agent_mode: str = "default",
+    *,
+    task: str = "chat",
+    focus: Iterable[str] | None = None,
+    memory_context: str = "",
+) -> list[dict[str, str]]:
+    if task in TASK_ONLY_SECTIONS:
+        root = _prompt_root()
+        sections = _read_sections(root, TASK_ONLY_SECTIONS[task])
+        return [{"role": "system", "content": "\n\n".join(sections)}]
+
+    messages = [{"role": "system", "content": _build_core_system_text(agent_mode=agent_mode, focus=focus)}]
+
+    memory_text = _build_memory_system_text(memory_context)
+    if memory_text:
+        messages.append({"role": "system", "content": memory_text})
+
+    recap_text = _build_recap_system_text()
+    if recap_text:
+        messages.append({"role": "system", "content": recap_text})
+
+    return messages
