@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { MessageItem } from '../frontend/src/components/MessageItem';
 import { DialogProvider } from '../frontend/src/contexts/DialogContext';
+import { LocaleProvider } from '../frontend/src/contexts/LocaleContext';
 import { DOCUMENT_ATTACHMENT_HEADER, IMAGE_ATTACHMENT_HEADER } from '../frontend/src/lib/attachment-prompt';
 
 type RenderCase = {
@@ -65,20 +66,22 @@ const cases: RenderCase[] = [
 ];
 
 const renderBubble = (item: RenderCase) => renderToStaticMarkup(
-  <DialogProvider>
-    <MessageItem
-      msg={{
-        id: 'test-message',
-        role: 'user',
-        content: item.content,
-        attachments: item.attachments,
-        created_at: '2026-01-01T00:00:00.000Z',
-        updated_at: '2026-01-01T00:00:00.000Z',
-      } as any}
-      isThinking={false}
-      isLast
-    />
-  </DialogProvider>,
+  <LocaleProvider>
+    <DialogProvider>
+      <MessageItem
+        msg={{
+          id: 'test-message',
+          role: 'user',
+          content: item.content,
+          attachments: item.attachments,
+          created_at: '2026-01-01T00:00:00.000Z',
+          updated_at: '2026-01-01T00:00:00.000Z',
+        } as any}
+        isThinking={false}
+        isLast
+      />
+    </DialogProvider>
+  </LocaleProvider>,
 );
 
 for (const item of cases) {

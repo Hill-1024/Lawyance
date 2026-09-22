@@ -7,11 +7,10 @@ import { clearAuthToken, getAuthToken, setAuthToken } from '../lib/auth-storage'
 import { APP_CONFIG, BASE_PATH } from '../lib/app-config';
 import { isNative } from '../lib/platform';
 
-const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
 // Web 端带上网关区域前缀（如 /cn），使 API 请求与页面落入同一区域后端；无前缀时为空串。
 // 原生端不走网关路径分流，直连 appConfig.nativeApiBase 指定的后端。
 const API_BASE = isNative()
-  ? (env.VITE_LAWVER_API_BASE || APP_CONFIG.nativeApiBase)
+  ? (import.meta.env.VITE_LAWVER_API_BASE || APP_CONFIG.nativeApiBase)
   : BASE_PATH;
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
