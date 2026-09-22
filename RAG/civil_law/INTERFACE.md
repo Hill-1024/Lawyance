@@ -1,6 +1,6 @@
 # 大陆法系库接口说明（INTERFACE）
 
-对齐《Lawyance 管辖库工作协调规范》v1.0 §2 / §3。本包只提供管辖库 Python API，
+对齐《Lawver 管辖库工作协调规范》v1.0 §2 / §3。本包只提供管辖库 Python API，
 **不注册 LLM Tool**；面向模型的工具名与路由由总装决定。
 
 - 语料语言：印尼语 / 泰语 / 越南语（无中文正文，中文仅用于法名别名召回）
@@ -183,7 +183,7 @@ app_factory.py  →  services/law_cache.py::prepare_on_startup()  →  mcps.ensu
 里直接 `from RAG.civil_law import ...` 会让架构测试挂掉，**唯一合规的写法必须在 `mcps.py`
 里加一行转发**。
 
-而 `mcps.py` 正是《Lawyance 管辖库工作协调规范》§2.3 的红线文件
+而 `mcps.py` 正是《Lawver 管辖库工作协调规范》§2.3 的红线文件
 （"禁止修改 `tools/__init__.py`、`mcps.py`、`function_calling.py`、`mcp/pkulaw_client.py`"）。
 管辖库侧不擅自改总装入口，因此这部分留给总装。
 

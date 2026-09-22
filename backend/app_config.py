@@ -12,7 +12,8 @@ _FALLBACK_PORT = 8080
 
 def _load_app_config() -> dict:
     try:
-        raw = (Path(__file__).resolve().parent / "package.json").read_text(encoding="utf-8")
+        # package.json 在仓库根；本文件位于 backend/
+        raw = (Path(__file__).resolve().parents[1] / "package.json").read_text(encoding="utf-8")
         config = json.loads(raw).get("appConfig")
     except (OSError, ValueError):
         return {}

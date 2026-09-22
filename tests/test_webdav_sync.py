@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, REPO_ROOT)
+sys.path.insert(0, os.path.join(REPO_ROOT, "backend"))
 
 TEST_SECRET = "w" * 32
 TEST_ADMIN_PW = "webdav-test-admin-pw-9876"

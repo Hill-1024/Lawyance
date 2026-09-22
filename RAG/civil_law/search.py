@@ -1,7 +1,7 @@
 """
 模块描述：大陆法系三国（印度尼西亚 / 泰国 / 越南）法律检索库。
 
-本包只负责本法域的语料清洗、索引与检索，对外暴露《Lawyance 管辖库工作协调规范》
+本包只负责本法域的语料清洗、索引与检索，对外暴露《Lawver 管辖库工作协调规范》
 §2.1 约定的六个函数；不修改 tools/、mcps.py、function_calling.py、mcp/pkulaw_client.py，
 也不自行注册 LLM Tool。
 

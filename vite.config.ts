@@ -1,5 +1,6 @@
 /*
  * 模块描述：Vite 构建与开发服务器配置，接入 React、Tailwind、路径别名、API 代理和区域路径前缀。
+ * 前端源码位于 frontend/，构建产物仍输出到仓库根 dist/，供 FastAPI SPA 与 Capacitor 共用。
  */
 
 import { defineConfig } from 'vite'
@@ -9,6 +10,8 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import { readFileSync } from 'fs'
 
+const repoRoot = __dirname
+const frontendRoot = path.resolve(repoRoot, 'frontend')
 const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const appConfig = packageJson.appConfig || {}
 const appDomain = appConfig.domain || 'cn.lawver.dev'
@@ -29,7 +32,7 @@ const buildInfo = {
   description: packageJson.description || '工大法智团队的中文法律 AI 助手原型',
   environment: buildEnvironment,
   buildTime: new Date().toLocaleString('zh-CN', { hour12: false }),
-  projectUrl: packageJson.appConfig?.projectUrl || 'https://github.com/Hill-1024/Lawyance',
+  projectUrl: packageJson.appConfig?.projectUrl || 'https://github.com/Meteor109/Lawver',
 }
 
 /**
@@ -55,6 +58,8 @@ const regionBasePathPlugin = (): Plugin => ({
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  root: frontendRoot,
+  publicDir: path.resolve(frontendRoot, 'public'),
   // 相对资源路径：实际基准由网关注入的 <base> 决定，根路径与前缀部署共用同一份产物。
   base: './',
   plugins: [react(), tailwindcss(), regionBasePathPlugin()],
@@ -65,8 +70,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(frontendRoot, "src"),
     },
+  },
+  build: {
+    outDir: path.resolve(repoRoot, 'dist'),
+    emptyOutDir: true,
   },
   server: {
     port: devServerPort,

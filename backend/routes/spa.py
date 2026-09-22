@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 
 router = APIRouter()
-DIST_DIR = Path(__file__).resolve().parents[1] / "dist"
+DIST_DIR = Path(__file__).resolve().parents[2] / "dist"
 
 # Vite 产物目录，文件名带内容哈希：内容变了文件名就变，可以长期强缓存。
 ASSETS_PREFIX = "assets/"
