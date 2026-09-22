@@ -88,6 +88,7 @@ Lawver/
 │   ├── src/
 │   ├── public/
 │   └── index.html
+├── infra/                   # Auth store, password hashing, Redis / bloom (stays at root)
 ├── RAG/                     # China primary library + ASEAN jurisdiction DBs
 ├── android/                 # Capacitor Android project
 ├── deploy/                  # Nginx / Cloudflare deployment examples
@@ -117,6 +118,56 @@ Important paths:
 | `frontend/src/` | React frontend covering main chat and moot court |
 | `tests/` | Coverage of memory, OCP, tool loop, moot court, security hardening, and more |
 | `deploy/` | Production reverse-proxy and gateway examples |
+| `infra/` | Shared infra still at repo root: auth store, password hashing, Redis / bloom filter |
+
+### Directory migration map (old → new)
+
+The repo is split into `backend/` (Python) and `frontend/` (React). If you still remember pre-split paths, use the rules below — **this section alone is enough to relocate files**.
+
+**Three lookup rules:**
+
+1. Former root-level backend Python packages/files → moved under `backend/` with the same relative path.  
+   Example: `mcp/searxng_client.py` → `backend/mcp/searxng_client.py`; `services/chat_pipeline.py` → `backend/services/chat_pipeline.py`.
+2. Former frontend `src/`, `public/`, and `index.html` → moved under `frontend/`.  
+   Example: `src/hooks/useChat.ts` → `frontend/src/hooks/useChat.ts`; `public/sw.js` → `frontend/public/sw.js`.
+3. These **stayed at the repository root**: `agent.py` (entrypoint), `infra/`, `RAG/`, `tests/`, `scripts/`, `docs/`, `deploy/`, `android/`, `assets/`, `package.json`, `vite.config.ts`, `pyproject.toml`, `.env` / `.env_example`.
+
+**Common path mapping:**
+
+| Before (old) | After (new) | Notes |
+| --- | --- | --- |
+| `agent.py` | `agent.py` (repo root) | Entrypoint stays at root; forwards into `backend/` |
+| `app_factory.py` | `backend/app_factory.py` | FastAPI application factory |
+| `app_config.py` | `backend/app_config.py` | Backend config |
+| `auth.py` / `hash.py` | `backend/auth.py` / `backend/hash.py` | Auth and password-hash CLI |
+| `function_calling.py` | `backend/function_calling.py` | Model call wrapper |
+| `mcps.py` | `backend/mcps.py` | Tool forwarding entry |
+| `schemas.py` | `backend/schemas.py` | Request models |
+| `workspace.py` / `media.py` / `context_usage.py` / `ocp.py` | Same names under `backend/` | Workspace, media, context usage, output review |
+| `agents/` | `backend/agents/` | ToolLoop agent |
+| `routes/` | `backend/routes/` | HTTP routes |
+| `services/` | `backend/services/` | Chat / court / memory pipelines |
+| `tools/` | `backend/tools/` | Tool registry |
+| `mcp/` | `backend/mcp/` | Legal, company, PDF, Word, SearXNG clients |
+| `llm/` | `backend/llm/` | Model clients |
+| `memory_system/` | `backend/memory_system/` | Conversation memory |
+| `prompts/` | `backend/prompts/` | Dynamic prompts (including `lawver/`) |
+| `src/` | `frontend/src/` | React source |
+| `public/` | `frontend/public/` | PWA / static assets |
+| `index.html` | `frontend/index.html` | Vite HTML entry |
+| `infra/` | `infra/` (root, unchanged) | Do not look under `backend/infra/` |
+| `RAG/` | `RAG/` (root, unchanged) | Local statute DBs |
+| `tests/` | `tests/` (root, unchanged) | Still run `python -m pytest` from repo root |
+| `dist/` | `dist/` (repo root) | Frontend build still emits to root `dist/` for the FastAPI SPA |
+
+**Find by filename (from repo root):**
+
+```bash
+find backend frontend infra RAG -name 'searxng_client.py'
+find frontend -name 'useChat.ts'
+```
+
+Always run `python agent.py`, `pnpm run build`, and `pnpm run dev` from the **repository root**. Do not `cd backend` before starting the app — that commonly causes `No module named 'infra'`.
 
 ## Requirements
 
@@ -262,7 +313,7 @@ Invariants are locked by `tests/test_architecture_boundaries.py`:
 - `backend/tools/**` must not import `services/**`.
 - `backend/services/**` and `backend/routes/**` must not import `tools`, `mcp`, `memory_system`, `RAG`, or `ocp` directly; everything goes through `mcps`. Only `services/ocp_service.py` may construct `ocp`.
 - The production import graph must be acyclic.
-- Neutral shared modules (`backend/workspace.py`, `backend/media.py`, `backend/context_usage.py`, `backend/infra/`) must not depend back on `services/`.
+- Neutral shared modules (`backend/workspace.py`, `backend/media.py`, `backend/context_usage.py`, root `infra/`) must not depend back on `services/`.
 
 OCP follows the same shape as default / plan_and_solve / court: `services/agent_builder.py` resolves it into an `output_review` injected into `ToolLoopAgent`, and the agent loop never imports `ocp` itself. Known exception: model-profile reads for the main model and OCP (`function_calling` / `services.ocp_service` → `services.settings_service`) remain a config-store dependency; it does not depend back on its callers and forms no cycle.
 
@@ -310,7 +361,24 @@ Backend entrypoint: `routes/court.py`; pipeline: `services/court_pipeline.py` an
 
 ## Accounts and Permissions
 
-Accounts, password hashes, and online sessions live in the SQLite database `auth.sqlite3` under `data/`, alongside `secrets.json`, `settings.json`, and `lockout.json`, instead of `data/account.json`. On first start, if the auth database is empty and a legacy `account.json` exists, it is imported and the file is renamed to `account.json.imported-<timestamp>` (role `admin` maps to `sudo`).
+Accounts, password hashes, and online sessions live in the SQLite database `auth.sqlite3` under `data/`, alongside `secrets.json`, `settings.json`, and `lockout.json`, instead of `data/account.json`. On first start, if the auth database is empty and a legacy `account.json` exists, it is imported and the file is renamed to `account.json.imported-<timestamp>` (role `admin` maps to `sudo`). Day-to-day password resets should go through the admin UI under System Administration → All Accounts; editing the database by hand is usually unnecessary.
+
+### CLI password-hash tool (`backend/hash.py`)
+
+After the monorepo split, application code lives under `backend/`, while `infra/` (including `password_hashing`) remains at the **repository root**. `backend/hash.py` only adds `backend/` to `sys.path`, so running it from inside `backend/`, or invoking the script path alone, produces:
+
+```text
+ModuleNotFoundError: No module named 'infra'
+```
+
+Run it from the **repository root** and put the root on the module search path:
+
+```bash
+cd /path/to/Lawyance
+PYTHONPATH=. .venv/bin/python backend/hash.py
+```
+
+Do not use `cd backend && python hash.py`, and do not run `python backend/hash.py` without `PYTHONPATH=.`. The root entrypoint `python agent.py` is unaffected: it starts at the repo root, so it can import root-level `infra/` and also adds `backend/` to the path.
 
 There are three roles, forming a `sudo → admin → user` hierarchy:
 

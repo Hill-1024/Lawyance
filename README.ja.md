@@ -88,6 +88,7 @@ Lawver/
 │   ├── src/
 │   ├── public/
 │   └── index.html
+├── infra/                   # 認証ストア、パスワードハッシュ、Redis / Bloom（ルートに残置）
 ├── RAG/                     # 中国法主庫 + ASEAN 管轄庫
 ├── android/                 # Capacitor Android 工程
 ├── deploy/                  # Nginx / Cloudflare などデプロイ例
@@ -117,6 +118,56 @@ Lawver/
 | `frontend/src/` | React フロントエンド（メインチャットと模擬法廷） |
 | `tests/` | 記憶、OCP、ツールループ、模擬法廷、セキュリティなどを網羅 |
 | `deploy/` | 本番リバースプロキシとゲートウェイ設定例 |
+| `infra/` | 認証ストア、パスワードハッシュ、Redis / Bloom（リポジトリルートに残置） |
+
+### ディレクトリ移行対照（旧パス → 新パス）
+
+リポジトリは `backend/`（Python）と `frontend/`（React）に分割されています。分割前のパスを覚えている場合は、以下だけでファイルを探せます。
+
+**3 つの早見ルール：**
+
+1. 以前ルートにあったバックエンドの Python パッケージ / ファイル → `backend/` 配下へ、相対パスはそのまま。  
+   例：`mcp/searxng_client.py` → `backend/mcp/searxng_client.py`；`services/chat_pipeline.py` → `backend/services/chat_pipeline.py`。
+2. 以前のフロント `src/`、`public/`、`index.html` → `frontend/` 配下へ。  
+   例：`src/hooks/useChat.ts` → `frontend/src/hooks/useChat.ts`；`public/sw.js` → `frontend/public/sw.js`。
+3. 次は**ルートのまま未移動**：`agent.py`（起動入口）、`infra/`、`RAG/`、`tests/`、`scripts/`、`docs/`、`deploy/`、`android/`、`assets/`、`package.json`、`vite.config.ts`、`pyproject.toml`、`.env` / `.env_example`。
+
+**よく使う旧パス対照：**
+
+| 分割前（旧） | 分割後（新） | 説明 |
+| --- | --- | --- |
+| `agent.py` | `agent.py`（ルート） | 起動契約はルートのまま。内部で `backend/` へ転送 |
+| `app_factory.py` | `backend/app_factory.py` | FastAPI アプリケーションファクトリ |
+| `app_config.py` | `backend/app_config.py` | バックエンド設定 |
+| `auth.py` / `hash.py` | `backend/auth.py` / `backend/hash.py` | 認証とパスワードハッシュ CLI |
+| `function_calling.py` | `backend/function_calling.py` | モデル呼び出し |
+| `mcps.py` | `backend/mcps.py` | ツール転送入口 |
+| `schemas.py` | `backend/schemas.py` | リクエストモデル |
+| `workspace.py` / `media.py` / `context_usage.py` / `ocp.py` | `backend/` 配下の同名ファイル | ワークスペース、メディア、文脈使用量、出力検査 |
+| `agents/` | `backend/agents/` | ToolLoop エージェント |
+| `routes/` | `backend/routes/` | HTTP ルート |
+| `services/` | `backend/services/` | チャット / 法廷 / 記憶パイプライン |
+| `tools/` | `backend/tools/` | ツール登録 |
+| `mcp/` | `backend/mcp/` | 法律・企業・PDF・Word・SearXNG クライアント |
+| `llm/` | `backend/llm/` | モデルクライアント |
+| `memory_system/` | `backend/memory_system/` | 会話記憶 |
+| `prompts/` | `backend/prompts/` | 動的 prompt（`lawver/` 含む） |
+| `src/` | `frontend/src/` | React ソース |
+| `public/` | `frontend/public/` | PWA / 静的資源 |
+| `index.html` | `frontend/index.html` | Vite HTML 入口 |
+| `infra/` | `infra/`（ルート、未移動） | `backend/infra/` は存在しない |
+| `RAG/` | `RAG/`（ルート、未移動） | ローカル法令庫 |
+| `tests/` | `tests/`（ルート、未移動） | ルートで `python -m pytest` |
+| `dist/` | `dist/`（ルート） | フロントビルド成果物は引き続きルート `dist/` |
+
+**ファイル名で探す（リポジトリルートで）：**
+
+```bash
+find backend frontend infra RAG -name 'searxng_client.py'
+find frontend -name 'useChat.ts'
+```
+
+`python agent.py` / `pnpm run build` / `pnpm run dev` は必ず**リポジトリルート**で実行してください。`cd backend` してから起動すると `No module named 'infra'` になりやすいです。
 
 ## 必要環境
 
@@ -262,7 +313,7 @@ backend/routes/  ->  backend/services/  ->  services/agent_builder.py（パラ�
 - `backend/tools/**` は `services/**` を import してはいけない。
 - `backend/services/**`、`backend/routes/**` は `tools`、`mcp`、`memory_system`、`RAG`、`ocp` を直接 import せず、すべて `mcps` 経由。`ocp` を構築できるのは `services/ocp_service.py` だけ。
 - 本番モジュールの import グラフは非環状でなければならない。
-- 中性共有モジュール（`backend/workspace.py`、`backend/media.py`、`backend/context_usage.py`、`backend/infra/`）は `services/` に逆依存してはいけない。
+- 中性共有モジュール（`backend/workspace.py`、`backend/media.py`、`backend/context_usage.py`、ルートの `infra/`）は `services/` に逆依存してはいけない。
 
 OCP は default / plan_and_solve / court と同じ形です。`services/agent_builder.py` が `output_review` として解決し `ToolLoopAgent` に注入し、agent ループは `ocp` を直接 import しません。既知の例外：主モデルと OCP のモデルプロファイル読み取り（`function_calling` / `services.ocp_service` → `services.settings_service`）は設定ストア依存として残します。呼び出し側へ逆依存せず、環を作りません。
 
@@ -308,7 +359,24 @@ OCP は default / plan_and_solve / court と同じ形です。`services/agent_bu
 
 ## アカウントと権限
 
-アカウント、パスワードハッシュ、オンラインセッションは `data/account.json` ではなく、`data/` 配下の SQLite データベース `auth.sqlite3`（`secrets.json`、`settings.json`、`lockout.json` と同階層）に保存されます。初回起動時に認証 DB が空で旧 `account.json` が存在する場合、自動的にインポートし、ファイルは `account.json.imported-<タイムスタンプ>` に改名されます（ロール `admin` は `sudo` にマップ）。
+アカウント、パスワードハッシュ、オンラインセッションは `data/account.json` ではなく、`data/` 配下の SQLite データベース `auth.sqlite3`（`secrets.json`、`settings.json`、`lockout.json` と同階層）に保存されます。初回起動時に認証 DB が空で旧 `account.json` が存在する場合、自動的にインポートし、ファイルは `account.json.imported-<タイムスタンプ>` に改名されます（ロール `admin` は `sudo` にマップ）。日常のパスワード再設定は管理画面の「システム管理 → 全部账号」から行い、通常は DB を手編集する必要はありません。
+
+### CLI パスワードハッシュツール（`backend/hash.py`）
+
+リポジトリ分割後、アプリ本体は `backend/` にあり、`infra/`（`password_hashing` を含む）は**リポジトリルート**に残っています。`backend/hash.py` は `backend/` だけを `sys.path` に追加するため、`backend/` 内で直接実行したり、スクリプトパスだけを渡したりすると次のエラーになります。
+
+```text
+ModuleNotFoundError: No module named 'infra'
+```
+
+**リポジトリルート**で実行し、ルートをモジュール検索パスに含めてください。
+
+```bash
+cd /path/to/Lawyance
+PYTHONPATH=. .venv/bin/python backend/hash.py
+```
+
+`cd backend && python hash.py` や、`PYTHONPATH=.` なしの `python backend/hash.py` は使わないでください。ルートの `python agent.py` はこの問題の影響を受けません。ルートから起動するため、ルート側の `infra/` を import でき、あわせて `backend/` もパスに追加します。
 
 ロールは `sudo → admin → user` の 3 段階です。
 

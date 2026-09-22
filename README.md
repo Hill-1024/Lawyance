@@ -88,6 +88,7 @@ Lawver/
 │   ├── src/                 # 页面、组件、hooks、API 客户端
 │   ├── public/              # PWA / 静态资源
 │   └── index.html
+├── infra/                   # 认证存储、密码哈希、Redis / 布隆过滤器（仍在根目录）
 ├── RAG/                     # 中国法主库 + 东盟管辖库（civil / islamic / common）
 ├── android/                 # Capacitor Android 工程
 ├── deploy/                  # Nginx / Cloudflare 等部署示例
@@ -118,6 +119,57 @@ Lawver/
 | `frontend/src/` | React 前端（主聊天与模拟法庭） |
 | `tests/` | 记忆、OCP、工具循环、模拟法庭、安全加固、架构边界等测试 |
 | `deploy/` | 生产反代与网关配置示例 |
+| `infra/` | 认证存储、密码哈希、Redis / 布隆过滤器等共享基础设施（仍在仓库根） |
+
+### 目录迁移对照（旧路径 → 新路径）
+
+仓库已拆成 `backend/`（Python 后端）与 `frontend/`（React 前端）。若你还记得拆分前的路径，按下面规则即可定位；**只读本节就能找到文件**。
+
+**三条速查规则：**
+
+1. 以前在仓库根目录的后端 Python 包 / 文件 → 整体挪到 `backend/` 下，相对路径不变。  
+   例：`mcp/searxng_client.py` → `backend/mcp/searxng_client.py`；`services/chat_pipeline.py` → `backend/services/chat_pipeline.py`。
+2. 以前的前端 `src/`、`public/`、`index.html` → 挪到 `frontend/` 下。  
+   例：`src/hooks/useChat.ts` → `frontend/src/hooks/useChat.ts`；`public/sw.js` → `frontend/public/sw.js`。
+3. 下列项**仍在仓库根，没有搬家**：`agent.py`（启动入口）、`infra/`、`RAG/`、`tests/`、`scripts/`、`docs/`、`deploy/`、`android/`、`assets/`、`package.json`、`vite.config.ts`、`pyproject.toml`、`.env` / `.env_example`。
+
+**常见旧路径对照：**
+
+| 拆分前（旧） | 拆分后（新） | 说明 |
+| --- | --- | --- |
+| `agent.py` | `agent.py`（根目录） | 启动契约仍在根；内部转发到 `backend/` |
+| `app_factory.py` | `backend/app_factory.py` | FastAPI 应用工厂 |
+| `app_config.py` | `backend/app_config.py` | 后端配置 |
+| `auth.py` / `hash.py` | `backend/auth.py` / `backend/hash.py` | 认证与密码哈希 CLI |
+| `function_calling.py` | `backend/function_calling.py` | 模型调用封装 |
+| `mcps.py` | `backend/mcps.py` | 工具转发入口 |
+| `schemas.py` | `backend/schemas.py` | 请求体模型 |
+| `workspace.py` / `media.py` / `context_usage.py` / `ocp.py` | `backend/` 下同名文件 | 工作区、媒体、上下文用量、输出审查 |
+| `agents/` | `backend/agents/` | ToolLoop Agent |
+| `routes/` | `backend/routes/` | HTTP 路由 |
+| `services/` | `backend/services/` | 聊天 / 庭审 / 记忆等流水线 |
+| `tools/` | `backend/tools/` | 工具注册表 |
+| `mcp/` | `backend/mcp/` | 法条、企业、PDF、Word、SearXNG 等客户端 |
+| `llm/` | `backend/llm/` | 模型客户端 |
+| `memory_system/` | `backend/memory_system/` | 对话级记忆服务 |
+| `prompts/` | `backend/prompts/` | 动态 prompt（含 `lawver/`） |
+| `src/` | `frontend/src/` | React 源码（组件、hooks、API 客户端） |
+| `public/` | `frontend/public/` | PWA / 静态资源 |
+| `index.html` | `frontend/index.html` | Vite HTML 入口 |
+| `infra/` | `infra/`（根目录，未搬） | 勿到 `backend/infra/` 寻找 |
+| `RAG/` | `RAG/`（根目录，未搬） | 本地法库 |
+| `tests/` | `tests/`（根目录，未搬） | 测试仍从仓库根跑 `python -m pytest` |
+| `dist/` | `dist/`（根目录） | 前端构建产物仍输出到根 `dist/`，供 FastAPI SPA 使用 |
+
+**按文件名快速查找（在仓库根执行）：**
+
+```bash
+# 例：找 searxng_client.py、useChat.ts
+find backend frontend infra RAG -name 'searxng_client.py'
+find frontend -name 'useChat.ts'
+```
+
+开发与部署时请始终在**仓库根目录**执行 `python agent.py` / `pnpm run build` / `pnpm run dev`；不要把工作目录切到 `backend/` 再启动，否则容易出现 `No module named 'infra'` 等路径问题。
 
 ## 环境要求
 
@@ -434,7 +486,7 @@ backend/routes/  ->  backend/services/  ->  services/agent_builder.py（范式�
 - `backend/tools/**` 不得 import `services/**`。
 - `backend/services/**`、`backend/routes/**` 不得直接 import `tools`、`mcp`、`memory_system`、`RAG`、`ocp`，一律经 `mcps` 转发；`ocp` 只允许 `services/ocp_service.py` 构造。
 - 生产模块的 import 图无环。
-- 中性共享模块（`backend/workspace.py`、`backend/media.py`、`backend/context_usage.py`、`backend/infra/`）不得反向依赖 `services/`。
+- 中性共享模块（`backend/workspace.py`、`backend/media.py`、`backend/context_usage.py`、根目录 `infra/`）不得反向依赖 `services/`。
 
 OCP 与 default / plan_and_solve / court 同构：由 `backend/services/agent_builder.py` 解析成 `output_review` 注入 `ToolLoopAgent`，agent 循环不直接 import `ocp`。已知例外：主模型与 OCP 的模型档案读取（`function_calling` / `services.ocp_service` → `services.settings_service`）保留为配置存储依赖，它不反向依赖调用方，不构成环。
 
@@ -502,7 +554,24 @@ python -m pytest
 
 ## 账号与权限
 
-账号、密码摘要与在线会话统一存放在 `data/` 下的 SQLite 数据库 `auth.sqlite3`，与 `secrets.json`、`settings.json`、`lockout.json` 同级，不再使用 `data/account.json`。首次启动时若账号库为空且存在遗留的 `account.json`，会自动导入并把该文件改名为 `account.json.imported-<时间戳>`（角色 `admin` 会映射为 `sudo`）。
+账号、密码摘要与在线会话统一存放在 `data/` 下的 SQLite 数据库 `auth.sqlite3`，与 `secrets.json`、`settings.json`、`lockout.json` 同级，不再使用 `data/account.json`。首次启动时若账号库为空且存在遗留的 `account.json`，会自动导入并把该文件改名为 `account.json.imported-<时间戳>`（角色 `admin` 会映射为 `sudo`）。日常重置密码应走管理后台「系统管理 → 全部账号」；一般不必手工改库。
+
+### 命令行密码哈希工具（`backend/hash.py`）
+
+仓库拆分后，应用代码在 `backend/`，而 `infra/`（含 `password_hashing`）仍在**仓库根目录**。`backend/hash.py` 只会把 `backend/` 加入 `sys.path`，因此在 `backend/` 目录内直接执行，或只把脚本路径交给 Python 时，会出现：
+
+```text
+ModuleNotFoundError: No module named 'infra'
+```
+
+请在**仓库根目录**运行，并把根目录加入模块搜索路径：
+
+```bash
+cd /path/to/Lawyance
+PYTHONPATH=. .venv/bin/python backend/hash.py
+```
+
+不要使用 `cd backend && python hash.py`，也不要只执行 `python backend/hash.py` 却不设置 `PYTHONPATH=.`。根入口 `python agent.py` 不受此影响：它位于仓库根，启动时既能找到根目录的 `infra/`，也会把 `backend/` 加入路径。
 
 权限分三级，形成 `sudo → admin → user` 的层级：
 
