@@ -90,12 +90,17 @@ def detect_identity_leak(text: str) -> bool:
 
 # ── 废话前缀/后缀清除 ────────────────────────────────────────────────────
 
-_LEADING_NOISE_PATTERNS = [
-    r'^好的，.*?[：:]', r'^好的。.*?[：:]', r'^以下是.*?[：:]',
-    r'^修复后的文本如下[：:]', r'^根据您的要求，.*?',
-    r'^我已经为您.*?。', r'^审查结果[：:]', r'^Assistant:',
-    r'^修正方案[：:]', r'^这里是修复后的内容[：:]',
+# 整行仅为引导句/废话时移除该行；同一行还有正文时必须保留原行，
+# 避免把「好的，根据《民法典》第一条：违约责任……」这类实质内容拦腰删掉。
+_LEADING_NOISE_LINE_PATTERNS = [
+    r'^好的，.*[：:]$', r'^好的。.*[：:]$', r'^以下是.*[：:]$',
+    r'^修复后的文本如下[：:]$', r'^根据您的要求，.*$',
+    r'^我已经为您.*?。$', r'^审查结果[：:]$', r'^Assistant:$',
+    r'^修正方案[：:]$', r'^这里是修复后的内容[：:]$',
 ]
+
+# 说话人标签是前缀而不是整行噪声：只剥标签，保留其后的正文。
+_SPEAKER_LABEL_PREFIX_RE = re.compile(r'^Assistant:\s*', re.IGNORECASE)
 
 _WRAPPER_LINE_PATTERNS = [
     r'^(以下|下面|这是|现将|现把).{0,30}(修改后|修复后|调整后|审查后).{0,20}(正文|文本|内容|版本|结果)(如下)?[:：]?$',
@@ -123,11 +128,24 @@ def strip_noise(text: str) -> str:
     if not text:
         return ""
 
-    # 1. 逐行移除前导噪声
-    for pattern in _LEADING_NOISE_PATTERNS:
-        text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.MULTILINE).strip()
+    # 1. 整行仅为废话引导句时移除；行内还有正文时保留。
+    kept_lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and any(
+            re.fullmatch(pattern, stripped, flags=re.IGNORECASE)
+            for pattern in _LEADING_NOISE_LINE_PATTERNS
+        ):
+            continue
+        kept_lines.append(line)
+    text = "\n".join(kept_lines).strip()
 
-    # 2. 按行处理前缀/后缀包装句
+    # 2. 说话人标签只剥前缀，保留正文。
+    text = "\n".join(
+        _SPEAKER_LABEL_PREFIX_RE.sub("", line) for line in text.splitlines()
+    ).strip()
+
+    # 3. 按行处理前缀/后缀包装句
     lines = text.splitlines()
 
     # 移除前导空行和包装句
