@@ -3,6 +3,7 @@
 """
 
 import json
+import logging
 from typing import Any, List, Optional
 import re
 
@@ -17,6 +18,9 @@ from context_usage import (
     estimate_text_tokens,
     trim_text_to_token_budget,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def assistant_tool_call_ids(message: dict) -> set[str]:
@@ -265,15 +269,16 @@ async def compress_history(
     if not should_compress:
         return history
 
-    print(
-        "[历史压缩] "
-        f"{reason} > {CONTEXT_COMPRESSION_THRESHOLD_TOKENS}，开始压缩..."
-        f" 本地估算={estimated_tokens}"
+    logger.info(
+        "[历史压缩] %s > %s，开始压缩... 本地估算=%s",
+        reason,
+        CONTEXT_COMPRESSION_THRESHOLD_TOKENS,
+        estimated_tokens,
     )
 
     to_summarize, recent_messages = split_by_recent_token_budget(non_system_msgs)
     if not to_summarize:
-        print("[历史压缩] 没有可安全摘要的较早消息，跳过压缩")
+        logger.info("[历史压缩] 没有可安全摘要的较早消息，跳过压缩")
         return history
 
     summary_prompt = build_summary_prompt(to_summarize)
@@ -285,7 +290,7 @@ async def compress_history(
         content = summary_res.content or ""
         content = re.sub(r"</?(final_answer|think)[^>]*>", "", content, flags=re.IGNORECASE | re.DOTALL).strip()
         summary_text = format_history_summary(content)
-        print("[历史压缩] 摘要生成成功")
+        logger.info("[历史压缩] 摘要生成成功")
 
         new_history = build_system_memory(
             agent_mode=agent_mode,
@@ -298,7 +303,7 @@ async def compress_history(
         new_history.extend(recent_messages)
         return new_history
     except Exception as e:
-        print(f"[历史压缩] 摘要生成失败: {e}，回退到截断模式")
+        logger.warning("[历史压缩] 摘要生成失败: %s，回退到截断模式", e)
         new_history = build_system_memory(
             agent_mode=agent_mode,
             focus=focus,

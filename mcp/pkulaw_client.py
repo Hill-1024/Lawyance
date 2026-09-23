@@ -3,6 +3,7 @@
 """
 
 import json
+import logging
 
 from RAG.law_data_search import (
     ensure_law_database_ready,
@@ -10,6 +11,9 @@ from RAG.law_data_search import (
     law_fuzzy_search,
     law_link_search,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _format_search_result(items):
@@ -27,7 +31,7 @@ def _format_search_result(items):
 
 def get_article(title: str, number: str):
     """根据法律名称和条号，精确获取指定法条的完整内容。"""
-    print("正在调用本地法库:get_article")
+    logger.info("正在调用本地法库:get_article")
     try:
         result = json.loads(law_exact_search(title or "", number or ""))
     except Exception as exc:
@@ -64,7 +68,7 @@ def get_article(title: str, number: str):
 
 def search_article(text: str):
     """根据语义检索相关的法律条文。"""
-    print("正在调用本地法库:search_article")
+    logger.info("正在调用本地法库:search_article")
     try:
         result = json.loads(law_fuzzy_search(text or "", limit=5))
     except Exception as exc:
@@ -91,7 +95,7 @@ def search_article(text: str):
 
 def get_linked_content(message: str):
     """根据输入文本返回相关法规信源链接。"""
-    print("正在调用本地法库:get_linked_content")
+    logger.info("正在调用本地法库:get_linked_content")
     try:
         result = json.loads(law_link_search(message or "", limit=5))
     except Exception as exc:
