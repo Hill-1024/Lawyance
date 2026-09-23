@@ -25,7 +25,7 @@ RAW_DATA_DIR = BASE_DIR / "data"
 CACHE_DIR = BASE_DIR / "cache"
 DB_PATH = CACHE_DIR / "law.db"
 MANIFEST_PATH = CACHE_DIR / "manifest.json"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_TITLE_CHARS = 160
 MAX_ARTICLE_NUMBER_CHARS = 40
 MAX_QUERY_CHARS = 4000
@@ -181,33 +181,74 @@ class LawSearchEngine:
         terms = build_query_terms(query)
         candidates: List[Tuple[int, Dict[str, str]]] = []
 
-        with closing(self._connect()) as conn:
-            cursor = conn.execute(
-                """
-                SELECT laws.law_name, laws.category, laws.url, laws.cli,
-                       articles.article_number, articles.content, articles.search_blob
-                FROM articles
-                JOIN laws ON laws.id = articles.law_id
-                """
-            )
-            for row in cursor:
-                score = score_article(row, query, terms)
-                if score <= 0:
-                    continue
+        # 预过滤下推到 SQLite，避免每次查询把全表 content/search_blob 拉进 Python：
+        # - 优先 FTS5 trigram（search_blob_compact 去空格列，>=3 字符的词）；
+        # - 短词或 FTS 不可用/查询失败时回退 REPLACE+LIKE。
+        # 两条路径与 Python 侧 `compact_term in compact_blob` 语义等价
+        # （大小写不敏感只会多选，多出的行由 score_article 精确打分剔除）。
+        compact_terms = _compact_query_terms(query, terms)
+        fts_terms = [term for term in compact_terms if len(term) >= _FTS_MIN_TERM_CHARS]
+        like_terms = [term for term in compact_terms if len(term) < _FTS_MIN_TERM_CHARS]
 
-                candidates.append(
-                    (
-                        score,
-                        {
-                            "law_name": row["law_name"],
-                            "article_number": row["article_number"],
-                            "content": row["content"],
-                            "category": row["category"],
-                            "url": row["url"],
-                            "cli": row["cli"],
-                        },
-                    )
+        base_sql = """
+            SELECT laws.law_name, laws.category, laws.url, laws.cli,
+                   articles.article_number, articles.content, articles.search_blob
+            FROM articles
+            JOIN laws ON laws.id = articles.law_id
+        """
+
+        def execute_scan(where_clause: str, params: Sequence[Any]):
+            sql = base_sql + (f" WHERE {where_clause}" if where_clause else "")
+            with closing(self._connect()) as conn:
+                return conn.execute(sql, params).fetchall()
+
+        rows: List[sqlite3.Row] = []
+        if compact_terms:
+            if fts_terms:
+                fts_clause = (
+                    f"articles.id IN (SELECT rowid FROM {_FTS_TABLE_NAME} "
+                    "WHERE articles_fts MATCH ?)"
                 )
+                fts_params = [_fts_match_expr(fts_terms)]
+                params: List[Any] = list(fts_params)
+                if like_terms:
+                    like_clause = " OR ".join(
+                        "REPLACE(articles.search_blob, ' ', '') LIKE ? ESCAPE '\\'"
+                        for _ in _like_patterns_for(like_terms)
+                    )
+                    like_params = _like_patterns_for(like_terms)
+                    where_clause = f"({fts_clause} OR {like_clause})"
+                    params.extend(like_params)
+                else:
+                    where_clause = fts_clause
+                try:
+                    rows = execute_scan(where_clause, params)
+                except sqlite3.OperationalError:
+                    # MATCH 语法异常（畸形词等）时整体降级为 LIKE 扫描。
+                    rows = execute_scan(*build_like_prefilter(query, terms))
+            else:
+                rows = execute_scan(*build_like_prefilter(query, terms))
+        else:
+            rows = execute_scan("", [])
+
+        for row in rows:
+            score = score_article(row, query, terms)
+            if score <= 0:
+                continue
+
+            candidates.append(
+                (
+                    score,
+                    {
+                        "law_name": row["law_name"],
+                        "article_number": row["article_number"],
+                        "content": row["content"],
+                        "category": row["category"],
+                        "url": row["url"],
+                        "cli": row["cli"],
+                    },
+                )
+            )
 
         candidates.sort(
             key=lambda item: (
@@ -882,15 +923,17 @@ def insert_source_law(conn: sqlite3.Connection, source_file: Path, parsed: Sourc
                 normalized_article,
                 content,
                 search_blob,
+                search_blob.replace(" ", ""),
             )
         )
 
     conn.executemany(
         """
         INSERT INTO articles (
-            law_id, article_number, normalized_article, content, search_blob
+            law_id, article_number, normalized_article, content, search_blob,
+            search_blob_compact
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         article_rows,
     )
@@ -931,6 +974,7 @@ def build_database(db_path: Path) -> None:
                 normalized_article TEXT NOT NULL,
                 content TEXT NOT NULL,
                 search_blob TEXT NOT NULL,
+                search_blob_compact TEXT NOT NULL,
                 FOREIGN KEY(law_id) REFERENCES laws(id) ON DELETE CASCADE
             );
 
@@ -939,12 +983,36 @@ def build_database(db_path: Path) -> None:
             """
         )
 
+        fts_ready = False
+        try:
+            # trigram 分词让 MATCH 支持子串检索；search_blob_compact 与打分函数
+            # 的去空格口径一致。老版本 SQLite 不支持时静默跳过，检索端回退 LIKE。
+            conn.executescript(
+                f"""
+                CREATE VIRTUAL TABLE {_FTS_TABLE_NAME} USING fts5(
+                    search_blob_compact,
+                    content='articles',
+                    content_rowid='id',
+                    tokenize='trigram'
+                );
+                """
+            )
+            fts_ready = True
+        except sqlite3.OperationalError:
+            fts_ready = False
+
         for source_file in iter_source_files():
             parsed = parse_source_file(source_file)
             if parsed is None or should_skip_source_law(parsed):
                 continue
 
             insert_source_law(conn, source_file, parsed)
+
+        if fts_ready:
+            conn.execute(
+                f"INSERT INTO {_FTS_TABLE_NAME}(rowid, search_blob_compact) "
+                "SELECT id, search_blob_compact FROM articles"
+            )
 
         conn.commit()
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -973,6 +1041,8 @@ def sync_database_incremental(
             indexed_articles += insert_source_law(conn, source_file, parsed)
             indexed_laws += 1
 
+        # 增量路径直接增删 articles 行，外部内容 FTS 表必须整体重建才与内容一致。
+        _rebuild_fts_index(conn)
         conn.commit()
         return {
             "changed_files": len(changed),
@@ -1023,6 +1093,85 @@ def build_query_terms(query: str) -> List[str]:
         if len(ordered) >= MAX_QUERY_TERMS:
             break
     return ordered
+
+
+MAX_LIKE_PREFILTER_TERMS = 8
+_LIKE_MIN_TERM_CHARS = 2
+# trigram 分词器要求查询串至少 3 个字符，更短的词回退 LIKE 预过滤。
+_FTS_MIN_TERM_CHARS = 3
+
+
+def _compact_query_terms(query: str, terms: Sequence[str]) -> List[str]:
+    """去空格后的去重打分词（与 score_article 的包含判断同口径），限长保序。"""
+    compact_terms: List[str] = []
+    seen: set[str] = set()
+    for raw_term in [query, *terms]:
+        compact = raw_term.replace(" ", "")
+        if len(compact) < _LIKE_MIN_TERM_CHARS or compact in seen:
+            continue
+        seen.add(compact)
+        compact_terms.append(compact)
+        if len(compact_terms) >= MAX_LIKE_PREFILTER_TERMS:
+            break
+    return compact_terms
+
+
+def _like_patterns_for(compact_terms: Sequence[str]) -> List[str]:
+    r"""把去空格打分词转义成 `%term%` LIKE 模式（%/_/\ 转义，配 ESCAPE '\'）。
+
+    子串包含语义必须由两侧 % 通配符表达；漏加会把 LIKE 退化成整串相等比较，
+    短词兜底路径会静默漏检。
+    """
+    patterns: List[str] = []
+    for compact in compact_terms:
+        if len(compact) < _LIKE_MIN_TERM_CHARS:
+            continue
+        escaped = (
+            compact.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        patterns.append(f"%{escaped}%")
+    return patterns
+
+
+def build_like_prefilter(query: str, terms: Sequence[str]) -> Tuple[str, List[str]]:
+    """生成 `REPLACE(search_blob,' ','') LIKE ?` 的 OR 预过滤子句。
+
+    与 score_article 的包含判断保持同语义：两边都先去掉空格再做子串匹配。
+    LIKE 对 ASCII 大小写不敏感只会多选，多出的行仍由精确打分剔除。
+    """
+    patterns = _like_patterns_for(_compact_query_terms(query, terms))
+    if not patterns:
+        return "", []
+    clause = " OR ".join(
+        "REPLACE(articles.search_blob, ' ', '') LIKE ? ESCAPE '\\'"
+        for _ in patterns
+    )
+    return clause, patterns
+
+
+_FTS_TABLE_NAME = "articles_fts"
+
+
+def fts_index_available(conn: sqlite3.Connection) -> bool:
+    """articles_fts 虚拟表是否存在（旧库或 trigram 不可用时缺失）。"""
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (_FTS_TABLE_NAME,),
+    ).fetchone()
+    return row is not None
+
+
+def _fts_match_expr(compact_terms: Sequence[str]) -> str:
+    return " OR ".join(
+        f'"{term.replace(chr(34), chr(34) * 2)}"' for term in compact_terms
+    )
+
+
+def _rebuild_fts_index(conn: sqlite3.Connection) -> None:
+    """按 articles 内容全量重建 FTS 索引；表缺失或 trigram 不可用时静默跳过。"""
+    if not fts_index_available(conn):
+        return
+    conn.execute(f"INSERT INTO {_FTS_TABLE_NAME}({_FTS_TABLE_NAME}) VALUES('rebuild')")
 
 
 def score_article(row: sqlite3.Row, query: str, terms: Sequence[str]) -> int:

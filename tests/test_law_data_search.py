@@ -154,6 +154,31 @@ class LawDataSearchHardeningTests(unittest.TestCase):
         self.assertEqual(law_search.normalize_limit(-10), 1)
         self.assertEqual(law_search.normalize_limit("bad"), 5)
 
+    def test_fuzzy_search_finds_short_and_long_terms_with_fts(self):
+        """模糊检索必须真正命中：FTS 长词与 LIKE 短词兜底都不能静默漏检。"""
+        with isolated_law_corpus():
+            status = law_search.ensure_law_database_ready(force_rebuild=True)
+            self.assertEqual(status["mode"], "full")
+
+            # 长词（>=3 字符）走 FTS trigram。
+            by_long = json.loads(law_search.law_fuzzy_search("本地法律数据库", limit=5))
+            self.assertTrue(by_long["success"], by_long)
+            self.assertIn("第一条", by_long["data"][0]["article_number"])
+
+            # 混合查询：短词「检索」（2 字符，LIKE 兜底）+ 长词「通配符」（FTS）。
+            by_mixed = json.loads(law_search.law_fuzzy_search("检索 通配符", limit=5))
+            self.assertTrue(by_mixed["success"], by_mixed)
+            self.assertIn("第二条", by_mixed["data"][0]["article_number"])
+
+            # 仅短词查询也不能漏（「测试」为 2 字符，必须由 LIKE %term% 兜底）。
+            by_short = json.loads(law_search.law_fuzzy_search("测试", limit=5))
+            self.assertTrue(by_short["success"], by_short)
+            self.assertIn("第一条", by_short["data"][0]["article_number"])
+
+            # LIKE 通配符按字面处理，不当成模式。
+            by_wildcard = json.loads(law_search.law_fuzzy_search("100%匹配_测试", limit=5))
+            self.assertFalse(by_wildcard["success"], by_wildcard)
+
 
 class LawDataStorageLayoutTests(unittest.TestCase):
     HASHED_JSON_NAME_RE = re.compile(r"^[0-9a-f]{32}\.json$")
