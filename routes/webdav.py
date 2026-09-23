@@ -259,20 +259,22 @@ def _parse_propfind(xml_text: str, directory: str) -> list[dict]:
 
     ns = {"D": "DAV:"}
     results = []
-    dir_path = directory.strip().rstrip("/")
+    # 目录本身按「路径段精确匹配」跳过：此前用 endswith(dir_path) 子串判断，
+    # 目录名恰好是其它路径后缀（如目录 Lawver 与文件 x/Lawver-backup.json）时会误跳过。
+    dir_norm = unquote(directory.strip().strip("/"))
 
     for response in root.findall(".//D:response", ns):
         href_el = response.find("D:href", ns)
         if href_el is None:
             continue
-        href = (href_el.text or "").rstrip("/")
+        href = unquote(href_el.text or "").rstrip("/")
 
         # 跳过目录本身
-        # 如果 dir_path 为空，代表根目录，此时只有 href 为空或 "/" 时才跳过目录本身
-        if dir_path == "":
-            if href.rstrip("/") == "":
+        # 如果 dir_path 为空，代表根目录，此时只有 href 为空时才跳过目录本身
+        if dir_norm == "":
+            if href == "":
                 continue
-        elif href.rstrip("/").endswith(dir_path):
+        elif href == dir_norm or href.endswith("/" + dir_norm):
             continue
 
         # 跳过集合（子目录）
