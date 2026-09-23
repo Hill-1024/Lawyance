@@ -758,6 +758,11 @@ class OCPStream:
     MAX_REPEAT_SAME_TOOL_SIGNATURE = 2
     MAX_RETRIES = 1
     RETRYABLE_STATUS_CODES = {"429", "500", "502", "503", "504", "Timeout", "timeout", "timed out", "Connection error"}
+    # 流式审查里每个 delta 都对"全部已累积正文"重跑一遍清洗正则是 O(n²) 的：
+    # 长回答（数万字符、数千个增量块）会把审查阶段拖到远超预算。这里改为每累积
+    # 一定字符才做一次中间审查；轮次收尾（无工具调用/降级路径）仍做全量终审，
+    # 最终下发内容的正确性不受影响。
+    STREAM_REVIEW_STEP_CHARS = 2048
 
     def __init__(self, session_id: str = "default", *, config: dict[str, str] | None = None):
         self.session_id = session_id
@@ -765,7 +770,24 @@ class OCPStream:
         self.client, self.model = _build_ocp_client(self._config)
 
     async def _call_with_retry(self, **kwargs):
-        return await OCPStatic(self.session_id, config=self._config)._call_with_retry(**kwargs)
+        """带指数退避重试的 LLM 调用封装。
+
+        与 OCPStatic 同策略，但复用本实例的 client：此前每轮都新建 OCPStatic
+        （即新建 AsyncOpenAI 客户端），白白重复构造连接池。
+        """
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = OCP_CALL_TIMEOUT
+
+        def _on_retry(attempt: int, max_retries: int, _wait_time: float, exc: Exception):
+            print(f"[OCP] LLM 调用失败 (第 {attempt}/{max_retries} 次): {exc}")
+
+        return await with_retry(
+            lambda: self.client.chat.completions.create(**kwargs),
+            max_retries=self.MAX_RETRIES,
+            retryable_codes=self.RETRYABLE_STATUS_CODES,
+            backoff_base=2,
+            on_retry=_on_retry,
+        )
 
     async def check_stream(self, content: str):
         if not content or not content.strip():
@@ -783,6 +805,7 @@ class OCPStream:
             last_tool_signature = None
             repeated_tool_signature_count = 0
             has_announced_structure_check = False
+            last_reviewed_length = 0
             deadline = time.monotonic() + OCP_TOTAL_TIMEOUT
 
             yield {'type': 'thought', 'content': OCP_PROGRESS_MESSAGE.strip() + "\n", 'thought_type': 'ocp', 'mode': 'new'}
@@ -836,9 +859,11 @@ class OCPStream:
                                 yield {'type': 'thought', 'content': '- OCP 正在整理修正版正文\n', 'thought_type': 'ocp', 'mode': 'new'}
                             content_str += delta.content
                             full_raw_content += delta.content
-                            clean_text = OCPStatic._clean_output(full_raw_content)
-                            if OCPStatic._is_substantive_replacement(content_to_check, clean_text):
-                                best_candidate = clean_text
+                            if len(full_raw_content) - last_reviewed_length >= OCPStream.STREAM_REVIEW_STEP_CHARS:
+                                last_reviewed_length = len(full_raw_content)
+                                clean_text = OCPStatic._clean_output(full_raw_content)
+                                if OCPStatic._is_substantive_replacement(content_to_check, clean_text):
+                                    best_candidate = clean_text
 
                         # 工具调用
                         if delta.tool_calls:
