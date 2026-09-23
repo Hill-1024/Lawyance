@@ -639,8 +639,11 @@ def _read_fetch_response(url: str, ip_text: str, scheme: str, hostname: str, por
             context = ssl.create_default_context()
             sock = context.wrap_socket(sock, server_hostname=hostname)
         sock.settimeout(FETCH_READ_TIMEOUT)
+        # 请求行必须是 ASCII：路径里的非 ASCII（IRI 直链）要显式百分号编码，
+        # 之前用 encode("ascii", errors="ignore") 会把中文字符静默丢掉，请求到错误路径。
+        request_target = quote(path, safe="/;:@&=+*$,-_.!~'()?#%")
         request = (
-            f"GET {path} HTTP/1.1\r\n"
+            f"GET {request_target} HTTP/1.1\r\n"
             f"Host: {host_header}\r\n"
             f"User-Agent: {FETCH_USER_AGENT}\r\n"
             "Accept: text/html,application/xhtml+xml,text/plain,application/json;q=0.8,*/*;q=0.5\r\n"
