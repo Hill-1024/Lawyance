@@ -15,11 +15,12 @@ from fastapi.testclient import TestClient
 
 
 class FakeResponse:
-    def __init__(self, *, json_body=None, text="", content=b"", status_code=200):
+    def __init__(self, *, json_body=None, text="", content=b"", status_code=200, headers=None):
         self._json_body = json_body
         self.text = text
         self.content = content
         self.status_code = status_code
+        self.headers = headers or {}
 
     def __enter__(self):
         return self

@@ -138,16 +138,28 @@ def _download_text(url: str, timeout: float) -> str:
     return _read_response_text(response)
 
 
-def _download_file(url: str, target: Path, timeout: float) -> tuple[int, str]:
+def _download_file(url: str, target: Path, timeout: float, max_bytes: int | None = None) -> tuple[int, str]:
     size = 0
     digest = hashlib.sha256()
     with requests.get(url, headers=_download_headers(), timeout=timeout, stream=True) as response:
         response.raise_for_status()
+        declared_length = response.headers.get("content-length")
+        if (
+            max_bytes is not None
+            and declared_length
+            and declared_length.isdigit()
+            and int(declared_length) > max_bytes
+        ):
+            raise ReleaseSyncError(
+                f"APK content-length exceeds expected size: {declared_length} > {max_bytes}"
+            )
         with open(target, "wb") as f:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 if not chunk:
                     continue
                 size += len(chunk)
+                if max_bytes is not None and size > max_bytes:
+                    raise ReleaseSyncError(f"APK download exceeds expected size: {size} > {max_bytes}")
                 digest.update(chunk)
                 f.write(chunk)
             f.flush()
@@ -237,7 +249,12 @@ def sync_latest_release() -> dict[str, Any]:
 
     tmp_apk = cache.release_dir / f".{cache.apk_path.name}.{os.getpid()}.{time.time_ns()}.tmp"
     try:
-        size, sha256 = _download_file(str(apk_asset["browser_download_url"]), tmp_apk, timeout)
+        size, sha256 = _download_file(
+            str(apk_asset["browser_download_url"]),
+            tmp_apk,
+            timeout,
+            max_bytes=manifest["size"],
+        )
         if size != manifest["size"]:
             raise ReleaseSyncError(f"APK size mismatch: expected {manifest['size']}, got {size}")
         if sha256.lower() != str(manifest["sha256"]).lower():
