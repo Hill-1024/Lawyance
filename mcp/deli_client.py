@@ -11,18 +11,28 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 
 load_dotenv(".env")
-# 1. 准备您的认证信息（请替换为实际值）
-DELI_APPID = os.getenv("DELI_APPID") # 示例ID，请使用您自己的
-DELI_SECRET = os.getenv("DELI_SECRET")  # 示例Secret，请使用您自己的
 
-# 异常检测
-if not DELI_APPID:
-    raise ValueError("DELI_APPID is not set in the environment variables.")
-if not DELI_SECRET:
-    raise ValueError("DELI_SECRET is not set in the environment variables.")
+# 响应体读取上限：得理是受信上游，但仍按其余外部客户端同一标准限长，防止异常响应耗尽内存。
+_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
+
+class DELINotConfiguredError(RuntimeError):
+    """DELI_APPID / DELI_SECRET 尚未配置（环境变量或管理后台）。"""
+
+
+def _load_credentials() -> tuple[str, str]:
+    """调用期读取凭据：既不因缺配置阻断整个后端启动，也让管理后台热更新即时生效。"""
+    appid = (os.getenv("DELI_APPID") or "").strip()
+    secret = (os.getenv("DELI_SECRET") or "").strip()
+    if not appid or not secret:
+        raise DELINotConfiguredError("得理法搜尚未配置 appid/secret")
+    return appid, secret
+
 
 class DELIClient:
-    def __init__(self, appid = DELI_APPID, secret = DELI_SECRET):
+    def __init__(self, appid: str | None = None, secret: str | None = None):
+        if appid is None or secret is None:
+            appid, secret = _load_credentials()
         self.appid = appid
         self.secret = secret
         self.session = requests.Session()
@@ -88,11 +98,30 @@ class DELIClient:
         :return: 请求结果
         """
         try:
-            response = requests.post(api_url, headers=self.session.headers, data=json.dumps(request_body), timeout=30)
-            response.raise_for_status()  # 检查请求是否成功
+            response = requests.post(
+                api_url,
+                headers=self.session.headers,
+                data=json.dumps(request_body),
+                timeout=30,
+                stream=True,
+            )
+            try:
+                response.raise_for_status()  # 检查请求是否成功
+                chunks: list[bytes] = []
+                total = 0
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > _MAX_RESPONSE_BYTES:
+                        logger.warning("得理案例检索响应超过 %d 字节，已中止读取", _MAX_RESPONSE_BYTES)
+                        return {"success": False, "message": "案例检索响应过大"}
+                    chunks.append(chunk)
+            finally:
+                response.close()
 
             # 5. 解析响应
-            result_data = response.json()
+            result_data = json.loads(b"".join(chunks).decode(response.encoding or "utf-8", errors="replace"))
             logger.debug("得理案例检索 API 调用成功")
             # 接下来可以处理 result_data 中的数据...
             return result_data
@@ -101,16 +130,13 @@ class DELIClient:
         except requests.exceptions.RequestException as e:
             logger.warning("得理案例检索网络请求失败: %s", e)
             return {"success": False, "message": f"案例检索网络请求失败: {e}"}
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
             logger.warning("得理案例检索响应解析失败: %s", e)
             return {"success": False, "message": f"案例检索响应解析失败: {e}"}
 
 def build_client():
-    Client = DELIClient(
-        appid=DELI_APPID,
-        secret=DELI_SECRET
-    )
-    return Client
+    appid, secret = _load_credentials()
+    return DELIClient(appid=appid, secret=secret)
 
 def match_legal_case(
         keywords: list[str],
@@ -119,7 +145,13 @@ def match_legal_case(
 ):
     """根据查询语义和时间，精准查询相关的案例"""
     logger.debug("调用工具 match_legal_case")
-    client = build_client()
+    try:
+        client = build_client()
+    except DELINotConfiguredError:
+        return {
+            "success": False,
+            "message": "案例检索服务未配置：请先在管理后台或环境变量中设置 DELI_APPID/DELI_SECRET。",
+        }
     request_body = client._build_request_body(
         keywords=keywords,  # 搜索关键词数组
         caseYearStart=start_year,
@@ -175,8 +207,8 @@ def match_legal_case(
 if __name__ == "__main__":
     # 以下代码用于测试连接，现在暂时用不了，需测试工具要运行mcps.py
     DELIClient = DELIClient(
-        appid = DELI_APPID,
-        secret = DELI_SECRET
+        appid=os.getenv("DELI_APPID"),
+        secret=os.getenv("DELI_SECRET")
     )
     # 请求体构建测试
     request_body = DELIClient._build_request_body(
