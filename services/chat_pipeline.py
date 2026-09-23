@@ -57,6 +57,46 @@ class PreparedChatTurn:
     attention_trace: dict | None = None
 
 
+def _prune_unanswered_tool_calls(sanitized_history: list[dict]) -> None:
+    """就地剔除 assistant 历史中没有后续 tool 响应配对的 tool_calls。
+
+    submit_final_answer / ask_user 等提前返回路径会在 assistant 消息里留下
+    未应答的 tool_calls；该轨迹会被前端保存并在下一轮作为 history 回灌，
+    严格按 OpenAI 规范校验的端点会以 400 拒绝整轮请求。
+    """
+    pending: dict[int, set[str]] = {}
+    for index, message in enumerate(sanitized_history):
+        role = message.get("role")
+        if role == "assistant":
+            ids = {
+                str(tool_call.get("id"))
+                for tool_call in (message.get("tool_calls") or [])
+                if isinstance(tool_call, dict) and tool_call.get("id")
+            }
+            if ids:
+                pending[index] = ids
+        elif role == "tool":
+            tool_call_id = message.get("tool_call_id")
+            if tool_call_id is None:
+                continue
+            for ids in pending.values():
+                ids.discard(str(tool_call_id))
+
+    for index, unanswered in pending.items():
+        if not unanswered:
+            continue
+        message = sanitized_history[index]
+        kept = [
+            tool_call
+            for tool_call in (message.get("tool_calls") or [])
+            if not (isinstance(tool_call, dict) and str(tool_call.get("id")) in unanswered)
+        ]
+        if kept:
+            message["tool_calls"] = kept
+        else:
+            message.pop("tool_calls", None)
+
+
 def sanitize_history(history: list[dict]) -> list[dict]:
     sanitized_history = []
     for msg in history:
@@ -81,6 +121,8 @@ def sanitize_history(history: list[dict]) -> list[dict]:
         if m.get("role") == "tool" and "tool_call_id" not in m:
             continue
         sanitized_history.append(m)
+
+    _prune_unanswered_tool_calls(sanitized_history)
     return sanitized_history
 
 
