@@ -86,4 +86,15 @@ class _ServicePackage(types.ModuleType):
         super().__setattr__(name, value)
 
 
+def reload_embedding_config() -> Any:
+    """按当前环境变量重载 embedding 配置，并同步各 service 模块的命名空间副本。
+
+    star import 会让 `_EMBEDDING_CONFIG` 在 state/embeddings 等模块各持一份引用，
+    必须经包级 `__setattr__` 广播，否则只有 state 自己看到新值。
+    """
+    value = _state.reload_embedding_config()
+    setattr(sys.modules[__name__], "_EMBEDDING_CONFIG", value)
+    return value
+
+
 sys.modules[__name__].__class__ = _ServicePackage

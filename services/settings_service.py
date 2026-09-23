@@ -242,12 +242,16 @@ def _sync_exported_env(env_name: str, value: str) -> None:
         os.environ.pop(env_name, None)
 
 
-def apply_provider_env(provider_keys: tuple[str, ...] = ("searxng",)) -> None:
+def apply_provider_env(provider_keys: tuple[str, ...] | None = None) -> None:
     """settings 优先、环境变量兜底：把管理后台保存的 provider 配置同步到进程环境变量。
 
-    只导出 config_env / secret_env 的首选变量名；settings 未保存的字段会还原
-    被覆盖前的环境变量值，因此 .env 始终是兜底而不是被永久改写。
+    默认导出全部 provider：此前只导出 searxng，导致管理后台保存的 deli/qcc 等
+    配置永远不会作用于运行时客户端（它们从 os.getenv 读取）。只导出 config_env /
+    secret_env 的首选变量名；settings 未保存的字段会还原被覆盖前的环境变量值，
+    因此 .env 始终是兜底而不是被永久改写。
     """
+    if provider_keys is None:
+        provider_keys = tuple(PROVIDER_SPECS)
     with _SETTINGS_LOCK:
         providers = _normalized_saved_settings().get("providers")
         if not isinstance(providers, dict):
