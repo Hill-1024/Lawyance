@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Lawver 聊天请求时序",
+    "locale": "zh-CN",
+    "output": "lawver-chat-sequence.html",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1080,
+      640
+    ],
+    "views": [
+      {
+        "id": "prepare",
+        "label": "准备与记忆",
+        "focus": [
+          "web",
+          "pipeline",
+          "memory",
+          "agent"
+        ],
+        "note": "请求进入流水线后先检索对话级记忆，再编译上下文构建 agent。"
+      },
+      {
+        "id": "tool-loop",
+        "label": "Agent 工具循环",
+        "focus": [
+          "agent",
+          "llm",
+          "mcps"
+        ],
+        "note": "原生 tool_calls 循环：模型决定调用，mcps 统一分发业务工具。"
+      },
+      {
+        "id": "review-return",
+        "label": "审查与返回",
+        "focus": [
+          "agent",
+          "pipeline",
+          "web",
+          "memory"
+        ],
+        "note": "最终回复经 OCP 审查后流式返回，本轮记忆异步写回。"
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "web",
+      "type": "frontend",
+      "label": "React 前端",
+      "sublabel": "用户 · SSE"
+    },
+    {
+      "id": "pipeline",
+      "type": "backend",
+      "label": "业务流水线",
+      "sublabel": "chat_pipeline"
+    },
+    {
+      "id": "memory",
+      "type": "database",
+      "label": "对话级记忆",
+      "sublabel": "memory_system"
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Agent 循环",
+      "sublabel": "ToolLoopAgent"
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "模型服务",
+      "sublabel": "OpenAI 兼容"
+    },
+    {
+      "id": "mcps",
+      "type": "backend",
+      "label": "mcps 转发层",
+      "sublabel": "工具分发"
+    }
+  ],
+  "segments": [
+    {
+      "from": 150,
+      "to": 240,
+      "label": "准备"
+    },
+    {
+      "from": 248,
+      "to": 432,
+      "label": "Agent 工具循环"
+    },
+    {
+      "from": 440,
+      "to": 500,
+      "label": "审查与流式返回"
+    },
+    {
+      "from": 506,
+      "to": 555,
+      "label": "写回与确认"
+    }
+  ],
+  "messages": [
+    {
+      "id": "post-chat",
+      "from": "web",
+      "to": "pipeline",
+      "y": 165,
+      "label": "POST /api/chat（SSE）",
+      "variant": "emphasis"
+    },
+    {
+      "id": "memory-read",
+      "from": "pipeline",
+      "to": "memory",
+      "y": 195,
+      "label": "检索记忆上下文",
+      "variant": "default"
+    },
+    {
+      "id": "memory-context",
+      "from": "memory",
+      "to": "pipeline",
+      "y": 223,
+      "label": "稳定事实 · 约束",
+      "variant": "return"
+    },
+    {
+      "id": "build-agent",
+      "from": "pipeline",
+      "to": "agent",
+      "y": 253,
+      "label": "编译上下文 · 注入 output_review",
+      "variant": "default"
+    },
+    {
+      "id": "first-call",
+      "from": "agent",
+      "to": "llm",
+      "y": 283,
+      "label": "messages + tool schemas",
+      "variant": "emphasis"
+    },
+    {
+      "id": "tool-call",
+      "from": "llm",
+      "to": "agent",
+      "y": 311,
+      "label": "tool_calls",
+      "variant": "default",
+      "note": "可多轮"
+    },
+    {
+      "id": "dispatch",
+      "from": "agent",
+      "to": "mcps",
+      "y": 339,
+      "label": "use_tools 分发（法条 / 案例 / 文档）",
+      "variant": "default"
+    },
+    {
+      "id": "tool-result",
+      "from": "mcps",
+      "to": "agent",
+      "y": 367,
+      "label": "检索 / 处理结果",
+      "variant": "return"
+    },
+    {
+      "id": "resume",
+      "from": "agent",
+      "to": "llm",
+      "y": 395,
+      "label": "工具消息 · 续算",
+      "variant": "default"
+    },
+    {
+      "id": "final-stream",
+      "from": "llm",
+      "to": "agent",
+      "y": 425,
+      "label": "最终回复（token 流）",
+      "variant": "emphasis"
+    },
+    {
+      "id": "answer-stream",
+      "from": "agent",
+      "to": "pipeline",
+      "y": 455,
+      "label": "经 OCP 审查的回复流（格式 · 信源 · 降级）",
+      "variant": "security"
+    },
+    {
+      "id": "sse",
+      "from": "pipeline",
+      "to": "web",
+      "y": 485,
+      "label": "SSE token · done 事件",
+      "variant": "emphasis"
+    },
+    {
+      "id": "memory-write",
+      "from": "pipeline",
+      "to": "memory",
+      "y": 513,
+      "label": "写回本轮记忆",
+      "variant": "dashed"
+    },
+    {
+      "id": "ack",
+      "from": "web",
+      "to": "pipeline",
+      "y": 541,
+      "label": "POST /api/chat/ack（seq 确认）",
+      "variant": "dashed"
+    }
+  ],
+  "activations": [
+    {
+      "participant": "web",
+      "from": 180,
+      "to": 549,
+      "type": "frontend"
+    },
+    {
+      "participant": "pipeline",
+      "from": 170,
+      "to": 535,
+      "type": "backend"
+    },
+    {
+      "participant": "memory",
+      "from": 190,
+      "to": 231,
+      "type": "database"
+    },
+    {
+      "participant": "agent",
+      "from": 247,
+      "to": 463,
+      "type": "backend"
+    },
+    {
+      "participant": "llm",
+      "from": 277,
+      "to": 433,
+      "type": "external"
+    },
+    {
+      "participant": "mcps",
+      "from": 333,
+      "to": 373,
+      "type": "backend"
+    },
+    {
+      "participant": "memory",
+      "from": 507,
+      "to": 521,
+      "type": "database"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "主链路",
+      "items": [
+        "前端通过一条 SSE 连接接收全部流式事件",
+        "记忆先检索、后写回，不阻塞首 token",
+        "OCP 审查在回复送达用户前完成"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "工具循环",
+      "items": [
+        "ToolLoopAgent 统一承载默认与 Plan-and-Solve 模式",
+        "工具调用一律经 mcps 转发，按暴露面鉴权",
+        "tool_calls 可多轮，直到模型给出最终回复"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "可靠性",
+      "items": [
+        "ack 按 seq 确认消费进度，断线可 resume",
+        "cancel 主动取消流式生成",
+        "OCP 审查失败时按降级策略保护输出"
+      ]
+    }
+  ]
+}
