@@ -239,6 +239,21 @@ def _load_embedding_config() -> dict[str, Any] | None:
         "retry_delay": float(os.getenv("MEMORY_EMBEDDING_RETRY_DELAY", "0.5") or 0.5),
     }
 
-_EMBEDDING_CONFIG: dict[str, Any] | None = _load_embedding_config()
+_EMBEDDING_CONFIG: dict[str, Any] | None = None
+
+
+def reload_embedding_config() -> dict[str, Any] | None:
+    """按当前进程环境变量重读 embedding 配置，返回最新配置。
+
+    导入期只做一次初始加载；管理后台保存的 provider 配置经
+    settings_service.apply_provider_env 导出环境变量后，调用本函数即可
+    让 embedding 运行时立即生效，无需重启进程。
+    """
+    global _EMBEDDING_CONFIG
+    _EMBEDDING_CONFIG = _load_embedding_config()
+    return _EMBEDDING_CONFIG
+
+
+reload_embedding_config()
 
 __all__ = [name for name in globals() if not name.startswith("__")]

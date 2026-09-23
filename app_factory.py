@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 import auth as auth_service
 from infra import redis_backend
+from memory_system import reload_embedding_config
 from routes import admin, auth, chat, court, releases, settings, spa, webdav, workspace
 from services import law_cache, release_sync, settings_service, stream_buffer, workspace_cleanup
 from services.app_security import security_and_logging_middleware
@@ -33,8 +34,10 @@ def _prepare_request_shielding() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 管理后台保存的 provider 配置优先于 .env，启动时即同步到进程环境变量。
+    # 管理后台保存的 provider 配置优先于 .env，启动时即同步到进程环境变量；
+    # embedding 配置在 memory_system 导入期读取，同步后需显式重载才会生效。
     settings_service.apply_provider_env()
+    reload_embedding_config()
     await law_cache.prepare_on_startup(app)
     await release_sync.prepare_on_startup(app)
     stream_buffer.start(app)
