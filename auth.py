@@ -927,10 +927,18 @@ def revoke_session(actor: str, sid: str) -> tuple[bool, str]:
 
 
 def hash_client_identity(client_ip: Optional[str]) -> Optional[str]:
-    """IP 只保存摘要，避免在会话表里落原文。"""
+    """IP 只保存带密钥的摘要，避免在会话表里落原文。
+
+    IP 取值空间很小，无密钥 SHA-256 可被离线穷举还原；这里用 SECRET_KEY
+    作 HMAC 密钥，摘要泄露不再等价于 IP 泄露。
+    """
     if not client_ip:
         return None
-    return hashlib.sha256(str(client_ip).encode("utf-8")).hexdigest()[:32]
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        str(client_ip).encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:32]
 
 
 # ─── 锁定策略（沿用 JSON 存储） ────────────────────────────────────────────
