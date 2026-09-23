@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Lawver 系统架构",
+    "locale": "zh-CN",
+    "output": "lawver-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1120, 630],
+    "views": [
+      { "id": "request-path", "label": "请求主链路", "focus": ["users", "frontend", "fastapi", "pipelines", "agent", "llm"], "note": "从浏览器或 Android 客户端到模型服务的流式请求路径。" },
+      { "id": "tools-and-data", "label": "工具与数据", "focus": ["agent", "mcps", "doctools", "rag", "extdata", "memory"], "note": "业务工具统一经 mcps 转发到文档工具、本地法库与外部数据源。" },
+      { "id": "security-review", "label": "安全与审查", "focus": ["frontend", "fastapi", "pipelines", "ocp"], "note": "认证、限流、布隆过滤器在中间件层，OCP 在回复生成后审查。" }
+    ]
+  },
+  "components": [
+    { "id": "users", "type": "external", "label": "用户", "sublabel": "Web · Android", "pos": [40, 230], "size": [110, 60] },
+    { "id": "frontend", "type": "frontend", "label": "React 前端", "sublabel": "React 19 · Vite · Capacitor", "pos": [190, 230], "size": [140, 60] },
+    { "id": "fastapi", "type": "backend", "label": "FastAPI 应用", "sublabel": "路由 · 安全中间件 · 工作区", "pos": [370, 230], "size": [150, 60], "tag": "认证 · 限流 · 布隆" },
+    { "id": "pipelines", "type": "backend", "label": "业务流水线", "sublabel": "聊天 · 模拟法庭 FSM", "pos": [550, 230], "size": [150, 60] },
+    { "id": "memory", "type": "database", "label": "对话级记忆", "sublabel": "memory_system", "pos": [550, 50], "size": [150, 60] },
+    { "id": "agent", "type": "backend", "label": "ToolLoopAgent", "sublabel": "默认 / Plan-and-Solve", "pos": [740, 230], "size": [140, 60] },
+    { "id": "llm", "type": "external", "label": "模型服务", "sublabel": "OpenAI 兼容 API", "pos": [740, 50], "size": [140, 60] },
+    { "id": "ocp", "type": "security", "label": "OCP 输出审查", "sublabel": "格式 · 信源 · 降级", "pos": [940, 230], "size": [140, 60] },
+    { "id": "mcps", "type": "backend", "label": "mcps 工具转发层", "sublabel": "registry · 能力路由", "pos": [740, 410], "size": [140, 60] },
+    { "id": "doctools", "type": "backend", "label": "MCP 文档工具", "sublabel": "PDF · Word · TXT · 文书", "pos": [230, 540], "size": [150, 60] },
+    { "id": "rag", "type": "database", "label": "本地法库 RAG", "sublabel": "SQLite 精确 / 模糊检索", "pos": [450, 540], "size": [140, 60] },
+    { "id": "extdata", "type": "external", "label": "外部数据服务", "sublabel": "得理 · 企查查 · SearXNG", "pos": [640, 540], "size": [170, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Lawver 后端", "wraps": ["fastapi", "pipelines", "memory", "agent", "ocp", "mcps", "doctools", "rag"] }
+  ],
+  "connections": [
+    { "id": "users-to-frontend", "from": "users", "to": "frontend", "label": "HTTPS" },
+    { "id": "frontend-to-fastapi", "from": "frontend", "to": "fastapi", "label": "REST · SSE 流式", "variant": "emphasis", "labelDy": -24 },
+    { "id": "fastapi-to-pipelines", "from": "fastapi", "to": "pipelines", "label": "业务请求", "labelDy": -24 },
+    { "id": "pipelines-to-agent", "from": "pipelines", "to": "agent", "label": "编排运行", "labelDy": -24 },
+    { "id": "pipelines-to-memory", "from": "pipelines", "to": "memory", "label": "记忆检索 · 写回", "fromSide": "top", "toSide": "bottom" },
+    { "id": "agent-to-llm", "from": "agent", "to": "llm", "label": "tool_calls · 流式", "variant": "emphasis", "fromSide": "top", "toSide": "bottom" },
+    { "id": "agent-to-ocp", "from": "agent", "to": "ocp", "label": "回复后审查" },
+    { "id": "agent-to-mcps", "from": "agent", "to": "mcps", "label": "工具调用", "fromSide": "bottom", "toSide": "top", "labelAt": [842, 350] },
+    { "id": "mcps-to-doctools", "from": "mcps", "to": "doctools", "label": "文档工具", "fromSide": "bottom", "toSide": "top", "labelAt": [305, 526] },
+    { "id": "mcps-to-rag", "from": "mcps", "to": "rag", "label": "法条检索", "fromSide": "bottom", "toSide": "top", "labelAt": [520, 526] },
+    { "id": "mcps-to-extdata", "from": "mcps", "to": "extdata", "label": "案例 · 企业 · 联网", "fromSide": "bottom", "toSide": "top", "labelAt": [725, 526] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "前端", "items": ["React 19 + Vite 8 + Tailwind 4", "Capacitor 8 打包 Android 客户端", "主聊天 / 模拟法庭 / 文件工作区 / 管理员面板"] },
+    { "dot": "emerald", "title": "智能体", "items": ["ToolLoopAgent 统一原生 tool_calls 循环", "默认回答与 Plan-and-Solve 两种模式", "OCP 在主回复生成后做格式、信源审查与降级"] },
+    { "dot": "rose", "title": "数据与工具", "items": ["本地法库 RAG：法条精确 / 模糊 / 关联检索", "业务工具统一经 mcps 转发，业务层不绕过工具层", "对话级结构化记忆，不暴力塞回全部历史"] }
+  ]
+}
