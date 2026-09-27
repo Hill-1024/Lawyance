@@ -70,6 +70,62 @@ class SpaRouteHardeningTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertNotIn("spa-index", response.text)
 
+    def test_nested_assets_path_is_404_instead_of_html_fallback(self) -> None:
+        # 深链接页面在 <base> 注入前会把 ./assets 请求成 /settings/assets/...，
+        # 同样不能回退成 HTML。
+        response = self.client.get("/settings/assets/index-gone.js")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("spa-index", response.text)
+
+    def test_fallback_html_injects_root_base(self) -> None:
+        response = self.client.get("/settings/webdav")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["cache-control"], "no-cache")
+        # 产物用相对资源路径，没有 <base> 时深链接会把 ./assets 解析到嵌套目录。
+        self.assertIn('<base href="/">', response.text)
+
+    def test_root_base_injection_follows_head_tag(self) -> None:
+        (self.dist / "index.html").write_text(
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>Lawver</title></head></html>",
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        # base 必须先于 head 内任何使用相对 URL 的元素。
+        self.assertIn('<head><base href="/"><meta charset="utf-8">', response.text)
+        self.assertLess(
+            response.text.index('<base href="/">'),
+            response.text.index("<title>"),
+        )
+
+    def test_root_base_injection_ignores_base_mentions_in_scripts(self) -> None:
+        # 产物的区域提示脚本文本里含 <base href 字样，子串判断会误判已注入而跳过；
+        # 注入必须只认真实标签位置（head 之后）。
+        (self.dist / "index.html").write_text(
+            '<!doctype html><html><head><script>var s="cn";'
+            'console.warn(\'请注入 <base href="/\'+s+\'/">。\');</script>'
+            "<title>Lawver</title></head></html>",
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/settings/help")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLess(
+            response.text.index('<base href="/">'),
+            response.text.index("console.warn"),
+        )
+
+    def test_direct_index_html_request_also_gets_root_base(self) -> None:
+        response = self.client.get("/index.html")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('<base href="/">', response.text)
+
     def test_hashed_assets_are_immutable_while_html_revalidates(self) -> None:
         assets = self.dist / "assets"
         assets.mkdir()
