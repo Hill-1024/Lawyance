@@ -40,14 +40,23 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
     setIsCleaning(true);
     try {
       const result = await storageService.garbageCollect();
+      // 先刷新用量再弹提示：showAlert 会阻塞到用户关闭，放后面会让面板一直显示旧值。
+      updateEstimate();
       await showAlert({
         title: '清理完成',
-        message: `已移除 ${result.cleanedCount} 个无效文件。`,
+        message: result.cleanedCount > 0
+          ? `已移除 ${result.cleanedCount} 个无效文件，释放 ${formatSize(result.spaceSaved)}。现有对话的附件不受影响。`
+          : '没有发现需要清理的冗余数据。',
         tone: 'success',
+      });
+    } catch (err) {
+      await showAlert({
+        title: '清理失败',
+        message: (err as Error).message || '本地数据清理未完成，请稍后重试。',
+        tone: 'danger',
       });
     } finally {
       setIsCleaning(false);
-      updateEstimate();
     }
   };
 
@@ -231,7 +240,7 @@ export const StorageIndicator: React.FC<StorageIndicatorProps> = ({ compact }) =
                         </div>
                         <div className="text-left">
                           <p className="t-title-s">智能清理缓存</p>
-                          <p className="t-body-s t-muted">移除冗余的系统级日志和过期缓存</p>
+                          <p className="t-body-s t-muted">清理已删除会话遗留的附件缓存和无效记录，不影响现有对话</p>
                         </div>
                       </div>
                       {isCleaning && <div className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--color-warning-500)] border-t-transparent" />}

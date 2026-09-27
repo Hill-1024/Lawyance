@@ -10,6 +10,7 @@ import { notifyLocalStorageDataChanged } from './storageEvents';
 import type { Conversation, CourtAgentStates, CourtPublicEvent, CourtSession } from '../types';
 import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
 import { decryptBackupData, encryptBackupData } from '../lib/backup-crypto';
+import { collectLiveConvIds, selectCleanupTargets } from '../lib/storage-cleanup';
 
 const decodeCodes = (codes: number[]) => codes.map(code => String.fromCharCode(code)).join('');
 const LEGACY_EXPORT_EXTENSION = decodeCodes([46, 108, 97, 119, 118, 101, 114]);
@@ -242,6 +243,15 @@ export const restoreBackupSnapshot = async (raw: any): Promise<number> => {
     fileDB.saveCourtSessions(courtSessions),
   ]);
 
+  // 镜像语义也必须覆盖附件缓存：saveConversations 会删掉备份里不存在的会话，
+  // 但它们的附件记录会永久留在 files store 里。这里按同一个存活集合清掉。
+  const liveConvIds = collectLiveConvIds(conversations, courtSessions);
+  const files = await fileDB.getAllFiles();
+  const { orphanConvIds } = selectCleanupTargets(files, liveConvIds);
+  for (const convId of orphanConvIds) {
+    await fileDB.deleteFilesByConvId(convId);
+  }
+
   const themeRaw = raw?.settings?.theme;
   if (themeRaw && typeof themeRaw === 'string') {
     localStorage.setItem(THEME_STORAGE_KEY, themeRaw);
@@ -285,24 +295,23 @@ export const storageService = {
   },
 
   async garbageCollect() {
-    const files = await fileDB.getAllFiles();
-    let cleanedCount = 0;
-    let spaceSaved = 0;
+    const [files, conversations, courtSessions] = await Promise.all([
+      fileDB.getAllFiles(),
+      fileDB.getConversations(),
+      fileDB.getCourtSessions(),
+    ]);
 
-    for (const file of files) {
-      // Logic for "unimportant" data:
-      // 1. Empty blobs
-      // 2. Old logs or previews (if distinguishable)
-      // For now, let's target very old files (> 30 days) that are not "upload" type if we had that info
-      // Or just empty/invalid ones.
-      
-      if (!file.blob || file.blob.size === 0) {
-        await fileDB.deleteFile(file.convId, file.fileName, file.path);
-        cleanedCount++;
-      }
+    // 清理对象：空占位记录（生成文件下载失败时写入的 0 字节占位，下次同步会
+    // 重新触发下载）与孤儿记录（会话/庭审已删除、附件却留在本地，主要来自
+    // 镜像还原覆盖）。现有对话的真实附件一律保留。
+    const liveConvIds = collectLiveConvIds(conversations, courtSessions);
+    const { fileIds, spaceSaved } = selectCleanupTargets(files, liveConvIds);
+
+    for (const id of fileIds) {
+      await fileDB.deleteFileById(id);
     }
-    
-    return { cleanedCount, spaceSaved };
+
+    return { cleanedCount: fileIds.length, spaceSaved };
   },
 
   async clearOldData(daysThreshold: number = 30) {
