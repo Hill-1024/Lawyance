@@ -228,6 +228,17 @@ class FileDB {
     });
   }
 
+  async deleteFileById(id: string) {
+    const db = await this.getDB();
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(this.storeName, 'readwrite');
+      const request = transaction.objectStore(this.storeName).delete(id);
+      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
   async deleteFile(convId: string, fileName: string, path?: string) {
     const db = await this.getDB();
     return new Promise<void>((resolve, reject) => {
