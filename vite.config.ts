@@ -57,6 +57,8 @@ const regionBasePathPlugin = (): Plugin => ({
 export default defineConfig({
   // 相对资源路径：实际基准由网关注入的 <base> 决定，根路径与前缀部署共用同一份产物。
   base: './',
+  // 前端源码在 frontend/；产物仍输出到仓库根 dist/，供 FastAPI SPA 与 Capacitor 共用。
+  root: path.resolve(__dirname, 'frontend'),
   plugins: [react(), tailwindcss(), regionBasePathPlugin()],
   define: {
     __LAWVER_BUILD_INFO__: JSON.stringify(buildInfo),
@@ -65,8 +67,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(__dirname, "./frontend/src"),
     },
+  },
+  build: {
+    outDir: path.resolve(__dirname, 'dist'),
+    emptyOutDir: true,
   },
   server: {
     port: devServerPort,

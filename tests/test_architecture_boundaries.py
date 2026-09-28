@@ -29,7 +29,7 @@ SKIP_DIR_NAMES = {
     "node_modules",
     "dist",
     "build",
-    "src",
+    "frontend",
     "android",
     "ios",
     "tests",
@@ -67,6 +67,9 @@ def _iter_python_files() -> list[Path]:
 
 def _module_name(path: Path) -> str:
     parts = list(path.relative_to(REPO_ROOT).with_suffix("").parts)
+    if parts and parts[0] == "backend":
+        # 后端源码根是 backend/（sys.path 条目），模块名不含该前缀。
+        parts = parts[1:]
     if parts and parts[-1] == "__init__":
         parts = parts[:-1]
     return ".".join(parts)

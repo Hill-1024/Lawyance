@@ -14,7 +14,7 @@ import {
   shouldStartResumeAttempt,
   throwIfChatStreamFailed,
   type ChatStreamOutcome
-} from '../src/lib/stream-run-guards';
+} from '../frontend/src/lib/stream-run-guards';
 
 const initialOutcome: ChatStreamOutcome = {
   status: 'streaming',

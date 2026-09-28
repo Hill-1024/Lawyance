@@ -15,7 +15,7 @@ import {
   restoreAttachmentsFromMessage,
   stripAttachmentPrompt,
   stripWorkspacePaths,
-} from '../src/lib/attachment-prompt';
+} from '../frontend/src/lib/attachment-prompt';
 
 /* ── 空输入 ── */
 assert.equal(buildAttachmentPrompt([]), '', '没有附件时不应产生任何文本');
@@ -238,7 +238,7 @@ console.log('✅ 附件提示词协议全部通过（含往返与去重）');
 
 /* ── 工作区路径归一：绝对/相对必须被视为同一文件 ── */
 {
-  const { toWorkspaceRelativePath, normalizeWorkspacePath } = await import('../src/lib/workspace-path');
+  const { toWorkspaceRelativePath, normalizeWorkspacePath } = await import('../frontend/src/lib/workspace-path');
 
   const CU = '/Users/x/proj/TEMP/u/conv/a.png';
   assert.equal(toWorkspaceRelativePath(CU), 'TEMP/u/conv/a.png');

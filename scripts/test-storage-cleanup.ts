@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { collectLiveConvIds, selectCleanupTargets } from '../src/lib/storage-cleanup';
+import { collectLiveConvIds, selectCleanupTargets } from '../frontend/src/lib/storage-cleanup';
 
 const liveIds = collectLiveConvIds(
   [{ id: 'conv-a' }, { id: 'conv-b' }],

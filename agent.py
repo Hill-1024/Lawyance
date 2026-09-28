@@ -1,8 +1,21 @@
 """
-模块描述：FastAPI 应用入口，保留 agent:app 与 python agent.py 启动契约。
+模块描述：仓库根启动契约。真实应用代码在 backend/，此处只负责路径与入口转发。
+
+保留：
+- `uvicorn agent:app` / `python agent.py`
+- 现有部署与本地开发习惯
 """
 
+from __future__ import annotations
+
 import os
+import sys
+from pathlib import Path
+
+_BACKEND_DIR = Path(__file__).resolve().parent / "backend"
+_backend = str(_BACKEND_DIR)
+if _backend not in sys.path:
+    sys.path.insert(0, _backend)
 
 import uvicorn
 

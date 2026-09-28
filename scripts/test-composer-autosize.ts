@@ -11,7 +11,7 @@ import {
   isMultilineHeight,
   planComposerActionBar,
   type ComposerMetrics
-} from '../src/lib/composer-autosize';
+} from '../frontend/src/lib/composer-autosize';
 
 // 桌面主聊天：15px / line-height 1.5，padding 8.75px 6px，min-height 40px
 const desktop: ComposerMetrics = {

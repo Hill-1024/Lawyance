@@ -11,7 +11,7 @@ from prompt_loader import build_system_prompt
 from services.court_prompts import build_court_messages
 
 
-PROMPT_ROOT = Path(__file__).resolve().parent.parent / "prompts" / "lawver"
+PROMPT_ROOT = Path(__file__).resolve().parent.parent / "backend" / "prompts" / "lawver"
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { decryptBackupData, encryptBackupData } from '../src/lib/backup-crypto';
+import { decryptBackupData, encryptBackupData } from '../frontend/src/lib/backup-crypto';
 
 const passphrase = 'correct horse battery staple';
 const source = JSON.stringify({ version: 4, conversations: [{ id: 'case-1', title: '合同纠纷' }] });
