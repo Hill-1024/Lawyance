@@ -1,0 +1,1615 @@
+/*
+ * 介绍页共享样式。自 lawyance-intro 的 global.css 移植，全部颜色/字体/圆角/动效
+ * 改挂 app 的 ：root token（映射关系见各规则旁注释不单列，值一一对应）：
+ *   paper→--bg-app  surface→--bg-surface  ink→--fg-1  muted→--fg-3  quiet→--fg-4
+ *   line→--border-default  line-soft→--border-subtle  primary→--accent  teal→--brand-tertiary-500
+ *   ease→--ease-standard  ease-out→--ease-emphasized  display→--font-brand  shadow-soft→--shadow-3
+ * 深色信任横幅与页脚是有意的固定深色表面（不随主题翻转），其中的浅色文字用字面量。
+ * quote.law 版式适配：头部滚动后由透明变白色圆角悬浮条；hero 为徽章 pill + 超大宋体标题。
+ */
+
+.lawver-intro {
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  color: var(--fg-1);
+  background: var(--bg-app);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.lawver-intro a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.lawver-intro button,
+.lawver-intro a {
+  font: inherit;
+}
+
+.lawver-intro button:focus-visible,
+.lawver-intro a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* ---- 整页环境光层：随深色横幅接近视口而整体变暗（effects.ts 驱动） ---- */
+
+.lawver-intro .page {
+  --ambient-r: 246;
+  --ambient-g: 248;
+  --ambient-b: 251;
+  --ambient-progress: 0;
+  --ambient-light-wash: 0.88;
+  --ambient-dark-wash: 0.2;
+  position: relative;
+  isolation: isolate;
+  overflow-x: clip;
+  min-height: 100svh;
+  background: transparent;
+  flex: 1;
+}
+
+.lawver-intro .page::before {
+  position: fixed;
+  inset: -1px;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, var(--ambient-light-wash)) 0%,
+      rgba(246, 248, 251, 0) 48vh
+    ),
+    linear-gradient(
+      180deg,
+      rgba(11, 13, 20, 0) 0%,
+      rgba(11, 13, 20, calc(var(--ambient-progress) * 0.14)) 100%
+    ),
+    rgb(var(--ambient-r) var(--ambient-g) var(--ambient-b));
+  content: "";
+}
+
+/* ---- 顶部悬浮导航：首屏融入纸面，滚动后成白色圆角悬浮条（quote.law 语言） ---- */
+
+.lawver-intro .site-header {
+  position: fixed;
+  inset: 18px 28px auto;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(1180px, calc(100% - 56px));
+  margin: 0 auto;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  box-shadow: none;
+  padding: 9px 12px;
+  transition:
+    background-color 260ms var(--ease-standard),
+    border-color 260ms var(--ease-standard),
+    box-shadow 260ms var(--ease-standard);
+}
+
+.lawver-intro .site-header.is-scrolled {
+  border-color: var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--fg-1) 4%, transparent),
+    0 12px 34px color-mix(in srgb, var(--fg-1) 6%, transparent);
+  backdrop-filter: blur(22px) saturate(1.5);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+}
+
+.lawver-intro .site-nav {
+  display: flex;
+  gap: 2px;
+  color: var(--fg-3);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.lawver-intro .site-nav a {
+  border-radius: var(--radius-pill);
+  padding: 8px 12px;
+  transition:
+    background 220ms var(--ease-standard),
+    color 220ms var(--ease-standard);
+}
+
+.lawver-intro .site-nav a:hover {
+  background: color-mix(in srgb, var(--fg-1) 4.5%, transparent);
+  color: var(--fg-1);
+}
+
+.lawver-intro .site-nav a.is-active {
+  background: var(--accent-quiet);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.lawver-intro .site-header__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-on);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 8px 18px;
+  transition:
+    transform 240ms var(--ease-emphasized),
+    background 240ms var(--ease-emphasized),
+    filter 240ms var(--ease-emphasized);
+}
+
+.lawver-intro .site-header__cta:hover {
+  filter: brightness(0.94);
+}
+
+.lawver-intro .site-header__cta:active {
+  transform: scale(0.97);
+}
+
+/* ---- CTA 药丸 ---- */
+
+.lawver-intro .primary-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  border: 1px solid color-mix(in srgb, var(--accent) 10%, transparent);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent-on);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 20px;
+  padding: 13px 26px;
+  transition:
+    transform 240ms var(--ease-emphasized),
+    background 240ms var(--ease-emphasized),
+    box-shadow 240ms var(--ease-emphasized);
+}
+
+.lawver-intro .primary-cta:hover {
+  filter: brightness(0.94);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 25%, transparent);
+  transform: translateY(-1px);
+}
+
+.lawver-intro .primary-cta:active {
+  transform: scale(0.98);
+}
+
+.lawver-intro .secondary-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--fg-1) 3%, transparent);
+  color: var(--fg-3);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 20px;
+  padding: 13px 26px;
+  transition:
+    transform 240ms var(--ease-emphasized),
+    background 240ms var(--ease-emphasized),
+    border-color 240ms var(--ease-emphasized),
+    box-shadow 240ms var(--ease-emphasized),
+    color 240ms var(--ease-emphasized);
+}
+
+.lawver-intro .secondary-cta:hover {
+  border-color: var(--accent);
+  background: var(--bg-app);
+  color: var(--accent);
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.lawver-intro .secondary-cta:active {
+  transform: scale(0.98);
+}
+
+/* ---- Hero：徽章 pill + 超大宋体标题 + 一行副标题（quote.law 版式） ---- */
+
+.lawver-intro .hero {
+  position: relative;
+  display: grid;
+  min-height: 46svh;
+  place-items: center;
+  padding: 140px 28px 40px;
+}
+
+.lawver-intro .hero--display {
+  min-height: 82svh;
+  padding: 128px 28px 54px;
+}
+
+.lawver-intro .hero__content {
+  width: min(920px, 100%);
+  min-width: 0;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.lawver-intro .hero__mark {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 30px;
+  color: var(--fg-1);
+}
+
+.lawver-intro .hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--fg-1) 4%, transparent);
+  color: var(--fg-3);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 7px 16px;
+  transition:
+    color 220ms var(--ease-standard),
+    border-color 220ms var(--ease-standard),
+    transform 220ms var(--ease-standard);
+}
+
+.lawver-intro .hero__badge:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border-default));
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.lawver-intro .hero h1 {
+  margin: 26px 0 0;
+  color: var(--fg-1);
+  font-family: var(--font-serif);
+  font-size: clamp(42px, 6.4vw, 84px);
+  font-weight: 500;
+  line-height: 1.18;
+  letter-spacing: 0.01em;
+  text-wrap: balance;
+}
+
+.lawver-intro .hero__lead {
+  max-width: 700px;
+  margin: 26px auto 0;
+  color: var(--fg-3);
+  font-size: 18px;
+  line-height: 32px;
+}
+
+.lawver-intro .hero__action {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  margin-top: 40px;
+}
+
+.lawver-intro .hero__cta-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 0;
+}
+
+/* ---- 章节骨架 ---- */
+
+.lawver-intro .section {
+  width: min(1180px, calc(100% - 56px));
+  margin: 0 auto;
+  padding: 116px 0;
+}
+
+.lawver-intro .section__heading,
+.lawver-intro .method__sticky,
+.lawver-intro .trust__heading {
+  display: grid;
+  grid-template-columns: 0.42fr 1fr;
+  gap: 64px;
+  align-items: start;
+  border-top: 1px solid var(--border-default);
+  padding-top: 30px;
+}
+
+.lawver-intro .section__heading p,
+.lawver-intro .method__copy > p:first-child,
+.lawver-intro .trust__heading p {
+  margin: 0;
+  color: var(--brand-tertiary-500);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.lawver-intro .section__heading h2,
+.lawver-intro .method h2,
+.lawver-intro .trust h2,
+.lawver-intro .final h2 {
+  margin: 0;
+  color: var(--fg-1);
+  font-family: var(--font-serif);
+  font-size: 42px;
+  font-weight: 500;
+  line-height: 1.24;
+  /* 中文任意两字间可断行，勉强溢出的标题会孤出两字尾行，balance 拉平两行。 */
+  text-wrap: balance;
+}
+
+.lawver-intro code {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent-hover);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 1px 5px;
+}
+
+/* ---- 能力介绍 text-rows ---- */
+
+.lawver-intro .text-rows {
+  margin-top: 70px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.lawver-intro .text-row {
+  display: grid;
+  grid-template-columns: 88px 0.34fr 1fr;
+  gap: 28px;
+  align-items: baseline;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 30px 0;
+}
+
+.lawver-intro .text-row span,
+.lawver-intro .agent-card__meta span:first-child,
+.lawver-intro .memory-row span,
+.lawver-intro .trust-item span {
+  color: var(--accent);
+  font-family: var(--font-brand);
+  font-size: 26px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.lawver-intro .text-row h3,
+.lawver-intro .agent-card h3,
+.lawver-intro .memory-pane h3,
+.lawver-intro .memory-row h3,
+.lawver-intro .trust-item h3 {
+  margin: 0;
+  color: var(--fg-1);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 30px;
+}
+
+.lawver-intro .text-row p,
+.lawver-intro .method p,
+.lawver-intro .surface-pane p,
+.lawver-intro .memory p,
+.lawver-intro .surface-pane li,
+.lawver-intro .trust-item p,
+.lawver-intro .final p {
+  margin: 0;
+  color: var(--fg-3);
+  font-size: 16px;
+  line-height: 31px;
+  letter-spacing: 0.01em;
+}
+
+/* ---- 应用工作台 surface panes ---- */
+
+.lawver-intro .workbench {
+  padding-top: 92px;
+}
+
+.lawver-intro .workbench__layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 70px;
+  border-top: 1px solid var(--border-subtle);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.lawver-intro .surface-pane {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-width: 0;
+  min-height: 390px;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-surface) 56%, transparent),
+      color-mix(in srgb, var(--bg-surface) 24%, transparent)
+    ),
+    color-mix(in srgb, var(--bg-surface) 20%, transparent);
+  padding: 34px;
+}
+
+.lawver-intro .surface-pane__heading {
+  display: grid;
+  gap: 28px;
+}
+
+.lawver-intro .surface-pane__heading span {
+  color: var(--accent);
+  font-family: var(--font-brand);
+  font-size: 26px;
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.lawver-intro .surface-pane__heading h3 {
+  max-width: 420px;
+  margin: 0;
+  color: var(--fg-1);
+  font-family: var(--font-serif);
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 46px;
+}
+
+.lawver-intro .surface-pane p {
+  align-self: end;
+  max-width: 470px;
+  margin-top: 34px;
+}
+
+.lawver-intro .surface-pane ul {
+  display: grid;
+  gap: 13px;
+  margin: 34px 0 0;
+  border-top: 1px solid var(--border-subtle);
+  padding: 22px 0 0;
+  list-style: none;
+}
+
+.lawver-intro .surface-pane li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 15px;
+  line-height: 26px;
+}
+
+.lawver-intro .surface-pane li::before {
+  position: absolute;
+  top: 0.78em;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-tertiary-500);
+  content: "";
+}
+
+/* ---- 工作方式：sticky 滚动卡堆 ---- */
+
+.lawver-intro .method {
+  --workflow-count: 3;
+  position: relative;
+  min-height: calc(100svh + (var(--workflow-count) * 52svh));
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.lawver-intro .method__sticky {
+  position: sticky;
+  top: 0;
+  min-height: 100svh;
+  gap: 80px;
+  align-items: center;
+  padding: 132px 0 92px;
+}
+
+.lawver-intro .method__copy {
+  align-self: center;
+}
+
+.lawver-intro .method__copy h2 {
+  margin-top: 18px;
+}
+
+.lawver-intro .method__copy > p:last-child {
+  margin-top: 28px;
+}
+
+.lawver-intro .method__progress {
+  display: flex;
+  gap: 8px;
+  margin-top: 34px;
+}
+
+.lawver-intro .method__progress span {
+  width: 24px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--fg-1) 12%, transparent);
+  transition:
+    width 500ms var(--ease-emphasized),
+    background 500ms var(--ease-emphasized);
+}
+
+.lawver-intro .method__progress span.is-current {
+  width: 48px;
+  background: var(--accent);
+}
+
+.lawver-intro .agent-stack {
+  position: relative;
+  height: clamp(460px, 58svh, 620px);
+  min-width: 0;
+  perspective: 1600px;
+}
+
+.lawver-intro .agent-card {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 34px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--fg-1) 10%, transparent);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-surface) 92%, transparent),
+      color-mix(in srgb, var(--bg-surface) 82%, transparent)
+    ),
+    var(--bg-surface);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.82) inset,
+    0 22px 70px color-mix(in srgb, var(--fg-1) 10%, transparent);
+  padding: 38px;
+  transform: translate3d(0, calc(var(--card-offset) * 18px), calc(var(--card-offset) * -28px))
+    scale(calc(1 - (var(--card-offset) * 0.022)));
+  opacity: calc(0.7 - (var(--card-offset) * 0.12));
+  transition:
+    opacity 520ms var(--ease-emphasized),
+    transform 520ms var(--ease-emphasized),
+    border-color 520ms var(--ease-emphasized),
+    box-shadow 520ms var(--ease-emphasized);
+  backdrop-filter: blur(20px) saturate(1.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+}
+
+.lawver-intro .agent-card::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 9%, transparent), transparent 34%),
+    linear-gradient(180deg, transparent, color-mix(in srgb, var(--brand-tertiary-500) 7%, transparent));
+  content: "";
+  opacity: 0;
+  transition: opacity 520ms var(--ease-emphasized);
+}
+
+.lawver-intro .agent-card.is-active {
+  z-index: 10;
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 28px 90px color-mix(in srgb, var(--fg-1) 14%, transparent),
+    0 18px 44px -28px color-mix(in srgb, var(--accent) 54%, transparent);
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+.lawver-intro .agent-card.is-active::before {
+  opacity: 1;
+}
+
+.lawver-intro .agent-card.is-before {
+  z-index: 1;
+  opacity: 0;
+  transform: translate3d(0, -36px, -80px) scale(0.95);
+  pointer-events: none;
+}
+
+.lawver-intro .agent-card.is-after {
+  z-index: calc(8 - var(--card-offset));
+  pointer-events: none;
+}
+
+.lawver-intro .agent-card > * {
+  position: relative;
+}
+
+.lawver-intro .agent-card__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.lawver-intro .agent-card__meta span:last-child {
+  color: var(--brand-tertiary-500);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.lawver-intro .agent-card h3 {
+  max-width: 560px;
+  font-family: var(--font-serif);
+  font-size: clamp(30px, 3vw, 48px);
+  font-weight: 500;
+  line-height: 1.18;
+}
+
+.lawver-intro .agent-card p {
+  max-width: 580px;
+  margin-top: 22px;
+}
+
+.lawver-intro .agent-card__details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin: 0;
+}
+
+.lawver-intro .agent-card__details div {
+  min-width: 0;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 16px;
+}
+
+.lawver-intro .agent-card__details dt {
+  margin: 0 0 8px;
+  color: var(--fg-4);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.lawver-intro .agent-card__details dd {
+  margin: 0;
+  color: var(--fg-1);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+/* ---- 注意力与记忆 ---- */
+
+.lawver-intro .memory {
+  padding-top: 92px;
+}
+
+.lawver-intro .memory__body {
+  display: grid;
+  grid-template-columns: 0.42fr 1fr;
+  gap: 64px;
+  margin-top: 70px;
+}
+
+.lawver-intro .memory__lead {
+  max-width: 430px;
+  color: var(--fg-3);
+  font-size: 17px;
+  line-height: 31px;
+}
+
+.lawver-intro .memory__balance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 0;
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.lawver-intro .memory-pane {
+  min-width: 0;
+  min-height: 300px;
+  padding: 32px 0;
+}
+
+.lawver-intro .memory-pane > span {
+  display: block;
+  color: var(--accent);
+  font-family: var(--font-brand);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.lawver-intro .memory-pane--teal > span {
+  color: var(--brand-tertiary-500);
+}
+
+.lawver-intro .memory-pane h3 {
+  margin-top: 78px;
+  font-size: 24px;
+  line-height: 34px;
+}
+
+.lawver-intro .memory-pane p {
+  max-width: 320px;
+  margin-top: 14px;
+}
+
+.lawver-intro .memory__bridge {
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
+  justify-items: center;
+  width: 88px;
+  color: var(--fg-4);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lawver-intro .memory__bridge span {
+  width: 1px;
+  background: var(--border-default);
+}
+
+.lawver-intro .memory__bridge strong {
+  display: block;
+  padding: 14px 0;
+  font-weight: 600;
+  writing-mode: vertical-rl;
+}
+
+.lawver-intro .memory__rows {
+  grid-column: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--border-subtle);
+  border-left: 1px solid var(--border-subtle);
+}
+
+.lawver-intro .memory-row {
+  min-width: 0;
+  min-height: 230px;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 26px;
+}
+
+.lawver-intro .memory-row h3 {
+  margin-top: 54px;
+}
+
+.lawver-intro .memory-row p {
+  margin-top: 14px;
+  font-size: 15px;
+  line-height: 27px;
+}
+
+/* ---- 信任与边界（有意的固定深色横幅；浅色文字用字面量，不随主题翻转） ---- */
+
+.lawver-intro .trust,
+.lawver-intro .band--dark {
+  position: relative;
+  background: linear-gradient(
+    180deg,
+    rgba(11, 13, 20, 0) 0%,
+    rgba(11, 13, 20, var(--ambient-dark-wash)) 18%,
+    rgba(11, 13, 20, 0.98) 32%,
+    rgba(11, 13, 20, 0.98) 72%,
+    rgba(11, 13, 20, var(--ambient-dark-wash)) 88%,
+    rgba(11, 13, 20, 0) 100%
+  );
+}
+
+.lawver-intro .trust {
+  color: white;
+}
+
+.lawver-intro .trust__inner {
+  width: min(1180px, calc(100% - 56px));
+  margin: 0 auto;
+  padding: 116px 0;
+}
+
+.lawver-intro .trust__heading {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.lawver-intro .trust__heading p {
+  color: #8ecdc7;
+}
+
+.lawver-intro .trust h2,
+.lawver-intro .trust-item h3 {
+  color: #f3f5f9;
+}
+
+.lawver-intro .trust__items {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 70px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.lawver-intro .trust-item {
+  min-height: 260px;
+  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 30px;
+}
+
+.lawver-intro .trust-item span {
+  color: #8aa4dd;
+}
+
+.lawver-intro .trust-item h3 {
+  margin-top: 64px;
+}
+
+.lawver-intro .trust-item p {
+  margin-top: 14px;
+  color: #aeb5c5;
+}
+
+/* 设计页深色横幅内的文字（同为固定深色表面） */
+
+.lawver-intro .band--dark {
+  color: #aeb5c5;
+}
+
+.lawver-intro .band--dark h2,
+.lawver-intro .band--dark h3,
+.lawver-intro .band--dark h4 {
+  color: #f3f5f9;
+}
+
+.lawver-intro .band--dark .section__heading {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.lawver-intro .band--dark .section__heading p {
+  color: #8ecdc7;
+}
+
+.lawver-intro .band--dark code {
+  background: rgba(255, 255, 255, 0.1);
+  color: #c9d4ea;
+}
+
+/* ---- 尾部 CTA ---- */
+
+.lawver-intro .final {
+  display: grid;
+  min-height: 58svh;
+  place-items: center;
+  padding: 104px 28px 88px;
+  text-align: center;
+}
+
+.lawver-intro .final__brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 34px;
+  color: var(--fg-1);
+}
+
+.lawver-intro .final h2 {
+  max-width: 820px;
+}
+
+.lawver-intro .final p {
+  max-width: 620px;
+  margin-top: 22px;
+}
+
+.lawver-intro .final__cta-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 40px;
+  width: 100%;
+}
+
+.lawver-intro .final__cta-group .primary-cta,
+.lawver-intro .final__cta-group .secondary-cta {
+  min-width: 180px;
+  justify-content: center;
+}
+
+/* ---- 介绍页品牌标识：复用 app 的 BrandMark，尺寸变体在此定义 ---- */
+
+.lawver-intro .intro-brand {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fg-1);
+}
+
+.lawver-intro .intro-brand .brand-wordmark {
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.lawver-intro .intro-brand--hero {
+  color: var(--fg-1);
+}
+
+.lawver-intro .intro-brand--hero .brand-wordmark {
+  font-size: 30px;
+}
+
+/* ---- 子页 hero 索引条 / 发布信息条（设计页、下载中心共用） ---- */
+
+.lawver-intro .hero__tag {
+  display: inline-block;
+  color: var(--brand-tertiary-500);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  margin-bottom: 18px;
+  text-transform: uppercase;
+}
+
+.lawver-intro .hero-index {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: min(960px, 100%);
+  margin: 46px auto 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.lawver-intro .hero-index a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  border-left: 1px solid var(--border-subtle);
+  color: var(--fg-3);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 22px;
+  padding: 15px 22px;
+  transition:
+    background 220ms var(--ease-standard),
+    color 220ms var(--ease-standard);
+}
+
+.lawver-intro .hero-index a:first-child {
+  border-left: none;
+}
+
+.lawver-intro .hero-index a:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  color: var(--accent);
+}
+
+.lawver-intro .hero-index a span {
+  color: var(--fg-4);
+  font-family: var(--font-brand);
+  font-size: 15px;
+  font-style: italic;
+  line-height: 1;
+  transition: color 220ms var(--ease-standard);
+}
+
+.lawver-intro .hero-index a:hover span {
+  color: var(--accent);
+}
+
+.lawver-intro .hero-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: min(880px, 100%);
+  margin: 46px auto 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+}
+
+.lawver-intro .hero-facts > div {
+  border-left: 1px solid var(--border-subtle);
+  padding: 20px 22px 22px;
+}
+
+.lawver-intro .hero-facts > div:first-child {
+  border-left: none;
+}
+
+.lawver-intro .hero-facts dt {
+  color: var(--fg-4);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.lawver-intro .hero-facts dd {
+  margin: 8px 0 0;
+  color: var(--fg-1);
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+/* ---- 页脚（固定深色表面） ---- */
+
+.lawver-intro .site-footer {
+  position: relative;
+  color: #a9b1c1;
+  background: #0b0d14;
+}
+
+.lawver-intro .site-footer__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 56px;
+  width: min(1180px, calc(100% - 56px));
+  margin: 0 auto;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  padding: 74px 0 54px;
+}
+
+.lawver-intro .site-footer__brand {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+}
+
+.lawver-intro .site-footer .intro-brand {
+  color: #f3f5f9;
+  /* 页脚是固定深色表面，logo 的品牌变量在此翻转为浅色，不随主题变化。 */
+  --brand-logo-tile: rgba(255, 255, 255, 0.04);
+  --brand-logo-border: rgba(255, 255, 255, 0.14);
+  --brand-logo-inner-border: rgba(255, 255, 255, 0.09);
+  --brand-logo-ink: #f3f5f9;
+}
+
+.lawver-intro .site-footer__brand p {
+  max-width: 360px;
+  margin: 0;
+  color: #7f8899;
+  font-size: 14px;
+  line-height: 26px;
+}
+
+.lawver-intro .site-footer__columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(132px, auto));
+  gap: 0 56px;
+}
+
+.lawver-intro .site-footer__column {
+  display: grid;
+  align-content: start;
+  gap: 13px;
+}
+
+.lawver-intro .site-footer__column > span {
+  color: #7f8899;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: 0.08em;
+}
+
+.lawver-intro .site-footer__column a {
+  color: #c3cad7;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  transition: color 200ms var(--ease-standard);
+}
+
+.lawver-intro .site-footer__column a:hover {
+  color: #ffffff;
+}
+
+.lawver-intro .site-footer__base {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px 40px;
+  width: min(1180px, calc(100% - 56px));
+  margin: 0 auto;
+  padding: 26px 0 46px;
+  color: #6d7686;
+  font-size: 12.5px;
+  line-height: 22px;
+}
+
+.lawver-intro .site-footer__base p {
+  margin: 0;
+}
+
+/* ---- 滚动入场（渐进增强：reveal-ready 只由 effects.ts 设置） ---- */
+
+.lawver-intro .reveal {
+  --delay: 0ms;
+}
+
+html.reveal-ready .lawver-intro .reveal {
+  transition:
+    opacity 800ms var(--ease-emphasized),
+    transform 800ms var(--ease-emphasized);
+  transition-delay: var(--delay);
+}
+
+html.reveal-ready .lawver-intro .reveal:not(.is-visible) {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+/* ---- 响应式 ---- */
+
+@media (max-width: 980px) {
+  .lawver-intro .site-header {
+    inset: 16px 18px auto;
+    width: calc(100% - 36px);
+  }
+
+  .lawver-intro .hero--display {
+    min-height: 84svh;
+    padding: 110px 22px 62px;
+  }
+
+  .lawver-intro .hero h1 {
+    font-size: clamp(40px, 8vw, 68px);
+  }
+
+  .lawver-intro .hero__lead {
+    font-size: 17px;
+    line-height: 30px;
+  }
+
+  .lawver-intro .section,
+  .lawver-intro .trust__inner {
+    width: min(760px, calc(100% - 44px));
+    padding: 92px 0;
+  }
+
+  .lawver-intro .section__heading,
+  .lawver-intro .method__sticky,
+  .lawver-intro .trust__heading {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .lawver-intro .section__heading h2,
+  .lawver-intro .method h2,
+  .lawver-intro .trust h2,
+  .lawver-intro .final h2 {
+    font-size: 40px;
+    line-height: 50px;
+  }
+
+  .lawver-intro .method {
+    min-height: calc(104svh + (var(--workflow-count) * 48svh));
+  }
+
+  .lawver-intro .method__sticky {
+    gap: 42px;
+    min-height: 100svh;
+    padding: 116px 0 82px;
+  }
+
+  .lawver-intro .agent-stack {
+    height: clamp(420px, 50svh, 540px);
+  }
+
+  .lawver-intro .memory__body {
+    grid-template-columns: 1fr;
+    gap: 42px;
+    margin-top: 54px;
+  }
+
+  .lawver-intro .memory__lead {
+    max-width: 660px;
+  }
+
+  .lawver-intro .memory__rows {
+    grid-column: auto;
+  }
+
+  .lawver-intro .workbench__layout {
+    margin-top: 54px;
+  }
+
+  .lawver-intro .text-row {
+    grid-template-columns: 64px 1fr;
+    gap: 16px 24px;
+  }
+
+  .lawver-intro .text-row p {
+    grid-column: 2;
+  }
+
+  .lawver-intro .trust__items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lawver-intro .trust-item {
+    min-height: 0;
+  }
+
+  .lawver-intro .site-footer__inner {
+    grid-template-columns: 1fr;
+    gap: 44px;
+    padding: 60px 0 44px;
+  }
+
+  .lawver-intro .site-footer__columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 28px;
+  }
+}
+
+@media (max-width: 640px) {
+  .lawver-intro .site-header {
+    inset: 12px 12px auto;
+    width: calc(100% - 24px);
+    padding: 8px 10px;
+  }
+
+  /* 药丸放不下八个入口；跨页链接是离开本页的唯一入口，保留，页内锚点收起。 */
+  .lawver-intro .site-nav {
+    gap: 4px;
+  }
+
+  .lawver-intro .site-nav__anchor {
+    display: none;
+  }
+
+  .lawver-intro .site-nav a {
+    padding: 8px 10px;
+  }
+
+  .lawver-intro .site-header__cta {
+    min-height: 36px;
+    padding: 7px 14px;
+    font-size: 12px;
+  }
+
+  .lawver-intro .hero--display {
+    align-content: center;
+    min-height: 84svh;
+    padding: 98px 18px 64px;
+  }
+
+  .lawver-intro .hero__mark {
+    margin-bottom: 22px;
+  }
+
+  .lawver-intro .hero h1 {
+    font-size: clamp(36px, 10vw, 52px);
+  }
+
+  .lawver-intro .hero__lead {
+    margin-top: 22px;
+    font-size: 16px;
+    line-height: 29px;
+  }
+
+  .lawver-intro .hero__action {
+    margin-top: 34px;
+  }
+
+  .lawver-intro .hero__cta-group .primary-cta,
+  .lawver-intro .hero__cta-group .secondary-cta {
+    width: 100%;
+    max-width: 304px;
+  }
+
+  .lawver-intro .section,
+  .lawver-intro .trust__inner {
+    width: calc(100% - 36px);
+    padding: 78px 0;
+  }
+
+  .lawver-intro .section__heading h2,
+  .lawver-intro .method h2,
+  .lawver-intro .trust h2,
+  .lawver-intro .final h2 {
+    font-size: 32px;
+    line-height: 42px;
+  }
+
+  .lawver-intro .text-rows {
+    margin-top: 46px;
+  }
+
+  .lawver-intro .workbench {
+    padding-top: 78px;
+  }
+
+  .lawver-intro .workbench__layout {
+    grid-template-columns: 1fr;
+    margin-top: 46px;
+  }
+
+  .lawver-intro .surface-pane {
+    min-height: 0;
+    padding: 26px 22px;
+  }
+
+  .lawver-intro .surface-pane__heading {
+    gap: 22px;
+  }
+
+  .lawver-intro .surface-pane__heading h3 {
+    font-size: 28px;
+    line-height: 38px;
+  }
+
+  .lawver-intro .surface-pane p {
+    align-self: auto;
+    margin-top: 26px;
+    font-size: 15px;
+    line-height: 28px;
+  }
+
+  .lawver-intro .surface-pane ul {
+    margin-top: 26px;
+    padding-top: 18px;
+  }
+
+  .lawver-intro .text-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 28px 0;
+  }
+
+  .lawver-intro .text-row p {
+    grid-column: auto;
+  }
+
+  .lawver-intro .method {
+    min-height: calc(100svh + (var(--workflow-count) * 42svh));
+  }
+
+  .lawver-intro .method__sticky {
+    position: sticky;
+    top: 0;
+    display: grid;
+    min-height: 100svh;
+    align-content: start;
+    gap: 18px;
+    padding: 84px 0 22px;
+  }
+
+  .lawver-intro .method__copy h2 {
+    margin-top: 14px;
+  }
+
+  .lawver-intro .method__copy > p:last-child {
+    display: none;
+  }
+
+  .lawver-intro .method__progress {
+    margin-top: 18px;
+  }
+
+  .lawver-intro .method__progress span {
+    width: 26px;
+  }
+
+  .lawver-intro .method__progress span.is-current {
+    width: 46px;
+  }
+
+  .lawver-intro .agent-stack {
+    position: relative;
+    top: auto;
+    height: min(386px, calc(100svh - 330px));
+    min-height: 330px;
+    margin-top: 0;
+  }
+
+  .lawver-intro .agent-card {
+    gap: 18px;
+    padding: 22px;
+  }
+
+  .lawver-intro .agent-card__meta {
+    align-items: center;
+    flex-direction: row;
+    gap: 12px;
+  }
+
+  .lawver-intro .agent-card h3 {
+    font-size: 26px;
+    line-height: 34px;
+  }
+
+  .lawver-intro .agent-card p {
+    margin-top: 14px;
+    font-size: 14px;
+    line-height: 24px;
+  }
+
+  .lawver-intro .agent-card__details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .lawver-intro .agent-card__details div {
+    padding-top: 12px;
+  }
+
+  .lawver-intro .agent-card__details dd {
+    font-size: 13px;
+    line-height: 22px;
+  }
+
+  .lawver-intro .memory {
+    padding-top: 78px;
+  }
+
+  .lawver-intro .memory__body {
+    gap: 34px;
+    margin-top: 46px;
+  }
+
+  .lawver-intro .memory__lead {
+    font-size: 15px;
+    line-height: 28px;
+  }
+
+  .lawver-intro .memory__balance {
+    grid-template-columns: 1fr;
+  }
+
+  .lawver-intro .memory-pane {
+    min-height: 0;
+    padding: 26px 0;
+  }
+
+  .lawver-intro .memory-pane h3 {
+    margin-top: 34px;
+    font-size: 22px;
+    line-height: 32px;
+  }
+
+  .lawver-intro .memory-pane p {
+    max-width: none;
+  }
+
+  .lawver-intro .memory__bridge {
+    grid-template-columns: 1fr auto 1fr;
+    grid-template-rows: auto;
+    width: 100%;
+    padding: 4px 0;
+  }
+
+  .lawver-intro .memory__bridge span {
+    width: auto;
+    height: 1px;
+  }
+
+  .lawver-intro .memory__bridge strong {
+    padding: 0 14px;
+    writing-mode: horizontal-tb;
+  }
+
+  .lawver-intro .memory__rows {
+    grid-template-columns: 1fr;
+  }
+
+  .lawver-intro .memory-row {
+    min-height: 0;
+    padding: 26px 22px;
+  }
+
+  .lawver-intro .memory-row h3 {
+    margin-top: 34px;
+  }
+
+  .lawver-intro .trust__items {
+    grid-template-columns: 1fr;
+    margin-top: 46px;
+  }
+
+  .lawver-intro .trust-item {
+    padding: 26px 22px;
+  }
+
+  .lawver-intro .trust-item h3 {
+    margin-top: 34px;
+  }
+
+  .lawver-intro .final {
+    min-height: 54svh;
+    padding: 76px 18px 64px;
+  }
+
+  .lawver-intro .final__cta-group {
+    flex-direction: column;
+    align-items: center;
+    padding: 0 24px;
+  }
+
+  .lawver-intro .final__cta-group .primary-cta,
+  .lawver-intro .final__cta-group .secondary-cta {
+    width: 100%;
+    max-width: 304px;
+    min-width: 0;
+  }
+
+  .lawver-intro .hero-index {
+    gap: 0 2px;
+    margin-top: 34px;
+  }
+
+  .lawver-intro .hero-index a {
+    border-left: none;
+    font-size: 13px;
+    padding: 13px 12px;
+  }
+
+  .lawver-intro .hero-facts {
+    grid-template-columns: 1fr;
+    margin-top: 34px;
+  }
+
+  .lawver-intro .hero-facts > div {
+    border-left: none;
+    border-top: 1px solid var(--border-subtle);
+    padding: 16px 4px 18px;
+  }
+
+  .lawver-intro .hero-facts > div:first-child {
+    border-top: none;
+  }
+
+  .lawver-intro .site-footer__inner,
+  .lawver-intro .site-footer__base {
+    width: calc(100% - 36px);
+  }
+
+  .lawver-intro .site-footer__columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 30px 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lawver-intro *,
+  .lawver-intro *::before,
+  .lawver-intro *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

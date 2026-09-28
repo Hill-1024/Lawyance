@@ -1,0 +1,684 @@
+/*
+ * 系统架构与设计页（DesignPage）样式：自 lawyance-intro 的 DesignPage.vue
+ * 样式块逐条移植，token 按 app 映射（--ink→--fg-1、--primary→--accent、
+ * --surface→--bg-surface、--line-soft→--border-subtle、rgba 主色→color-mix 等）。
+ */
+
+.section--design {
+  padding: 96px 0;
+}
+
+.section--design + .section--design {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.design-content {
+  margin-top: 56px;
+}
+
+.section-lead-paragraph {
+  font-size: 17px;
+  line-height: 32px;
+  color: var(--fg-3);
+  max-width: 760px;
+  margin-bottom: 56px;
+}
+
+/* Topology: one row per layer instead of nested bordered boxes, so the stack
+   reads as a spec table and the gateway layer can carry the accent. */
+.topo-stack {
+  display: grid;
+  margin-bottom: 48px;
+}
+
+.topo-row {
+  display: grid;
+  grid-template-columns: minmax(0, 232px) minmax(0, 1fr);
+  gap: 20px 40px;
+  align-items: center;
+  border-top: 1px solid var(--border-subtle);
+  padding: 26px 0 26px 22px;
+}
+
+.topo-row--accent {
+  position: relative;
+  border-top-color: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), color-mix(in srgb, var(--accent) 0%, transparent));
+}
+
+.topo-row--accent::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: var(--accent);
+  content: "";
+}
+
+.topo-row__head span {
+  display: block;
+  color: var(--accent);
+  font-family: var(--font-brand);
+  font-size: 18px;
+  font-style: italic;
+  line-height: 1;
+}
+
+.topo-row__head h4 {
+  margin: 14px 0 0;
+  color: var(--fg-1);
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.topo-row__head p {
+  margin: 6px 0 0;
+  color: var(--fg-4);
+  font-size: 12.5px;
+  line-height: 20px;
+}
+
+.topo-row__nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.node-chip {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--fg-1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  padding: 8px 14px;
+}
+
+.topo-row--accent .node-chip {
+  border-color: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent-hover);
+}
+
+/* The connector rides in the head gutter so the vertical hairline lands on the
+   same x as the layer titles above and below it. */
+.topo-connector {
+  display: grid;
+  grid-template-columns: minmax(0, 232px) minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+  margin: 0;
+  color: var(--fg-4);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 18px;
+  text-transform: uppercase;
+  padding-left: 22px;
+}
+
+.topo-connector::before {
+  justify-self: end;
+  width: 1px;
+  height: 30px;
+  background: linear-gradient(180deg, var(--border-subtle), color-mix(in srgb, var(--fg-1) 26%, transparent), var(--border-subtle));
+  content: "";
+}
+
+/* Feature grid */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 32px;
+}
+
+.feature-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 28px;
+}
+
+.feature-card h3 {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 0 12px;
+  color: var(--fg-1);
+}
+
+.feature-card p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 26px;
+  color: var(--fg-3);
+}
+
+/* Pipeline Track styling */
+.pipeline-flow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-bottom: 56px;
+}
+
+.pipeline-track {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 32px;
+}
+
+.track-header {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 500;
+  margin-bottom: 22px;
+  color: var(--fg-1);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.track-header::before {
+  content: "";
+  display: inline-block;
+  width: 18px;
+  height: 1px;
+  background: var(--brand-tertiary-500);
+  transform: translateY(-5px);
+}
+
+.pipeline-track--solve .track-header::before {
+  background: var(--accent);
+}
+
+.track-step {
+  position: relative;
+  padding: 10px 0 10px 22px;
+  font-size: 14px;
+  color: var(--fg-3);
+  border-left: 1px solid var(--border-subtle);
+  margin-left: 4px;
+  line-height: 24px;
+}
+
+.track-step::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 18px;
+  width: 5px;
+  height: 5px;
+  border-radius: 99px;
+  background: var(--fg-4);
+}
+
+/* OCP block */
+.ocp-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  padding: 44px;
+  margin-top: 48px;
+}
+
+.ocp-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.ocp-badge {
+  background: var(--fg-1);
+  color: var(--bg-surface);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.ocp-banner h3 {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 500;
+  margin: 0;
+  color: var(--fg-1);
+}
+
+.ocp-section > p {
+  color: var(--fg-3);
+  font-size: 15.5px;
+  line-height: 28px;
+  max-width: 760px;
+  margin: 0 0 32px;
+}
+
+.ocp-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ocp-step-card {
+  padding: 26px 24px 6px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.ocp-step-card:last-child {
+  border-right: none;
+}
+
+.step-no {
+  display: block;
+  font-family: var(--font-brand);
+  font-size: 22px;
+  font-style: italic;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
+.ocp-step-card h4 {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 10px;
+  color: var(--fg-1);
+}
+
+.ocp-step-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 24px;
+  color: var(--fg-3);
+}
+
+/* FSM Stage rail */
+.fsm-visual {
+  margin-bottom: 56px;
+}
+
+.fsm-visual h4 {
+  font-family: var(--font-brand);
+  font-size: 16px;
+  font-style: italic;
+  font-weight: 500;
+  margin: 0 0 24px;
+  color: var(--brand-tertiary-500);
+  letter-spacing: 0.02em;
+}
+
+.fsm-rail {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.fsm-stage {
+  border-left: 1px solid var(--border-subtle);
+  padding: 24px 20px 26px;
+}
+
+.fsm-stage:first-child {
+  border-left: none;
+}
+
+.fsm-stage span {
+  display: block;
+  color: var(--accent);
+  font-family: var(--font-brand);
+  font-size: 18px;
+  font-style: italic;
+  line-height: 1;
+}
+
+.fsm-stage strong {
+  display: block;
+  margin-top: 28px;
+  color: var(--fg-1);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.fsm-meta {
+  margin: 22px 0 0;
+  font-size: 13.5px;
+  line-height: 24px;
+  color: var(--fg-4);
+}
+
+/* Court Roles */
+.court-roles {
+  margin-bottom: 56px;
+}
+
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.role-card {
+  padding: 28px 24px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.role-card:last-child {
+  border-right: none;
+}
+
+.role-icon {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 28px;
+  font-weight: 400;
+  font-family: var(--font-serif);
+  margin-bottom: 18px;
+  line-height: 1;
+}
+
+.role-card h4 {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 10px;
+  color: var(--fg-1);
+}
+
+.role-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 24px;
+  color: var(--fg-3);
+}
+
+.trust-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.trust-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 28px;
+}
+
+.trust-card h4 {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 500;
+  margin: 0 0 10px;
+  color: var(--fg-1);
+}
+
+.trust-card p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 26px;
+  color: var(--fg-3);
+}
+
+/* Memory systems */
+.memory-retrieval {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+
+.retrieval-channels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.channel-card {
+  padding: 26px 22px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.channel-card:last-child {
+  border-right: none;
+}
+
+.channel-card span {
+  display: block;
+  font-family: var(--font-brand);
+  font-size: 18px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--brand-tertiary-500);
+  letter-spacing: 0;
+  margin-bottom: 14px;
+  line-height: 1;
+}
+
+.channel-card h4 {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 10px;
+  color: var(--fg-1);
+}
+
+.channel-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 24px;
+  color: var(--fg-3);
+}
+
+.retrieval-fusion {
+  background: var(--bg-app);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 32px;
+  text-align: center;
+}
+
+.fusion-box span {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--fg-1);
+  display: block;
+  margin-bottom: 10px;
+}
+
+.fusion-box p {
+  margin: 0 auto;
+  font-size: 14.5px;
+  line-height: 27px;
+  color: var(--fg-3);
+  max-width: 720px;
+}
+
+/* Security design */
+.security-features {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.sec-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 32px;
+}
+
+/* The security section is the page's single dark band. */
+/* 深色横幅刻意不随主题切换：下面 band--dark 内的近黑/白/灰/青字面量固定使用，app 的 accent token 会随主题翻转、放进来会破坏对比度。 */
+.band--dark .section-lead-paragraph,
+.band--dark .sec-card p {
+  color: #aeb5c5;
+}
+
+/* `.sec-card h4` here outranks the global `.band--dark h4` rule, so the
+   card titles need an explicit light value here. */
+.band--dark .sec-card h4 {
+  color: #f3f5f9;
+}
+
+.band--dark .sec-card {
+  border-color: rgba(255, 255, 255, 0.13);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.band--dark .sec-icon {
+  color: #8ecdc7;
+}
+
+.sec-icon {
+  width: 36px;
+  height: 36px;
+  color: var(--brand-tertiary-500);
+  margin-bottom: 22px;
+  stroke-width: 1.5;
+}
+
+.sec-card h4 {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 0 12px;
+  color: var(--fg-1);
+}
+
+.sec-card p {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 27px;
+  color: var(--fg-3);
+}
+
+.design-final {
+  padding-top: 88px !important;
+  padding-bottom: 88px !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 980px) {
+  .features-grid, .pipeline-flow, .trust-grid, .security-features {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .ocp-steps, .role-grid, .retrieval-channels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ocp-step-card:nth-child(-n+2),
+  .role-card:nth-child(-n+2),
+  .channel-card:nth-child(-n+2) {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .ocp-step-card:nth-child(2n),
+  .role-card:nth-child(2n),
+  .channel-card:nth-child(2n) {
+    border-right: none;
+  }
+
+  .topo-row {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .topo-connector {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .topo-connector::before {
+    justify-self: start;
+    width: 34px;
+    height: 1px;
+  }
+
+  .fsm-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .fsm-stage:nth-child(3n + 1) {
+    border-left: none;
+  }
+
+  .fsm-stage:nth-child(-n + 3) {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+
+@media (max-width: 640px) {
+  .ocp-steps, .role-grid, .retrieval-channels {
+    grid-template-columns: 1fr;
+  }
+
+  .ocp-step-card,
+  .role-card,
+  .channel-card {
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .ocp-step-card:last-child,
+  .role-card:last-child,
+  .channel-card:last-child {
+    border-bottom: none;
+  }
+
+  .ocp-section {
+    padding: 28px 22px;
+  }
+
+  .topo-row {
+    padding: 22px 0 22px 16px;
+  }
+
+  .topo-connector {
+    padding-left: 16px;
+  }
+
+  .node-chip {
+    font-size: 12.5px;
+    padding: 7px 12px;
+  }
+
+  .fsm-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .fsm-stage {
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: none;
+    border-left: none;
+    padding: 20px 0 22px;
+  }
+
+  .fsm-stage:first-child {
+    border-top: none;
+  }
+
+  .fsm-stage strong {
+    margin-top: 16px;
+  }
+}
