@@ -1,0 +1,112 @@
+.court-workspace { --court-line: var(--border-default); }
+.court-workspace .lucide { stroke-width: 1.75; flex-shrink: 0; }
+.court-workspace > aside { border-color: var(--court-line); }
+.court-workspace .lawver-topbar { min-height: 64px; padding: 8px 20px; background: var(--bg-surface); border-color: var(--court-line); }
+.court-workspace .lawver-header-title { font-family: var(--font-sans); font-size: 16px; font-weight: 600; }
+.court-workspace button { min-height: 36px; }
+.court-workspace button:is(.md3-btn-filled,.md3-btn-tonal),.court-workspace .lawver-composer-shell { border-radius: var(--radius-md); box-shadow: none; }
+.court-workspace :is(button,input,textarea,select):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.court-setup-content { max-width: 1120px; padding: 32px; }
+.court-setup h1 { font-family: var(--font-serif); font-size: 32px; line-height: 1.3; }
+.court-setup section { box-shadow: none; }
+.court-dossier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.court-dossier-grid > section { margin-top: 24px; }
+.court-materials { margin-top: 24px; padding: 20px; border: 1px solid var(--court-line); border-radius: var(--radius-md); background: var(--bg-surface); font-size: 14px; }
+.court-materials header { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; }
+.court-materials h2 { font-size: 15px; font-weight: 600; }
+.court-materials select { display: block; width: 100%; min-height: 44px; margin-top: 8px; padding: 8px 12px; border: 1px solid var(--court-line); border-radius: var(--radius-sm); background: var(--bg-app); }
+.court-source-status { display: flex; gap: 8px; align-items: center; padding: 12px 0 4px; color: var(--accent); }
+.court-source-status span { flex: 1; }
+.court-materials p { font-size: 12px; color: var(--fg-3); line-height: 1.8; margin: 8px 0; }
+.court-materials summary,.court-auto-notes summary { cursor: pointer; padding: 10px 0; font-size: 13px; }
+.court-source-row { display: flex; align-items: center; gap: 10px; min-height: 48px; border-bottom: 1px solid var(--border-subtle); }
+.court-source-row span { min-width: 0; overflow-wrap: anywhere; }
+.court-source-row small { display: block; font-size: 11px; color: var(--fg-3); }
+.court-materials pre { max-height: 220px; overflow: auto; white-space: pre-wrap; font-size: 12px; line-height: 1.8; background: var(--bg-app); padding: 12px; }
+.court-auto-notes textarea { width: 100%; padding: 12px; background: var(--bg-surface); border: 1px solid var(--court-line); border-radius: var(--radius-sm); font-size: 13px; }
+.court-sync-error { display: flex; gap: 12px; padding: 12px 20px; background: var(--bg-surface); border-bottom: 1px solid var(--court-line); font-size: 13px; }
+/*
+ * 面板宽度由 CourtPage 的 motion 以 inline style 驱动（PANEL_WIDTH = 320，与移动端 min(85vw,320px) 一致）。
+ * 这里原本用 width:264px !important 钉住桌面宽度，!important 会压过 inline style，
+ * 于是开合动画只剩 opacity 在动、宽度是硬切，且桌面(264)与移动(320)两套宽度长期不一致。
+ */
+@media(max-width:900px) { .court-dossier-grid { grid-template-columns: minmax(0,1fr); gap: 0; } .court-setup-content { padding: 24px 16px; } .court-setup h1 { font-size: 27px; } .court-workspace button { min-height: 44px; } }
+
+.court-source-links h4 { font-size: 12px; color: var(--fg-3); margin-bottom: 8px; }
+.court-source-links a { display: block; padding: 10px 0; font-size: 13px; color: var(--accent); border-bottom: 1px solid var(--border-subtle); overflow-wrap: anywhere; }
+.court-source-links small { display: block; color: var(--fg-3); font-size: 11px; margin-top: 4px; }
+
+.court-run-controls button,.court-run-mode { border-radius: var(--radius-sm); }
+@media(max-width:639px) { .court-run-controls > .court-run-mode { grid-column: auto; } .court-run-controls { gap: 4px 8px; } }
+
+/* Project court conversations use the same workspace surface as ordinary chats. */
+.wb-court-session { padding:0 !important; overflow:hidden; }
+.court-embedded { container-type:inline-size; width:100%; height:100%; min-height:0; flex:1; background:var(--wb-surface,var(--bg-surface)); }
+.court-session-heading { display:flex; align-items:center; gap:12px; padding:20px 24px; border-bottom:1px solid var(--border-subtle); }
+.court-session-heading > div { flex:1; min-width:0; }
+.court-session-heading small { display:flex; align-items:center; gap:6px; color:var(--fg-3); font-size:12px; }
+.court-session-heading h2 { font-family:var(--font-sans); font-size:16px; font-weight:600; white-space:nowrap; text-overflow:ellipsis; overflow:hidden; margin-top:6px; }
+.court-session-heading button,.court-pane-drag button { display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--border-default); border-radius:8px; padding:8px 10px; background:var(--bg-surface); }
+.court-save-state { color:var(--fg-3); font-size:11px; white-space:nowrap; }
+.court-pane-drag { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid var(--border-subtle); font-size:12px; color:var(--fg-3); }
+.court-pane-drag > span:nth-child(2) { flex:1; }
+.court-setup-modern { flex:1; min-height:0; display:flex; flex-direction:column; overflow-y:auto; background:var(--bg-surface); }
+.court-setup-modern .court-setup-content { max-width:820px; padding:36px 32px 24px; }
+.court-welcome { display:flex; align-items:flex-start; gap:14px; margin-bottom:28px; }
+.court-welcome > span { padding:12px; border-radius:12px; color:var(--accent); background:var(--accent-quiet); }
+.court-welcome h1 { font-family:var(--font-serif); font-size:26px; line-height:1.5; }
+.court-welcome p { font-size:13px; color:var(--fg-3); margin-top:8px; line-height:1.8; }
+.court-role-config { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+.court-role-config label { font-size:12px; color:var(--fg-3); }
+.court-role-config select { display:block; width:100%; margin-top:8px; padding:10px 12px; min-height:44px; border:1px solid var(--border-default); border-radius:8px; background:var(--bg-surface); color:var(--fg-1); font-size:14px; }
+.court-preparation-tabs { display:flex; gap:8px; border-bottom:1px solid var(--border-default); }
+.court-preparation-tabs button { display:flex; align-items:center; gap:6px; padding:12px 10px; min-height:44px; font-size:13px; color:var(--fg-3); border-bottom:2px solid transparent; }
+.court-preparation-tabs button[aria-pressed=true] { color:var(--accent); border-color:var(--accent); background:var(--accent-quiet); border-radius:8px 8px 0 0; }
+.court-preparation-tabs small { font-size:11px; }
+.court-preparation-pane:not([hidden]) { display:grid; gap:20px; padding-top:20px; animation:wb-pop-in 180ms var(--ease-emphasized); }
+.court-scope-note { display:flex; align-items:flex-start; gap:8px; color:var(--fg-3); font-size:12px; line-height:1.8; }
+.court-setup-actions { position:sticky; bottom:0; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:auto; padding:16px 24px; background:var(--bg-surface); border-top:1px solid var(--border-subtle); }
+.court-setup-actions > span { font-size:12px; color:var(--fg-3); }
+.court-setup-actions > div { display:flex; gap:8px; }
+.court-setup-actions button,.court-conversation-start button { display:flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:10px 16px; border-radius:8px; white-space:nowrap; font-size:13px; }
+.court-primary,.court-conversation-start button { background:var(--accent); color:var(--accent-on); }
+.court-primary:disabled { opacity:.45; cursor:not-allowed; }
+.court-conversation-flow { width:100%; max-width:860px; margin:0 auto; padding:24px; display:flex; flex-direction:column; gap:24px; }
+.court-conversation-start { text-align:center; padding:36px 12px; color:var(--fg-3); }
+.court-conversation-start > svg { margin:auto; color:var(--accent); }
+.court-conversation-start h3 { font-family:var(--font-serif); font-size:25px; color:var(--fg-1); margin:16px 0 10px; }
+.court-conversation-start p { font-size:13px; line-height:1.8; }
+.court-conversation-start button { margin:20px auto 0; }
+.court-flow-status { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--fg-3); }
+.court-embedded .lawver-court-composer { background:var(--bg-surface); padding:14px 20px; }
+.court-embedded .lawver-composer-shell { border:1px solid var(--border-default); border-radius:12px; }
+.court-embedded .md3-chip { border-radius:6px; box-shadow:none; }
+.court-embedded button { transition:background-color 140ms,color 140ms,border-color 140ms; }
+@container(max-width:600px) {
+ .court-setup-modern .court-setup-content { padding:20px 16px; }
+ .court-welcome h1 { font-size:23px; }
+ .court-welcome > span { display:none; }
+ .court-session-heading { padding:14px 16px; }
+ .court-save-state { display:none; }
+ .court-setup-actions { flex-direction:column; align-items:stretch; padding:12px 16px; }
+ .court-setup-actions > div { justify-content:flex-end; }
+ .court-conversation-flow { padding:20px 16px; }
+ .court-embedded .court-run-controls { display:grid; grid-template-columns:1fr 1fr; width:100%; }
+ .court-preparation-tabs { gap:0; }
+ .court-preparation-tabs button { padding:12px 8px; font-size:12px; }
+}
+@media(prefers-reduced-motion:reduce) { .court-preparation-pane { animation:none !important; } .court-embedded * { transition:none !important; } }
+.court-session-heading > button { flex-shrink:0; white-space:nowrap; }
+.court-session-controls { display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; }
+.court-session-controls details { font-size:12px; color:var(--fg-3); }
+.court-session-controls summary { display:flex; align-items:center; gap:6px; min-height:40px; padding:8px; cursor:pointer; list-style:none; border-radius:8px; }
+.court-session-controls summary::-webkit-details-marker { display:none; }
+.court-session-controls details[open] { flex-basis:100%; }
+.court-control-options { display:grid; gap:10px; padding:12px; border:1px solid var(--border-default); border-radius:8px; }
+.court-control-options label { display:flex; align-items:center; gap:8px; min-height:32px; flex-wrap:wrap; }
+.court-control-options small { color:var(--fg-4); }
+.court-control-options button,.court-continue { display:flex; align-items:center; gap:6px; min-height:40px; padding:8px 12px; border-radius:8px; font-size:12px; }
+.court-continue { background:var(--accent-quiet); color:var(--accent); }
+.court-continue:disabled { opacity:.45; }
+.court-embedded .court-assistant-message { border:0; box-shadow:none; border-radius:8px; padding:8px 0; background:transparent; }
+@media(max-width:1023px) { .court-pane-drag { display:none; } }
