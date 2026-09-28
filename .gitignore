@@ -41,3 +41,7 @@ android/app/*.p12
 android/app/keystore.properties
 android/app/release-keystore.*
 test
+
+# 架构图视觉验收产物与 UX 调研截图（本地自查用，不入库）
+docs/architecture/*.visual-check.*
+docs/research/
