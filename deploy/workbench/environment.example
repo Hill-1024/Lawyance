@@ -1,0 +1,9 @@
+# Merge into the existing backend environment; keep authentication/provider settings.
+LAWVER_DATABASE_URL=postgresql+psycopg://lawver:REPLACE_PASSWORD@127.0.0.1:5432/lawver
+LAWVER_BLOB_DIR=/var/lib/lawver/workbench-blobs
+# Explicit account rollout. Use * only after acceptance.
+LAWVER_WORKBENCH_USERS=admin
+LAWVER_WORKBENCH_READ_ONLY=0
+# Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+# Store independently from database and ordinary exports. Losing this key loses plugin credentials.
+LAWVER_CONNECTOR_KEY=REPLACE_WITH_FERNET_KEY

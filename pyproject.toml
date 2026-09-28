@@ -5,10 +5,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.16,<2",
+    "cryptography>=45",
     "dateparser>=1.4.0",
     "docxtpl>=0.18.0",
     "fastapi>=0.139.0",
+    "mcp>=1.20,<2",
     "openai>=2.29.0",
+    "psycopg[binary]>=3.2,<4",
     "pydantic>=2.12.5",
     "PyMuPDF>=1.27.2",
     "python-docx>=1.2.0",
@@ -16,6 +20,7 @@ dependencies = [
     "python-multipart>=0.0.31",
     "redis>=5.0.0",
     "requests>=2.34.2",
+    "sqlalchemy>=2.0,<3",
     "tldextract>=5.3.1",
     "trafilatura>=2.0.0",
     "uvicorn[standard]>=0.42.0",
@@ -27,16 +32,16 @@ dev = [
 ]
 
 [tool.pyright]
-include = ["."]
+include = ["backend", "tests", "agent.py"]
 exclude = [
     "**/node_modules",
     "**/__pycache__",
-    "src",
+    "frontend",
     "dist",
     ".venv"
 ]
-extraPaths = ["."]
+extraPaths = ["backend"]
 
 [tool.pyrefly]
-search-path = ["."]
+search-path = ["backend"]
 disable-search-path-heuristics = true
