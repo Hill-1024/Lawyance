@@ -12,9 +12,9 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { MessageItem } from '../src/components/MessageItem';
-import { DialogProvider } from '../src/contexts/DialogContext';
-import { DOCUMENT_ATTACHMENT_HEADER, IMAGE_ATTACHMENT_HEADER } from '../src/lib/attachment-prompt';
+import { MessageItem } from '../frontend/src/components/MessageItem';
+import { DialogProvider } from '../frontend/src/contexts/DialogContext';
+import { DOCUMENT_ATTACHMENT_HEADER, IMAGE_ATTACHMENT_HEADER } from '../frontend/src/lib/attachment-prompt';
 
 type RenderCase = {
   label: string;

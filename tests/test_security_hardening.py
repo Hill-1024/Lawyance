@@ -33,7 +33,7 @@ class SecurityBootstrapTests(unittest.TestCase):
             env.pop("SECRET_KEY", None)
             env.pop("INITIAL_ADMIN_PASSWORD", None)
             env["LAWVER_DATA_DIR"] = tmp
-            env["PYTHONPATH"] = REPO_ROOT
+            env["PYTHONPATH"] = os.pathsep.join([REPO_ROOT, os.path.join(REPO_ROOT, "backend")])
             result = subprocess.run(
                 [sys.executable, "-c", "import auth"],
                 cwd=tmp,
@@ -52,7 +52,7 @@ class SecurityBootstrapTests(unittest.TestCase):
             env["SECRET_KEY"] = TEST_SECRET
             env.pop("INITIAL_ADMIN_PASSWORD", None)
             env["LAWVER_DATA_DIR"] = tmp
-            env["PYTHONPATH"] = REPO_ROOT
+            env["PYTHONPATH"] = os.pathsep.join([REPO_ROOT, os.path.join(REPO_ROOT, "backend")])
             result = subprocess.run(
                 [sys.executable, "-c", "import auth"],
                 cwd=tmp,
@@ -76,7 +76,7 @@ class SecurityBootstrapTests(unittest.TestCase):
             env = os.environ.copy()
             env["SECRET_KEY"] = TEST_SECRET
             env["LAWVER_DATA_DIR"] = tmp
-            env["PYTHONPATH"] = REPO_ROOT
+            env["PYTHONPATH"] = os.pathsep.join([REPO_ROOT, os.path.join(REPO_ROOT, "backend")])
             result = subprocess.run(
                 [sys.executable, "-c", "import auth"],
                 cwd=tmp,

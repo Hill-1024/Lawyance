@@ -1,0 +1,2593 @@
+/* Workbench v2 — island visual language: floating rounded panels on the warm
+   canvas, pill controls, spring-eased surfaces. Brand glyphs and fonts
+   intentionally inherit the existing Lawver identity.
+   Radius scale (tokens only): controls & rows --radius-sm (10), floating
+   menus/popovers --radius-md (14), islands (cards/paper/composer/modals)
+   --radius-lg (20), interactive pills --radius-pill. Control height: 32 base,
+   28 for filter pills. */
+.wb-app {
+  /* 定位基准：.wb-dock-targets / .wb-banner 用 absolute 定位在应用盒内，
+     而 WorkspaceLayout 也按 .wb-app 的 rect 算落点，两边必须同一个包含块。 */
+  position: relative;
+  --wb-control-size: 32px;
+  --wb-icon-size: 18px;
+  --wb-radius-control: var(--radius-sm);
+  --wb-bg: var(--bg-app);
+  --wb-surface: var(--bg-surface);
+  --wb-ink: var(--fg-1);
+  --wb-muted: var(--fg-3);
+  --wb-line: var(--border-default);
+  --wb-hover: var(--bg-inset);
+  --wb-blue: var(--accent);
+  display: flex;
+  height: 100dvh;
+  background: var(--wb-bg);
+  color: var(--wb-ink);
+  font: 14px/1.6 var(--font-sans);
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.wb-app * {
+  box-sizing: border-box;
+}
+.wb-app button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--wb-control-size);
+  line-height: 20px;
+  border-radius: var(--wb-radius-control);
+  padding: 7px 10px;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    opacity var(--dur-fast) var(--ease-standard);
+}
+.wb-app button:hover {
+  background: var(--wb-hover);
+}
+.wb-app button:not(:disabled):active {
+  transform: scale(0.97);
+}
+.wb-app button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wb-app :is(button, input, textarea, select, a):focus-visible {
+  outline: 2px solid var(--wb-blue);
+  outline-offset: 2px;
+}
+.wb-app input,
+.wb-app textarea,
+.wb-app select {
+  font: inherit;
+  color: inherit;
+}
+.wb-app input,
+.wb-app select {
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
+.wb-app small {
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+.wb-app p {
+  margin: 0 0 12px;
+}
+.wb-app h1,
+.wb-app h2,
+.wb-app h3 {
+  margin: 0;
+  font-weight: 500;
+}
+.wb-app a {
+  color: var(--wb-blue);
+}
+.wb-app svg {
+  flex-shrink: 0;
+}
+.wb-spacer {
+  flex: 1;
+}
+.wb-primary,
+.wb-app .wb-send {
+  background: var(--wb-blue) !important;
+  color: var(--accent-on) !important;
+}
+.wb-app .wb-primary:hover {
+  background: var(--wb-blue) !important;
+  filter: brightness(0.94);
+}
+.wb-app .wb-quiet {
+  border: 1px solid var(--wb-line);
+  background: var(--wb-surface);
+}
+.wb-app .wb-quiet:hover {
+  background: var(--wb-hover);
+}
+.wb-danger {
+  color: var(--color-danger-500) !important;
+}
+.wb-app .selected {
+  background: var(--wb-hover);
+  color: var(--wb-blue);
+}
+
+/* Surfaces enter with a soft rise, never a hard cut. */
+@keyframes wb-island-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+/* 弹层动效三件套：下拉自触发器方向展开（origin top），上浮件自底部展开，
+   模态整体上滑。缓动带轻微回弹（过冲约 2%），即 Quote 的「柔顺 spring」手感。
+   只动 transform/opacity，全部走合成器。 */
+.wb-app {
+  --wb-ease-pop: cubic-bezier(0.3, 1.12, 0.36, 1);
+}
+@keyframes wb-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes wb-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+@keyframes wb-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+@keyframes wb-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+}
+@keyframes wb-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.wb-spin {
+  animation: wb-rotate 0.9s linear infinite;
+}
+
+/* 三个门户菜单挂在 <body> 上、位于 .wb-app 之外，拿不到 .wb-app button:active 的按压反馈。 */
+.wb-space-menu > button:not(:disabled):active,
+.wb-thread-menu > button:not(:disabled):active,
+.wb-overflow-menu > button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+.wb-sidebar {
+  width: 248px;
+  flex-shrink: 0;
+  padding: 22px 14px 10px;
+  display: flex;
+  flex-direction: column;
+}
+.wb-brand {
+  padding: 0 8px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wb-brand-link {
+  color: inherit;
+  border-radius: var(--radius-sm);
+}
+.wb-brand-link:hover {
+  background: transparent;
+  opacity: 0.85;
+}
+.wb-space-head {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.wb-space-pill {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 6px;
+  border: 1px solid var(--wb-line);
+  background: var(--wb-hover);
+  border-radius: var(--radius-pill);
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.wb-space-pill:hover {
+  background: var(--wb-surface);
+  border-color: color-mix(in srgb, var(--wb-blue) 35%, var(--wb-line));
+}
+.wb-space-pill span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.wb-space-pill > svg:last-child {
+  color: var(--wb-muted);
+}
+.wb-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 14px;
+  padding: 0 8px;
+  color: var(--wb-muted);
+}
+.wb-search input {
+  border: 0;
+  background: transparent;
+  width: 100%;
+  padding: 8px 0;
+  font-size: 13px;
+  outline: 0;
+}
+.wb-nav-scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+/* Portal menus mount on <body>, outside .wb-app — use root-level tokens only. */
+.wb-space-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: min(240px, calc(100vw - 16px));
+  max-height: 420px;
+  overflow: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  color: var(--fg-1);
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-space-menu > button,
+.wb-thread-menu > button,
+.wb-overflow-menu > button {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-1);
+  font: 13px/1.6 var(--font-sans);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  min-height: 36px;
+  min-width: 0;
+  padding: 6px 10px;
+  text-align: left;
+  transition: background-color 140ms var(--ease-standard);
+}
+.wb-space-menu > button:hover:not(.selected),
+.wb-thread-menu > button:hover:not(.selected),
+.wb-overflow-menu > button:hover:not(.selected) {
+  background: var(--bg-inset);
+}
+.wb-space-menu > button > span,
+.wb-thread-menu > button > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.wb-space-menu > button.selected,
+.wb-thread-menu > button.selected {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+.wb-space-menu-sep {
+  height: 1px;
+  background: var(--border-default);
+  margin: 4px 6px;
+}
+.wb-space-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 12px;
+}
+/* Same pill treatment as the home 全部/最近 filter: the active tab is a solid
+   brand-accent pill, the inactive one ghost — no sliding thumb. The .wb-app
+   prefix keeps the selected state above the global button:hover rule. */
+.wb-space-tab {
+  min-height: 28px;
+  padding: 3px 13px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--wb-muted);
+}
+.wb-app .wb-space-tab[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--accent-on);
+}
+.wb-app .wb-space-tab[aria-selected="true"]:hover {
+  background: var(--accent);
+  filter: brightness(0.97);
+}
+.wb-space-tab:hover:not([aria-selected="true"]) {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+}
+.wb-space-add {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  color: var(--wb-muted);
+}
+.wb-space-add:hover {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+}
+/* 文件页加号：悬停弹出 上传/新建 菜单，点击本体默认上传。 */
+.wb-space-add-wrap {
+  position: relative;
+  display: flex;
+}
+.wb-space-add-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  padding-top: 6px;
+  z-index: 30;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px) scale(0.98);
+  transform-origin: bottom right;
+  transition:
+    opacity 180ms var(--wb-ease-pop),
+    transform 180ms var(--wb-ease-pop),
+    visibility 180ms var(--ease-standard);
+}
+.wb-space-add-wrap:hover .wb-space-add-menu,
+.wb-space-add-wrap:focus-within .wb-space-add-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.wb-space-add-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: max-content;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-2);
+  font-size: 12px;
+  color: var(--wb-ink);
+}
+.wb-space-add-menu > button + button {
+  margin-top: 4px;
+}
+.wb-space-add-menu > button:hover {
+  background: var(--wb-hover);
+}
+.wb-space-list {
+  min-width: 0;
+}
+.wb-space-head > button {
+  width: var(--wb-control-size);
+  min-width: var(--wb-control-size);
+  height: var(--wb-control-size);
+  min-height: var(--wb-control-size);
+  padding: 0;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  color: var(--wb-muted);
+}
+.wb-space-head > button:hover {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+}
+.wb-thread-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.wb-thread-history {
+  position: relative;
+}
+.wb-thread-history > button {
+  border-radius: var(--radius-pill);
+  gap: 4px;
+  padding: 0 9px;
+  min-height: 32px;
+}
+.wb-thread-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: min(300px, calc(100vw - 16px));
+  max-height: 380px;
+  overflow: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  color: var(--fg-1);
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-thread-menu > button {
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  min-height: 36px;
+  min-width: 0;
+  color: var(--fg-1);
+}
+.wb-thread-menu > button > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.wb-app .wb-thread-menu > button > small {
+  flex-shrink: 0;
+  color: var(--fg-3);
+  margin-left: auto;
+}
+.wb-thread-menu > button:hover:not(.selected) {
+  background: var(--bg-inset);
+}
+.wb-thread-group {
+  padding: 8px 8px 2px;
+  font-size: 10px;
+  color: var(--fg-3);
+}
+.wb-space-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+.wb-space-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  min-height: 32px;
+  padding: 4px 8px;
+  text-align: left;
+}
+.wb-space-row > button:first-child span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wb-space-row > button:last-child {
+  opacity: 0;
+  padding: 2px;
+  min-width: 22px;
+  margin-right: 4px;
+}
+.wb-space-row:hover > button:last-child,
+.wb-space-row > button:last-child:focus-visible {
+  opacity: 1;
+}
+.wb-space-hint {
+  margin: 2px 6px 4px;
+  font-size: 11px;
+  color: var(--wb-muted);
+  line-height: 1.6;
+}
+.wb-space-upload-link {
+  min-height: 0;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--wb-blue);
+  text-decoration: underline;
+}
+.wb-nav-footer {
+  padding-top: 12px;
+  margin-top: 12px;
+}
+.wb-nav-footer > button {
+  width: 100%;
+  justify-content: flex-start;
+}
+.wb-nav-footer > div {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+}
+.wb-nav-footer > div span {
+  font-size: 11px;
+  margin-left: auto;
+  overflow: hidden;
+  max-width: 80px;
+  text-overflow: ellipsis;
+  color: var(--wb-muted);
+}
+.wb-sidebar-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+.wb-sidebar-tools small {
+  font-size: 11px;
+  color: var(--wb-muted);
+}
+.wb-sidebar-tools .wb-layout-options {
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: auto;
+  width: 232px;
+}
+.wb-app[data-navigation="right"] .wb-sidebar-tools .wb-layout-options {
+  left: auto;
+  right: 0;
+}
+
+.wb-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  position: relative;
+}
+.wb-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  padding: 10px 14px 14px;
+}
+
+.wb-home {
+  max-width: 1032px;
+  width: 100%;
+  padding: 52px 48px 30px;
+  margin: 0 auto;
+  overflow: auto;
+}
+.wb-home h1 {
+  font-family: var(--font-serif);
+  font-size: 46px;
+  line-height: 1.5;
+  letter-spacing: -1px;
+  margin-bottom: 18px;
+  font-weight: var(--weight-regular);
+}
+.wb-home > p {
+  color: var(--wb-muted);
+  font-size: 14px;
+  margin-bottom: 26px;
+}
+.wb-project-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 项目视图头：serif 标题 + 描述，下方紧跟 composer。 */
+.wb-project-head {
+  margin-bottom: 26px;
+}
+.wb-project-head h1 {
+  margin-bottom: 10px;
+}
+/* 首页/项目页：composer 顶在上方，下方是陈列区。 */
+.wb-home .wb-composer {
+  margin-bottom: 44px;
+}
+/* 陈列区头的小 pill 动作（新建文档/会话/庭审）。 */
+.wb-section-actions {
+  display: flex;
+  gap: 6px;
+}
+.wb-mini-action {
+  min-height: 28px;
+  padding: 3px 12px;
+  gap: 5px;
+  border: 1px solid var(--wb-line);
+  background: var(--wb-surface);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--wb-muted);
+}
+.wb-mini-action:hover {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+.wb-home-projects {
+  margin-top: 44px;
+}
+.wb-projects-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.wb-projects-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.wb-projects-title {
+  font-family: var(--font-serif);
+  font-size: 34px;
+  letter-spacing: 2px;
+}
+.wb-projects-filter {
+  display: flex;
+  gap: 4px;
+}
+.wb-projects-filter button {
+  min-height: 28px;
+  padding: 3px 13px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--wb-muted);
+}
+.wb-projects-filter button.active {
+  background: var(--accent);
+  color: var(--accent-on);
+}
+.wb-projects-filter button:hover:not(.active) {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+.wb-projects-new {
+  border-radius: var(--radius-pill) !important;
+  min-height: 36px;
+  padding: 6px 16px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.wb-project-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+.wb-app .wb-project-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
+  text-align: left;
+  padding: 18px;
+  border: 1px solid var(--wb-line);
+  background: var(--wb-surface);
+  border-radius: var(--radius-lg);
+  min-height: 120px;
+  min-width: 0;
+  animation: wb-island-in 240ms var(--ease-emphasized) both;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+.wb-app .wb-project-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
+}
+.wb-project-card > strong {
+  font-weight: 600;
+  font-size: 15px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-project-card-desc {
+  font-size: 12px;
+  color: var(--wb-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.wb-project-card-meta {
+  margin-top: auto;
+  font-size: 11px;
+  color: var(--wb-muted);
+}
+.wb-home-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 32px;
+  margin-top: 45px;
+}
+.wb-home-sections > section {
+  min-width: 0;
+}
+.wb-home-sections header {
+  min-height: var(--wb-control-size);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.wb-home-sections h2 {
+  font-size: 14px;
+}
+.wb-home-sections header button {
+  font-size: 11px;
+  color: var(--wb-muted);
+}
+.wb-file-row {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+}
+.wb-file-row:hover {
+  background: var(--wb-hover);
+}
+.wb-file-row span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-file-row small {
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.wb-empty-hint {
+  padding: 22px 0;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+.wb-files-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 44px 16px;
+  text-align: center;
+  color: var(--wb-muted);
+  border: 1.5px dashed var(--wb-line);
+  border-radius: var(--radius-md);
+}
+.wb-files-empty svg {
+  width: 26px;
+  height: 26px;
+}
+.wb-files-empty strong {
+  color: var(--wb-ink);
+  font-weight: 500;
+  font-size: 14px;
+}
+.wb-files-empty p {
+  margin: 0;
+  font-size: 12px;
+}
+.wb-home-empty {
+  border: 0;
+  padding: 16px 0 0;
+  align-items: flex-start;
+  text-align: left;
+}
+.wb-home-empty p {
+  display: inline;
+}
+
+.wb-composer {
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-lg);
+  background: var(--wb-surface);
+  position: relative;
+  padding: 16px 16px 10px;
+  box-shadow: var(--shadow-2);
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+.wb-composer:focus-within {
+  border-color: color-mix(in srgb, var(--wb-blue) 45%, var(--wb-line));
+  box-shadow: var(--shadow-3);
+}
+.wb-composer textarea {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  outline: none !important;
+  resize: none;
+  min-height: 74px;
+  max-height: 220px;
+  line-height: 1.75;
+  padding: 0 2px;
+  font-size: 14px;
+}
+.wb-composer textarea::placeholder {
+  color: var(--wb-muted);
+}
+.wb-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wb-composer-actions button {
+  height: var(--wb-control-size);
+  min-height: var(--wb-control-size);
+  font-size: 12px;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+  padding: 0 9px;
+}
+.wb-composer-actions button[aria-expanded="true"] {
+  color: var(--accent);
+  background: var(--accent-quiet);
+}
+.wb-send {
+  border-radius: 50% !important;
+  width: var(--wb-control-size);
+  height: var(--wb-control-size);
+  min-width: var(--wb-control-size);
+  min-height: var(--wb-control-size) !important;
+  padding: 0 !important;
+  flex-shrink: 0;
+}
+.wb-reference-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+.wb-reference {
+  display: flex;
+  align-items: flex-start;
+  background: var(--wb-hover);
+  border-radius: var(--radius-sm);
+  padding: 2px 5px;
+  font-size: 11px;
+  max-width: 100%;
+}
+.wb-reference summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.wb-reference details {
+  max-width: 100%;
+}
+.wb-reference details p,
+.wb-reference blockquote {
+  max-width: 280px;
+  max-height: 160px;
+  overflow: auto;
+  margin: 5px;
+}
+.wb-reference label {
+  display: block;
+}
+.wb-reference button {
+  min-height: 20px !important;
+  padding: 2px !important;
+}
+/* 定位由 Composer.tsx 按输入框 rect 算出后注入（left/width/bottom/maxHeight），这里不再写死。 */
+.wb-candidates {
+  position: fixed;
+  z-index: var(--z-popover);
+  overflow: auto;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-md);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-3);
+  padding: 8px;
+  animation: wb-island-in var(--dur-base) var(--ease-emphasized);
+}
+.wb-candidates > button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  text-align: left;
+  font-size: 13px;
+  min-height: 44px;
+  gap: 12px;
+  border-radius: var(--radius-sm);
+}
+.wb-candidates > button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-candidates > button > small {
+  flex-shrink: 0;
+}
+.wb-candidates > small {
+  display: block;
+  padding: 6px 8px;
+  font-size: 10px;
+}
+.wb-caption {
+  padding: 4px 8px;
+  color: var(--wb-muted);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wb-advanced {
+  border-top: 1px solid var(--wb-line);
+  margin-top: 8px;
+  padding-top: 8px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.wb-advanced label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.wb-advanced select {
+  max-width: 140px;
+  padding: 4px;
+}
+
+.wb-chat {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--wb-bg);
+}
+.wb-chat:not(.wb-agent) {
+  max-width: 1000px;
+  margin: auto;
+  height: 100%;
+  width: 100%;
+}
+.wb-chat-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px 10px;
+  min-height: 64px;
+  gap: 10px;
+}
+.wb-chat-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.wb-chat-heading h2 {
+  font-size: 15px;
+}
+.wb-chat-heading small {
+  font-size: 10px;
+}
+.wb-messages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 28px;
+  scrollbar-width: thin;
+}
+.wb-chat-empty {
+  padding: 70px 12px;
+  text-align: center;
+  color: var(--wb-muted);
+}
+.wb-chat-empty > svg {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  color: var(--wb-blue);
+}
+.wb-chat-empty h3 {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  color: var(--wb-ink);
+  margin-bottom: 12px;
+}
+.wb-chat-empty p {
+  font-size: 12px;
+  line-height: 1.9;
+}
+.wb-composer-wrap {
+  padding: 14px 24px 10px;
+}
+.wb-disclaimer {
+  display: block;
+  text-align: center;
+  font-size: 10px !important;
+  margin-top: 9px;
+}
+.wb-message {
+  margin-bottom: 28px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.wb-message.user {
+  padding: 14px 16px;
+  background: var(--wb-surface);
+  border-radius: 20px 20px 20px 6px;
+}
+.wb-message-label {
+  font-size: 11px;
+  color: var(--wb-muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wb-message-label button {
+  min-height: 22px;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+.wb-message p {
+  line-height: 1.85;
+  margin-bottom: 12px;
+}
+.wb-message ol,
+.wb-message ul {
+  padding-left: 22px;
+  list-style: revert;
+}
+.wb-message h1,
+.wb-message h2,
+.wb-message h3 {
+  font-size: 17px;
+  margin: 20px 0 10px;
+  font-weight: 600;
+}
+.wb-message pre {
+  overflow: auto;
+  background: var(--wb-hover);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+}
+.wb-message table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.wb-message td,
+.wb-message th {
+  border: 1px solid var(--wb-line);
+  padding: 6px;
+}
+.wb-message-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.wb-message-refs button {
+  font-size: 10px;
+  min-height: 25px;
+  padding: 3px 9px;
+  background: var(--wb-hover);
+  border-radius: var(--radius-pill);
+}
+.wb-run-status {
+  font-size: 12px;
+  color: var(--wb-muted);
+  margin: 10px 0 25px;
+}
+.wb-run-status > svg {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 8px;
+}
+.wb-run-status details {
+  margin-top: 12px;
+}
+.wb-run-current {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--wb-blue);
+}
+.wb-run-events summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--wb-muted);
+}
+.wb-thought-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-left: 3px solid color-mix(in srgb, var(--wb-blue) 35%, var(--wb-line));
+  background: color-mix(in srgb, var(--wb-blue) 4%, transparent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 14px;
+  margin-top: 8px;
+}
+.wb-thought-block > small {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wb-muted);
+  margin-bottom: 2px;
+}
+.wb-thought-block.is-error > small {
+  color: var(--color-danger-500);
+}
+.wb-thought-copy {
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--wb-muted);
+  overflow-wrap: anywhere;
+}
+.wb-thought-copy p {
+  margin: 0 0 6px;
+}
+.wb-thought-copy p:last-child {
+  margin-bottom: 0;
+}
+.wb-thought-copy code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--wb-hover);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.wb-run-status pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  padding: 5px;
+}
+.wb-confirmation,
+.wb-conflict {
+  border: 1px solid color-mix(in srgb, var(--color-warning-500) 45%, var(--wb-line));
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: color-mix(in srgb, var(--color-warning-500) 5%, var(--wb-surface));
+  margin: 4px 0 24px;
+  animation: wb-island-in var(--dur-base) var(--ease-emphasized);
+  font-size: 12px;
+}
+.wb-confirmation pre,
+.wb-conflict pre {
+  max-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.wb-confirmation-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.wb-agent {
+  flex: 0 0 auto;
+  min-width: 320px;
+  max-width: 50%;
+}
+.wb-agent .wb-messages {
+  padding: 20px 22px;
+}
+.wb-agent .wb-composer-wrap {
+  padding: 12px;
+}
+.wb-resizer {
+  cursor: col-resize;
+  flex-shrink: 0;
+  touch-action: none;
+  background: transparent;
+  border-radius: var(--radius-xs);
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+.wb-resizer:hover,
+.wb-resizer:focus-visible {
+  background: color-mix(in srgb, var(--wb-blue) 25%, transparent);
+}
+
+.wb-document-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.wb-tabs {
+  height: 48px;
+  display: flex;
+  overflow: auto;
+  flex-shrink: 0;
+  padding: 8px 14px 0;
+  gap: 6px;
+  align-items: center;
+  scrollbar-width: none;
+}
+.wb-tabs > div {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+.wb-tabs > div.selected {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+.wb-tabs > div:not(.selected):hover {
+  background: var(--wb-hover);
+}
+.wb-tabs button {
+  font-size: 11px;
+  max-width: 210px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-document-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.wb-document-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  font-size: 12px;
+  flex-shrink: 0;
+  min-height: 50px;
+}
+@media (min-width: 1024px) {
+  .wb-document-toolbar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
+.wb-document-toolbar::-webkit-scrollbar {
+  display: none;
+}
+.wb-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.wb-toolbar-group > button {
+  min-height: 32px;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+}
+.wb-heading-select {
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  height: 32px;
+  padding: 0 4px;
+  max-width: 92px;
+}
+.wb-format-badge {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--wb-muted);
+  padding: 0 6px;
+}
+.wb-text-action {
+  font-size: 12px;
+  gap: 6px;
+  border: 1px solid var(--wb-line) !important;
+  background: var(--wb-surface) !important;
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  min-height: 32px;
+  flex-shrink: 0;
+}
+.wb-text-action:hover {
+  background: var(--wb-hover) !important;
+}
+.wb-text-action.selected {
+  background: var(--accent-quiet) !important;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--wb-line)) !important;
+}
+.wb-u-glyph {
+  text-decoration: underline;
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 500;
+}
+.wb-overflow {
+  position: relative;
+  flex-shrink: 0;
+}
+.wb-overflow-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  min-width: 208px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  color: var(--fg-1);
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-overflow-menu > button {
+  justify-content: flex-start;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  min-height: 36px;
+}
+.wb-overflow-menu label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  padding: 6px 8px;
+  color: var(--fg-3);
+}
+.wb-overflow-menu select {
+  border: 1px solid var(--border-default);
+  background: var(--bg-app);
+  color: var(--fg-1);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+}
+.wb-notice {
+  font-size: 11px;
+  padding: 8px 16px;
+  margin: 0 !important;
+  color: var(--wb-muted);
+  background: var(--wb-hover);
+  border-radius: var(--radius-sm);
+  margin: 0 16px 8px !important;
+}
+.wb-document-scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  background: var(--wb-bg);
+  padding: 16px 24px 24px;
+  scrollbar-width: thin;
+}
+.wb-document-scroll ::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.wb-paper {
+  padding: 52px 56px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-lg);
+  min-height: 850px;
+  max-width: 850px;
+  margin: 4px auto 24px;
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-serif);
+  font-size: var(--document-font-size);
+  line-height: 2;
+}
+.wb-paper .tiptap {
+  outline: none;
+  min-height: 700px;
+  caret-color: var(--wb-blue);
+}
+.wb-paper .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--wb-muted);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+.wb-paper mark {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.wb-paper h1 {
+  font: 600 1.8em/1.5 var(--font-serif);
+  margin-bottom: 28px;
+}
+.wb-paper h2 {
+  font: 600 1.3em/1.6 var(--font-serif);
+  margin: 24px 0 12px;
+}
+.wb-paper h3 {
+  font-size: 1.1em;
+  margin: 18px 0 10px;
+}
+.wb-paper p {
+  margin: 0 0 16px;
+}
+.wb-paper ul,
+.wb-paper ol {
+  list-style: revert;
+  padding-left: 28px;
+}
+.wb-paper table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 18px 0;
+  table-layout: fixed;
+}
+.wb-paper td,
+.wb-paper th {
+  border: 1px solid var(--wb-line);
+  padding: 7px;
+  vertical-align: top;
+}
+.wb-paper blockquote {
+  border-left: 3px solid var(--wb-line);
+  padding-left: 18px;
+}
+.wb-paper img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+.wb-paper hr[data-page-break] {
+  border: 0;
+  border-top: 2px dashed var(--wb-line);
+  margin: 30px 0;
+}
+.wb-inline-before {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-danger-500) 60%, transparent);
+  color: var(--fg-3);
+  background: color-mix(in srgb, var(--color-danger-500) 7%, transparent);
+  border-radius: 3px;
+}
+.wb-inline-after {
+  color: var(--color-success-500);
+  background: color-mix(in srgb, var(--color-success-500) 10%, transparent);
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.wb-select-pop {
+  position: absolute;
+  left: var(--sel-x, 50%);
+  top: var(--sel-y, 40%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-3);
+  white-space: nowrap;
+  animation: wb-pop-in 220ms var(--wb-ease-pop);
+  transform-origin: bottom;
+}
+.wb-select-pop.open {
+  border-color: color-mix(in srgb, var(--wb-blue) 45%, var(--wb-line));
+}
+.wb-select-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-on);
+  font-size: 12px;
+  min-height: 30px;
+  padding: 4px 13px;
+}
+.wb-select-primary:hover {
+  background: var(--accent);
+  filter: brightness(0.94);
+}
+.wb-select-more {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  min-height: 30px;
+}
+.wb-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 124px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-select-menu button {
+  width: 100%;
+  justify-content: flex-start;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  min-height: 34px;
+}
+.wb-review {
+  max-height: 35%;
+  overflow: auto;
+  padding: 12px 18px 14px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  margin: 0 10px;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-2);
+  animation: wb-island-in var(--dur-base) var(--ease-emphasized);
+  scrollbar-width: thin;
+}
+.wb-review header {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wb-review header strong {
+  font-weight: 500;
+}
+.wb-batch-reject,
+.wb-batch-accept {
+  border-radius: var(--radius-pill) !important;
+  min-height: 30px;
+  padding: 4px 14px;
+  font-size: 12px;
+  gap: 5px;
+}
+.wb-batch-reject {
+  border: 1px solid var(--wb-line);
+  background: var(--wb-surface);
+}
+.wb-batch-reject:hover {
+  background: var(--wb-hover);
+}
+.wb-batch-accept {
+  background: var(--accent);
+  color: var(--accent-on);
+}
+.wb-batch-accept:hover {
+  background: var(--accent);
+  filter: brightness(0.94);
+}
+.wb-review-list {
+  margin-top: 6px;
+}
+.wb-review-card {
+  border-top: 1px solid var(--wb-line);
+  padding: 12px 0;
+  font-size: 12px;
+}
+.wb-review-locate {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+  padding: 2px 0;
+  min-height: 0;
+  font-size: 12px;
+  color: var(--wb-ink);
+  font-weight: 500;
+  border-radius: var(--radius-xs);
+}
+.wb-review-locate:hover {
+  background: transparent;
+  color: var(--wb-blue);
+}
+.wb-review-card del,
+.wb-review-card ins {
+  display: block;
+  padding: 6px 10px;
+  margin: 4px 0;
+  border-radius: var(--radius-sm);
+}
+.wb-review-card del {
+  color: var(--color-danger-500);
+  background: color-mix(in srgb, var(--color-danger-500) 8%, transparent);
+}
+.wb-review-card ins {
+  color: var(--color-success-500);
+  background: color-mix(in srgb, var(--color-success-500) 8%, transparent);
+  text-decoration: none;
+}
+.wb-review-card footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.wb-review-card footer small {
+  font-size: 10px;
+}
+.wb-review-card footer .wb-quiet,
+.wb-review-card footer .wb-primary {
+  min-height: 28px;
+  padding: 3px 12px;
+  font-size: 12px;
+  border-radius: var(--radius-pill);
+}
+.wb-doc-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 20px 8px;
+  font-size: 11px;
+  color: var(--wb-muted);
+  flex-shrink: 0;
+}
+.wb-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.wb-original {
+  width: 100%;
+  overflow: auto;
+}
+.wb-original .docx-wrapper {
+  padding: 0 !important;
+  background: transparent !important;
+}
+.wb-original .docx-wrapper > section.docx {
+  margin: 0 auto 20px !important;
+  max-width: 100%;
+}
+.wb-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-2);
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  margin: 0 auto 16px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  flex-wrap: nowrap;
+  font-size: 11px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wb-preview-controls button {
+  min-height: 30px;
+  border-radius: var(--radius-pill);
+  padding: 4px 8px;
+}
+.wb-preview-controls > button:not(.wb-text-action) {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+.wb-preview-controls span {
+  font-size: 11px;
+  padding: 0 4px;
+  color: var(--wb-muted);
+  min-width: 52px;
+  text-align: center;
+}
+.wb-preview-controls input {
+  width: 110px;
+  min-width: 0;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--wb-line);
+  background: var(--wb-bg);
+}
+.wb-page-surface {
+  position: relative;
+  width: fit-content;
+  margin: auto;
+  max-width: 100%;
+}
+.wb-page-surface img {
+  max-width: 100%;
+  display: block;
+  border-radius: var(--radius-sm);
+}
+.wb-page-surface canvas {
+  display: block;
+  border-radius: var(--radius-sm);
+}
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+}
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.textLayer ::selection {
+  background: color-mix(in srgb, var(--accent) 33%, transparent);
+}
+.select-region {
+  touch-action: none;
+  cursor: crosshair;
+}
+.select-region .textLayer {
+  pointer-events: none;
+  user-select: none;
+}
+.wb-region {
+  position: absolute;
+  z-index: 4;
+  border: 2px solid var(--wb-blue);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.wb-box-toggle {
+  margin: 0 auto 16px;
+  display: flex;
+  width: fit-content;
+}
+
+.wb-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-chrome);
+  background: color-mix(in srgb, var(--bg-app) 55%, transparent);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.wb-drop-overlay strong {
+  display: inline-flex;
+  border: 1.5px dashed var(--accent);
+  color: var(--accent);
+  background: var(--wb-surface);
+  border-radius: var(--radius-lg);
+  padding: 18px 26px;
+  font-size: 15px;
+  animation: wb-island-in 220ms var(--ease-emphasized);
+  font-weight: 500;
+  box-shadow: var(--shadow-4);
+}
+.wb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.wb-row:hover {
+  background: var(--wb-hover);
+}
+.wb-row small {
+  display: block;
+}
+.wb-row > button:first-child {
+  justify-content: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+.wb-row > button:first-child span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.wb-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wb-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--bg-overlay);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: wb-fade-in 200ms var(--ease-standard) both;
+}
+.wb-modal {
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  padding: 28px;
+  border-radius: var(--radius-lg);
+  width: 620px;
+  max-width: 100%;
+  max-height: 85dvh;
+  overflow: auto;
+  box-shadow: var(--shadow-4);
+  animation: wb-modal-in 300ms var(--wb-ease-pop);
+}
+.wb-modal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.wb-modal h2 {
+  font-family: var(--font-serif);
+  font-size: 22px;
+}
+.wb-modal p {
+  font-size: 12px;
+  color: var(--wb-muted);
+}
+.wb-modal label {
+  display: block;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.wb-modal label > input:not([type="checkbox"]),
+.wb-modal label > textarea,
+.wb-modal label > select {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin-top: 6px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  background: var(--wb-bg);
+}
+.wb-modal textarea {
+  min-height: 150px;
+}
+.wb-small-modal {
+  width: 390px;
+}
+.wb-small-modal > button {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.wb-small-modal > button:hover {
+  background: var(--wb-hover);
+}
+.wb-small-modal > button.wb-danger:hover {
+  background: color-mix(in srgb, var(--color-danger-500) 8%, transparent);
+}
+
+.wb-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-chrome);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(620px, calc(100% - 24px));
+  padding: 6px 8px 6px 16px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-3);
+  font-size: 12px;
+  flex-shrink: 0;
+  animation: wb-island-in var(--dur-base) var(--ease-emphasized);
+}
+.wb-banner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-banner.error {
+  color: var(--color-danger-500);
+  border-color: color-mix(in srgb, var(--color-danger-500) 35%, var(--wb-line));
+}
+.wb-banner button {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  border-radius: var(--radius-pill);
+  padding: 0;
+}
+.wb-search-results button {
+  width: 100%;
+  display: block;
+  text-align: left;
+  border-radius: var(--radius-sm);
+}
+.wb-search-results small {
+  display: block;
+  font-size: 10px;
+}
+
+.wb-mobile-only,
+.wb-mobile-tabs,
+.wb-sidebar-shade {
+  display: none !important;
+}
+
+.wb-manager-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+.wb-app .wb-manager-tabs [role="tab"] {
+  min-height: 44px;
+  color: var(--fg-3);
+  border: 1px solid transparent;
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-xs);
+}
+.wb-app .wb-manager-tabs [aria-selected="true"] {
+  background: var(--bg-surface);
+  color: var(--accent);
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-1);
+}
+
+/* Docking changes only grid placement so editors and drafts stay mounted. */
+.wb-dock-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  cursor: grab;
+  color: var(--wb-muted);
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+}
+.wb-dock-handle:active {
+  cursor: grabbing;
+}
+.wb-dock-handle:hover {
+  color: var(--wb-blue);
+  background: var(--wb-hover);
+}
+.wb-dock-handle > svg {
+  pointer-events: none;
+}
+.wb-chat-heading:has(.wb-dock-handle) {
+  gap: 10px;
+}
+.wb-layout-picker {
+  position: relative;
+}
+.wb-layout-options {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 260px;
+  padding: 16px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-md);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-3);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-layout-options p {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.wb-layout-options button {
+  justify-content: flex-start;
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+}
+.wb-layout-options button[aria-pressed="true"] {
+  background: var(--wb-hover);
+  color: var(--wb-blue);
+}
+.wb-layout-options label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wb-layout-options select {
+  background: var(--wb-bg);
+  color: var(--wb-ink);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+}
+.wb-dock-targets {
+  position: absolute;
+  inset: 64px 12px 12px;
+  z-index: var(--z-chrome);
+  pointer-events: none;
+}
+.wb-dock-target {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+.wb-dock-target span {
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  background: var(--wb-surface);
+  color: var(--wb-muted);
+  font-size: 12px;
+  box-shadow: var(--shadow-2);
+  transition:
+    color 160ms,
+    border-color 160ms,
+    transform 160ms;
+}
+.wb-dock-target.is-active span {
+  color: var(--wb-blue);
+  border-color: var(--wb-blue);
+  transform: scale(1.03);
+}
+.wb-dock-target.left,
+.wb-dock-target.right {
+  top: 25%;
+  bottom: 25%;
+  width: 20%;
+}
+.wb-dock-target.left {
+  left: 0;
+}
+.wb-dock-target.right {
+  right: 0;
+}
+.wb-dock-target.top,
+.wb-dock-target.bottom {
+  left: 25%;
+  right: 25%;
+  height: 20%;
+}
+.wb-dock-target.top {
+  top: 0;
+}
+.wb-dock-target.bottom {
+  bottom: 0;
+}
+.wb-dock-preview {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--wb-blue) 32%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--wb-blue) 7%, transparent);
+}
+.wb-dock-preview.left,
+.wb-dock-preview.right {
+  top: 8px;
+  bottom: 8px;
+  width: 34%;
+}
+.wb-dock-preview.left {
+  left: 8px;
+}
+.wb-dock-preview.right {
+  right: 8px;
+}
+.wb-dock-preview.top,
+.wb-dock-preview.bottom {
+  left: 8px;
+  right: 8px;
+  height: 34%;
+}
+.wb-dock-preview.top {
+  top: 8px;
+}
+.wb-dock-preview.bottom {
+  bottom: 8px;
+}
+
+/* Shared control geometry: icon-only targets, labels and toolbars use one grid. */
+.wb-app .lucide {
+  width: var(--wb-icon-size);
+  height: var(--wb-icon-size);
+  stroke-width: 1.75;
+}
+.wb-app button[aria-label]:has(> .lucide:only-child) {
+  width: var(--wb-control-size);
+  min-width: var(--wb-control-size);
+  height: var(--wb-control-size);
+  min-height: var(--wb-control-size);
+  padding: 0;
+  flex-shrink: 0;
+}
+.wb-file-button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  min-height: var(--wb-control-size);
+  border-radius: var(--wb-radius-control);
+  line-height: 20px;
+  position: relative;
+}
+.wb-file-button:hover {
+  background: var(--wb-hover);
+}
+.wb-file-button:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.wb-file-button input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+.wb-toolbar-group .wb-image-upload {
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  color: inherit;
+  border-radius: var(--radius-sm);
+}
+
+@media (min-width: 1600px) {
+  .wb-home {
+    padding-top: 76px;
+  }
+  .wb-sidebar {
+    width: 264px;
+  }
+  .wb-home h1 {
+    font-size: 52px;
+  }
+}
+@media (min-width: 1024px) {
+  /* Full island composition: every region floats as a card on the canvas. */
+  .wb-app {
+    padding: 10px;
+    gap: 10px;
+  }
+  .wb-sidebar {
+    border: 1px solid var(--wb-line);
+    border-radius: var(--radius-lg);
+    background: var(--wb-surface);
+    box-shadow: var(--shadow-1);
+  }
+  .wb-body {
+    padding: 0;
+  }
+  .wb-chat:not(.wb-agent) {
+    background: var(--wb-surface);
+    border: 1px solid var(--wb-line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-1);
+    max-width: 1100px;
+  }
+  .wb-docked > .wb-document-column {
+    background: var(--wb-surface);
+    border: 1px solid var(--wb-line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-1);
+  }
+  .wb-docked .wb-paper {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    margin: 0 auto;
+    padding: 44px 56px;
+  }
+  .wb-docked .wb-review {
+    margin: 0;
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .wb-app[data-navigation="right"] > .wb-sidebar {
+    order: 2;
+    border-left: 1px solid var(--wb-line);
+    border-right: 1px solid var(--wb-line);
+  }
+  .wb-docked {
+    display: grid;
+  }
+  .wb-docked > .wb-document-column {
+    grid-area: document;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .wb-docked > .wb-agent {
+    grid-area: agent;
+    min-width: 0;
+    min-height: 0;
+    width: auto !important;
+    max-width: none;
+    overflow: hidden;
+    border: 1px solid var(--wb-line);
+    border-radius: var(--radius-lg);
+    background: var(--wb-surface);
+    box-shadow: var(--shadow-1);
+  }
+  .wb-docked > .wb-agent .wb-chat-heading {
+    padding: 14px 18px 8px;
+  }
+  .wb-docked > .wb-agent .wb-messages {
+    padding: 16px 18px;
+  }
+  .wb-docked > .wb-agent .wb-composer-wrap {
+    padding: 10px 12px;
+  }
+  .wb-docked > .wb-resizer {
+    grid-area: separator;
+    width: auto;
+    height: auto;
+  }
+  .wb-docked[data-agent-position="top"] > .wb-resizer,
+  .wb-docked[data-agent-position="bottom"] > .wb-resizer {
+    cursor: row-resize;
+  }
+  .wb-brand .wb-dock-handle {
+    margin-left: auto;
+  }
+}
+@media (max-width: 1280px) {
+  .wb-sidebar {
+    width: 220px;
+    padding: 18px 12px 10px;
+  }
+  .wb-home {
+    padding: 40px 32px 26px;
+  }
+  .wb-home h1 {
+    font-size: 39px;
+  }
+  .wb-agent {
+    width: 350px !important;
+  }
+  .wb-paper {
+    padding: 36px;
+  }
+}
+@media (max-width: 900px) {
+  .wb-sidebar {
+    width: 200px;
+  }
+  .wb-home {
+    padding: 30px 22px 22px;
+  }
+  .wb-agent {
+    width: 320px !important;
+  }
+  .wb-paper {
+    padding: 24px;
+  }
+  .wb-home-sections {
+    gap: 16px;
+  }
+}
+@media (max-width: 1023px) {
+  .wb-app {
+    --wb-control-size: 44px;
+    font-size: 14px;
+  }
+  .wb-app button {
+    min-height: 44px;
+  }
+  .wb-body {
+    padding: 8px 10px 10px;
+  }
+  .wb-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: var(--z-drawer);
+    width: 280px;
+    background: var(--wb-bg);
+    transform: translateX(-100%);
+    transition: transform var(--dur-base) var(--ease-standard);
+    padding-top: calc(24px + env(safe-area-inset-top));
+  }
+  .wb-sidebar.is-open {
+    transform: translateX(0);
+  }
+  .wb-sidebar-shade {
+    display: block !important;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-drawer-scrim);
+    background: var(--bg-overlay) !important;
+  }
+  .wb-mobile-only {
+    display: inline-flex !important;
+  }
+  .wb-desktop-only {
+    display: none !important;
+  }
+  .wb-mobile-tabs {
+    display: flex !important;
+    align-items: center;
+    gap: 4px;
+    height: auto;
+    background: var(--bg-inset);
+    border-radius: var(--radius-pill);
+    margin: 8px 12px 2px;
+    padding: 4px;
+    flex-shrink: 0;
+  }
+  .wb-mobile-tabs > button[aria-label="打开导航"] {
+    flex: 0 0 44px;
+    border-radius: var(--radius-pill);
+    min-height: 38px;
+  }
+  .wb-mobile-tabs button {
+    flex: 1;
+    min-height: 38px;
+    border-radius: var(--radius-pill);
+    font-size: 13px;
+    min-width: 0;
+    padding: 0 6px;
+  }
+  .wb-mobile-tabs .selected {
+    background: var(--wb-surface);
+    color: var(--accent);
+    box-shadow: var(--shadow-1);
+  }
+  .wb-home {
+    padding: 26px 20px 20px;
+    max-width: none;
+  }
+  .wb-home h1 {
+    font-size: 32px;
+    letter-spacing: 0;
+  }
+  .wb-home-sections {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-top: 28px;
+  }
+  .wb-composer {
+    padding: 12px;
+  }
+  .wb-composer textarea {
+    font-size: 16px;
+    min-height: 88px;
+  }
+  .wb-composer-actions {
+    gap: 0;
+  }
+  .wb-composer-actions button {
+    min-height: 38px;
+    padding: 0 7px;
+  }
+  .wb-composer-actions button > span {
+    display: none;
+  }
+  .wb-composer-actions button:has(> span) {
+    width: var(--wb-control-size);
+  }
+  .wb-composer-actions .wb-spacer {
+    min-width: 0;
+  }
+  .wb-candidates {
+    max-height: 260px;
+  }
+  .wb-chat-heading {
+    padding: 12px 18px 8px;
+    min-height: 56px;
+  }
+  .wb-messages {
+    padding: 18px;
+  }
+  .wb-composer-wrap {
+    padding: 8px 10px;
+  }
+  .wb-disclaimer {
+    font-size: 9px !important;
+  }
+  .wb-agent {
+    max-width: none;
+    width: 100% !important;
+    min-width: 0;
+    flex: 1;
+  }
+  .wb-agent .wb-messages {
+    padding: 16px;
+  }
+  .wb-resizer {
+    display: none;
+  }
+  .has-document.mobile-会话 .wb-document-column {
+    display: none;
+  }
+  .has-document.mobile-文档 .wb-agent {
+    display: none;
+  }
+  .wb-document-scroll {
+    padding: 10px;
+  }
+  .wb-paper {
+    padding: 24px 20px;
+    min-height: 700px;
+    border-radius: var(--radius-lg);
+  }
+  .wb-paper .tiptap {
+    min-height: 640px;
+  }
+  .wb-tabs {
+    height: 44px;
+    padding: 6px 8px 0;
+  }
+  .wb-document-toolbar {
+    padding: 4px 8px;
+    gap: 4px;
+    min-height: 46px;
+  }
+  .wb-document-toolbar button {
+    font-size: 11px;
+  }
+  .wb-select-pop {
+    left: 12px;
+    top: auto;
+    bottom: 14px;
+    width: calc(100% - 24px);
+    justify-content: space-between;
+    border-radius: var(--radius-lg);
+    padding: 6px;
+  }
+  .wb-select-primary {
+    flex: 1;
+    justify-content: center;
+    min-height: 38px;
+  }
+  .wb-select-menu {
+    top: auto;
+    bottom: calc(100% + 6px);
+  }
+  .wb-review {
+    max-height: 42%;
+    padding: 10px 12px;
+    margin: 0 8px;
+  }
+  .wb-review footer {
+    flex-wrap: wrap;
+  }
+  .wb-review footer a {
+    font-size: 10px;
+  }
+  .wb-doc-status {
+    padding: 6px 14px 8px;
+  }
+  .wb-modal-backdrop {
+    padding: 10px;
+  }
+  .wb-modal {
+    padding: 20px;
+    max-height: 90dvh;
+  }
+  /* 顶到 8px 会被 .wb-mobile-tabs 盖住，连自己的关闭按钮都点不到；让到标签栏下方。 */
+  .wb-banner {
+    top: 60px;
+    max-width: calc(100% - 20px);
+  }
+  .wb-preview-controls {
+    top: 6px;
+    margin: 0 6px 12px;
+    max-width: calc(100% - 12px);
+  }
+  /* 触屏没有 hover：逐行的「管理」按钮必须常显。选择器要与
+     .wb-space-row > button:last-child 同特异性才压得住上面的 opacity:0。
+     旧选择器 .wb-recent-nav/.wb-project-nav/.wb-project-children 在仓库里已无对应 DOM，是死规则。 */
+  .wb-space-row > button:last-child {
+    opacity: 1;
+    min-width: 44px;
+  }
+  /* .wb-space-row > button:first-child 的 min-height:32px 特异性更高，会盖过
+     .wb-app button 的 44px 触摸目标，这里按同特异性补回来。 */
+  .wb-space-row > button:first-child {
+    min-height: 44px;
+  }
+  .wb-message-label button {
+    min-height: 44px;
+  }
+  .wb-notice {
+    font-size: 10px;
+  }
+  .wb-dock-handle,
+  .wb-layout-picker,
+  .wb-dock-targets {
+    display: none !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-app *,
+  .wb-app *::before,
+  .wb-app *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
