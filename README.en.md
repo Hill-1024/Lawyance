@@ -160,7 +160,7 @@ Optional environment variables:
 - `LAWVER_RELEASE_SYNC_ON_STARTUP`: sync GitHub Release on startup, default `1`.
 - `LAWVER_RELEASE_REPO`: GitHub Release source repository, default `Hill-1024/Lawyance`.
 - `LAWVER_RELEASE_DIR`: APK cache directory, default `data/releases/android/`.
-- `LAWVER_PUBLIC_BASE_URL`: public production base URL. Falls back to package.json `appConfig.domain` (currently `https://cn.lawver.dev`).
+- `LAWVER_PUBLIC_BASE_URL`: public production base URL. Falls back to package.json `appConfig.domain` (currently `https://lawver.dev`).
 - `LAWVER_APK_DOWNLOAD_RPM`: per-IP RPM limit for APK downloads, default `6`.
 - `LAWVER_TRUSTED_PROXY_CIDRS`: additional trusted reverse-proxy CIDRs. By default only loopback is trusted; only trusted sources may supply `CF-Connecting-IP` / `X-Forwarded-For` for logs and rate limits.
 - `LAWVER_GITHUB_TOKEN`: read-only token for private repositories or GitHub API rate limits.
@@ -314,15 +314,21 @@ Optional environment variables:
 
 Startup logs report the backend actually in use: `Redis 请求防护：available=... prefix=...` and `会话布隆过滤器预热完成：...`.
 
-## Region Path Routing
+## Deployment Topology: One Machine per Hostname, One Core per Machine
 
-One build can be served under several gateway path prefixes, with the gateway routing `/cn`, `/asean`, and so on to their regional backends (for example `lawver.dev/cn` and `lawver.dev/asean`). The prefix list lives in `package.json` under `appConfig.regions`; the build references assets by relative path, and the runtime prefix comes from the `<base>` injected by the gateway.
+The intro site and the app are two repositories and two processes behind a single domain:
 
-**The gateway must inject `<base href="/cn/">` statically.** Assets are referenced relatively (`./assets/...`) and resolved against `<base>`, which has to be a static tag in the HTML stream. Inserting it from a script at runtime runs after the browser's preload scanner: the scanner resolves `./assets/...` against the prefix directory without its trailing slash (`/cn` becomes `/`), requests `/assets/...`, and those hit the default route — so an `/asean` page loads assets from the `cn` region. See [docs/cloudflare-worker-router.js](docs/cloudflare-worker-router.js) for the working example.
+```
+lawver.dev          → tunnel → domestic machine: core 8080 ─┬─ intro process 8082 (Hill-1024/Lawyance_Intro)
+global.lawver.dev   → tunnel → overseas machine: core 8080 ─┴─ app process 8081 (this repository, FastAPI)
+```
 
-From that prefix the app derives four behaviors with no extra configuration: the router `basename` (so `/cn/settings` matches `/settings`), all API paths (`prefix + /api/...`), the service worker registration and scope, and the PWA manifest paths — each stays inside its own region.
-
-If the gateway injects no `<base>`, the app falls back to `appConfig.regions` so the SPA still renders, but assets go to the default region and the console reports a warning.
+- **Across machines, split by hostname.** `lawver.dev` and `global.lawver.dev` each point at one machine's tunnel entry; both machines run the same layout and differ only in hostname and data sources. The earlier `/cn` / `/asean` path-prefix scheme is retired: a path prefix leaks into the router basename, every API call, the service-worker scope, and the asset base four times over, while a hostname split keeps that decision in DNS.
+- **Within a machine, split by path.** [deploy/router](deploy/router/README.md) is the only entry point and listens on the stable port 8080. Intro paths (`/`, `/design`, `/download`, `/pricing`, `/robots.txt`, `/sitemap.xml`, `/intro-assets/*`) go to the intro process; everything else (`/home`, `/login`, `/settings/*`, `/admin`, `/business`, `/court/*`, `/api/*`) goes to the app process. Restarting or upgrading either side never touches the tunnel configuration.
+- **Ports**: core 8080 (`appConfig.routerPort`), app 8081 (`appConfig.port`), intro 8082 (`appConfig.introPort`). The app binds loopback only and is never exposed directly.
+- **Maintenance fallback**: when one side is down (or `deploy/router/state/<side>.maintenance` exists) the core sends page navigations to `/under_maintenance` — the page says the service is under maintenance and returns to the original path once it recovers — and answers APIs and static assets with `503` JSON plus `Retry-After`. The core serves that page itself, so it still works when both sides are down.
+- **`<base>` and asset paths**: the app still gets `<base href="/">` injected by `backend/routes/spa.py` so deep links resolve their assets; the intro builds with an absolute `base: '/'` and emits into `/intro-assets/*`, so it cannot collide with the app's `/assets/*`.
+- **Health probes**: the app exposes `/api/health` (unauthenticated, no database access, excluded from the access log), the intro exposes `/healthz`, and the core probes both every 5s.
 
 ## Security Notes
 

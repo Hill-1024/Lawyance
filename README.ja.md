@@ -160,7 +160,7 @@ Android の正式リリースは GitHub Actions の `vX.Y.Z` タグ workflow で
 - `LAWVER_RELEASE_SYNC_ON_STARTUP`: 起動時に GitHub Release を同期するか。既定値は `1`
 - `LAWVER_RELEASE_REPO`: GitHub Release の取得元。既定値は `Hill-1024/Lawyance`
 - `LAWVER_RELEASE_DIR`: APK キャッシュディレクトリ。既定値は `data/releases/android/`
-- `LAWVER_PUBLIC_BASE_URL`: 外部公開 URL。既定では package.json の `appConfig.domain`（現在 `https://cn.lawver.dev`）にフォールバック
+- `LAWVER_PUBLIC_BASE_URL`: 外部公開 URL。既定では package.json の `appConfig.domain`（現在 `https://lawver.dev`）にフォールバック
 - `LAWVER_APK_DOWNLOAD_RPM`: APK ダウンロードの単一 IP RPM 制限。既定値は `6`
 - `LAWVER_TRUSTED_PROXY_CIDRS`: 追加で信頼する reverse proxy の CIDR。既定では loopback のみを信頼し、信頼済み送信元からの `CF-Connecting-IP` / `X-Forwarded-For` だけをログとレート制限に使います
 - `LAWVER_GITHUB_TOKEN`: private repository または GitHub API rate limit 用の読み取り専用 token
@@ -312,15 +312,21 @@ Redis を設定すると、レート制限カウンタとセッション用ビ�
 
 起動ログで実際に有効なバックエンドを確認できます: `Redis 请求防护：available=... prefix=...` と `会话布隆过滤器预热完成：...`。
 
-## リージョンパス分流
+## 配備トポロジ：ホスト名ごとに 1 台、マシンごとに 1 コア
 
-同じビルド成果物を複数のパスプレフィックスで配信し、gateway が `/cn`、`/asean` などを各地域のバックエンドへ振り分けます（例: `lawver.dev/cn` と `lawver.dev/asean`）。プレフィックス一覧は `package.json` の `appConfig.regions` にあり、成果物は相対パスでアセットを参照し、実行時のプレフィックスは gateway が注入する `<base>` から決まります。
+紹介ページと機能ページは 2 つのリポジトリ・2 つのプロセスで、1 つのドメインの背後に並びます。
 
-**gateway は `<base href="/cn/">` を静的に注入する必要があります。** アセットは相対参照（`./assets/...`）で `<base>` を基準に解決されるため、`<base>` は HTML ストリーム内の静的なタグでなければなりません。スクリプトで実行時に挿入するとブラウザの preload scanner に間に合わず、末尾スラッシュのないプレフィックスディレクトリ基準で `/assets/...` を先に要求してしまい、それがデフォルトルートに落ちて `/asean` のページが `cn` 地域のアセットを読み込みます。動作する例は [docs/cloudflare-worker-router.js](docs/cloudflare-worker-router.js) を参照してください。
+```
+lawver.dev          → tunnel → 国内マシン: core 8080 ─┬─ 紹介ページ 8082 (Hill-1024/Lawyance_Intro)
+global.lawver.dev   → tunnel → 海外マシン: core 8080 ─┴─ 機能ページ 8081 (本リポジトリ, FastAPI)
+```
 
-このプレフィックスから、アプリは追加設定なしに 4 つの挙動を導出します。ルーターの `basename`（`/cn/settings` が `/settings` にマッチ）、すべての API パス（`プレフィックス + /api/...`）、service worker の登録と scope、PWA manifest のパス。いずれも自分の地域内に留まります。
-
-gateway が `<base>` を注入しない場合、アプリは `appConfig.regions` による判定にフォールバックして SPA は描画されますが、アセットはデフォルト地域へ向かい、コンソールに警告が出ます。
+- **マシン間はホスト名で分流。** `lawver.dev` と `global.lawver.dev` がそれぞれ 1 台の tunnel 入口を指し、両マシンは同じ構成を動かします（違いはホスト名とデータソースだけ）。以前の `/cn`・`/asean` パスプレフィックス方式は廃止しました。プレフィックスはルーターの basename、API パス、service worker の scope、アセットの基準という 4 か所に染み出しますが、ホスト名分流はその判断を DNS 側に置けます。
+- **マシン内はパスで分流。** [deploy/router](deploy/router/README.md) が唯一の入口で、固定ポート 8080 を listen します。紹介ページのパス（`/`、`/design`、`/download`、`/pricing`、`/robots.txt`、`/sitemap.xml`、`/intro-assets/*`）は紹介ページへ、それ以外（`/home`、`/login`、`/settings/*`、`/admin`、`/business`、`/court/*`、`/api/*`）は機能ページへ渡します。どちら side を再起動・更新しても tunnel の設定は触りません。
+- **ポート**: core 8080（`appConfig.routerPort`）、機能ページ 8081（`appConfig.port`）、紹介ページ 8082（`appConfig.introPort`）。機能ページは loopback のみで待ち受け、直接公開しません。
+- **メンテナンス時の受け皿**: どちらかが停止している（または `deploy/router/state/<side>.maintenance` が存在する）とき、コアはページ遷移を `/under_maintenance` へ送り（「メンテナンス中／まもなく戻ります」、復旧すると元のパスへ自動で戻ります）、API と静的アセットには `503` JSON + `Retry-After` を返します。このページはコア自身が返すので、両 side が落ちていても開けます。
+- **`<base>` とアセットパス**: 機能ページには `backend/routes/spa.py` が `<base href="/">` を注入し、深いリンクでもアセットが解決できるようにします。紹介ページは絶対 `base: '/'` でビルドし `/intro-assets/*` に出力するため、機能ページの `/assets/*` と衝突しません。
+- **ヘルスチェック**: 機能ページは `/api/health`（認証不要・DB 非接触・アクセスログ対象外）、紹介ページは `/healthz` を公開し、コアが 5 秒ごとに確認します。
 
 ## セキュリティメモ
 
