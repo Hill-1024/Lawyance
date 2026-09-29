@@ -11,14 +11,12 @@
   "appConfig": {
     "environment": "Web/Vite",
     "projectUrl": "https://github.com/Hill-1024/Lawyance",
-    "domain": "cn.lawver.dev",
+    "domain": "lawver.dev",
     "nativeApiBase": "https://cn-origin.lawver.dev",
-    "port": 8080,
+    "port": 8081,
     "devPort": 5173,
-    "regions": [
-      "cn",
-      "asean"
-    ]
+    "routerPort": 8080,
+    "introPort": 8082
   },
   "scripts": {
     "dev": "python agent.py",
@@ -39,7 +37,6 @@
     "test:stream-run-guards": "tsx scripts/test-stream-run-guards.ts",
     "test:app-back": "tsx scripts/test-app-back.ts",
     "test:attachment-prompt": "tsx scripts/test-attachment-prompt.ts",
-    "test:message-attachments": "tsx scripts/test-message-attachments.tsx",
     "test:composer-autosize": "tsx scripts/test-composer-autosize.ts",
     "start": "python agent.py"
   },
@@ -54,7 +51,6 @@
     "@capacitor/splash-screen": "8.0.1",
     "@capacitor/status-bar": "8.0.2",
     "@material/material-color-utilities": "0.4.0",
-    "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.14",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-highlight": "^3.31.3",
@@ -69,17 +65,13 @@
     "@vitejs/plugin-react": "^6.0.3",
     "android-dynamic-color": "github:Hill-1024/Monet-Color-For-Capacitor#15fa13f9ca08ce36e3c111d5241a2e95f880f27d",
     "docx-preview": "^0.4.1",
-    "dompurify": "^3.4.11",
     "lucide-react": "^0.546.0",
-    "mermaid": "^11.13.0",
     "motion": "^12.38.0",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.15.1",
-    "rehype-raw": "^7.0.0",
-    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {

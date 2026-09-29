@@ -12,14 +12,19 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from starlette.concurrency import run_in_threadpool
 
 from auth import (
+    ROLE_SUDO,
     delete_account,
+    get_user_record,
+    get_user_role,
     list_accounts,
     list_sessions,
     revoke_session,
     set_account_limits,
+    set_account_status,
     upsert_account,
 )
-from schemas import AccountLimitsRequest, AccountRequest
+from billing import pricing
+from schemas import AccountLimitsRequest, AccountRequest, AccountStatusRequest
 from services.app_security import clear_usage_logs, get_usage_log_path
 from services.auth_dependencies import require_staff, require_sudo
 
@@ -70,7 +75,20 @@ async def clear_admin_logs(admin_user: str = Depends(require_sudo)):
 
 @router.get("/api/admin/accounts")
 async def get_admin_accounts(admin_user: str = Depends(require_staff)):
+    from infra import throttle
+
     accounts = await run_in_threadpool(list_accounts, admin_user)
+    # 谁正被登录锁定：列表里直接给出剩余秒数，管理员才知道该解锁谁。
+    locks = await run_in_threadpool(
+        throttle.locked_map, [account["username"] for account in accounts]
+    )
+    for account in accounts:
+        # micro-credit 只留在库内；控制台看到的是 credits 余额。
+        account["credits"] = pricing.as_credits(account.pop("credits_balance", 0) or 0)
+        account["plan"] = account.get("plan") or "metered"
+        account["billing_cycle"] = account.get("billing_cycle") or "prepaid"
+        account["status"] = account.get("status") or "active"
+        account["locked_seconds"] = locks.get(account["username"], 0)
     return {"status": "success", "accounts": accounts}
 
 
@@ -85,6 +103,46 @@ async def set_admin_accounts(req: AccountRequest, admin_user: str = Depends(requ
         req.max_online,
         req.max_users,
         req.user_max_online,
+        req.plan,
+        req.billing_cycle,
+        req.credit_multiplier,
+        req.initial_credits,
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"status": "success", "message": msg}
+
+
+@router.post("/api/admin/accounts/{username}/unlock")
+async def unlock_admin_account(
+    username: str = Path(min_length=1, max_length=128),
+    admin_user: str = Depends(require_staff),
+):
+    """立刻解除某个账号的登录锁定（账号桶 + 它名下全部来源桶）。
+
+    用户自己连着输错密码被锁两小时是常见误操作，线上不该只能干等。
+    管理员只能解锁自己有权限管理的账号。
+    """
+    from infra import throttle
+
+    # 权限与「停用/启用」一致：staff 管自己名下的账号，sudo 不限。
+    if get_user_role(admin_user) != ROLE_SUDO:
+        target = get_user_record(username)
+        if not target or target.get("owner") != admin_user:
+            raise HTTPException(403, "只能管理自己创建的账号")
+    cleared = await run_in_threadpool(throttle.unlock, username)
+    return {"status": "success", "message": f"已解除锁定（清理 {cleared} 个节流桶）"}
+
+
+@router.patch("/api/admin/accounts/{username}/status")
+async def patch_admin_account_status(
+    req: AccountStatusRequest,
+    username: str = Path(min_length=1, max_length=128),
+    admin_user: str = Depends(require_staff),
+):
+    """停用/启用账号；停用会立即撤销该账号的全部会话。"""
+    success, msg = await run_in_threadpool(
+        set_account_status, admin_user, username, req.status
     )
     if not success:
         raise HTTPException(status_code=400, detail=msg)
@@ -138,3 +196,16 @@ async def delete_admin_session(
     if not success:
         raise HTTPException(status_code=400, detail=msg)
     return {"status": "success", "message": msg}
+
+
+@router.get("/api/admin/throttle")
+def admin_throttle(admin_user: str = Depends(require_staff)):
+    """当前仍在生效的登录节流桶。
+
+    「谁正被限流、还剩多久」是运维在做抗爆破时必须看得见的信息——
+    否则只能看到一个账号突然登不上，却不知道是锁定还是故障。
+    键是摘要，接口不外泄原始用户名或来源。
+    """
+    from infra import throttle
+
+    return {"status": "success", "buckets": throttle.snapshot(limit=100)}

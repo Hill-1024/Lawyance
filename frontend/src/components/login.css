@@ -1,0 +1,264 @@
+/* 登录页：与工作台同一套 island 语言——暖画布 + 一张卡片 + 品牌组合字标 + 令牌化控件。
+   全部取自全局令牌，随主题（含深色）自动切换；这里不写任何硬编码颜色。
+
+   尺寸刻意对齐工作台的控件网格：控件 32px 高、圆角 --radius-sm、间距走 8px 节奏。
+   之前的 42/44px 控件配大间距是上一代的尺度，摆在工作台旁边会像是另一个产品。 */
+
+.lg-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 40px 20px calc(40px + env(safe-area-inset-bottom));
+  background: var(--bg-app);
+  transition: background-color 300ms var(--ease-standard);
+}
+
+.lg-sheet {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 26px 24px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+}
+
+.lg-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lg-title {
+  font: 600 22px/1.4 var(--font-serif);
+  letter-spacing: -0.01em;
+  color: var(--fg-1);
+  text-wrap: balance;
+}
+
+.lg-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.lg-label {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.lg-input {
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-inset);
+  /* 底色 + 发丝线：静止态的字段边界也能看清（对比度实测见 docs） */
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--fg-1);
+  font: 14px/1.5 var(--font-sans);
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.lg-input::placeholder {
+  /* 占位文字用 --fg-2：--fg-3 在浅色下对输入框底色只有 4.2:1，低于 AA。 */
+  color: var(--fg-2);
+}
+
+.lg-input:hover:not(:disabled) {
+  border-color: var(--border-default);
+}
+
+.lg-input:focus {
+  outline: 0;
+  border-color: var(--accent);
+  background: var(--bg-surface);
+  box-shadow: 0 0 0 3px var(--accent-quiet);
+}
+
+.lg-input:disabled {
+  opacity: 0.6;
+}
+
+.lg-submit {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-on);
+  font: 500 14px/1 var(--font-sans);
+  cursor: pointer;
+  transition:
+    filter var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.lg-submit:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.lg-submit:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.lg-submit:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.lg-spin {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent-on) 38%, transparent);
+  border-top-color: var(--accent-on);
+  animation: lg-rotate 0.7s linear infinite;
+}
+
+@keyframes lg-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.lg-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-danger-500) 10%, transparent);
+  color: var(--color-danger-500);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.lg-alert > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.lg-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-default);
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.lg-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  margin-left: auto;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: var(--fg-3);
+  text-decoration: none;
+  transition:
+    color var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard);
+}
+
+.lg-link:hover {
+  color: var(--fg-1);
+  background: var(--bg-inset);
+}
+
+/* 通过 IP 直连时的安全提示：登录页的一部分，用同一套令牌与圆角。 */
+.lg-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 400px;
+  width: 100%;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--color-warning-500) 12%, var(--bg-surface));
+  border: 1px solid color-mix(in srgb, var(--color-warning-500) 32%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.lg-notice-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-1);
+}
+
+.lg-notice-body > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-warning-500);
+}
+
+.lg-notice-strong {
+  font-weight: 500;
+}
+
+.lg-notice-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: flex-start;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-500);
+  /* 强底上的文字沿用「强调色上的文字」令牌，不引硬编码白色 */
+  color: var(--accent-on);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: filter var(--dur-fast) var(--ease-standard);
+}
+
+.lg-notice-action:hover {
+  filter: brightness(0.95);
+}
+
+@media (min-width: 640px) {
+  .lg-notice {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .lg-notice-action {
+    align-self: center;
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 1023px) {
+  .lg-page {
+    justify-content: flex-start;
+    padding-top: max(40px, env(safe-area-inset-top));
+  }
+  .lg-sheet {
+    padding: 26px 22px 20px;
+  }
+}

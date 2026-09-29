@@ -1,5 +1,8 @@
 /*
- * 模块描述：应用设置页，集中管理外观、配色、数据同步、能力配置与帮助入口。
+ * 模块描述：应用设置页，集中管理外观、技能与插件、操作快捷键、帮助与关于。
+ *
+ * 模型、服务连接与数据同步属于运维配置，已迁到后台控制台；
+ * 服务连接子页（ProviderSubPage）与相关常量仍从这里导出，供后台「服务配置」复用。
  */
 
 import { motion, useReducedMotion } from 'motion/react';
@@ -8,21 +11,18 @@ import {
   X,
   Search,
   Info,
-  ArrowLeft,
   BookOpen,
+  Building2,
   Check,
-  ChevronDown,
   ChevronRight,
   CirclePlay,
   Clock3,
-  Cloud,
-  CloudDownload,
-  CloudUpload,
   ExternalLink,
   Folder,
   Gavel,
   Globe,
   KeyRound,
+  Keyboard,
   Link2,
   Loader2,
   MessageSquareText,
@@ -30,13 +30,10 @@ import {
   Moon,
   PackageCheck,
   Palette,
-  PanelLeftOpen,
   Paperclip,
   PlugZap,
   RotateCcw,
-  Send,
   Server,
-  Settings,
   Settings2,
   Smartphone,
   Sparkles,
@@ -47,21 +44,19 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
 import { useThemeContext, type ColorSource, type ThemeMode } from '../contexts/ThemeContext';
 import { BUILD_INFO } from '../lib/buildInfo';
-import { HoverInfo } from './HoverInfo';
 import { BrandMark } from './Brand';
 import { useAppDialog } from '../contexts/DialogContext';
-import { getWebDavConfig, setWebDavConfig, emptyWebDavConfig, type WebDavConfig } from '../lib/webdav-storage';
-import { webdavService, type WebDavFileInfo } from '../services/webdavService';
-import { buildBackupSnapshot, restoreBackupSnapshot } from '../services/storageService';
 import { AnimatedSwitch } from './AnimatedSwitch';
-import { getResumeEnabled, notifyResumeEnabledChanged, setResumeEnabled } from '../lib/resume-prefs';
 import { requestGuidedTour } from '../lib/guided-tour';
+import { getBinding, matchKeys, SHORTCUT_IDS } from '../lib/shortcuts';
 import { useBackButton } from '../hooks/useBackButton';
 import { SettingsEditContext, useSettingsEdit } from './settings/SettingsEditContext';
 import './settings/settings-modal.css';
 import { SettingsExtensions } from './settings/SettingsExtensions';
+import { SettingsShortcuts, ShortcutCheatSheet } from './settings/SettingsShortcuts';
 import {
   clearSecret,
+  fetchMyCredits,
   getProviderStatus,
   getSettings,
   setSecret,
@@ -70,7 +65,6 @@ import {
   verifyAuth,
   type ProviderStatus,
 } from '../services/api';
-import { LlmProfileManager } from './settings/LlmProfileManager';
 import {
   Banner,
   CenteredSpinner,
@@ -110,344 +104,9 @@ const COLOR_SOURCE_LABEL: Record<ColorSource, string> = {
 
 const isHexColor = (value: string) => /^#[0-9a-f]{6}$/i.test(value);
 
-/* ── WebDAV 同步 ───────────────────────────────────────────────────────── */
-
-type WebDavSyncState = 'idle' | 'testing' | 'uploading' | 'listing' | 'restoring' | 'deleting';
-
-const getWebDavHostLabel = (cfg: WebDavConfig) => {
-  if (!cfg.url) return '未配置';
-  try {
-    return new URL(cfg.url).host || cfg.url;
-  } catch {
-    return cfg.url;
-  }
-};
-
-const WebDavSection: React.FC = () => {
-  const reportEdit = useSettingsEdit();
-  const [saveStatus, setSaveStatus] = useState('');
-  const saveQueue = useRef(Promise.resolve());
-  const saveSequence = useRef(0);
-  useEffect(() => {reportEdit('webdav', saveStatus === '正在保存…' || saveStatus.startsWith('保存失败'));}, [saveStatus, reportEdit]);
-  const { showAlert, showConfirm } = useAppDialog();
-  const [cfg, setCfg] = useState<WebDavConfig>(emptyWebDavConfig);
-  // saveConfig 逐字段写入时需要读到最新配置，避免用旧快照覆盖刚输入的字段。
-  // 在 effect 里同步而非渲染期赋值：并发渲染下渲染期写 ref 可能来自被丢弃的那次渲染。
-  const cfgRef = useRef(cfg);
-  useEffect(() => {
-    cfgRef.current = cfg;
-  }, [cfg]);
-  const [syncState, setSyncState] = useState<WebDavSyncState>('idle');
-  const [activeFilename, setActiveFilename] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [backups, setBackups] = useState<WebDavFileInfo[] | null>(null);
-  const [showBackupList, setShowBackupList] = useState(false);
-  const busy = syncState !== 'idle';
-  const listRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    getWebDavConfig().then(saved => { if (saved) setCfg(saved); });
-  }, []);
-
-  const saveConfig = async (patch: Partial<WebDavConfig>) => {
-    // 以 ref 为准做合并：表单逐字符保存，用渲染期快照会让连续输入互相覆盖。
-    const next = { ...cfgRef.current, ...patch };
-    cfgRef.current = next;
-    setCfg(next);
-    const sequence = ++saveSequence.current;
-    setSaveStatus('正在保存…');
-    saveQueue.current = saveQueue.current.catch(() => {}).then(async () => {
-      try {await setWebDavConfig(next); if(sequence === saveSequence.current) setSaveStatus('已自动保存');}
-      catch {if(sequence === saveSequence.current) setSaveStatus('保存失败，请重新修改后重试');}
-    });
-    await saveQueue.current;
-  };
-
-  const handleTest = async () => {
-    if (!cfg.url || !cfg.username) {
-      await showAlert({ title: '请填写 URL 和用户名', message: '连接测试需要至少填写服务器 URL 和用户名。', tone: 'warning' });
-      return;
-    }
-    setSyncState('testing');
-    try {
-      const result = await webdavService.testConnection(cfg);
-      await showAlert({
-        title: '连接成功',
-        message: result.created_directory
-          ? `已自动创建目录 ${cfg.directory}，可以开始备份。`
-          : `目录 ${cfg.directory} 已存在，连接正常。`,
-        tone: 'success',
-      });
-    } catch (e) {
-      await showAlert({ title: '连接失败', message: (e as Error).message, tone: 'danger' });
-    } finally {
-      setSyncState('idle');
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!cfg.url || !cfg.username) {
-      await showAlert({ title: '请先配置 WebDAV', message: '填写服务器 URL 和账号后再备份。', tone: 'warning' });
-      return;
-    }
-    setSyncState('uploading');
-    try {
-      const snapshot = await buildBackupSnapshot();
-      const filename = webdavService.generateFilename();
-      await webdavService.uploadBackup(cfg, filename, snapshot);
-      await showAlert({ title: '备份成功', message: `已上传 ${filename} 到 ${cfg.directory}。`, tone: 'success' });
-      setBackups(null);
-    } catch (e) {
-      await showAlert({ title: '备份失败', message: (e as Error).message, tone: 'danger' });
-    } finally {
-      setSyncState('idle');
-    }
-  };
-
-  const handleListBackups = async () => {
-    if (!cfg.url || !cfg.username) {
-      await showAlert({ title: '请先配置 WebDAV', message: '填写服务器 URL 和账号后再查看备份列表。', tone: 'warning' });
-      return;
-    }
-    setSyncState('listing');
-    try {
-      const files = await webdavService.listBackups(cfg);
-      setBackups(files);
-      setShowBackupList(true);
-      setTimeout(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
-    } catch (e) {
-      await showAlert({ title: '列举失败', message: (e as Error).message, tone: 'danger' });
-    } finally {
-      setSyncState('idle');
-    }
-  };
-
-  const handleRestore = async (filename: string) => {
-    const confirmed = await showConfirm({
-      title: '确认恢复？',
-      tone: 'danger',
-      message: '镜像恢复会用该备份覆盖本机的全部对话与模拟法庭记录；本地比备份多出来的会话会被删除。建议先「立即备份」当前数据。确定继续？',
-      confirmLabel: '覆盖并恢复',
-      cancelLabel: '取消',
-    });
-    if (!confirmed) return;
-    setActiveFilename(filename);
-    setSyncState('restoring');
-    try {
-      const raw = await webdavService.downloadBackup(cfg, filename);
-      const count = await restoreBackupSnapshot(raw);
-      setShowBackupList(false);
-      await showAlert({
-        title: '恢复成功',
-        message: `已从 ${filename} 镜像恢复，本机现有 ${count} 条记录，列表已自动刷新。`,
-        tone: 'success',
-      });
-    } catch (e) {
-      await showAlert({ title: '恢复失败', message: (e as Error).message, tone: 'danger' });
-    } finally {
-      setSyncState('idle');
-      setActiveFilename(null);
-    }
-  };
-
-  const handleDelete = async (filename: string) => {
-    setActiveFilename(filename);
-    setSyncState('deleting');
-    try {
-      await webdavService.deleteBackup(cfg, filename);
-      setBackups(prev => prev ? prev.filter(f => f.filename !== filename) : prev);
-    } catch (e) {
-      await showAlert({ title: '删除失败', message: (e as Error).message, tone: 'danger' });
-    } finally {
-      setSyncState('idle');
-      setActiveFilename(null);
-    }
-  };
-
-  return (
-    <div className="flex min-w-0 flex-col gap-5">
-      {saveStatus && <p role="status" className="settings-hint">{saveStatus}</p>}
-      <SettingsGroup label="连接信息">
-        <div className="flex min-w-0 flex-col gap-4 p-4 sm:p-5">
-          <SettingsField label="服务器 URL">
-            <input
-              className={fieldInputClass}
-              placeholder="https://dav.example.com/dav/"
-              value={cfg.url}
-              onChange={e => saveConfig({ url: e.target.value })}
-              disabled={busy}
-              autoComplete="url"
-            />
-          </SettingsField>
-          <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-            <SettingsField label="用户名">
-              <input
-                className={fieldInputClass}
-                placeholder="username"
-                value={cfg.username}
-                onChange={e => saveConfig({ username: e.target.value })}
-                disabled={busy}
-                autoComplete="username"
-              />
-            </SettingsField>
-            <SettingsField label="密码">
-              <div className="relative">
-                <input
-                  className={`${fieldInputClass} pr-16`}
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="password"
-                  value={cfg.password}
-                  onChange={e => saveConfig({ password: e.target.value })}
-                  disabled={busy}
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(p => !p)}
-                  className="lawver-pressable absolute right-1 top-1/2 inline-flex h-11 min-w-11 -translate-y-1/2 items-center justify-center rounded-[var(--radius-sm)] px-2 text-[11px] text-[var(--fg-3)] transition-colors hover:text-[var(--fg-1)]"
-                >
-                  {showPassword ? '隐藏' : '显示'}
-                </button>
-              </div>
-            </SettingsField>
-          </div>
-          <SettingsField label="备份目录（远端路径）">
-            <input
-              className={fieldInputClass}
-              placeholder="/Lawver/"
-              value={cfg.directory}
-              onChange={e => saveConfig({ directory: e.target.value })}
-              disabled={busy}
-            />
-          </SettingsField>
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup label="备份与恢复">
-        <div className="flex min-w-0 flex-col gap-3 p-4 sm:p-5">
-          <div className="flex min-w-0 flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={handleTest}
-              disabled={busy}
-              className="md3-btn-tonal lawver-pressable !min-h-11 text-sm disabled:opacity-50"
-            >
-              {syncState === 'testing' ? <Loader2 size={15} className="animate-spin" /> : <Server size={15} strokeWidth={2} />}
-              测试连接
-            </button>
-            <button
-              type="button"
-              onClick={handleUpload}
-              disabled={busy}
-              className="md3-btn-filled lawver-pressable !min-h-11 text-sm disabled:opacity-50"
-            >
-              {syncState === 'uploading' ? <Loader2 size={15} className="animate-spin" /> : <CloudUpload size={15} strokeWidth={2} />}
-              立即备份
-            </button>
-            <button
-              type="button"
-              onClick={handleListBackups}
-              disabled={busy}
-              className="md3-btn-tonal lawver-pressable !min-h-11 text-sm disabled:opacity-50"
-            >
-              {syncState === 'listing' ? <Loader2 size={15} className="animate-spin" /> : <CloudDownload size={15} strokeWidth={2} />}
-              从云端恢复
-              <ChevronDown size={15} strokeWidth={2} className={`transition-transform ${showBackupList ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-
-          <Banner tone="warning">
-            备份文件以<strong>明文 JSON</strong>上传，对话内容对你的 WebDAV 服务商可见。请确保使用 HTTPS 且账号安全。
-            密码仅存在本设备，不经过 Lawver 服务器保留。
-          </Banner>
-
-          {showBackupList && backups !== null && (
-            <div
-              ref={listRef}
-              className="min-w-0 overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)]"
-            >
-              {backups.length === 0 ? (
-                <p className="p-5 text-center text-[13px] text-[var(--fg-3)]">目录下暂无备份文件。</p>
-              ) : (
-                <ul className="divide-y divide-[var(--border-subtle)]">
-                  {backups.map(file => (
-                    <li key={file.filename} className="flex min-w-0 items-center justify-between gap-2 px-3 py-3 sm:px-4">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-mono text-[13px] font-medium text-[var(--fg-1)]">{file.filename}</p>
-                        <p className="text-[11px] tabular-nums text-[var(--fg-3)]">
-                          {file.last_modified ? new Date(file.last_modified).toLocaleString('zh-CN') : '—'}
-                          {file.size > 0 && <span className="ml-2">{(file.size / 1024).toFixed(1)} KB</span>}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handleRestore(file.filename)}
-                          disabled={busy}
-                          className="md3-btn-tonal lawver-pressable !min-h-11 !px-3 text-[12px] disabled:opacity-50"
-                        >
-                          {syncState === 'restoring' && activeFilename === file.filename ? (
-                            <Loader2 size={13} className="animate-spin" />
-                          ) : (
-                            <CloudDownload size={13} strokeWidth={2} />
-                          )}
-                          恢复
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(file.filename)}
-                          disabled={busy}
-                          className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] disabled:opacity-50"
-                          title="删除此快照"
-                          aria-label={`删除备份 ${file.filename}`}
-                        >
-                          {syncState === 'deleting' && activeFilename === file.filename ? (
-                            <Loader2 size={15} className="animate-spin text-[var(--color-danger-500)]" />
-                          ) : (
-                            <Trash2 size={15} strokeWidth={2} />
-                          )}
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      </SettingsGroup>
-    </div>
-  );
-};
-
-const WebDavEntry: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
-  const [cfg, setCfg] = useState<WebDavConfig>(emptyWebDavConfig);
-
-  useEffect(() => {
-    getWebDavConfig().then(saved => { if (saved) setCfg(saved); });
-  }, []);
-
-  const configured = Boolean(cfg.url && cfg.username);
-
-  return (
-    <SettingsRow
-      icon={<Cloud size={20} strokeWidth={2} />}
-      title={
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate">WebDAV 数据同步</span>
-          <StatusChip tone={configured ? 'ok' : 'muted'}>{configured ? '已配置' : '未配置'}</StatusChip>
-        </span>
-      }
-      description={configured ? `${getWebDavHostLabel(cfg)} · ${cfg.directory || '/Lawver/'}` : '备份到自己的 WebDAV 云盘'}
-      trailing={<ChevronRight size={18} strokeWidth={2} className="text-[var(--fg-4)]" />}
-      onClick={onOpen}
-    />
-  );
-};
-
 /* ── 非 LLM provider 配置 ──────────────────────────────────────────────── */
 
-const PROVIDER_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
+export const PROVIDER_ICONS: Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>> = {
   llm: Sparkles,
   deli: Gavel,
   searxng: Globe,
@@ -455,7 +114,7 @@ const PROVIDER_ICONS: Record<string, React.ComponentType<{ size?: number; stroke
   embedding: Link2,
 };
 
-const PROVIDER_LABELS: Record<string, string> = {
+export const PROVIDER_LABELS: Record<string, string> = {
   llm: '大模型 (LLM)',
   deli: '得理法搜',
   searxng: '网页检索 (SearXNG)',
@@ -463,7 +122,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   embedding: '嵌入模型 (Embedding)',
 };
 
-const PROVIDER_DESCS: Record<string, string> = {
+export const PROVIDER_DESCS: Record<string, string> = {
   llm: 'OpenAI 兼容聊天模型，主聊天、标题生成和代理流程都通过这里。',
   deli: '案例检索和类案匹配。',
   searxng: '自托管联网检索。',
@@ -509,9 +168,10 @@ const PROVIDER_SECRETS: Record<string, { key: string; label: string; placeholder
   embedding: [{ key: 'api_key', label: 'API Key' }],
 };
 
-const PROVIDER_ORDER = ['deli', 'searxng', 'qcc', 'embedding'];
+export const PROVIDER_ORDER = ['deli', 'searxng', 'qcc', 'embedding'];
 
-const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => {
+/** 服务连接子页：设置页与后台「服务配置」共用；由父级决定返回与布局。 */
+export const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey }) => {
   const { showAlert, showConfirm } = useAppDialog();
   const reportEdit = useSettingsEdit();
   const [feedback, setFeedback] = useState('');
@@ -790,25 +450,6 @@ const HELP_TOPICS: Array<{
       title: '输入区设置',
       description: '切换流式输出、OCP 检查流程和 Agent Mode，适配不同回答风格。',
     },
-    {
-      icon: Cloud,
-      title: '数据同步',
-      description: '在 WebDAV 二级页配置自己的云端备份，恢复前建议先保留当前快照。',
-    },
-  ];
-
-const QUICK_ACTIONS: Array<{
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
-  label: string;
-  hint: string;
-}> = [
-    { icon: PanelLeftOpen, label: '菜单', hint: '展开会话侧栏' },
-    { icon: Send, label: '发送', hint: '提交问题或停止生成' },
-    { icon: Paperclip, label: '上传', hint: '添加案件材料' },
-    { icon: Sparkles, label: '图片', hint: '上传图片让模型识图' },
-    { icon: Folder, label: 'Workspace', hint: '管理文件' },
-    { icon: Settings, label: '设置', hint: '外观、同步与帮助' },
-    { icon: CirclePlay, label: '重播', hint: '再次打开动态导览' },
   ];
 
 const HelpSection: React.FC<{ onStartTour: () => void }> = ({ onStartTour }) => (
@@ -846,26 +487,13 @@ const HelpSection: React.FC<{ onStartTour: () => void }> = ({ onStartTour }) => 
       })}
     </SettingsGroup>
 
-    <SettingsGroup label="常用按钮速查">
-      {QUICK_ACTIONS.map(action => {
-        const Icon = action.icon;
-        return (
-          <SettingsRow
-            key={action.label}
-            dense
-            icon={<Icon size={17} strokeWidth={2} />}
-            title={action.label}
-            description={action.hint}
-          />
-        );
-      })}
-    </SettingsGroup>
+    <ShortcutCheatSheet />
   </div>
 );
 
 /* ── 关于 ──────────────────────────────────────────────────────────────── */
 
-const AboutSection: React.FC = () => (
+const AboutSection: React.FC<{ onOpenBusiness?: () => void }> = ({ onOpenBusiness }) => (
   <SettingsGroup label="关于">
     <SettingsRow
       icon={<BrandMark className="h-5 w-5 [--brand-logo-ink:var(--accent)]" />}
@@ -891,6 +519,16 @@ const AboutSection: React.FC = () => (
         </a>
       }
     />
+    {/* Business 母账号才有的出口：侧栏之外，设置里也能进控制台。 */}
+    {onOpenBusiness && (
+      <SettingsRow
+        icon={<Building2 size={17} strokeWidth={2} />}
+        title="Business 控制台"
+        description="管理子账号预算、余额与近 30 天用量"
+        trailing={<ChevronRight size={17} strokeWidth={2} className="text-[var(--fg-4)]" />}
+        onClick={onOpenBusiness}
+      />
+    )}
   </SettingsGroup>
 );
 
@@ -1115,32 +753,41 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
   const closeButton = useRef<HTMLButtonElement>(null);
   const closing = useRef(false);
   const [query, setQuery] = useState('');
-  const [role, setRole] = useState('user');
-  const [resumeEnabled, setResumeEnabledState] = useState(false);
-  const [resumeBusy, setResumeBusy] = useState(false);
+  const [plan, setPlan] = useState('');
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const reportEdit = useCallback((key: string, value: boolean) => setDirty(old => old[key] === value ? old : {...old, [key]:value}), []);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
-  const path = location.pathname.replace(/\/+$/, '');
-  const provider = path.match(/^\/settings\/providers\/(.+)$/)?.[1];
-  const category = provider === 'llm' ? 'models' : provider ? 'providers' : path === '/settings/webdav' ? 'data' : path.split('/')[2] || 'appearance';
-  const pane = provider && provider !== 'llm' ? `provider:${provider}` : path === '/settings/webdav' ? 'webdav' : category;
   const reduceMotion = useReducedMotion();
-  const [visited, setVisited] = useState<string[]>([pane]);
-  useEffect(() => {setVisited(old => old.includes(pane) ? old : [...old, pane]);}, [pane]);
-  const categories = [
+  const categories = useMemo(() => [
     {id:'appearance', label:'外观', icon:Palette, hint:'主题、配色与显示'},
-    ...(role === 'sudo' ? [{id:'models', label:'模型', icon:Sparkles, hint:'模型档案、API 与切换'}, {id:'providers', label:'服务连接', icon:PlugZap, hint:'法律检索、企业信息与嵌入'}] : []),
     {id:'extensions', label:'技能与插件', icon:PlugZap, hint:'技能指令与 MCP 插件'},
-    {id:'data', label:'数据', icon:Cloud, hint:'备份、恢复与断线续传'},
+    {id:'shortcuts', label:'操作快捷键', icon:Keyboard, hint:'按键绑定与恢复默认'},
     {id:'help', label:'帮助', icon:BookOpen, hint:'功能说明与使用指引'},
     {id:'about', label:'关于', icon:Info, hint:'版本与项目地址'},
-  ];
+  ], []);
+  // 旧分类（模型 / 服务连接 / 数据同步）已迁到后台控制台：深链一并落到外观，
+  // 不做「未找到」的空面板，避免用户停在空白页。
+  const LEGACY_PANES: Record<string, string> = {models:'appearance', providers:'appearance', data:'appearance', sync:'appearance', webdav:'appearance'};
+  const path = location.pathname.replace(/\/+$/, '');
+  const requestedPane = path.split('/')[2] || 'appearance';
+  const category = categories.some(c => c.id === requestedPane) ? requestedPane : (LEGACY_PANES[requestedPane] || 'appearance');
+  const pane = category;
+  const [visited, setVisited] = useState<string[]>([pane]);
+  useEffect(() => {setVisited(old => old.includes(pane) ? old : [...old, pane]);}, [pane]);
+  // 把 /settings/webdav、/settings/providers/* 之类的旧地址换成规范路径；
+  // 裸 /settings 保持原样，交给分类默认值（外观）渲染。
+  // 离场动画期间组件仍在挂载、location 已指向别处（如从设置里跳 Business 控制台），
+  // 此时必须放手，否则会把刚跳出去的地址又改回 /settings/appearance。
+  useEffect(() => {
+    if (!path.startsWith('/settings')) return;
+    const canonical = `/settings/${category}`;
+    if (path !== canonical && path !== '/settings') navigate(canonical, {replace:true});
+  }, [path, category, navigate]);
   const active = categories.find(c => c.id === category) || categories[0];
   useEffect(() => {
     dialog.current?.querySelector('[aria-current="page"]')?.scrollIntoView({block:'nearest', inline:'nearest'});
-  }, [category, role]);
+  }, [category]);
   const close = useCallback(async () => {
     if(closing.current) return false;
     closing.current = true;
@@ -1162,7 +809,7 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
     const keydown = (e: KeyboardEvent) => {
       // Existing confirmation dialogs own focus and Escape while they are open.
       if(document.querySelector('[role="alertdialog"]') || document.querySelector('[role="dialog"]:not(.settings-dialog)')) return;
-      if(e.key === 'Escape') {e.preventDefault(); void closeRef.current();}
+      if(matchKeys(e, getBinding(SHORTCUT_IDS.overlayClose))) {e.preventDefault(); void closeRef.current();}
       if(e.key === 'Tab' && dialog.current) {
         const items = Array.from(dialog.current.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')).filter(el => el.getClientRects().length > 0);
         const first=items[0], last=items[items.length-1];
@@ -1173,27 +820,24 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
     document.addEventListener('keydown', keydown);
     return () => {document.removeEventListener('keydown', keydown); window.removeEventListener('beforeunload', beforeUnload); if(root) root.inert=false; previous?.focus();};
   }, []);
+  // 只有 Business 套餐才显示控制台入口；读取失败按普通账号处理，不打断设置页。
   useEffect(() => {
-    getResumeEnabled().then(setResumeEnabledState).catch(() => {});
-    verifyAuth().then(auth => setRole(auth?.role || 'user')).catch(() => {});
+    let cancelled = false;
+    fetchMyCredits()
+      .then(data => {if(!cancelled) setPlan(data.plan || '');})
+      .catch(() => undefined);
+    return () => {cancelled = true;};
   }, []);
-  const select = (id: string) => {setQuery(''); navigate(id === 'models' ? '/settings/providers/llm' : `/settings/${id}`, {replace:true});};
-  const setResume = async (enabled: boolean) => {
-    setResumeBusy(true);
-    try {await setResumeEnabled(enabled); setResumeEnabledState(enabled); notifyResumeEnabledChanged(enabled);}
-    catch(e) {void showAlert({title:'保存失败',message:(e as Error).message,tone:'danger'});}
-    finally {setResumeBusy(false);}
-  };
+  const openBusiness = useCallback(() => {
+    void closeRef.current().then(closed => {if(closed) navigate('/business');});
+  }, [navigate]);
+  const select = (id: string) => {setQuery(''); navigate(`/settings/${id}`, {replace:true});};
   const renderPane = (key: string) => {
     if(key === 'extensions') return <SettingsExtensions/>;
     if(key === 'appearance') return <><p className="settings-hint">外观调整即时生效，并保存在当前设备。</p><AppearanceCard {...theme} /></>;
-    if(key === 'models') return role === 'sudo' ? <><p className="settings-hint">保存模型档案后，可选择何时切换使用。服务端配置会影响使用该服务的账号。</p><LlmProfileManager /></> : <Banner>此配置由服务管理员管理。</Banner>;
-    if(key.startsWith('provider:')) return <><button className="settings-back" onClick={() => select('providers')}><ArrowLeft size={16}/>全部服务</button><ProviderSubPage providerKey={key.slice(9)} /></>;
-    if(key === 'providers') return <><p className="settings-hint">管理法律与检索服务。配置、凭据保存与连接测试分别操作。</p><SettingsGroup>{PROVIDER_ORDER.map(id => {const Icon=PROVIDER_ICONS[id] || Server; return <SettingsRow key={id} icon={<Icon size={18}/>} title={PROVIDER_LABELS[id]} description={PROVIDER_DESCS[id]} trailing={<ChevronRight size={16}/>} onClick={() => navigate(`/settings/providers/${id}`,{replace:true})}/>;})}</SettingsGroup></>;
-    if(key === 'data') return <><p className="settings-hint">WebDAV 用于本地旧资料备份，不是云端工作台的同步来源。项目云端备份仍可在工作台管理中操作。</p><SettingsGroup label="备份与恢复"><WebDavEntry onOpen={() => navigate('/settings/webdav',{replace:true})}/></SettingsGroup><SettingsGroup label="任务恢复"><SettingsRow title="断线续传" description="仅适用于旧版会话：临时缓存最多保留 45 分钟。云端工作台通过任务事件恢复。" trailing={<AnimatedSwitch checked={resumeEnabled} onCheckedChange={setResume} disabled={resumeBusy} ariaLabel="切换断线续传"/>}/></SettingsGroup></>;
-    if(key === 'webdav') return <><button className="settings-back" onClick={() => select('data')}><ArrowLeft size={16}/>数据设置</button><p className="settings-hint">连接信息保存在当前设备，修改后自动保存。</p><WebDavSection/></>;
+    if(key === 'shortcuts') return <SettingsShortcuts/>;
     if(key === 'help') return <HelpSection onStartTour={() => {void closeRef.current().then(closed => {if(closed) requestGuidedTour();});}}/>;
-    if(key === 'about') return <AboutSection/>;
+    if(key === 'about') return <AboutSection onOpenBusiness={plan === 'business' ? openBusiness : undefined}/>;
     return <Banner>未找到此设置，请从左侧选择分类。</Banner>;
   };
   return <SettingsEditContext.Provider value={reportEdit}>

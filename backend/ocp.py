@@ -163,6 +163,22 @@ async def _run_ocp_tool(function_name: str, arguments: dict, session_id: str):
 
 # ── OCPStatic 类 ─────────────────────────────────────────────────────────
 
+def _meter_ocp_usage(usage, model: str = "") -> None:
+    """OCP 审查调用也要计费。没有开启轮次时是空操作。"""
+    if usage is None:
+        return
+    try:
+        from billing import metering
+
+        metering.record_model(
+            int(getattr(usage, "prompt_tokens", 0) or 0),
+            int(getattr(usage, "completion_tokens", 0) or 0),
+            model=model,
+        )
+    except Exception:  # pragma: no cover - 计量不影响审查
+        pass
+
+
 class OCPStatic:
     """OCP-Static: 非流式输出格式审查与自动修复。
 
@@ -195,6 +211,8 @@ class OCPStatic:
         self._config = config if config is not None else _env_ocp_config()
         self.client, self.model = _build_ocp_client(self._config)
 
+
+
     async def _call_with_retry(self, **kwargs):
         """带指数退避重试的 LLM 调用封装"""
         if 'timeout' not in kwargs:
@@ -203,13 +221,15 @@ class OCPStatic:
         def _on_retry(attempt: int, max_retries: int, _wait_time: float, exc: Exception):
             print(f"[OCP] LLM 调用失败 (第 {attempt}/{max_retries} 次): {exc}")
 
-        return await with_retry(
+        response = await with_retry(
             lambda: self.client.chat.completions.create(**kwargs),
             max_retries=self.MAX_RETRIES,
             retryable_codes=self.RETRYABLE_STATUS_CODES,
             backoff_base=2,
             on_retry=_on_retry,
         )
+        _meter_ocp_usage(getattr(response, "usage", None), str(kwargs.get("model") or ""))
+        return response
 
     async def check(self, content: str) -> str:
         """
@@ -781,13 +801,15 @@ class OCPStream:
         def _on_retry(attempt: int, max_retries: int, _wait_time: float, exc: Exception):
             print(f"[OCP] LLM 调用失败 (第 {attempt}/{max_retries} 次): {exc}")
 
-        return await with_retry(
+        response = await with_retry(
             lambda: self.client.chat.completions.create(**kwargs),
             max_retries=self.MAX_RETRIES,
             retryable_codes=self.RETRYABLE_STATUS_CODES,
             backoff_base=2,
             on_retry=_on_retry,
         )
+        _meter_ocp_usage(getattr(response, "usage", None), str(kwargs.get("model") or ""))
+        return response
 
     async def check_stream(self, content: str):
         if not content or not content.strip():
@@ -841,6 +863,8 @@ class OCPStream:
                             tools=OCP_TOOLS,
                             tool_choice="auto",
                             stream=True,
+                            # 不加这一项，多数提供方根本不会回 usage。
+                            stream_options={"include_usage": True},
                             timeout=round_timeout,
                         ),
                         max_retries=self.MAX_RETRIES,
@@ -849,6 +873,7 @@ class OCPStream:
                     )
 
                     async for chunk in stream_res:
+                        _meter_ocp_usage(getattr(chunk, "usage", None), self.model)
                         if not chunk.choices: continue
                         delta = chunk.choices[0].delta
 

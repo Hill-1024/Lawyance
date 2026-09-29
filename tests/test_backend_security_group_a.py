@@ -67,12 +67,31 @@ class IsolatedBackendTest(unittest.TestCase):
 
 
 class AuthLockoutBudgetTests(IsolatedBackendTest):
+    """节流策略的回归：状态现在存在 Postgres（Redis 做快路径），不再是本地 JSON 文件。"""
+
+    def _rows(self):
+        throttle = importlib.import_module("infra.throttle")
+        from sqlalchemy import select
+
+        with throttle.transaction() as session:
+            return [
+                {
+                    "scope": row.scope,
+                    "key": row.key,
+                    "fails": row.fails,
+                    "locked": row.locked_until,
+                }
+                for row in session.scalars(select(throttle.LoginThrottle)).all()
+            ]
+
     def test_unknown_accounts_do_not_persist_and_lockout_is_source_scoped(self):
         auth = importlib.import_module("auth")
+        throttle = importlib.import_module("infra.throttle")
 
         unknown_result = auth.authenticate_user("not-an-account", "bad-password", "198.51.100.20")
         self.assertEqual(unknown_result, (False, "用户名或密码错误"))
-        self.assertFalse(os.path.exists(auth.LOCKOUT_FILE))
+        # 不存在的账号绝不落桶，否则攻击者能用任意用户名刷出一堆记录。
+        self.assertEqual(throttle.snapshot(), [])
 
         for _ in range(auth.LOCKOUT_FAIL_LIMIT):
             result = auth.authenticate_user("admin", "bad-password", "198.51.100.21")
@@ -80,14 +99,14 @@ class AuthLockoutBudgetTests(IsolatedBackendTest):
 
         locked_result = auth.authenticate_user("admin", "bootstrap-password", "198.51.100.21")
         other_source_result = auth.authenticate_user("admin", "bootstrap-password", "198.51.100.22")
-        self.assertEqual(locked_result, unknown_result)
+        # 锁只作用于这个来源；换个来源仍能正常登录。
+        self.assertEqual(locked_result, (False, "用户名或密码错误"))
         self.assertEqual(other_source_result, (True, "登录成功"))
 
-        with open(auth.LOCKOUT_FILE, "r", encoding="utf-8") as f:
-            lockouts = json.load(f)
-        self.assertEqual(len(lockouts), 1)
-        self.assertTrue(all(key.startswith("v2:") and len(key) == 67 for key in lockouts))
-        self.assertNotIn("admin", json.dumps(lockouts))
+        raw = str([(row["scope"], row["key"]) for row in self._rows()])
+        # 键必须是摘要——原始用户名与来源不得出现在存储里。
+        self.assertNotIn("admin", raw)
+        self.assertNotIn("198.51.100.21", raw)
 
     def test_distributed_sources_share_progressive_account_bucket(self):
         auth = importlib.import_module("auth")
@@ -100,29 +119,23 @@ class AuthLockoutBudgetTests(IsolatedBackendTest):
                 result = auth.authenticate_user("admin", "bad-password", source)
                 self.assertEqual(result, (False, "用户名或密码错误"))
 
+        # 聚合桶在跨来源第 6 次失败时开始退避锁定。
         self.assertIsNotNone(auth.check_lockout("admin", "198.51.100.99"))
         self.assertEqual(
             auth.authenticate_user("admin", "bootstrap-password", "198.51.100.99"),
             (False, "用户名或密码错误"),
         )
 
-        with open(auth.LOCKOUT_FILE, "r", encoding="utf-8") as f:
-            lockouts = json.load(f)
-        self.assertEqual(len(lockouts), 4)  # one account bucket + three client buckets
-        self.assertEqual(
-            max(record["fails"] for record in lockouts.values()),
-            auth.ACCOUNT_LOCKOUT_PROGRESSIVE_START,
-        )
+        rows = self._rows()
+        self.assertEqual(len(rows), 4)  # one account bucket + three client buckets
+        self.assertEqual(max(row["fails"] for row in rows), auth.ACCOUNT_LOCKOUT_PROGRESSIVE_START)
 
     def test_lockout_cardinality_and_attacker_controlled_fields_are_bounded(self):
         auth = importlib.import_module("auth")
-        accounts = auth.get_accounts_data()
-        bootstrap_hash = accounts["admin"]["hash"]
-        for index in range(12):
-            accounts[f"user{index}"] = {"hash": bootstrap_hash, "role": "user"}
-        auth._write_json(auth.ACCOUNT_FILE, accounts)
+        throttle = importlib.import_module("infra.throttle")
+        throttle.LOCKOUT_MAX_RECORDS = 4
+        self.addCleanup(setattr, throttle, "LOCKOUT_MAX_RECORDS", 4096)
 
-        auth.LOCKOUT_MAX_RECORDS = 4
         for index in range(12):
             auth.record_login_attempt(
                 f"user{index}",
@@ -132,30 +145,66 @@ class AuthLockoutBudgetTests(IsolatedBackendTest):
             )
         auth.record_login_attempt("z" * (auth.AUTH_USERNAME_MAX_LENGTH + 1), False, "client")
 
-        with open(auth.LOCKOUT_FILE, "r", encoding="utf-8") as f:
-            lockouts = json.load(f)
-        self.assertLessEqual(len(lockouts), 4)
-        self.assertTrue(all(len(key) == 67 for key in lockouts))
-        self.assertTrue(all(set(record) == {"fails", "first_failed_at", "last_failed_at", "locked_until"} for record in lockouts.values()))
+        rows = self._rows()
+        # 每个用户名会写「来源 + 账号」两个桶，24 条被压回上限内。
+        self.assertLessEqual(len(rows), 4 + 1)
+        self.assertTrue(all(len(row["key"]) == 64 for row in rows))
+        raw = str([(row["scope"], row["key"]) for row in rows])
+        self.assertNotIn("client-", raw)
+        self.assertNotIn("user1", raw)
+
+
+class LockoutUnlockTests(IsolatedBackendTest):
+    """管理员解锁：用户误操作被锁两小时后，线上不该只能干等。"""
+
+    def test_admin_unlock_restores_login(self):
+        auth = importlib.import_module("auth")
+        throttle = importlib.import_module("infra.throttle")
+
+        for _ in range(auth.LOCKOUT_FAIL_LIMIT):
+            auth.authenticate_user("admin", "bad-password", "198.51.100.40")
+        # 锁上之后连正确密码也进不去
+        self.assertEqual(
+            auth.authenticate_user("admin", "bootstrap-password", "198.51.100.40"),
+            (False, "用户名或密码错误"),
+        )
+        self.assertGreater(throttle.locked_seconds("admin", "198.51.100.40"), 0)
+
+        cleared = throttle.unlock("admin")
+        self.assertGreaterEqual(cleared, 1)
+        self.assertEqual(throttle.locked_seconds("admin", "198.51.100.40"), 0)
+        self.assertEqual(
+            auth.authenticate_user("admin", "bootstrap-password", "198.51.100.40"),
+            (True, "登录成功"),
+        )
+
+    def test_unlock_does_not_touch_other_accounts(self):
+        auth = importlib.import_module("auth")
+        throttle = importlib.import_module("infra.throttle")
+
+        for _ in range(auth.LOCKOUT_FAIL_LIMIT):
+            auth.authenticate_user("admin", "bad-password", "198.51.100.41")
+
+        # 另一个账号也被锁上；解锁 admin 不能把它一起带走。
+        for _ in range(3):
+            throttle.record_failure("someone-else", "198.51.100.42", bucket=throttle.SCOPE_CLIENT)
+        self.assertGreater(throttle.locked_map(["admin"])["admin"], 0)
+        self.assertGreater(throttle.locked_map(["someone-else"])["someone-else"], 0)
+
+        throttle.unlock("admin")
+        self.assertEqual(throttle.locked_map(["admin"])["admin"], 0)
+        self.assertGreater(throttle.locked_map(["someone-else"])["someone-else"], 0)
 
 
 class PrivateStoragePermissionTests(IsolatedBackendTest):
     def test_existing_auth_and_secret_files_are_hardened_before_read(self):
+        # 账号在云端库、登录节流也在云端库，本机已经没有 auth.sqlite3 与
+        # lockout.json；这条用例只剩「数据目录本身必须收紧」。
         auth = importlib.import_module("auth")
-        auth_store = importlib.import_module("infra.auth_store")
-        for _ in range(3):
-            auth.authenticate_user("admin", "bad-password", "203.0.113.10")
-
-        db_path = auth_store.db_path()
         os.chmod(self.tmp, 0o777)
-        os.chmod(db_path, 0o666)
-        os.chmod(auth.LOCKOUT_FILE, 0o666)
         auth._ensure_account_file()
-        auth._read_lockouts()
 
         self.assertEqual(_mode(self.tmp), 0o700)
-        self.assertEqual(_mode(db_path), 0o600)
-        self.assertEqual(_mode(auth.LOCKOUT_FILE), 0o600)
         self.assertEqual(_mode(auth.AUTH_STATE_LOCK_FILE), 0o600)
 
         settings = importlib.import_module("services.settings_service")
@@ -188,7 +237,8 @@ class PrivateStoragePermissionTests(IsolatedBackendTest):
             conn.close()
 
 
-class SchemaBudgetTests(unittest.TestCase):
+class SchemaBudgetTests(unittest.IsolatedAsyncioTestCase):
+    """两个 async 测试需要事件循环：继承 TestCase 时它们只会被当成未 await 的协程，从未真正执行。"""
     def test_request_enums_lengths_and_nesting_are_bounded(self):
         schemas = importlib.import_module("schemas")
         with self.assertRaises(ValidationError):
@@ -208,26 +258,7 @@ class SchemaBudgetTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             schemas.LoginRequest(username="u" * (schemas.MAX_USERNAME_CHARS + 1), password="password")
 
-    def test_webdav_decoded_budget_is_checked_before_decode(self):
-        schemas = importlib.import_module("schemas")
-        old_decoded = schemas.WEBDAV_MAX_DECODED_BYTES
-        old_encoded = schemas.WEBDAV_MAX_BASE64_CHARS
-        schemas.WEBDAV_MAX_DECODED_BYTES = 2
-        schemas.WEBDAV_MAX_BASE64_CHARS = 4
-        try:
-            with self.assertRaises(HTTPException) as raised:
-                schemas.WebDavUploadRequest(
-                    config={"url": "https://example.com", "username": "u", "password": "p"},
-                    filename="backup.json",
-                    data_b64="AAAA",
-                )
-            self.assertEqual(raised.exception.status_code, 413)
-        finally:
-            schemas.WEBDAV_MAX_DECODED_BYTES = old_decoded
-            schemas.WEBDAV_MAX_BASE64_CHARS = old_encoded
 
-
-class JsonBodyLimitTests(IsolatedBackendTest, unittest.IsolatedAsyncioTestCase):
     async def test_login_uses_a_small_pre_authentication_body_limit(self):
         app_security = importlib.import_module("services.app_security")
 

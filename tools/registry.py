@@ -98,6 +98,14 @@ class ToolRegistry:
                 "capability": capability or "missing",
             }
         normalized_arguments = self.coerce_arguments(function_name, arguments)
+        # 计数在真正执行前：拒绝、报错都算一次调用尝试之后的真实成本节点，
+        # 但工具不存在/无权限的早期返回不计费（它们没有产生任何成本）。
+        try:
+            from billing import metering
+
+            metering.record_tool(function_name)
+        except Exception:  # pragma: no cover - 计量不影响工具执行
+            pass
         try:
             return entry.handler(normalized_arguments, workspace_scope)
         except Exception as exc:  # noqa: BLE001 - 工具异常必须转成模型可读结果

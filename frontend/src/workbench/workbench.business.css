@@ -1,0 +1,331 @@
+/* Workbench · business
+   Business 控制台（/business）：母账号余额、子账号预算与近期用量。
+   由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。
+   颜色、圆角、阴影一律走令牌；控件高度对齐工作台的 --wb-control-size 网格。 */
+
+.wb-business-shell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 22px 14px;
+  overflow: hidden;
+}
+.wb-business-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.wb-business-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.wb-business-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--wb-control-size);
+  height: var(--wb-control-size);
+  flex-shrink: 0;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  background: var(--wb-surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-1);
+}
+.wb-business-title {
+  min-width: 0;
+}
+.wb-business-title h1 {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-business-title p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--wb-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-business-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wb-business-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+.wb-business-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  min-height: 30vh;
+  font-size: 13px;
+  color: var(--wb-muted);
+}
+.wb-business-refusal {
+  margin: auto;
+}
+
+/* 概览三格 */
+.wb-business-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.wb-business-stat {
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-md);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-1);
+}
+.wb-business-stat span {
+  display: block;
+  font-size: 11px;
+  color: var(--wb-muted);
+}
+.wb-business-stat strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.wb-business-stat small {
+  display: block;
+  font-size: 11px;
+  color: var(--wb-muted);
+}
+
+.wb-business-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.wb-business-section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wb-muted);
+}
+.wb-business-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--wb-muted);
+}
+
+/* 子账号卡片 */
+.wb-business-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: 10px;
+}
+.wb-business-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-md);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-1);
+}
+.wb-business-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wb-business-card-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+.wb-business-card-user strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-business-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+/* 五个数字并排；窄屏自动折行，不出现横向滚动。 */
+.wb-business-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 6px;
+}
+.wb-business-metric {
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+.wb-business-metric span {
+  display: block;
+  font-size: 11px;
+  color: var(--wb-muted);
+}
+.wb-business-metric strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 30 天柱状：只用强调色与不透明度，不引入新色值。 */
+.wb-business-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 34px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+.wb-business-spark > span {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.7;
+}
+.wb-business-spark > span:hover {
+  opacity: 1;
+}
+.wb-business-spark-empty {
+  margin: auto;
+  font-size: 11px;
+  color: var(--wb-muted);
+  background: none !important;
+}
+
+.wb-business-allocate {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wb-business-allocate label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--wb-muted);
+}
+.wb-business-input {
+  width: 118px;
+  height: var(--wb-control-size);
+  padding: 0 8px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.wb-business-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.wb-business-input::placeholder {
+  color: var(--fg-4);
+}
+.wb-business-ok,
+.wb-business-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.wb-business-ok {
+  color: var(--color-success-500);
+}
+.wb-business-error {
+  color: var(--color-danger-500);
+}
+
+@media (max-width: 900px) {
+  .wb-business-shell {
+    padding: 12px 14px 10px;
+  }
+  .wb-business-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 新建子账号：与列表同宽的一行，窄屏换行。 */
+.wb-business-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.wb-business-create input {
+  height: var(--wb-control-size);
+  min-width: 130px;
+  padding: 0 10px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--wb-radius-control);
+  background: var(--wb-surface);
+  color: var(--wb-ink);
+  font-size: 12px;
+}
+
+.wb-business-create input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.wb-business-create button {
+  height: var(--wb-control-size);
+  padding: 0 12px;
+  border-radius: var(--wb-radius-control);
+  font-size: 12px;
+}

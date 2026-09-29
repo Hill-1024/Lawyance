@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 
 # 兜底默认值：仅当 package.json 缺失或损坏时生效；日常修改域名/端口请直接改 package.json。
-_FALLBACK_DOMAIN = "cn.lawver.dev"
-_FALLBACK_PORT = 8080
+# port 是功能页进程自己的端口；分流核心占 8080（routerPort），介绍页占 8082（introPort）。
+_FALLBACK_DOMAIN = "lawver.dev"
+_FALLBACK_PORT = 8081
 
 
 def _load_app_config() -> dict:

@@ -58,20 +58,20 @@ export function useWorkspaceLayout(user: string) {
         setActiveEdge(undefined); setDragging(pane); }}
       onDragEnd={() => {setDragging(undefined);setActiveEdge(undefined);}}><GripVertical size={16}/></span>;
   }
-  function grid(agentOpen: boolean): React.CSSProperties {
+  /**
+   * 分栏改用 flex（不再是 grid）：面板宽度是可动画的 flex-basis，展开/收起才有过渡。
+   * 返回容器样式；文档列与会话列的基准宽度见 CSS 的 --wb-doc-basis。
+   */
+  function splitStyle(agentOpen: boolean): React.CSSProperties {
     const vertical = layout.agent === "top" || layout.agent === "bottom";
-    let rows = ["document"], columns = "minmax(0,1fr)", heights = "minmax(0,1fr)";
-    if (agentOpen && vertical) {
-      rows = layout.agent === "top" ? ["agent", "separator", "document"] : ["document", "separator", "agent"];
-      const sizes = [`minmax(0,${layout.split}fr)`, "10px", `minmax(0,${100-layout.split}fr)`];
-      heights = (layout.agent === "top" ? sizes : sizes.reverse()).join(" ");
-    } else if (agentOpen) {
-      rows = [layout.agent === "left" ? "agent separator document" : "document separator agent"];
-      const sizes = [`minmax(0,${layout.split}fr)`, "10px", `minmax(0,${100-layout.split}fr)`];
-      columns = (layout.agent === "left" ? sizes : sizes.reverse()).join(" ");
-    }
-    return { gridTemplateAreas: rows.map(row => `"${row}"`).join(" "), gridTemplateColumns: columns, gridTemplateRows: heights };
+    return {
+      flexDirection: vertical ? "column" : "row",
+      // 文档内层据此钉住排版宽度（cqw），拖动分栏后同步更新。
+      "--wb-doc-percent": String(Math.max(25, Math.min(75, 100 - layout.split))),
+    } as React.CSSProperties;
   }
+  /** 文档列基准宽度（百分比）：会话面板占比的反面，钳在 25%-75%。 */
+  const docPercent = Math.max(25, Math.min(75, 100 - layout.split));
   const targets = <AnimatePresence>{dragging && <motion.div key="dock-targets" className="wb-dock-targets" style={bounds} aria-label="面板停靠区域"
     initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:reduceMotion ? 0 : .16}}>
     <AnimatePresence>{activeEdge && <motion.div key={activeEdge} className={`wb-dock-preview ${activeEdge}`}
@@ -84,7 +84,7 @@ export function useWorkspaceLayout(user: string) {
       <span>{edge === "top" || edge === "bottom" ? <Rows2 size={16}/> : <Columns2 size={16}/>}{activeEdge === edge ? "松开放置到" : "移到"}{{left:"左侧",right:"右侧",top:"上方",bottom:"下方"}[edge]}</span>
     </div>)}
   </motion.div>}</AnimatePresence>;
-  return { layout, update, handle, grid, targets, reset: () => update(defaults) };
+  return { layout, update, handle, splitStyle, docPercent, targets, reset: () => update(defaults) };
 }
 
 export function LayoutToolbar({ workspace }: { workspace: ReturnType<typeof useWorkspaceLayout> }) {

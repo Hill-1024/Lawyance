@@ -1,30 +1,30 @@
 /*
- * 模块描述：全局域名与区域路径配置入口，由 Vite define 从 package.json appConfig 注入，与服务端共用同一份。
+ * 模块描述：全局域名与接入路径配置，由 Vite define 从 package.json appConfig 注入，与服务端共用同一份。
+ *
+ * 路径基址（BASE_PATH）只认 <base>：介绍页与功能页同域不同进程，功能页始终挂在站点根，
+ * 所以实际取值是空串；保留解析逻辑是为了让 SPA 在任意基点下都能正确解析资源与 API。
  */
 
 export interface LawverAppConfig {
   domain: string;
   origin: string;
-  /** 原生客户端直连的后端地址，绕开网关路径分流（缺省时与 origin 相同）。 */
+  /** 原生客户端直连的后端地址，绕开网页入口（缺省时与 origin 相同）。 */
   nativeApiBase: string;
 }
 
 declare const __LAWVER_APP_CONFIG__: LawverAppConfig | undefined;
-declare const __LAWVER_REGIONS__: string[] | undefined;
 declare global {
   interface Window {
-    /** 网关注入的区域前缀（如 /cn）；网关注入 <base> 时会由内联脚本写入，缺省时由 <base> 推断。 */
+    /** 内联脚本注入的路径基址；缺省时由 <base> 推断。 */
     __LAWVER_BASE_PATH__?: string;
   }
 }
 
 const FALLBACK_APP_CONFIG: LawverAppConfig = {
-  domain: 'cn.lawver.dev',
-  origin: 'https://cn.lawver.dev',
+  domain: 'lawver.dev',
+  origin: 'https://lawver.dev',
   nativeApiBase: 'https://cn-origin.lawver.dev',
 };
-
-const CONFIGURED_REGIONS: string[] = typeof __LAWVER_REGIONS__ !== 'undefined' ? __LAWVER_REGIONS__ : [];
 
 export const APP_CONFIG: LawverAppConfig = typeof __LAWVER_APP_CONFIG__ !== 'undefined'
   ? __LAWVER_APP_CONFIG__
@@ -32,15 +32,13 @@ export const APP_CONFIG: LawverAppConfig = typeof __LAWVER_APP_CONFIG__ !== 'und
 
 const normalizeBasePath = (value: string | null | undefined): string => {
   if (!value) return '';
-  const trimmed = value.replace(/\/+$/, '');
-  return trimmed;
+  return value.replace(/\/+$/, '');
 };
 
 /**
- * 区域路径前缀，形如 `/cn`；网关按该前缀分流到不同区域后端，应用内路由与 API 都要带上它。
- * 前缀以网关注入的 `<base href="/cn/">` 为权威来源（必须是静态注入：运行时插入会晚于浏览器
- * 预加载扫描器，导致资源被重复请求到默认区域）；未注入时退回按 `appConfig.regions` 推断，
- * 保证 SPA 仍可渲染。根路径部署时为空串，行为与改造前完全一致。
+ * 应用内路由与 API 的基址，形如 `/cn`；根路径部署时为空串。
+ * 以服务端注入的 <base href="/"> 为权威来源——必须是静态注入：运行时插入会晚于浏览器
+ * 预加载扫描器，资源会被请求到错误路径。
  */
 export const BASE_PATH: string = (() => {
   if (typeof window === 'undefined') return '';
@@ -49,16 +47,13 @@ export const BASE_PATH: string = (() => {
   if (injected) return injected;
 
   const baseElement = typeof document !== 'undefined' ? document.querySelector('base') : null;
-  if (baseElement) {
-    try {
-      const resolved = new URL(baseElement.getAttribute('href') || '/', window.location.href);
-      const path = normalizeBasePath(resolved.pathname);
-      if (path) return path;
-    } catch {
-      // 忽略非法 href，继续走区域兜底推断。
-    }
-  }
+  if (!baseElement) return '';
 
-  const firstSegment = window.location.pathname.split('/')[1] || '';
-  return CONFIGURED_REGIONS.includes(firstSegment) ? `/${firstSegment}` : '';
+  try {
+    const resolved = new URL(baseElement.getAttribute('href') || '/', window.location.href);
+    return normalizeBasePath(resolved.pathname);
+  } catch {
+    // 非法 href：当作根路径部署处理。
+    return '';
+  }
 })();

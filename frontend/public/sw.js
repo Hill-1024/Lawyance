@@ -1,41 +1,21 @@
 /*
  * Lawver PWA service worker.
- * 提供安装所需的 service worker 能力，并避免改写 API 请求语义。
+ *
+ * 只保留安装所需的最小能力（install/activate），不做任何缓存与导航回放：
+ * 这个 SW 的 scope 覆盖整个站点根，而介绍页与功能页是同域的两个进程——
+ *   · 缓存回放会把用户按在任意年龄的旧壳上（过期登录页、旧版本界面都来自这里）；
+ *   · 功能页维护时，核心会把这些导航 302 到 /under_maintenance，缓存兜底会把它遮掉。
+ * 代价是没有离线壳：离线时由浏览器给出自己的离线页，比静默回放旧页面更诚实。
  */
 
-// 区域前缀部署时 scope 形如 https://host/cn/，根路径部署为 https://host/。
-const BASE = new URL('./', self.registration.scope).pathname;
-const API_PREFIX = `${BASE}api/`;
-const SHELL_CACHE = 'lawver-shell-v2';
-const SHELL_ASSETS = [`${BASE}`, `${BASE}manifest.webmanifest`, `${BASE}pwa-icon-192.png`, `${BASE}pwa-icon-512.png`];
-
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(SHELL_CACHE)
-      .then(cache => cache.addAll(SHELL_ASSETS))
-      .catch(() => undefined)
-      .then(() => self.skipWaiting()),
-  );
+self.addEventListener('install', () => {
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key !== SHELL_CACHE).map(key => caches.delete(key))))
+      .then(keys => Promise.all(keys.map(key => caches.delete(key))))
       .then(() => self.clients.claim()),
   );
-});
-
-self.addEventListener('fetch', event => {
-  const request = event.request;
-  const url = new URL(request.url);
-  if (request.method !== 'GET' || url.pathname.startsWith(API_PREFIX)) return;
-  if (url.origin !== self.location.origin || !url.pathname.startsWith(BASE)) return;
-
-  if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).catch(() => caches.match(BASE)));
-    return;
-  }
-
-  event.respondWith(fetch(request).catch(() => caches.match(request)));
 });

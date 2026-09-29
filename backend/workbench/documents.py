@@ -109,6 +109,21 @@ def validate_content(content):
 
 
 def extract(content: bytes, filename: str):
+    """解析文档并计量：包装一层，所有返回路径都覆盖到。
+
+    解析失败会抛异常，不计量——没有产出就没有成本。
+    """
+    result = _extract_impl(content, filename)
+    try:
+        from billing import metering
+
+        metering.record_document(len((result or {}).get("text") or ""))
+    except Exception:  # pragma: no cover - 计量不影响解析结果
+        pass
+    return result
+
+
+def _extract_impl(content: bytes, filename: str):
     suffix = filename.rsplit(".", 1)[-1].lower()
     if suffix == "pdf":
         import fitz

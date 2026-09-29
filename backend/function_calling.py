@@ -99,6 +99,19 @@ def _record_response_usage(usage) -> tuple[int, int, int]:
     return prompt, cached, miss
 
 
+def _record_billing_usage(usage, model: str) -> None:
+    """把这一次调用计入当前轮次的用量（计费）。没有轮次时是空操作。"""
+    if usage is None:
+        return
+    prompt = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion = int(getattr(usage, "completion_tokens", 0) or 0)
+    if not prompt and not completion:
+        return
+    from billing import metering
+
+    metering.record_model(prompt, completion, model=model)
+
+
 def _is_unsupported_tool_choice_error(error: str) -> bool:
     lowered = error.lower()
     return "tool_choice" in lowered and (
@@ -296,7 +309,10 @@ async def call(
         logger.debug("LLM 调用成功")
         if stream:
             return response
-        prompt, cached, miss = _record_response_usage(getattr(response, "usage", None))
+        response_usage = getattr(response, "usage", None)
+        prompt, cached, miss = _record_response_usage(response_usage)
+        # 旧实现只留了 prompt_tokens，完成侧整个丢掉；计费必须两半都记。
+        _record_billing_usage(response_usage, active_model)
         if prompt:
             logger.debug(
                 "LLM 缓存 model=%s prompt=%s cached=%s miss=%s hit_rate=%.1f%%",
@@ -323,7 +339,10 @@ async def call(
             logger.debug("LLM 调用成功")
             if stream:
                 return response
-            prompt, cached, miss = _record_response_usage(getattr(response, "usage", None))
+            response_usage = getattr(response, "usage", None)
+            prompt, cached, miss = _record_response_usage(response_usage)
+            # 旧实现只留了 prompt_tokens，完成侧整个丢掉；计费必须两半都记。
+            _record_billing_usage(response_usage, active_model)
             if prompt:
                 logger.debug(
                     "LLM 缓存 model=%s prompt=%s cached=%s miss=%s hit_rate=%.1f%%",

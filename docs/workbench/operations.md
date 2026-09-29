@@ -4,10 +4,45 @@
 
 1. 保留现有认证与模型服务配置，安装更新后的 Python 与 pnpm 依赖。
 2. 启动 PostgreSQL 17（可使用 `deploy/workbench/compose.yml`），创建专用数据库与持久文件目录。数据库端口只监听本机。
-3. 根据 `deploy/workbench/environment.example` 配置数据库、文件卷、账号灰度与独立插件加密密钥。密钥必须放入部署密钥管理渠道，不进入 Git。
-4. 执行 `alembic upgrade head`；重启现有 FastAPI 服务。已有未启用账号继续使用旧入口，已启用账号进入新工作台，`/legacy` 保留旧资料入口。
+3. 根据 `deploy/workbench/environment.example` 配置数据库、文件卷与独立插件加密密钥。密钥必须放入部署密钥管理渠道，不进入 Git。
+4. 执行 `alembic upgrade head`；重启现有 FastAPI 服务。
+   - **账号现在也在这个库里**：`accounts` 与 `account_sessions` 两张表。首次启动若账号表为空，会依次尝试导入遗留的 `data/account.json`、旧 `data/auth.sqlite3`，都没有才用 `INITIAL_ADMIN_PASSWORD` 引导；导入过的旧库会改名归档（`auth.sqlite3.imported-<时间戳>`）。
+   - 因此**没配 `LAWVER_DATABASE_URL` 就没人能登录**，服务照常起、登录界面会提示「工作台尚未就绪」。
+   - 会话凭据是不透明 sid（不再是 JWT），表里删行即失效；升级后**所有人需要重新登录一次**。
+   - 登录失败节流（原 `data/lockout.json`）也在库里（`login_throttle`）：Redis 负责快路径计数与锁定标记，Postgres 是事实源。Redis 不可用时自动退回查库，锁定策略不变。
 5. 构建 Web 与 Android。正式 Android 包不得带 `VITE_LAWVER_API_BASE` 本机测试值或 `LAWVER_QA_NATIVE=1`。
-6. 完成真实模型、文档审阅、多设备与原生验收之后再扩大 `LAWVER_WORKBENCH_USERS`。官网演示仍需标明发布状态。
+6. 启动三件套：分流核心、功能页、介绍页（见下一节）。介绍页来自独立仓库 `Hill-1024/Lawyance_Intro`，在本机各自 `git pull` 后构建，不与本仓库的构建耦合。
+7. 完成真实模型、文档审阅、多设备与原生验收之后再放开账号。官网演示仍需标明发布状态。
+
+## 进程与入口
+
+同一台机器上跑三件东西，由分流核心统一入口：
+
+| 端口 | 进程 | 起法 | 负责 |
+|---|---|---|---|
+| 8080 | 分流核心 | `deploy/router/systemd/lawver-router.service`（`Restart=always`） | 唯一入口：路径分派、探活、维护页与维护跳转 |
+| 8081 | 功能页 | 本仓库 `.venv` 起 FastAPI（`appConfig.port`） | `/home`、`/login`、`/settings/*`、`/admin`、`/business`、`/court/*`、`/api/*`… |
+| 8082 | 介绍页 | `Lawyance_Intro` 仓的 `server/serve.py` + `deploy/lawver-intro.service` | `/`、`/design`、`/download`、`/pricing`、`/intro-assets/*` |
+
+隧道入口指向 **8080**，此后功能页与介绍页怎么重启换代都不用改入口配置。两台机器（`lawver.dev` 国内、`global.lawver.dev` 海外）跑同一套布局。
+
+日常维护：
+
+```
+# 只读维护窗口：功能页照常读取，写操作被拒
+LAWVER_WORKBENCH_READ_ONLY=1   # 重启功能页生效
+
+# 整侧维护（不杀进程）：核心把页面导航 302 到 /under_maintenance，接口回 503 JSON
+touch deploy/router/state/app.maintenance     # 或 intro.maintenance
+rm    deploy/router/state/app.maintenance     # 恢复
+
+# 看两侧状态
+curl -s 127.0.0.1:8080/__core/status
+```
+
+介绍页换版是零停机的：`tools/build.sh` 把产物放进 `releases/<时间戳>/` 后原子翻转 `current` 符号链接，`serve.py` 每请求解析一次，不需要重启进程。
+
+**整机或隧道全挂时没有维护页**：核心自己也在这台机器上，此时只剩 Cloudflare 的错误页——这是把入口收在本机的代价，缓解手段是核心保持 `Restart=always` 且体积极小。
 
 ## 每日备份与 30 天保留
 

@@ -34,7 +34,7 @@ export async function api<T = any>(
   body?: unknown,
   key?: string,
 ): Promise<T> {
-  const res = await apiFetch("/api/v2" + path, {
+  const res = await apiFetch("/api/workbench" + path, {
     method,
     headers: {
       ...(body instanceof FormData
@@ -61,7 +61,7 @@ export async function api<T = any>(
 }
 export async function binary(id: string, exportWord = false) {
   const r = await apiFetch(
-    `/api/v2/documents/${id}/${exportWord ? "export" : "blob"}`,
+    `/api/workbench/documents/${id}/${exportWord ? "export" : "blob"}`,
   );
   if (!r.ok) throw new Error("无法读取文件");
   return r.blob();

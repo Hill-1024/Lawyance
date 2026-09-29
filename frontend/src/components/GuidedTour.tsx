@@ -12,20 +12,14 @@ import {
   Check,
   Cloud,
   Folder,
-  Gavel,
   MessageSquareText,
   Paperclip,
-  Palette,
   Plus,
-  RotateCcw,
   Send,
-  Settings2,
   Sparkles,
-  Square,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { BrandMark } from './Brand';
 import { getGuidedTourSeen, setGuidedTourSeen, subscribeGuidedTourRequest } from '../lib/guided-tour';
 
 type TourIcon = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -45,8 +39,6 @@ interface TourStep {
   target?: string;
   /** 首选目标不可见时退而求其次的锚点（例如抽屉没展开时指向打开抽屉的按钮）。 */
   fallbackTarget?: string;
-  /** 该步需要在窄屏先展开会话抽屉才看得到目标。 */
-  needsSidebar?: boolean;
   features: TourFeature[];
 }
 
@@ -56,66 +48,6 @@ const CARD_GAP = 16;
 const EDGE_MARGIN = 12;
 /** 目标本身有 280ms 的开合动画，量一次不够；在这个窗口里跟着追，稳定后自然停下。 */
 const SETTLE_MS = 520;
-
-const CHAT_STEPS: TourStep[] = [
-  {
-    id: 'welcome',
-    title: '欢迎使用 Lawver',
-    summary: '这是一份 30 秒的功能地图。跟着高亮的控件走一遍，你就知道每个入口在哪。',
-    icon: Sparkles,
-    features: [
-      { icon: MessageSquareText, label: '对话式法律工作台', detail: '法条检索、案情梳理、文书草拟和策略推演都在同一个会话里完成。' },
-      { icon: BookOpen, label: '随时可以重看', detail: '这份指引在「设置 → 帮助与指引」里可以随时重新打开。' },
-    ],
-  },
-  {
-    id: 'sidebar',
-    title: '左侧是会话与案件',
-    summary: '新会话、历史记录和模拟法庭都在这里。每开一个新会话，就是一份独立的上下文。',
-    icon: MessageSquareText,
-    target: 'sidebar',
-    fallbackTarget: 'nav-toggle',
-    needsSidebar: true,
-    features: [
-      { icon: Plus, label: 'New Chat', detail: '为新的案件、客户或研究主题建立独立上下文，互不串味。' },
-      { icon: Gavel, label: '模拟法庭', detail: '进入庭审推演流程，把公开案卷与私有作战笔记分开整理。' },
-    ],
-  },
-  {
-    id: 'composer',
-    title: '底部是主要操作台',
-    summary: '写问题、传材料、发送或中断生成，都集中在底部这条输入栏里。',
-    icon: Send,
-    target: 'composer',
-    features: [
-      { icon: Paperclip, label: '上传材料', detail: '拖入或点选 PDF、Word、Markdown、文本与图片，让回答带着证据走。' },
-      { icon: Square, label: '发送 / 停止', detail: '有内容时发送；生成过程中会变成停止键，长回答随时可中断。' },
-      { icon: Settings2, label: '输入区设置', detail: '流式输出、OCP 检查流程与 Agent Mode 都在这条栏的左侧切换。' },
-    ],
-  },
-  {
-    id: 'workspace',
-    title: '工作区收好生成的文件',
-    summary: '上传的材料和生成的文书都归在这里，可以随时下载或删除。',
-    icon: Folder,
-    target: 'workspace',
-    features: [
-      { icon: Folder, label: 'Workspace', detail: '查看当前会话关联的全部文件，删除不再需要的材料。' },
-      { icon: Cloud, label: '同步', detail: '配置 WebDAV 后，可以把本机数据备份到你自己的云端。' },
-    ],
-  },
-  {
-    id: 'settings',
-    title: '设置里管理偏好与帮助',
-    summary: '外观、动态取色、断线续传、同步与帮助都在设置里；本指引也能从这里重播。',
-    icon: Palette,
-    target: 'settings',
-    features: [
-      { icon: Palette, label: '外观与配色', detail: '浅色、深色、跟随系统，以及 Lawver 主题种子色。' },
-      { icon: RotateCcw, label: '断线续传', detail: '回答中断时可以临时保留服务器缓存，方便继续接收。' },
-    ],
-  },
-];
 
 interface Rect {
   top: number;
@@ -234,14 +166,27 @@ const WORKBENCH_STEPS: TourStep[] = [
   },
   {
     id: 'space',
-    title: '左侧是资料与会话',
-    summary: '在这里切换工作区、管理文件与会话；项目导航决定当前看到的范围。',
+    title: '左侧是文件区',
+    summary: '左侧只放当前工作区的资料；切换工作区也在这里，切过去时上方的会话标签会整组换掉。',
     icon: MessageSquareText,
     target: 'wb-sidebar',
     fallbackTarget: 'wb-nav-toggle',
     features: [
-      { icon: Folder, label: '文件 / 会话 / 庭审', detail: '三个页签分别放共享资料、历史会话和模拟法庭记录。' },
+      { icon: Folder, label: '当前空间的文件', detail: '点文件即在主区打开，一个会话标签同时只显示一篇，切会话就切回它那篇。' },
       { icon: Cloud, label: '上传资料', detail: '也可以把文件直接拖到页面任意位置，边写边收进当前工作区。' },
+    ],
+  },
+  {
+    id: 'tabs',
+    title: '会话都在标签页里',
+    summary: '每个会话是一个标签，切换不丢上下文；同一个会话不会开出第二个标签。',
+    icon: MessageSquareText,
+    target: 'wb-tabstrip',
+    fallbackTarget: 'wb-nav-toggle',
+    features: [
+      { icon: Plus, label: '＋ 新建会话', detail: '新开一个标签进入首页，当前标签不会被关掉。' },
+      { icon: MessageSquareText, label: '右键与拖动', detail: '右键可重命名、收藏、归档、移入回收站；拖动标签可以排序。' },
+      { icon: BookOpen, label: '右端两个按钮', detail: '会话历史下拉，以及会话全屏与并排文档之间的切换。' },
     ],
   },
   {
@@ -269,16 +214,8 @@ const WORKBENCH_STEPS: TourStep[] = [
   },
 ];
 
-interface GuidedTourProps {
-  /** 当前落在哪套界面上：两者入口不同，锚点与文案都不通用。 */
-  variant?: 'chat' | 'workbench';
-  /** 窄屏下聊天版指引需要先展开会话抽屉，才能给侧栏里的控件打光。 */
-  setIsSidebarOpen?: (open: boolean) => void;
-  isSidebarOpen?: boolean;
-}
-
-export const GuidedTour: React.FC<GuidedTourProps> = ({ variant = 'chat', setIsSidebarOpen, isSidebarOpen }) => {
-  const steps = useMemo(() => (variant === 'workbench' ? WORKBENCH_STEPS : CHAT_STEPS), [variant]);
+export const GuidedTour: React.FC = () => {
+  const steps = WORKBENCH_STEPS;
   const reduceMotion = Boolean(useReducedMotion());
   const [isOpen, setIsOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
@@ -287,18 +224,11 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ variant = 'chat', setIsS
   const [placement, setPlacement] = useState<Placement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const interactionVersionRef = useRef(0);
-  /** 该步是我们替用户展开的抽屉吗？结束时负责收回，别留下副作用。 */
-  const sidebarOpenedByTourRef = useRef(false);
-  const isSidebarOpenRef = useRef(isSidebarOpen);
   const keyboardActionsRef = useRef<{ close: () => void; next: () => void; back: () => void }>({
     close: () => undefined,
     next: () => undefined,
     back: () => undefined,
   });
-
-  useEffect(() => {
-    isSidebarOpenRef.current = isSidebarOpen;
-  }, [isSidebarOpen]);
 
   const currentStep = steps[stepIndex] || steps[0];
   const isFirstStep = stepIndex === 0;
@@ -312,11 +242,7 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ variant = 'chat', setIsS
     setSpot(null);
     setPlacement(null);
     setGuidedTourSeen(true).catch(() => undefined);
-    if (sidebarOpenedByTourRef.current) {
-      sidebarOpenedByTourRef.current = false;
-      setIsSidebarOpen?.(false);
-    }
-  }, [setIsSidebarOpen]);
+  }, []);
 
   const goNext = useCallback(() => {
     if (isLastStep) {
@@ -359,22 +285,6 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ variant = 'chat', setIsS
   useEffect(() => {
     keyboardActionsRef.current = { close: closeTour, next: goNext, back: goBack };
   }, [closeTour, goBack, goNext]);
-
-  // 该步依赖会话抽屉时先替用户展开；抽屉有 280ms 位移，所以在下面的 settle 窗口里持续测量。
-  useEffect(() => {
-    if (!isOpen) return;
-    const step = steps[stepIndex];
-    if (!step?.needsSidebar) {
-      if (sidebarOpenedByTourRef.current) {
-        sidebarOpenedByTourRef.current = false;
-        setIsSidebarOpen?.(false);
-      }
-      return;
-    }
-    if (isSidebarOpenRef.current) return;
-    sidebarOpenedByTourRef.current = true;
-    setIsSidebarOpen?.(true);
-  }, [isOpen, stepIndex, steps, setIsSidebarOpen]);
 
   /*
    * 定位：每步进入后在一个有限的 settle 窗口内逐帧测量，直到矩形连续两帧不变。

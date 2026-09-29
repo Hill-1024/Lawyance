@@ -81,7 +81,6 @@ class LegacyMigrationTests(AuthTestCase):
         self.assertEqual(auth.get_user_role("admin"), "sudo")
         self.assertEqual(auth.get_user_role("operator"), "sudo")
         self.assertEqual(auth.get_user_role("bob"), "user")
-        self.assertEqual(auth.get_user_record("bob")["auth_version"], 3)
         # 迁移后 account.json 改名归档，不再作为权威数据源。
         self.assertFalse(os.path.exists(legacy_path))
         self.assertTrue(glob.glob(os.path.join(self.tmp, "account.json.imported-*")))
@@ -93,8 +92,10 @@ class LegacyMigrationTests(AuthTestCase):
         with open(legacy_path, "w", encoding="utf-8") as handle:
             json.dump({"admin": {"hash": "cf632ecdd2c9b4e67cd76de4db6b785d$12b8bd1ec5414d7a46abf6b92a4bc0319ca7b9662bba71bc9776dcbefc4c0177", "role": "admin"}}, handle)
 
+        # 引导现在是惰性的（导入期不连库，缺配置时服务照常起），
+        # 于是「不安全默认管理员」要在第一次真正用到账号库时炸出来。
         with self.assertRaises(RuntimeError):
-            self.import_auth()
+            self.import_auth().get_user_record("admin")
 
 
 class RoleHierarchyTests(AuthTestCase):
@@ -201,8 +202,8 @@ class OnlineDeviceLimitTests(AuthTestCase):
         self.assertTrue(ok, message)
         self.assertEqual(evicted, [first_sid])
 
-        self.assertIsNone(self.auth.verify_token(self.auth.create_token("bob", first_sid)))
-        self.assertEqual(self.auth.verify_token(self.auth.create_token("bob", second_sid)), "bob")
+        self.assertIsNone(self.auth.verify_token(first_sid))
+        self.assertEqual(self.auth.verify_token(second_sid), "bob")
         self.assertEqual(self.auth.count_online("bob"), 1)
 
     def test_unlimited_account_allows_many_sessions(self):
@@ -217,7 +218,7 @@ class OnlineDeviceLimitTests(AuthTestCase):
         self.create_account(self.auth, "admin", "bob", "bob-password", max_online=1)
         ok, _, sid, _ = self.auth.create_session("bob", client="web")
         self.assertTrue(ok)
-        token = self.auth.create_token("bob", sid)
+        token = sid
 
         self.assertTrue(self.auth.revoke_token_session(token))
         self.assertEqual(self.auth.count_online("bob"), 0)
@@ -243,7 +244,7 @@ class OnlineDeviceLimitTests(AuthTestCase):
         self.create_account(self.auth, "admin", "bob", "bob-password")
         ok, _, sid, _ = self.auth.create_session("bob", client="web")
         self.assertTrue(ok)
-        token = self.auth.create_token("bob", sid)
+        token = sid
         self.assertEqual(self.auth.verify_token(token), "bob")
 
         self.assertTrue(self.auth.upsert_account("admin", "bob", "brand-new-password")[0])

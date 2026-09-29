@@ -11,6 +11,7 @@ import { buildAttachmentPrompt, stripAttachmentPrompt, stripWorkspacePaths } fro
 import { CourtSetup } from '../components/CourtSetup';
 import { WorkflowStatusIcon } from '../components/WorkflowStatusIcon';
 import { Reference } from './client';
+import { getBinding, matchKeys, SHORTCUT_IDS } from '../lib/shortcuts';
 import './court-conversation.css';
 import '../components/court-workspace.css';
 
@@ -73,7 +74,7 @@ export default function CourtConversation({project,selection,onSelect,onCancel,d
     </div>
     <footer className="wc-composer-dock">
       <div className="wc-reference-row">{documentReference&&<span><FileText size={14}/>{documentReference.title || '文档片段'}<button aria-label="移除文档引用" onClick={onClearReference}><X size={12}/></button></span>}{files.pendingUploads.map((f,i)=><span key={f.path||i}><Paperclip size={13}/>{f.name}<button aria-label={'移除 '+f.name} onClick={()=>files.removeUploadedFile(i)}><X size={12}/></button></span>)}</div>
-      <div className="wc-composer"><textarea ref={textarea} aria-label="庭审发言" placeholder={state.trial_over?'本场庭审已结束':'陈述观点，或就刚才的发言提出回应…'} value={court.composerText} disabled={state.trial_over} onChange={e=>court.setComposerText(e.target.value)} onKeyDown={e=>{if(!e.nativeEvent.isComposing && e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();send();}}}/>
+      <div className="wc-composer"><textarea ref={textarea} aria-label="庭审发言" placeholder={state.trial_over?'本场庭审已结束':'陈述观点，或就刚才的发言提出回应…'} value={court.composerText} disabled={state.trial_over} onChange={e=>court.setComposerText(e.target.value)} onKeyDown={e=>{if(!e.nativeEvent.isComposing && matchKeys(e,getBinding(SHORTCUT_IDS.courtSend))){e.preventDefault();send();}}}/>
         <div className="wc-composer-tools"><button aria-label="上传公开材料" disabled={files.isUploadingFiles||state.trial_over} onClick={()=>input.current?.click()}><Paperclip size={18}/></button><button aria-label="庭审选项" aria-expanded={options} onClick={()=>setOptions(!options)}><SlidersHorizontal size={17}/></button><small>{files.isUploadingFiles?'正在上传…':isRunning?'发言中，输入将作为插话':'发送内容将进入公开庭审'}</small><button className="wc-send" aria-label="发送庭审发言" disabled={state.trial_over||files.isUploadingFiles||(!court.composerText.trim()&&!documentReference?.text&&!files.pendingUploads.length)} onClick={send}><Send size={17}/></button></div>
       </div>
       <AnimatePresence>{options&&<motion.div className="wc-options" initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}} transition={{duration:reduceMotion?0:.16}}><label><input type="checkbox" checked={session.auto_mode} disabled={state.trial_over} onChange={e=>court.setAutoMode(e.target.checked)}/>自动推进</label><label><input type="checkbox" checked={!!state.user_agent_enabled} disabled={state.trial_over} onChange={e=>court.setUserAgentMode(e.target.checked)}/>我方 AI 代理</label><button disabled={isRunning||state.trial_over} onClick={()=>{court.forceAdvance();court.runNextTurn();}}>推进阶段<ChevronRight size={14}/></button></motion.div>}</AnimatePresence>

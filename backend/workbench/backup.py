@@ -12,7 +12,7 @@ from workbench.api import gate, receipt
 from workbench.store import Item, Version, BlobStore, transaction, new_id, public
 from workbench.documents import validate_content
 
-router = APIRouter(prefix="/api/v2/backup", tags=["backup"])
+router = APIRouter(prefix="/api/workbench/backup", tags=["backup"])
 
 
 @router.get("")

@@ -1,13 +1,19 @@
 """
 模块描述：账号认证与会话模块，负责密码哈希、登录锁定、权限层级与在线设备限制。
 
-账号与密码摘要存放在 SQLite（infra/auth_store.py），首次启动会把遗留的
-data/account.json 导入数据库并改名归档。角色分为 sudo / admin / user 三级：
-sudo 拥有全部权限，admin 只能管理自己创建的 user（数量上限 n），user 仅使用。
+账号与会话存在云端数据库（infra/account_store.py），与工作台内容同库，这样
+「扣费 + 记账 + 账号状态」才能落在同一个事务里。首次启动会把遗留的
+data/account.json 与旧 data/auth.sqlite3 导入并归档。角色分为 sudo / admin / user
+三级：sudo 拥有全部权限，admin 只能管理自己创建的 user（数量上限 n），user 仅使用。
+
+会话是**不透明 sid**，没有 JWT、没有 auth_version：撤销即删行，即时生效。
+布隆过滤器挡掉「从未签发」的 sid，Redis 缓存最近验证过的会话（TTL 60 秒，
+撤销时主动删除），两者都不可用时自动退回每次查库。
 """
 
 import os
 import json
+import math
 import time
 import hmac
 import hashlib
@@ -20,8 +26,11 @@ from contextlib import contextmanager
 from typing import Optional
 
 from dotenv import load_dotenv
+from fastapi import HTTPException
+from sqlalchemy.exc import OperationalError
 
-from infra import auth_store, bloom
+from billing import ledger as billing_ledger
+from infra import account_store as auth_store, bloom, redis_backend, throttle
 from infra.password_hashing import (
     PBKDF2_ITERATIONS,
     hash_password,
@@ -39,17 +48,17 @@ load_dotenv(".env")
 
 MIN_SECRET_LENGTH = 32
 PASSWORD_MIN_LENGTH = 6
-LOCKOUT_FAIL_LIMIT = 3
-LOCKOUT_SECONDS = 2 * 3600
-LOCKOUT_WINDOW_SECONDS = 15 * 60
-# The aggregate account bucket starts later and applies short exponential
-# backoff. A single source hits its own hard bucket first, so one client cannot
-# cheaply keep an account globally locked, while rotating sources still share a
-# common budget.
-ACCOUNT_LOCKOUT_PROGRESSIVE_START = 6
-ACCOUNT_LOCKOUT_BASE_SECONDS = 5
-ACCOUNT_LOCKOUT_MAX_SECONDS = 15 * 60
-ACCOUNT_LOCKOUT_FAIL_CAP = 32
+# 节流策略的唯一出处在 infra/throttle.py（存储与算法都在那里）；
+# 这里 re-export，保持既有调用点与测试的引用不变。
+LOCKOUT_FAIL_LIMIT = throttle.LOCKOUT_FAIL_LIMIT
+LOCKOUT_SECONDS = throttle.LOCKOUT_SECONDS
+LOCKOUT_WINDOW_SECONDS = throttle.LOCKOUT_WINDOW_SECONDS
+# 聚合账号桶起步更晚并做短指数退避：单一来源会先撞到自己的硬桶，
+# 于是单个客户端无法廉价地把整个账号锁住，而轮换来源仍共享同一份预算。
+ACCOUNT_LOCKOUT_PROGRESSIVE_START = throttle.ACCOUNT_LOCKOUT_PROGRESSIVE_START
+ACCOUNT_LOCKOUT_BASE_SECONDS = throttle.ACCOUNT_LOCKOUT_BASE_SECONDS
+ACCOUNT_LOCKOUT_MAX_SECONDS = throttle.ACCOUNT_LOCKOUT_MAX_SECONDS
+ACCOUNT_LOCKOUT_FAIL_CAP = throttle.ACCOUNT_LOCKOUT_FAIL_CAP
 AUTH_USERNAME_MAX_LENGTH = 128
 AUTH_PASSWORD_MAX_LENGTH = 1024
 CLIENT_IDENTITY_MAX_LENGTH = 128
@@ -64,10 +73,11 @@ VALID_ROLES = (ROLE_SUDO, ROLE_ADMIN, ROLE_USER)
 BUILTIN_SUDO_USERNAME = "admin"
 MAX_ONLINE_LIMIT = 1000
 MAX_USERS_QUOTA = 10_000
+MAX_MULTIPLIER = 100.0
+MAX_INITIAL_CREDITS = 10_000_000.0
 _UNLIMITED_ONLINE = 0
 _UNLIMITED_USERS = -1
 
-_LOCKOUT_KEY_RE = re.compile(r"^v2:[0-9a-f]{64}$")
 _logger = logging.getLogger(__name__)
 
 
@@ -114,7 +124,6 @@ def _bounded_lockout_limit() -> int:
 
 
 LOCKOUT_MAX_RECORDS = _bounded_lockout_limit()
-LOCKOUT_FILE_MAX_BYTES = max(64 * 1024, LOCKOUT_MAX_RECORDS * 512)
 INSECURE_DEFAULT_ADMIN_HASH = (
     "cf632ecdd2c9b4e67cd76de4db6b785d$"
     "12b8bd1ec5414d7a46abf6b92a4bc0319ca7b9662bba71bc9776dcbefc4c0177"
@@ -134,7 +143,6 @@ SECRET_KEY = _get_required_secret_key()
 
 DATA_DIR = os.environ.get("LAWVER_DATA_DIR") or os.path.join(os.getcwd(), "data")
 ACCOUNT_FILE = os.path.join(DATA_DIR, "account.json")
-LOCKOUT_FILE = os.path.join(DATA_DIR, "lockout.json")
 AUTH_STATE_LOCK_FILE = os.path.join(DATA_DIR, ".auth_state.lock")
 _AUTH_STATE_LOCK = threading.RLock()
 _AUTH_STATE_LOCK_DEPTH = threading.local()
@@ -296,7 +304,6 @@ def _bootstrap_initial_admin() -> None:
             "username": BUILTIN_SUDO_USERNAME,
             "password_hash": hash_password(initial_password),
             "role": ROLE_SUDO,
-            "auth_version": 0,
             "owner": None,
             "max_online": None,
             "max_users": None,
@@ -313,18 +320,91 @@ def _reject_insecure_default_admin() -> None:
         )
 
 
+_STORE_READY = False
+_STORE_LOCK = threading.Lock()
+
+
+def ensure_auth_store_ready() -> None:
+    """启动钩子：显式引导一次账号库；没配数据库时只记日志，不阻断启动。"""
+    _ensure_auth_store()
+
+
+def auth_store_ready() -> bool:
+    """云端数据库是否可用；未配置时鉴权整体不可用，前端会显示「尚未就绪」。"""
+    return _STORE_READY
+
+
 def _ensure_auth_store() -> None:
-    with _auth_state_lock():
-        auth_store.ensure_schema()
+    """确保账号表存在并完成一次性引导；首次调用才连库。
+
+    没配数据库时**不抛异常**：介绍页、更新检查这些公开路径不该因为
+    后端缺配置而整个起不来，登录时再给出明确错误。
+    """
+    global _STORE_READY
+    if _STORE_READY:
+        return
+    with _STORE_LOCK:
+        if _STORE_READY:
+            return
+        try:
+            auth_store.ensure_tables()
+        except (HTTPException, OperationalError) as error:
+            # 只吞「连不上/没配库」：服务照常起，登录时给明确错误。
+            # 引导过程中的安全类失败（例如不安全的默认管理员）必须继续冒泡。
+            _logger.error("云端账号库不可用，登录与工作台将不可使用：%s", error)
+            return
+
         if auth_store.count_users() == 0:
             legacy = _read_legacy_accounts()
             if legacy:
                 _import_legacy_accounts(legacy)
                 _archive_legacy_account_file()
+            elif _import_sqlite_accounts():
+                pass
             else:
                 _bootstrap_initial_admin()
         _reject_insecure_default_admin()
-        auth_store.harden_storage()
+        _STORE_READY = True
+
+
+def _import_sqlite_accounts() -> int:
+    """把旧 data/auth.sqlite3 里的账号一次性搬进云端库，成功后把文件改名归档。
+
+    只搬账号本身；旧会话是 JWT，语义已经不存在，全部作废（所有人重新登录一次）。
+    """
+    source = os.path.join(DATA_DIR, "auth.sqlite3")
+    if not os.path.exists(source):
+        return 0
+    import sqlite3
+
+    try:
+        connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute("SELECT * FROM users").fetchall()
+        connection.close()
+    except Exception:
+        _logger.exception("读取旧 SQLite 账号库失败，跳过导入。")
+        return 0
+    if not rows:
+        return 0
+    for row in rows:
+        auth_store.insert_user_record(
+            {
+                "username": row["username"],
+                "password_hash": row["password_hash"],
+                "role": row["role"] if row["role"] in (ROLE_SUDO, ROLE_ADMIN, ROLE_USER) else ROLE_USER,
+                "owner": row["owner"],
+                "max_online": row["max_online"],
+                "max_users": row["max_users"],
+                "user_max_online": row["user_max_online"],
+            }
+        )
+    try:
+        os.replace(source, f"{source}.imported-{int(time.time())}")
+    except OSError:
+        _logger.exception("归档旧 SQLite 账号库失败。")
+    _logger.warning("已从旧 SQLite 账号库导入 %d 个账号，并归档该文件。", len(rows))
+    return len(rows)
 
 
 def _read_legacy_accounts() -> dict:
@@ -341,14 +421,16 @@ def _read_legacy_accounts() -> dict:
 
 
 def _ensure_account_file():
-    """兼容旧调用：加固认证存储目录与遗留账号文件权限。"""
+    """加固本机仍会落盘的那点认证状态：数据目录、遗留账号文件与锁定文件。
+
+    账号本身已经在云端库里，本机不再有 auth.sqlite3 需要收紧。
+    """
     with _auth_state_lock():
         _ensure_private_dir(DATA_DIR)
-        auth_store.harden_storage()
         _harden_private_file(ACCOUNT_FILE)
 
 
-_ensure_auth_store()
+# 惰性触发：首次真正用到账号时才连库（见 _ensure_auth_store 的说明）。
 
 
 # ─── 账号读取 ──────────────────────────────────────────────────────────────
@@ -366,11 +448,13 @@ def _account_auth_version(user_data) -> int:
 def get_user_record(username: str) -> Optional[dict]:
     if not isinstance(username, str) or not username:
         return None
+    _ensure_auth_store()
     return auth_store.get_user(username)
 
 
 def get_accounts_data() -> dict:
     """兼容旧接口：返回 {username: {hash, role, auth_version}} 视图。"""
+    _ensure_auth_store()
     return {
         record["username"]: {
             "hash": record["password_hash"],
@@ -398,10 +482,16 @@ def get_user_limits(username: str) -> dict:
 
 
 def count_online(username: str) -> int:
+    """在线设备数：Redis 有序集合优先，不可用或为空时回落到数据库统计。"""
+    now = time.time()
+    cached = _redis_online_count(username, now)
+    if cached:
+        return cached
     return auth_store.count_online(username, online_window=ONLINE_WINDOW_SECONDS)
 
 
 def list_accounts(actor: Optional[str] = None) -> list:
+    _ensure_auth_store()
     """列出租户内可见账号；admin 只看名下 user，user 看不到任何账号。"""
     actor_role = get_user_role(actor) if actor else ROLE_SUDO
     if actor and actor_role == ROLE_USER:
@@ -426,6 +516,10 @@ def list_accounts(actor: Optional[str] = None) -> list:
                 "max_online": record.get("max_online"),
                 "max_users": record.get("max_users"),
                 "user_max_online": record.get("user_max_online"),
+                "plan": record.get("plan", "metered"),
+                "billing_cycle": record.get("billing_cycle", "prepaid"),
+                "credits_balance": int(record.get("credits_balance", 0) or 0),
+                "status": record.get("status", "active"),
                 "online_count": online.get(username, 0),
                 "owned_count": owned_count,
                 "created_at": record.get("created_at"),
@@ -462,6 +556,29 @@ def _validate_users_quota(value) -> tuple[bool, str, Optional[int]]:
     return True, "", value
 
 
+def _validate_multiplier(value) -> tuple[bool, str, Optional[float]]:
+    """账号级计费倍率：正数、有限、有上限，避免把定价打成 0 或天文数字。"""
+    if value is None:
+        return True, "", None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False, "计费倍率必须是数字", None
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized <= 0 or normalized > MAX_MULTIPLIER:
+        return False, f"计费倍率必须在 0-{MAX_MULTIPLIER:g} 之间", None
+    return True, "", normalized
+
+
+def _validate_initial_credits(value) -> tuple[bool, str, Optional[float]]:
+    if value is None:
+        return True, "", None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False, "开户额度必须是数字", None
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized < 0 or normalized > MAX_INITIAL_CREDITS:
+        return False, f"开户额度必须在 0-{int(MAX_INITIAL_CREDITS)} 之间", None
+    return True, "", normalized
+
+
 def upsert_account(
     actor: str,
     username: str,
@@ -470,8 +587,16 @@ def upsert_account(
     max_online: Optional[int] = None,
     max_users: Optional[int] = None,
     user_max_online: Optional[int] = None,
+    plan: Optional[str] = None,
+    billing_cycle: Optional[str] = None,
+    credit_multiplier: Optional[float] = None,
+    initial_credits: Optional[float] = None,
 ) -> tuple[bool, str]:
-    """创建或更新账号。role/limit 传 None 表示「沿用原值」（新建时表示不限）。"""
+    """创建或更新账号。role/limit/计费字段传 None 表示「沿用原值」（新建时表示默认）。
+
+    开户额度是**账本事件**：账号落库后调用 billing.ledger.grant 写入，而不是直接
+    改 credits_balance——对账按账本重算余额，直接写会被下一次 reconcile 抹掉。
+    """
     if not isinstance(username, str) or not username or len(username) > AUTH_USERNAME_MAX_LENGTH:
         return False, f"用户名长度必须为 1-{AUTH_USERNAME_MAX_LENGTH} 个字符"
     if not isinstance(password, str) or len(password) > AUTH_PASSWORD_MAX_LENGTH:
@@ -482,7 +607,10 @@ def upsert_account(
         return False, "调用者身份无效"
 
     actor_role = get_user_role(actor)
-    if actor_role not in (ROLE_SUDO, ROLE_ADMIN):
+    # 能建账号的两类人：staff（sudo/admin）与 Business 母账号（建自己的子账号）。
+    # 后者走下面那条与 admin 同样严格的支线：只能建 user、只能管自己名下的。
+    actor_is_business = bool(actor) and (get_user_record(actor) or {}).get("plan") == "business"
+    if actor_role not in (ROLE_SUDO, ROLE_ADMIN) and not actor_is_business:
         return False, "权限不足"
 
     ok, message, normalized_online = _validate_online_value(
@@ -499,6 +627,17 @@ def upsert_account(
     if not ok:
         return False, message
 
+    if plan is not None and plan not in auth_store.VALID_PLANS:
+        return False, "套餐不合法"
+    if billing_cycle is not None and billing_cycle not in auth_store.VALID_BILLING_CYCLES:
+        return False, "计费方式不合法"
+    ok, message, normalized_multiplier = _validate_multiplier(credit_multiplier)
+    if not ok:
+        return False, message
+    ok, message, normalized_credits = _validate_initial_credits(initial_credits)
+    if not ok:
+        return False, message
+
     requested_role = role
     if requested_role is not None and requested_role not in VALID_ROLES:
         return False, "角色不合法"
@@ -508,7 +647,21 @@ def upsert_account(
 
         actor_record = auth_store.get_user(actor) or {}
         inherited_online: Optional[int] = None
-        if actor_role == ROLE_ADMIN:
+        # Business 母账号建子账号：规则与 admin 建用户一致——只能建普通用户、
+        # 只能管自己名下的、受自己的 max_users 约束。
+        if actor_role not in (ROLE_SUDO, ROLE_ADMIN) and actor_record.get("plan") == "business":
+            if requested_role not in (None, ROLE_USER):
+                return False, "子账号只能是普通用户"
+            if existing is not None and existing.get("owner") != actor:
+                return False, "只能管理自己创建的账号"
+            if existing is None:
+                quota = actor_record.get("max_users")
+                if quota is not None and auth_store.count_owned_users(actor) >= int(quota):
+                    return False, f"已达子账号上限（{quota} 个），请联系客服调整"
+            owner = existing.get("owner") if existing else actor
+            effective_role = ROLE_USER
+            inherited_online = actor_record.get("user_max_online")
+        elif actor_role == ROLE_ADMIN:
             if requested_role not in (None, ROLE_USER):
                 return False, "管理员只能创建普通用户"
             if any(value is not None for value in (max_online, max_users, user_max_online)):
@@ -544,8 +697,9 @@ def upsert_account(
             if effective_role not in VALID_ROLES:
                 effective_role = ROLE_USER
 
+        created = existing is None
         try:
-            if existing is None:
+            if created:
                 if actor_role == ROLE_ADMIN:
                     new_max_online = inherited_online
                     new_max_users = None
@@ -554,23 +708,24 @@ def upsert_account(
                     new_max_online = normalized_online
                     new_max_users = normalized_max_users
                     new_user_max_online = normalized_user_online
-                auth_store.insert_user_record(
-                    {
-                        "username": username,
-                        "password_hash": hash_password(password),
-                        "role": effective_role,
-                        "auth_version": 0,
-                        "owner": owner,
-                        "max_online": new_max_online,
-                        "max_users": new_max_users,
-                        "user_max_online": new_user_max_online,
-                    }
-                )
-            else:
-                updates: dict = {
+                record = {
+                    "username": username,
                     "password_hash": hash_password(password),
-                    "auth_version": _account_auth_version(existing) + 1,
+                    "role": effective_role,
+                    "owner": owner,
+                    "max_online": new_max_online,
+                    "max_users": new_max_users,
+                    "user_max_online": new_user_max_online,
                 }
+                if plan is not None:
+                    record["plan"] = plan
+                if billing_cycle is not None:
+                    record["billing_cycle"] = billing_cycle
+                if normalized_multiplier is not None:
+                    record["credit_multiplier"] = normalized_multiplier
+                auth_store.insert_user_record(record)
+            else:
+                updates: dict = {"password_hash": hash_password(password)}
                 if requested_role is not None:
                     updates["role"] = effective_role
                 if max_online is not None and actor_role == ROLE_SUDO:
@@ -579,6 +734,14 @@ def upsert_account(
                     updates["max_users"] = normalized_max_users
                 if user_max_online is not None and actor_role == ROLE_SUDO:
                     updates["user_max_online"] = normalized_user_online
+                # 计费字段与配额同级：只有 sudo 能改已有账号的套餐与倍率。
+                if actor_role == ROLE_SUDO:
+                    if plan is not None:
+                        updates["plan"] = plan
+                    if billing_cycle is not None:
+                        updates["billing_cycle"] = billing_cycle
+                    if normalized_multiplier is not None:
+                        updates["credit_multiplier"] = normalized_multiplier
                 auth_store.update_user(username, **updates)
         except Exception:
             _logger.exception("保存账号失败：%s", username)
@@ -589,6 +752,19 @@ def upsert_account(
             auth_store.revoke_user_sessions(username)
         except Exception:
             _logger.exception("清理账号会话失败：%s", username)
+
+    # 开户额度只在新建时入账；已有账号的加减额度走充值入口，避免误把重置密码变成充值。
+    if created and normalized_credits:
+        try:
+            billing_ledger.grant(
+                username,
+                normalized_credits,
+                reason="开户额度",
+                actor=actor,
+            )
+        except Exception:
+            _logger.exception("开户额度入账失败：%s", username)
+            return False, "账号已创建，但开户额度入账失败，请在充值入口补录"
 
     return True, "操作成功"
 
@@ -644,6 +820,43 @@ def set_account_limits(
     return True, "配额已更新"
 
 
+def set_account_status(actor: str, username: str, status: str) -> tuple[bool, str]:
+    """停用/启用账号。停用会立刻撤销其全部会话，下一次请求即失效。"""
+    if status not in auth_store.VALID_STATUSES:
+        return False, "状态不合法"
+    if not isinstance(username, str) or not username:
+        return False, "账号不存在"
+    actor_role = get_user_role(actor)
+    actor_record = auth_store.get_user(actor) or {}
+    # 两类人来管账号状态：staff（sudo/admin），以及 Business 母账号管自己的子账号。
+    privileged = actor_role == ROLE_SUDO
+    delegated = actor_role == ROLE_ADMIN or actor_record.get("plan") == "business"
+    if not privileged and not delegated:
+        return False, "权限不足"
+    if username == BUILTIN_SUDO_USERNAME:
+        return False, "不能停用系统管理员账号"
+    if username == actor:
+        return False, "不能停用自己的账号"
+
+    with _auth_state_lock():
+        target = auth_store.get_user(username)
+        if target is None:
+            return False, "账号不存在"
+        if not privileged and target.get("owner") != actor:
+            return False, "只能管理自己创建的账号"
+        if target.get("status", "active") == status:
+            return True, "账号状态未变化"
+        try:
+            if not auth_store.update_user(username, status=status):
+                return False, "账号不存在"
+            if status == "suspended":
+                revoke_user_sessions(username)
+        except Exception:
+            _logger.exception("更新账号状态失败：%s", username)
+            return False, "保存失败，请稍后重试"
+    return True, "账号已停用" if status == "suspended" else "账号已启用"
+
+
 def delete_account(username: str, actor: Optional[str] = None) -> tuple[bool, str]:
     if not isinstance(username, str) or not username or len(username) > AUTH_USERNAME_MAX_LENGTH:
         return False, "账号不存在"
@@ -675,47 +888,71 @@ def delete_account(username: str, actor: Optional[str] = None) -> tuple[bool, st
 # ─── 令牌与会话 ────────────────────────────────────────────────────────────
 
 
-def _b64url_encode(raw: bytes) -> str:
-    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+# ─── Redis：会话缓存与在线设备 ─────────────────────────────────────────
+#
+# 两条原则：
+# 1. 真值在数据库。Redis 只用来省掉每请求一次主键查询、以及数在线设备；
+# 2. Redis 抖动不能影响登录与鉴权，所有调用都走 redis_backend.execute 的降级包装。
+
+SESSION_CACHE_SECONDS = 60
+ONLINE_KEY_PREFIX = "online:"
 
 
-def _b64url_decode(text: str) -> bytes:
-    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+def _session_cache_key(sid: str) -> str:
+    return f"sess:{sid}"
 
 
-def _signature(header: str, payload: str) -> str:
-    return _b64url_encode(
-        hmac.new(SECRET_KEY.encode("utf-8"), f"{header}.{payload}".encode("utf-8"), hashlib.sha256).digest()
+def _online_key(username: str) -> str:
+    return f"{ONLINE_KEY_PREFIX}{username}"
+
+
+def _cached_session_user(sid: str) -> Optional[str]:
+    value = redis_backend.execute(
+        lambda client: client.get(_session_cache_key(sid)), default=None
+    )
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    return value or None
+
+
+def _cache_session(sid: str, username: str, expires_at: float) -> None:
+    ttl = int(min(SESSION_CACHE_SECONDS, max(expires_at - time.time(), 1)))
+    redis_backend.execute(
+        lambda client: client.set(_session_cache_key(sid), username, ex=ttl)
     )
 
 
-def create_token(username: str, sid: str) -> str:
-    header = _b64url_encode(b'{"alg":"HS256","typ":"JWT"}')
-    user_data = auth_store.get_user(username)
-    payload_dict = {
-        "sub": username,
-        "exp": int(time.time()) + SESSION_TTL_SECONDS,
-        "ver": _account_auth_version(user_data),
-        "sid": sid,
-    }
-    payload = _b64url_encode(json.dumps(payload_dict).encode("utf-8"))
-    return f"{header}.{payload}.{_signature(header, payload)}"
+def _drop_session_cache(sid: str) -> None:
+    redis_backend.execute(lambda client: client.delete(_session_cache_key(sid)))
 
 
-def decode_token(token: str) -> Optional[dict]:
-    """校验签名与过期时间，返回 claims；不校验账号/会话状态。"""
-    if not token:
-        return None
-    try:
-        header, payload, signature = token.split(".")
-        if not hmac.compare_digest(signature, _signature(header, payload)):
-            return None
-        payload_dict = json.loads(_b64url_decode(payload))
-        if float(payload_dict["exp"]) < time.time():
-            return None
-        return payload_dict
-    except Exception:
-        return None
+def _mark_online(username: str, sid: str, now: float) -> None:
+    """在线设备用有序集合记：member=sid，score=最近活跃时间。"""
+
+    def handler(client):
+        key = _online_key(username)
+        client.zadd(key, {sid: now})
+        client.zremrangebyscore(key, 0, now - ONLINE_WINDOW_SECONDS)
+        client.expire(key, int(ONLINE_WINDOW_SECONDS * 2))
+        return True
+
+    redis_backend.execute(handler)
+
+
+def _redis_online_count(username: str, now: float) -> Optional[int]:
+    """Redis 有数据就返回条数；不可用或为空时返回 None，让调用方查库。"""
+
+    def handler(client):
+        key = _online_key(username)
+        client.zremrangebyscore(key, 0, now - ONLINE_WINDOW_SECONDS)
+        return int(client.zcard(key))
+
+    return redis_backend.execute(handler, default=None)
 
 
 _SESSION_TOUCH_LOCK = threading.Lock()
@@ -805,15 +1042,11 @@ def bloom_status() -> dict:
 
 
 def verify_token(token: str) -> Optional[str]:
-    payload_dict = decode_token(token)
-    if not payload_dict:
-        return None
-    username = payload_dict.get("sub")
-    if not isinstance(username, str) or not username:
-        return None
-    sid = payload_dict.get("sid")
+    """token 现在就是不透明 sid；返回用户名，或 None。"""
+    sid = token
     if not isinstance(sid, str) or not sid:
         return None
+    username = _cached_session_user(sid)
 
     maybe_known, needs_warm = _known_session(sid)
     if not maybe_known:
@@ -822,23 +1055,17 @@ def verify_token(token: str) -> Optional[str]:
     if needs_warm:
         _schedule_session_bloom_warm()
 
-    user_data = auth_store.get_user(username)
-    if not user_data:
-        return None
-    try:
-        token_auth_version = int(payload_dict.get("ver", 0))
-    except (TypeError, ValueError):
-        return None
-    if token_auth_version != _account_auth_version(user_data):
-        return None
-
     session = auth_store.get_session(sid)
     now = time.time()
-    if not session or session.get("revoked") or session.get("username") != username:
+    if not session or session.get("revoked"):
         return None
     if float(session.get("expires_at", 0)) < now:
         return None
-
+    if username and session.get("username") != username:
+        return None
+    username = session["username"]
+    if not _cached_session_user(sid):
+        _cache_session(sid, username, float(session.get("expires_at", 0)))
     _touch_session(sid, now)
     return username
 
@@ -851,6 +1078,7 @@ def create_session(
     ip_hash: Optional[str] = None,
 ) -> tuple[bool, str, Optional[str], list[str]]:
     """登记一台在线设备，返回 (是否成功, 提示, sid, 被踢会话列表)。"""
+    _ensure_auth_store()
     record = auth_store.get_user(username)
     if record is None:
         return False, "账号不存在", None, []
@@ -873,25 +1101,42 @@ def create_session(
     except Exception:
         # 位图写入失败只会让后续请求多查一次库，不能影响登录本身。
         _logger.exception("写入会话布隆过滤器失败：%s", sid)
+    expires_at = time.time() + SESSION_TTL_SECONDS
+    _cache_session(sid, username, expires_at)
+    _mark_online(username, sid, time.time())
+    for victim in evicted:
+        _drop_session_cache(victim)
     if evicted:
         _logger.warning("账号 %s 在线设备超限，已下线 %d 台最久未活跃设备。", username, len(evicted))
     return True, "登录成功", sid, evicted
 
 
 def revoke_token_session(token: str) -> bool:
-    payload_dict = decode_token(token)
-    if not payload_dict:
-        return False
-    sid = payload_dict.get("sid")
+    sid = token
     if not isinstance(sid, str) or not sid:
         return False
-    if not session_bloom().maybe_contains(sid):
-        # 从未签发的 sid 不必开写事务。
-        return False
+    try:
+        if not session_bloom().maybe_contains(sid):
+            # 位图确认从未签发：不必开写事务。
+            return False
+    except Exception:
+        _logger.exception("查询会话布隆过滤器失败，按未知会话继续处理")
+    _drop_session_cache(sid)
     return auth_store.revoke_session(sid)
 
 
 def revoke_user_sessions(username: str) -> int:
+    """撤销该账号全部会话，并同步清掉缓存（缓存 TTL 60 秒，不能等它自然过期）。
+
+    这里必须带 online_window：list_sessions 是仅关键字参数，漏掉它会抛
+    TypeError，而调用方大多把它包在 try/except 里 —— 于是「改密码踢下线」
+    静默失效。online_window 只影响 online 标记，这里不关心，给窗口值即可。
+    """
+    for session in auth_store.list_sessions(
+        usernames=[username], online_window=ONLINE_WINDOW_SECONDS
+    ):
+        _drop_session_cache(session["sid"])
+    redis_backend.execute(lambda client: client.delete(_online_key(username)))
     return auth_store.revoke_user_sessions(username)
 
 
@@ -922,6 +1167,7 @@ def revoke_session(actor: str, sid: str) -> tuple[bool, str]:
             return False, "只能管理自己创建的账号"
     elif actor_role != ROLE_SUDO:
         return False, "权限不足"
+    _drop_session_cache(sid)
     auth_store.revoke_session(sid)
     return True, "已下线该设备"
 
@@ -944,156 +1190,17 @@ def hash_client_identity(client_ip: Optional[str]) -> Optional[str]:
 # ─── 锁定策略（沿用 JSON 存储） ────────────────────────────────────────────
 
 
-def _lockout_digest(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _account_lockout_key(username: str) -> str:
-    username_value = username[:AUTH_USERNAME_MAX_LENGTH]
-    return f"v2:{_lockout_digest(f'account\0{username_value}')}"
-
-
-def _client_lockout_key(username: str, client_identity: str) -> str:
-    username_value = username[:AUTH_USERNAME_MAX_LENGTH]
-    client_value = str(client_identity or "unknown")[:CLIENT_IDENTITY_MAX_LENGTH]
-    return f"v2:{_lockout_digest(f'client\0{username_value}\0{client_value}')}"
-
-
-def _lockout_key(username: str, client_identity: str) -> str:
-    """Compatibility alias for the username/client bucket key."""
-    return _client_lockout_key(username, client_identity)
-
-
-def _sanitize_lockouts(raw: object, now: float) -> tuple[dict, bool]:
-    if not isinstance(raw, dict):
-        return {}, True
-
-    candidates: list[tuple[float, str, dict]] = []
-    dirty = False
-    for key, record in raw.items():
-        if not isinstance(key, str) or not _LOCKOUT_KEY_RE.fullmatch(key) or not isinstance(record, dict):
-            dirty = True
-            continue
-        try:
-            fails = min(max(int(record.get("fails", 0)), 0), ACCOUNT_LOCKOUT_FAIL_CAP)
-            first_failed_at = float(record.get("first_failed_at", 0))
-            last_failed_at = float(record.get("last_failed_at", first_failed_at))
-            locked_until = float(record.get("locked_until", 0))
-        except (TypeError, ValueError, OverflowError):
-            dirty = True
-            continue
-
-        first_failed_at = min(max(first_failed_at, 0), now)
-        last_failed_at = min(max(last_failed_at, first_failed_at), now)
-        locked_until = min(max(locked_until, 0), now + LOCKOUT_SECONDS)
-        is_locked = locked_until > now
-        is_recent_failure = last_failed_at > 0 and now - last_failed_at <= LOCKOUT_WINDOW_SECONDS
-        if not is_locked and not is_recent_failure:
-            dirty = True
-            continue
-
-        clean_record = {
-            "fails": fails,
-            "first_failed_at": first_failed_at,
-            "last_failed_at": last_failed_at,
-            "locked_until": locked_until,
-        }
-        if clean_record != record:
-            dirty = True
-        candidates.append((max(last_failed_at, locked_until), key, clean_record))
-
-    if len(candidates) > LOCKOUT_MAX_RECORDS:
-        dirty = True
-        candidates.sort(reverse=True)
-        candidates = candidates[:LOCKOUT_MAX_RECORDS]
-
-    return {key: record for _, key, record in candidates}, dirty
-
-
-def _read_lockouts() -> dict:
-    with _auth_state_lock():
-        if not os.path.exists(LOCKOUT_FILE):
-            return {}
-        try:
-            _harden_private_file(LOCKOUT_FILE)
-            if os.path.getsize(LOCKOUT_FILE) > LOCKOUT_FILE_MAX_BYTES:
-                return {}
-            with open(LOCKOUT_FILE, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-            lockouts, dirty = _sanitize_lockouts(raw, time.time())
-            if dirty:
-                _write_json(LOCKOUT_FILE, lockouts)
-            return lockouts
-        except Exception:
-            return {}
-
-
-def _write_lockouts(lockouts: dict):
-    with _auth_state_lock():
-        _write_json(LOCKOUT_FILE, lockouts)
-
-
 def check_lockout(username: str, client_identity: str = "unknown") -> Optional[str]:
-    if not isinstance(username, str) or not username or len(username) > AUTH_USERNAME_MAX_LENGTH:
+    """账号/来源被锁时返回提示，否则 None。
+
+    实现在 infra/throttle.py：Redis 快路径（锁定标记与计数）+ Postgres 事实源。
+    调用点在密码校验之前，被锁的请求不会消耗 PBKDF2 的 CPU。
+    """
+    try:
+        return throttle.is_locked(username, client_identity)
+    except Exception:
+        _logger.exception("查询登录节流状态失败，按未锁定处理")
         return None
-    keys = (
-        _account_lockout_key(username),
-        _client_lockout_key(username, client_identity),
-    )
-    with _auth_state_lock():
-        lockouts = _read_lockouts()
-
-    now = time.time()
-    locked_until = max(
-        (float(lockouts.get(key, {}).get("locked_until", 0)) for key in keys),
-        default=0,
-    )
-    if locked_until > now:
-        remain = int((locked_until - now) / 60) + 1
-        return f"账户已被锁定，请 {remain} 分钟后再试。"
-    return None
-
-
-def _new_lockout_record(now: float) -> dict:
-    return {
-        "fails": 0,
-        "locked_until": 0,
-        "first_failed_at": now,
-        "last_failed_at": now,
-    }
-
-
-def _record_bucket_failure(record: object, now: float, *, progressive: bool) -> dict:
-    if not isinstance(record, dict):
-        record = _new_lockout_record(now)
-    else:
-        record = dict(record)
-
-    first_failed_at = float(record.get("first_failed_at", now))
-    last_failed_at = float(record.get("last_failed_at", first_failed_at))
-    locked_until = float(record.get("locked_until", 0))
-    if locked_until > now:
-        return record
-    if now - last_failed_at > LOCKOUT_WINDOW_SECONDS or (
-        not progressive and locked_until > 0 and locked_until <= now
-    ):
-        record = _new_lockout_record(now)
-
-    record["fails"] = min(int(record.get("fails", 0)) + 1, ACCOUNT_LOCKOUT_FAIL_CAP)
-    record["last_failed_at"] = now
-    record.setdefault("first_failed_at", now)
-
-    if progressive:
-        if record["fails"] >= ACCOUNT_LOCKOUT_PROGRESSIVE_START:
-            step = min(record["fails"] - ACCOUNT_LOCKOUT_PROGRESSIVE_START, 20)
-            delay = min(ACCOUNT_LOCKOUT_BASE_SECONDS * (2 ** step), ACCOUNT_LOCKOUT_MAX_SECONDS)
-            record["locked_until"] = int(now + delay)
-        else:
-            record["locked_until"] = 0
-    elif record["fails"] >= LOCKOUT_FAIL_LIMIT:
-        record["locked_until"] = int(now + LOCKOUT_SECONDS)
-
-    return record
 
 
 def record_login_attempt(
@@ -1103,40 +1210,23 @@ def record_login_attempt(
     *,
     account_exists: Optional[bool] = None,
 ):
+    """记录一次登录结果：失败进节流桶，成功清掉计数。
+
+    不存在的账号**不记录**：否则攻击者可以用任意用户名刷出一堆桶。
+    """
     if not isinstance(username, str) or not username or len(username) > AUTH_USERNAME_MAX_LENGTH:
         return
     try:
-        with _auth_state_lock():
-            if account_exists is None:
-                account_exists = auth_store.get_user(username) is not None
-            if not account_exists:
-                return
-
-            now = time.time()
-            lockouts = _read_lockouts()
-            account_key = _account_lockout_key(username)
-            client_key = _client_lockout_key(username, client_identity)
-
-            if success:
-                if account_key not in lockouts and client_key not in lockouts:
-                    return
-                lockouts.pop(account_key, None)
-                lockouts.pop(client_key, None)
-            else:
-                lockouts[account_key] = _record_bucket_failure(
-                    lockouts.get(account_key),
-                    now,
-                    progressive=True,
-                )
-                lockouts[client_key] = _record_bucket_failure(
-                    lockouts.get(client_key),
-                    now,
-                    progressive=False,
-                )
-
-            lockouts, _ = _sanitize_lockouts(lockouts, now)
-
-            _write_lockouts(lockouts)
+        if account_exists is None:
+            account_exists = auth_store.get_user(username) is not None
+        if not account_exists:
+            return
+        if success:
+            throttle.clear(username, client_identity)
+            return
+        # 两个桶都要记：来源桶给硬上限，账号桶跨来源累计。
+        throttle.record_failure(username, client_identity, bucket=throttle.SCOPE_CLIENT)
+        throttle.record_failure(username, client_identity, bucket=throttle.SCOPE_ACCOUNT)
     except Exception:
         _logger.exception("Failed to record login attempt")
 
@@ -1151,6 +1241,7 @@ def _upgrade_password_hash(username: str, password: str, previous_hash: str) -> 
 
 
 def authenticate_user(username, password, client_identity: str = "unknown"):
+    _ensure_auth_store()
     if auth_store.count_users() == 0:
         return False, "账号系统配置错误，请联系管理员"
 

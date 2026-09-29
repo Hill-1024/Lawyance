@@ -5,7 +5,8 @@
 import { Preferences } from '@capacitor/preferences';
 import { isNative } from './platform';
 
-const GUIDED_TOUR_SEEN_KEY = 'lawver.guidedTour.v1.seen';
+// 会话标签与文件区改版后，旧版本地标记不再作数，老用户会再看一次新地图。
+const GUIDED_TOUR_SEEN_KEY = 'lawver.guidedTour.v2.seen';
 const GUIDED_TOUR_REQUEST_EVENT = 'lawver:guided-tour-request';
 
 export const getGuidedTourSeen = async (): Promise<boolean> => {

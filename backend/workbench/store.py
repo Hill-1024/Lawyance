@@ -1,13 +1,11 @@
-"""SQLAlchemy persistence. Production requires PostgreSQL; SQLite is test-only."""
+"""工作台内容的 SQLAlchemy 模型；引擎与事务来自 infra.database（账号同库）。"""
 
 from __future__ import annotations
 
 import os
 import uuid
-from contextlib import contextmanager
-from functools import lru_cache
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON,
@@ -17,22 +15,32 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Index,
-    create_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.orm import Mapped, mapped_column
 from fastapi import HTTPException
 
+from infra import database as shared
+from infra.database import Base, engine_for, new_id, now
 
-def now():
-    return datetime.now(timezone.utc)
+__all__ = [
+    "Base",
+    "Item",
+    "Version",
+    "Event",
+    "Receipt",
+    "BlobStore",
+    "database_url",
+    "engine_for",
+    "get_item",
+    "check_revision",
+    "new_id",
+    "now",
+    "public",
+    "transaction",
+]
 
 
-def new_id():
-    return str(uuid.uuid4())
-
-
-class Base(DeclarativeBase):
-    pass
+WORKBENCH_DB_MESSAGE = "云端工作台尚未配置数据库，原有资料仍可访问。"
 
 
 class Item(Base):
@@ -90,36 +98,44 @@ class Receipt(Base):
 
 
 def database_url():
-    url = os.environ.get("LAWVER_DATABASE_URL", "")
-    if not url:
-        raise HTTPException(503, "云端工作台尚未配置数据库，原有资料仍可访问。")
-    if url.startswith("postgresql://"):
-        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
-    if not url.startswith("postgresql+") and not (
-        os.environ.get("LAWVER_WORKBENCH_TESTING") == "1" and url.startswith("sqlite")
-    ):
-        raise RuntimeError("Workbench requires PostgreSQL")
-    return url
+    return shared.database_url(WORKBENCH_DB_MESSAGE)
 
 
-@lru_cache(maxsize=4)
-def engine_for(url):
-    return create_engine(
-        url,
-        pool_pre_ping=True,
-        **(
-            {"connect_args": {"check_same_thread": False}}
-            if url.startswith("sqlite")
-            else {}
-        ),
-    )
+_READY_URL: str | None = None
 
 
-@contextmanager
+def ensure_tables() -> None:
+    """建表（缺才建）。生产走 alembic；这里是自愈，避免「忘了迁移」变成满屏 500。
+
+    checkfirst=True 且 alembic 首个 revision 用的也是 create_all，两条路径结果一致。
+    同一连接串在本进程只检查一次。
+    """
+    global _READY_URL
+    url = database_url()
+    if _READY_URL == url:
+        return
+    engine = engine_for(url)
+    Base.metadata.create_all(engine, checkfirst=True)
+    _READY_URL = url
+
+
+class _Transaction:
+    """先确保表存在，再开事务——顺带把「库还没迁移」变成一个可自愈的前置步骤。"""
+
+    def __init__(self, message: str):
+        self._message = message
+
+    def __enter__(self):
+        ensure_tables()
+        self._inner = shared.transaction(self._message)
+        return self._inner.__enter__()
+
+    def __exit__(self, *exc):
+        return self._inner.__exit__(*exc)
+
+
 def transaction():
-    with sessionmaker(engine_for(database_url()), expire_on_commit=False)() as session:
-        with session.begin():
-            yield session
+    return _Transaction(WORKBENCH_DB_MESSAGE)
 
 
 def get_item(session, owner, identifier, kind=None, *, deleted=False, lock=False):

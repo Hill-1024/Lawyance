@@ -214,12 +214,24 @@ class AccountRequest(RequestModel):
     max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
     max_users: Optional[int] = Field(default=None, ge=-1, le=MAX_USERS_QUOTA)
     user_max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
+    # 计费字段：取值由 auth.upsert_account 校验（未知值给中文原因）。
+    plan: Optional[str] = Field(default=None, max_length=32)
+    billing_cycle: Optional[str] = Field(default=None, max_length=16)
+    credit_multiplier: Optional[float] = Field(default=None, gt=0, le=100, allow_inf_nan=False)
+    # 开户额度（credits）：只在新建账号时走账本入账。
+    initial_credits: Optional[float] = Field(default=None, ge=0, le=10_000_000, allow_inf_nan=False)
 
 
 class AccountLimitsRequest(RequestModel):
     max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
     max_users: Optional[int] = Field(default=None, ge=-1, le=MAX_USERS_QUOTA)
     user_max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
+
+
+class AccountStatusRequest(RequestModel):
+    """停用/启用账号；停用会立即撤销其在线会话。"""
+
+    status: Literal["active", "suspended"]
 
 
 class WebDavConfig(RequestModel):

@@ -1,64 +1,157 @@
 /*
- * 模块描述：后台管理面板，按 sudo / admin 权限展示日志、账号层级与在线设备，视觉体系与主界面保持一致。
+ * 模块描述：后台管理控制台，按 sudo / admin 权限展示账号计费、用量监控、开屏公告与服务配置。
+ * 视觉沿用工作台（workbench）岛式语言：.wb-app 令牌、32px 控件网格、.wb-modal 弹窗。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAppBack } from '../hooks/useAppBack';
 import {
   Activity,
   ArrowLeft,
-  Clock,
   EyeOff,
-  Globe,
   KeyRound,
   Loader2,
   LogOut,
-  MonitorSmartphone,
+  Megaphone,
+  Pencil,
   Plus,
+  Power,
   RefreshCw,
   Search,
-  ShieldAlert,
+  Settings2,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
-  User,
+  Unlock,
   Users,
-  Wifi,
+  Wallet,
+  X,
 } from 'lucide-react';
+import { useAppBack } from '../hooks/useAppBack';
+import { useAppDialog } from '../contexts/DialogContext';
+import { BrandMark } from './Brand';
+import { HoverInfo } from './HoverInfo';
+import { LlmProfileManager } from './settings/LlmProfileManager';
+import {
+  PROVIDER_DESCS,
+  PROVIDER_ICONS,
+  PROVIDER_LABELS,
+  PROVIDER_ORDER,
+  ProviderSubPage,
+} from './SettingsPage';
+import { Banner, EmptyState, StatusChip, type ChipTone } from './settings/SettingsUI';
 import {
   clearLogs,
+  createAnnouncement,
   deleteAccount,
+  deleteAnnouncement,
   fetchAccounts,
+  fetchAdminAnnouncements,
+  fetchAdminUsage,
+  fetchThrottleBuckets,
   fetchLogs,
-  fetchSessions,
-  revokeSession,
   setAccount,
+  setAccountStatus,
+  unlockAccount,
+  topUpAccount,
   updateAccountLimits,
+  updateAnnouncement,
   verifyAuth,
   type Account,
   type AccountLimits,
+  type AccountProvision,
+  type Announcement,
+  type AnnouncementInput,
+  type AnnouncementLevel,
   type Role,
-  type SessionInfo,
+  type UsageAccount,
+  type ThrottleBucket,
 } from '../services/api';
-import { AnimatedSwitch } from './AnimatedSwitch';
-import { BrandMark } from './Brand';
-import { HoverInfo } from './HoverInfo';
-import { useAppDialog } from '../contexts/DialogContext';
-import {
-  Banner,
-  EmptyState,
-  SettingsField,
-  SettingsRow,
-  StatusChip,
-  fieldInputClass,
-} from './settings/SettingsUI';
+import '../workbench/workbench.css';
 
-/* ── 日志解析 ── */
+/* ── 展示常量与格式化 ─────────────────────────────────────────────────── */
+
+const ROLE_LABEL: Record<Role, string> = {
+  sudo: '超级管理员',
+  admin: '管理员',
+  user: '普通用户',
+};
+
+const ROLE_TONE: Record<Role, ChipTone> = {
+  sudo: 'accent',
+  admin: 'warn',
+  user: 'muted',
+};
+
+const PLAN_LABEL: Record<string, string> = {
+  metered: '按量',
+  go: 'Go',
+  pro: 'Pro',
+  max: 'Max',
+  business: 'Business',
+};
+
+const CYCLE_LABEL: Record<string, string> = {
+  prepaid: '按量计费',
+  monthly: '月付',
+  yearly: '年付',
+};
+
+const PAID_PLANS = ['go', 'pro', 'max', 'business'] as const;
+
+const LEVEL_LABEL: Record<AnnouncementLevel, string> = {
+  info: '提示',
+  warning: '注意',
+  danger: '重要',
+};
+
+const LEVEL_TONE: Record<AnnouncementLevel, ChipTone> = {
+  info: 'accent',
+  warning: 'warn',
+  danger: 'danger',
+};
+
+const ALL_PLANS = ['metered', ...PAID_PLANS];
+
+const formatCredits = (value: number | null | undefined) =>
+  Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+
+const formatNumber = (value: number | null | undefined) =>
+  Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+
+const formatDateTime = (iso?: string | null) => {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+/** datetime-local 输入值（本地时区）↔ ISO 字符串。 */
+const toLocalInput = (iso?: string | null) => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const fromLocalInput = (value: string): string | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
+/* ── 日志解析（沿用原后台的格式约定） ─────────────────────────────────── */
 
 interface ParsedLog {
   time: string;
   ip: string;
   user: string;
-  client: string;
   method: string;
   path: string;
   status: string;
@@ -76,17 +169,16 @@ function parseLogLine(raw: string): ParsedLog {
       time: (parts[0] || '').trim(),
       ip: (fields[0] || '').trim(),
       user: (fields[1] || '').trim(),
-      client: (hasClientType ? fields[2] : 'web').trim(),
       method: (hasClientType ? fields[3] : fields[2] || '').trim(),
       path: (hasClientType ? fields[4] : fields[3] || '').trim(),
       status: (hasClientType ? fields[5] : fields[4] || '').trim(),
       raw,
     };
   }
-  return { time: '', ip: '', user: '', client: '', method: '', path: '', status: '', raw };
+  return { time: '', ip: '', user: '', method: '', path: '', status: '', raw };
 }
 
-const statusTone = (status: string): 'ok' | 'warn' | 'danger' | 'muted' => {
+const statusTone = (status: string): ChipTone => {
   const code = Number.parseInt(status, 10);
   if (Number.isNaN(code)) return 'muted';
   if (code >= 200 && code < 300) return 'ok';
@@ -94,1086 +186,1526 @@ const statusTone = (status: string): 'ok' | 'warn' | 'danger' | 'muted' => {
   return 'danger';
 };
 
-const METHOD_TONE: Record<string, 'ok' | 'warn' | 'danger' | 'muted' | 'accent'> = {
+const METHOD_TONE: Record<string, ChipTone> = {
   GET: 'accent',
   POST: 'ok',
   PUT: 'warn',
   DELETE: 'danger',
 };
 
-const LOG_SKELETON_ROWS = 8;
+/* ── 弹窗外壳 ─────────────────────────────────────────────────────────── */
 
-const ROLE_LABEL: Record<Role, string> = {
-  sudo: '超级管理员',
-  admin: '管理员',
-  user: '普通用户',
+const AdminModal: React.FC<{
+  title: string;
+  subtitle?: string;
+  small?: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}> = ({ title, subtitle, small = false, onClose, children }) => {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+  return (
+    <div
+      className="wb-modal-backdrop"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
+      <section
+        className={`wb-modal${small ? ' wb-small-form' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <header>
+          <h2>{title}</h2>
+          <button aria-label="关闭" onClick={onClose}><X size={18} /></button>
+        </header>
+        {subtitle && <p>{subtitle}</p>}
+        {children}
+      </section>
+    </div>
+  );
 };
 
-const ROLE_TONE: Record<Role, 'accent' | 'warn' | 'muted'> = {
-  sudo: 'accent',
-  admin: 'warn',
-  user: 'muted',
+/* ── 反馈条（成功/失败共用，成功后自动淡出） ─────────────────────────── */
+
+const useFeedback = () => {
+  const [feedback, setFeedback] = useState('');
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(''), 8000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+  return [feedback, setFeedback] as const;
 };
 
-const CLIENT_LABEL: Record<string, string> = {
-  web: '浏览器',
-  capacitor: '移动端',
+/* ── 账号 ─────────────────────────────────────────────────────────────── */
+
+type BillingMode = 'metered' | 'monthly' | 'yearly';
+
+const CreateAccountDialog: React.FC<{
+  role: Role;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}> = ({ role, onClose, onDone }) => {
+  const isSudo = role === 'sudo';
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [newRole, setNewRole] = useState<Role>('user');
+  const [mode, setMode] = useState<BillingMode>('metered');
+  const [plan, setPlan] = useState<string>('pro');
+  const [credits, setCredits] = useState('');
+  const [maxOnline, setMaxOnline] = useState('');
+  const [maxUsers, setMaxUsers] = useState('');
+  const [userMaxOnline, setUserMaxOnline] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    if (!username.trim()) return setError('请填写账号名。');
+    if (password.length < 6) return setError('密码至少 6 位字符。');
+
+    const limits: AccountLimits = {};
+    if (isSudo && newRole !== 'sudo') {
+      limits.max_online = maxOnline.trim() === '' ? 0 : Number(maxOnline);
+      if (newRole === 'admin') {
+        limits.max_users = maxUsers.trim() === '' ? -1 : Number(maxUsers);
+        limits.user_max_online = userMaxOnline.trim() === '' ? 0 : Number(userMaxOnline);
+      }
+      if (Object.values(limits).some((value) => Number.isNaN(value))) {
+        return setError('配额必须是数字，留空表示不限制。');
+      }
+    }
+
+    const provision: AccountProvision = {};
+    if (mode === 'metered') {
+      provision.plan = 'metered';
+      provision.billing_cycle = 'prepaid';
+    } else {
+      provision.plan = plan;
+      provision.billing_cycle = mode;
+    }
+    if (credits.trim() !== '') {
+      const amount = Number(credits);
+      if (!Number.isFinite(amount) || amount < 0) return setError('初始 credits 必须是不小于 0 的数字。');
+      provision.initial_credits = amount;
+    }
+
+    setBusy(true);
+    try {
+      await setAccount(username.trim(), password, isSudo ? newRole : 'user', limits, provision);
+      onDone(`账号「${username.trim()}」已创建。`);
+    } catch (e: any) {
+      setError(e.message || '创建账号失败。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AdminModal title={`新建${isSudo ? '账号' : '用户'}`} subtitle="创建后可继续调整配额、充值 credits。" onClose={onClose}>
+      <form onSubmit={submit}>
+        <div className="wb-admin-form-grid">
+          <label>
+            账号名
+            <input
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label>
+            密码
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="至少 6 位字符"
+              autoComplete="new-password"
+            />
+          </label>
+        </div>
+
+        <label>
+          角色
+          {isSudo ? (
+            <div className="wb-admin-choices" role="group" aria-label="角色">
+              {(['user', 'admin', 'sudo'] as Role[]).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={newRole === option}
+                  onClick={() => setNewRole(option)}
+                >
+                  {ROLE_LABEL[option]}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="wb-admin-choices">
+              <button type="button" aria-pressed onClick={() => undefined}>普通用户</button>
+            </div>
+          )}
+        </label>
+
+        <label>
+          计费方式
+          <div className="wb-admin-choices" role="group" aria-label="计费方式">
+            {([
+              ['metered', '按量计费'],
+              ['monthly', '月付'],
+              ['yearly', '年付'],
+            ] as [BillingMode, string][]).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={mode === value}
+                onClick={() => setMode(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </label>
+
+        {mode !== 'metered' && (
+          <label>
+            套餐
+            <div className="wb-admin-choices" role="group" aria-label="套餐">
+              {PAID_PLANS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={plan === value}
+                  onClick={() => setPlan(value)}
+                >
+                  {PLAN_LABEL[value]}
+                </button>
+              ))}
+            </div>
+          </label>
+        )}
+
+        <div className="wb-admin-form-grid">
+          <label>
+            初始 credits
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={credits}
+              onChange={(event) => setCredits(event.target.value)}
+              placeholder="留空为 0，经账本入账"
+            />
+          </label>
+          {isSudo && newRole !== 'sudo' && (
+            <label>
+              在线设备数
+              <input
+                type="number"
+                min={0}
+                max={1000}
+                value={maxOnline}
+                onChange={(event) => setMaxOnline(event.target.value)}
+                placeholder="留空表示不限制"
+              />
+            </label>
+          )}
+        </div>
+
+        {isSudo && newRole === 'admin' && (
+          <div className="wb-admin-form-grid">
+            <label>
+              子账号数
+              <input
+                type="number"
+                min={0}
+                max={10000}
+                value={maxUsers}
+                onChange={(event) => setMaxUsers(event.target.value)}
+                placeholder="留空表示不限制"
+              />
+            </label>
+            <label>
+              其用户默认在线数
+              <input
+                type="number"
+                min={0}
+                max={1000}
+                value={userMaxOnline}
+                onChange={(event) => setUserMaxOnline(event.target.value)}
+                placeholder="留空表示不限制"
+              />
+            </label>
+          </div>
+        )}
+
+        {error && <Banner tone="danger">{error}</Banner>}
+        <div className="wb-admin-modal-actions">
+          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="submit" className="wb-primary" disabled={busy}>
+            {busy && <Loader2 size={15} className="wb-spin" />} 创建
+          </button>
+        </div>
+      </form>
+    </AdminModal>
+  );
 };
 
-const formatTime = (value?: number | null) => {
-  if (!value) return '—';
-  return new Date(value * 1000).toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+const ResetPasswordDialog: React.FC<{
+  account: Account;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}> = ({ account, onClose, onDone }) => {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (password.length < 6) return setError('密码至少 6 位字符。');
+    setBusy(true);
+    setError('');
+    try {
+      await setAccount(account.username, password, account.role, {});
+      onDone(`账号「${account.username}」的密码已重置，其设备需重新登录。`);
+    } catch (e: any) {
+      setError(e.message || '重置密码失败。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AdminModal
+      title="重置密码"
+      subtitle={`为 ${account.username}（${ROLE_LABEL[account.role]}）设置新的登录密码。`}
+      small
+      onClose={onClose}
+    >
+      <form onSubmit={submit}>
+        <label>
+          新密码
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="至少 6 位字符"
+            autoComplete="new-password"
+          />
+        </label>
+        {error && <Banner tone="danger">{error}</Banner>}
+        <div className="wb-admin-modal-actions">
+          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="submit" className="wb-primary" disabled={busy}>
+            {busy && <Loader2 size={15} className="wb-spin" />} 重置
+          </button>
+        </div>
+      </form>
+    </AdminModal>
+  );
 };
 
-type Tab = 'logs' | 'accounts' | 'sessions';
-type ModalMode = 'add' | 'reset';
+const LimitsDialog: React.FC<{
+  account: Account;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}> = ({ account, onClose, onDone }) => {
+  const [maxOnline, setMaxOnline] = useState(account.max_online == null ? '' : String(account.max_online));
+  const [maxUsers, setMaxUsers] = useState(account.max_users == null ? '' : String(account.max_users));
+  const [userMaxOnline, setUserMaxOnline] = useState(account.user_max_online == null ? '' : String(account.user_max_online));
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    const limits: AccountLimits =
+      account.role === 'admin'
+        ? {
+            max_users: maxUsers.trim() === '' ? -1 : Number(maxUsers),
+            user_max_online: userMaxOnline.trim() === '' ? 0 : Number(userMaxOnline),
+          }
+        : { max_online: maxOnline.trim() === '' ? 0 : Number(maxOnline) };
+    if (Object.values(limits).some((value) => Number.isNaN(value))) {
+      return setError('配额必须是数字，留空表示不限制。');
+    }
+    setBusy(true);
+    try {
+      await updateAccountLimits(account.username, limits);
+      onDone(`账号「${account.username}」的配额已更新。`);
+    } catch (e: any) {
+      setError(e.message || '保存配额失败。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AdminModal title="编辑配额" subtitle={`${account.username}（${ROLE_LABEL[account.role]}）`} small onClose={onClose}>
+      <form onSubmit={submit}>
+        {account.role === 'admin' ? (
+          <>
+            <label>
+              可创建用户上限 n
+              <input
+                type="number"
+                min={0}
+                max={10000}
+                value={maxUsers}
+                onChange={(event) => setMaxUsers(event.target.value)}
+                placeholder="留空表示不限制"
+              />
+            </label>
+            <label>
+              其用户默认最大在线数 m
+              <input
+                type="number"
+                min={0}
+                max={1000}
+                value={userMaxOnline}
+                onChange={(event) => setUserMaxOnline(event.target.value)}
+                placeholder="留空表示不限制"
+              />
+            </label>
+          </>
+        ) : (
+          <label>
+            最大在线设备数
+            <input
+              type="number"
+              min={0}
+              max={1000}
+              value={maxOnline}
+              onChange={(event) => setMaxOnline(event.target.value)}
+              placeholder="留空表示不限制"
+            />
+          </label>
+        )}
+        {error && <Banner tone="danger">{error}</Banner>}
+        <div className="wb-admin-modal-actions">
+          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="submit" className="wb-primary" disabled={busy}>
+            {busy && <Loader2 size={15} className="wb-spin" />} 保存
+          </button>
+        </div>
+      </form>
+    </AdminModal>
+  );
+};
+
+const TopUpDialog: React.FC<{
+  account: Account;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}> = ({ account, onClose, onDone }) => {
+  const [amount, setAmount] = useState('100');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const yuan = Number(amount);
+    if (!Number.isInteger(yuan) || yuan <= 0) return setError('充值金额必须是大于 0 的整数元。');
+    setBusy(true);
+    setError('');
+    try {
+      const result = await topUpAccount(account.username, yuan, note.trim());
+      onDone(
+        `已为「${account.username}」充值 ${yuan} 元：到账 ${formatCredits(result.credited)} credits，当前余额 ${formatCredits(result.balance)} credits。`,
+      );
+    } catch (e: any) {
+      setError(e.message || '充值失败。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AdminModal
+      title="充值"
+      subtitle={`${account.username} · 当前余额 ${formatCredits(account.credits ?? 0)} credits`}
+      small
+      onClose={onClose}
+    >
+      <form onSubmit={submit}>
+        <label>
+          充值金额（元）
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+          />
+        </label>
+        <label>
+          备注
+          <input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="可选，例如：对公转账 2026-09-29"
+          />
+        </label>
+        {error && <Banner tone="danger">{error}</Banner>}
+        <div className="wb-admin-modal-actions">
+          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="submit" className="wb-primary" disabled={busy}>
+            {busy && <Loader2 size={15} className="wb-spin" />} 登记充值
+          </button>
+        </div>
+      </form>
+    </AdminModal>
+  );
+};
+
+const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
+  const isSudo = role === 'sudo';
+  const { showConfirm } = useAppDialog();
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [feedback, setFeedback] = useFeedback();
+  const [myUsername, setMyUsername] = useState('');
+  const [myQuota, setMyQuota] = useState<{ max_users?: number | null }>({});
+  const [createOpen, setCreateOpen] = useState(false);
+  const [resetTarget, setResetTarget] = useState<Account | null>(null);
+  const [limitsTarget, setLimitsTarget] = useState<Account | null>(null);
+  const [topUpTarget, setTopUpTarget] = useState<Account | null>(null);
+  const [busyUser, setBusyUser] = useState('');
+  const requestIdRef = useRef(0);
+
+  const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await fetchAccounts();
+      if (requestId !== requestIdRef.current) return;
+      setAccounts(data.accounts || []);
+    } catch (e: any) {
+      if (requestId !== requestIdRef.current) return;
+      setError(e.message || '读取账号失败。');
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    return () => { requestIdRef.current += 1; };
+  }, [load]);
+
+  useEffect(() => {
+    verifyAuth()
+      .then((info) => {
+        setMyUsername(info.username);
+        setMyQuota({ max_users: info.max_users ?? null });
+      })
+      .catch(() => {});
+  }, []);
+
+  const quotaReached = role === 'admin' && myQuota.max_users != null && accounts.length >= myQuota.max_users;
+
+  const toggleStatus = async (account: Account) => {
+    const suspending = account.status !== 'suspended';
+    const confirmed = await showConfirm({
+      title: suspending ? '停用账号？' : '启用账号？',
+      message: suspending
+        ? `停用后「${account.username}」将无法登录，在线设备立即下线。`
+        : `启用后「${account.username}」可以重新登录并使用。`,
+      tone: suspending ? 'danger' : 'info',
+      confirmLabel: suspending ? '停用' : '启用',
+    });
+    if (!confirmed) return;
+    setBusyUser(account.username);
+    setError('');
+    try {
+      await setAccountStatus(account.username, suspending ? 'suspended' : 'active');
+      setFeedback(`账号「${account.username}」已${suspending ? '停用' : '启用'}。`);
+      void load();
+    } catch (e: any) {
+      setError(e.message || '更新账号状态失败。');
+    } finally {
+      setBusyUser('');
+    }
+  };
+
+  const unlock = async (account: Account) => {
+    setBusyUser(account.username);
+    setError('');
+    try {
+      const result = await unlockAccount(account.username);
+      setFeedback(`账号「${account.username}」已解除登录锁定。`);
+      void load();
+      return result;
+    } catch (e: any) {
+      setError(e.message || '解锁失败。');
+    } finally {
+      setBusyUser('');
+    }
+  };
+
+  const remove = async (account: Account) => {
+    const confirmed = await showConfirm({
+      title: '删除账号？',
+      message: `确定要删除账号「${account.username}」吗？其在线设备会立即下线，此操作不可撤销。`,
+      tone: 'danger',
+      confirmLabel: '删除',
+    });
+    if (!confirmed) return;
+    setBusyUser(account.username);
+    setError('');
+    try {
+      await deleteAccount(account.username);
+      setFeedback(`账号「${account.username}」已删除。`);
+      void load();
+    } catch (e: any) {
+      setError(e.message || '删除账号失败。');
+    } finally {
+      setBusyUser('');
+    }
+  };
+
+  return (
+    <div className="wb-admin-main">
+      {feedback && <Banner tone="success">{feedback}</Banner>}
+      {error && <Banner tone="danger">{error}</Banner>}
+      {quotaReached && (
+        <Banner tone="warning">
+          已达可创建用户上限（{myQuota.max_users} 个）。如确需更多账号，请联系超级管理员调整配额。
+        </Banner>
+      )}
+
+      <div className="wb-admin-toolbar">
+        <p className="wb-admin-note">
+          {isSudo
+            ? `共 ${accounts.length} 个账号；sudo 可见全部账号，admin 只能管理自己创建的用户。`
+            : `已创建 ${accounts.length} 个用户${myQuota.max_users != null ? ` / 上限 ${myQuota.max_users} 个` : '（不限数量）'}。`}
+        </p>
+        <div className="wb-admin-toolbar-actions">
+          <button onClick={() => void load()} disabled={loading} aria-label="刷新账号列表">
+            {loading ? <Loader2 size={16} className="wb-spin" /> : <RefreshCw size={16} />}
+          </button>
+          <button className="wb-primary" onClick={() => setCreateOpen(true)} disabled={quotaReached}>
+            <Plus size={16} /> 新建账号
+          </button>
+        </div>
+      </div>
+
+      {accounts.length === 0 ? (
+        <EmptyState
+          icon={<Users size={22} strokeWidth={2} />}
+          title={isSudo ? '还没有账号' : '还没有创建用户'}
+          description={loading ? '正在读取账号列表…' : '新建账号后，成员即可登录使用 Lawver。'}
+        />
+      ) : (
+        <div className="wb-admin-table-scroll">
+          <div className="wb-admin-table" role="table" aria-label="账号列表">
+            <div className="wb-admin-table-head" role="row">
+              {['账号名', '角色', '套餐', '计费方式', 'credits 余额', '在线设备', '状态', '操作'].map((label) => (
+                <span key={label} role="columnheader">{label}</span>
+              ))}
+            </div>
+            {accounts.map((account) => (
+              <div className="wb-admin-table-row" role="row" key={account.username}>
+                <span className="wb-admin-cell wb-admin-cell-strong" role="cell" title={account.username}>
+                  {account.username}
+                  {(account.owner || account.role === 'admin') && (
+                    <small className="wb-admin-cell-sub">
+                      {account.owner ? `归属：${account.owner}；` : ''}
+                      {account.role === 'admin'
+                        ? `可建用户：${account.owned_count ?? 0}${account.max_users == null ? '（不限）' : ` / ${account.max_users}`}`
+                        : ''}
+                    </small>
+                  )}
+                </span>
+                <span className="wb-admin-cell" role="cell">
+                  <StatusChip tone={ROLE_TONE[account.role]}>{ROLE_LABEL[account.role]}</StatusChip>
+                </span>
+                <span className="wb-admin-cell" role="cell">
+                  <StatusChip tone={account.plan === 'metered' || !account.plan ? 'muted' : 'accent'}>
+                    {PLAN_LABEL[account.plan || 'metered'] || account.plan}
+                  </StatusChip>
+                </span>
+                <span className="wb-admin-cell wb-admin-cell-muted" role="cell">
+                  {CYCLE_LABEL[account.billing_cycle || 'prepaid'] || account.billing_cycle}
+                </span>
+                <span className="wb-admin-cell wb-admin-cell-num" role="cell">{formatCredits(account.credits)}</span>
+                <span className="wb-admin-cell wb-admin-cell-num wb-admin-cell-muted" role="cell">
+                  {account.online_count ?? 0} 台
+                </span>
+                <span className="wb-admin-cell" role="cell">
+                  <StatusChip tone={account.status === 'suspended' ? 'danger' : 'ok'}>
+                    {account.status === 'suspended' ? '已停用' : '正常'}
+                  </StatusChip>
+                  {Boolean(account.locked_seconds) && (
+                    <StatusChip tone="warn">
+                      锁定 {Math.ceil((account.locked_seconds || 0) / 60)} 分钟
+                    </StatusChip>
+                  )}
+                </span>
+                <span className="wb-admin-row-actions" role="cell">
+                  {isSudo && (
+                    <HoverInfo label="编辑配额" placement="top">
+                      <button
+                        aria-label={`编辑 ${account.username} 的配额`}
+                        onClick={() => setLimitsTarget(account)}
+                        disabled={busyUser === account.username}
+                        className="wb-admin-accent"
+                      >
+                        <SlidersHorizontal size={16} />
+                      </button>
+                    </HoverInfo>
+                  )}
+                  <HoverInfo label="充值" placement="top">
+                    <button
+                      aria-label={`为 ${account.username} 充值`}
+                      onClick={() => setTopUpTarget(account)}
+                      className="wb-admin-accent"
+                    >
+                      <Wallet size={16} />
+                    </button>
+                  </HoverInfo>
+                  <HoverInfo label={account.status === 'suspended' ? '启用' : '停用'} placement="top">
+                    <button
+                      aria-label={`${account.status === 'suspended' ? '启用' : '停用'} ${account.username}`}
+                      onClick={() => void toggleStatus(account)}
+                      disabled={busyUser === account.username || account.username === myUsername}
+                    >
+                      <Power size={16} />
+                    </button>
+                  </HoverInfo>
+                  {Boolean(account.locked_seconds) && (
+                    <HoverInfo label="解除登录锁定" placement="top">
+                      <button
+                        aria-label={`解除 ${account.username} 的登录锁定`}
+                        onClick={() => void unlock(account)}
+                        disabled={busyUser === account.username}
+                        className="wb-admin-accent"
+                      >
+                        <Unlock size={16} />
+                      </button>
+                    </HoverInfo>
+                  )}
+                  <HoverInfo label="重置密码" placement="top">
+                    <button
+                      aria-label={`重置 ${account.username} 的密码`}
+                      onClick={() => setResetTarget(account)}
+                      className="wb-admin-accent"
+                    >
+                      <KeyRound size={16} />
+                    </button>
+                  </HoverInfo>
+                  <HoverInfo
+                    label={account.username === 'admin' ? '系统管理员不可删除' : '删除账号'}
+                    placement="top"
+                  >
+                    <button
+                      aria-label={`删除账号 ${account.username}`}
+                      onClick={() => void remove(account)}
+                      disabled={account.username === 'admin' || account.username === myUsername || busyUser === account.username}
+                      className="wb-admin-danger"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </HoverInfo>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="wb-admin-note">
+        删除或重置密码会立即作废该账号已签发的令牌；系统管理员账号不可删除或停用。
+      </p>
+
+      {createOpen && (
+        <CreateAccountDialog
+          role={role}
+          onClose={() => setCreateOpen(false)}
+          onDone={(message) => {
+            setCreateOpen(false);
+            setFeedback(message);
+            void load();
+          }}
+        />
+      )}
+      {resetTarget && (
+        <ResetPasswordDialog
+          account={resetTarget}
+          onClose={() => setResetTarget(null)}
+          onDone={(message) => {
+            setResetTarget(null);
+            setFeedback(message);
+          }}
+        />
+      )}
+      {limitsTarget && (
+        <LimitsDialog
+          account={limitsTarget}
+          onClose={() => setLimitsTarget(null)}
+          onDone={(message) => {
+            setLimitsTarget(null);
+            setFeedback(message);
+            void load();
+          }}
+        />
+      )}
+      {topUpTarget && (
+        <TopUpDialog
+          account={topUpTarget}
+          onClose={() => setTopUpTarget(null)}
+          onDone={(message) => {
+            setTopUpTarget(null);
+            setFeedback(message);
+            void load();
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+/* ── 用量与监控 ───────────────────────────────────────────────────────── */
+
+const LOG_SKELETON_ROWS = 6;
+
+const AccessLogsPanel: React.FC = () => {
+  const { showConfirm } = useAppDialog();
+  const [logs, setLogs] = useState<string[]>([]);
+  const [ipFilter, setIpFilter] = useState('');
+  const [ignoreHeartbeat, setIgnoreHeartbeat] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [error, setError] = useState('');
+  const queryRef = useRef({ ipFilter: '', ignoreHeartbeat: true });
+  const requestIdRef = useRef(0);
+
+  const load = useCallback(async (query?: { ipFilter: string; ignoreHeartbeat: boolean }) => {
+    const next = query || queryRef.current;
+    queryRef.current = next;
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await fetchLogs(next.ipFilter, next.ignoreHeartbeat);
+      if (requestId !== requestIdRef.current) return;
+      setLogs(data.logs || []);
+    } catch (e: any) {
+      if (requestId !== requestIdRef.current) return;
+      setError(e.message || '读取日志失败。');
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    return () => { requestIdRef.current += 1; };
+  }, [load]);
+
+  const clear = async () => {
+    const confirmed = await showConfirm({
+      title: '清理全部日志？',
+      message: '此操作会清空当前使用日志和已轮转的日志文件，清理后无法撤销。',
+      tone: 'danger',
+      confirmLabel: '清理',
+    });
+    if (!confirmed) return;
+    setClearing(true);
+    setError('');
+    try {
+      await clearLogs();
+      setLogs([]);
+    } catch (e: any) {
+      setError(e.message || '清理日志失败。');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const parsed = useMemo(() => logs.map(parseLogLine), [logs]);
+
+  return (
+    <section className="wb-admin-section">
+      <h2 className="wb-admin-section-title">访问日志 · 仅超级管理员</h2>
+      <div className="wb-admin-toolbar" style={{ marginTop: 8 }}>
+        <div className="wb-admin-toolbar-actions">
+          <input
+            value={ipFilter}
+            onChange={(event) => setIpFilter(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void load({ ipFilter, ignoreHeartbeat });
+            }}
+            placeholder="按 IP 过滤…"
+            aria-label="按 IP 地址过滤日志"
+            style={{ width: 180 }}
+          />
+          <label className="wb-admin-inline" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+            <input
+              type="checkbox"
+              checked={ignoreHeartbeat}
+              onChange={(event) => {
+                const next = { ipFilter, ignoreHeartbeat: event.target.checked };
+                setIgnoreHeartbeat(event.target.checked);
+                void load(next);
+              }}
+            />
+            隐藏心跳
+          </label>
+          <button onClick={() => void load({ ipFilter, ignoreHeartbeat })} disabled={loading} className="wb-quiet">
+            {loading ? <Loader2 size={15} className="wb-spin" /> : <Search size={15} />} 查询
+          </button>
+        </div>
+        <div className="wb-admin-toolbar-actions">
+          <button onClick={() => void load()} disabled={loading} className="wb-quiet">
+            <RefreshCw size={15} /> 刷新
+          </button>
+          <button onClick={() => void clear()} disabled={clearing || loading} className="wb-quiet wb-danger">
+            {clearing ? <Loader2 size={15} className="wb-spin" /> : <Trash2 size={15} />} 清理日志
+          </button>
+        </div>
+      </div>
+
+      {error && <Banner tone="danger">{error}</Banner>}
+
+      <div className="wb-admin-list" style={{ marginTop: 8 }}>
+        {loading && parsed.length === 0 ? (
+          <div className="wb-admin-item" aria-busy="true">
+            <span className="wb-admin-note">正在读取日志…</span>
+          </div>
+        ) : parsed.length === 0 ? (
+          <EmptyState
+            icon={<EyeOff size={22} strokeWidth={2} />}
+            title="暂无日志记录"
+            description="产生 API 访问后，这里会显示时间、来源 IP、用户、方法与响应状态。"
+          />
+        ) : (
+          parsed.map((log, index) =>
+            log.ip ? (
+              <div className="wb-admin-item" key={index}>
+                <div className="wb-admin-item-main">
+                  <div className="wb-admin-item-title">
+                    <span className="wb-admin-cell-muted">{log.time}</span>
+                    <StatusChip tone={METHOD_TONE[log.method] || 'muted'}>{log.method || '—'}</StatusChip>
+                    <StatusChip tone={statusTone(log.status)}>{log.status || '—'}</StatusChip>
+                  </div>
+                  <div className="wb-admin-item-meta">
+                    <span>{log.ip}</span>
+                    <span>{log.user || '匿名'}</span>
+                    <span>{log.path}</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="wb-admin-item" key={index}>
+                <div className="wb-admin-item-main">
+                  <span className="wb-admin-item-body">{log.raw}</span>
+                </div>
+              </div>
+            ),
+          )
+        )}
+      </div>
+    </section>
+  );
+};
+
+const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
+  const isSudo = role === 'sudo';
+  const [usage, setUsage] = useState<UsageAccount[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [logsOpen, setLogsOpen] = useState(false);
+  /** 正在被登录节流的桶：运营时得看得见「谁被挡了、还剩多久」。 */
+  const [buckets, setBuckets] = useState<ThrottleBucket[]>([]);
+  const requestIdRef = useRef(0);
+
+  const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError('');
+    try {
+      const [data, throttleData] = await Promise.all([
+        fetchAdminUsage(),
+        fetchThrottleBuckets().catch(() => ({ buckets: [] })),
+      ]);
+      if (requestId !== requestIdRef.current) return;
+      setUsage(data.accounts || []);
+      setBuckets(throttleData.buckets || []);
+    } catch (e: any) {
+      if (requestId !== requestIdRef.current) return;
+      setError(e.message || '读取用量失败。');
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    return () => { requestIdRef.current += 1; };
+  }, [load]);
+
+  const rows = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - 29);
+    return usage.map((account) => {
+      let promptTokens = 0;
+      let completionTokens = 0;
+      let toolCalls = 0;
+      let credits = 0;
+      for (const day of account.usage || []) {
+        const dayStart = new Date(`${day.day}T00:00:00`);
+        if (Number.isNaN(dayStart.getTime()) || dayStart < cutoff) continue;
+        promptTokens += day.prompt_tokens || 0;
+        completionTokens += day.completion_tokens || 0;
+        toolCalls += day.tool_calls || 0;
+        credits += day.credits || 0;
+      }
+      return { account, tokens: promptTokens + completionTokens, toolCalls, credits };
+    });
+  }, [usage]);
+
+  const totals = useMemo(
+    () => rows.reduce(
+      (acc, row) => ({
+        tokens: acc.tokens + row.tokens,
+        toolCalls: acc.toolCalls + row.toolCalls,
+        credits: acc.credits + row.credits,
+      }),
+      { tokens: 0, toolCalls: 0, credits: 0 },
+    ),
+    [rows],
+  );
+
+  return (
+    <div className="wb-admin-main">
+      {error && <Banner tone="danger">{error}</Banner>}
+      {buckets.length > 0 && (
+        <section className="wb-admin-throttle" aria-label="登录节流">
+          <header>
+            <strong>登录节流中</strong>
+            <span>键为摘要，不显示原始账号与来源</span>
+          </header>
+          <ul>
+            {buckets.slice(0, 8).map((bucket) => (
+              <li key={`${bucket.scope}-${bucket.key}`}>
+                <span className="wb-admin-throttle__scope">
+                  {bucket.scope === 'account' ? '账号' : '来源'}
+                </span>
+                <code>{bucket.key}</code>
+                <span>失败 {bucket.fails} 次</span>
+                <span className="wb-admin-throttle__lock">
+                  {bucket.locked_seconds > 0
+                    ? `锁定 ${Math.ceil(bucket.locked_seconds / 60)} 分钟`
+                    : '观察中'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <div className="wb-admin-stats">
+        {[
+          { label: '账号数', value: formatNumber(usage.length) },
+          { label: '近 30 天 tokens', value: formatNumber(totals.tokens) },
+          { label: '近 30 天工具次数', value: formatNumber(totals.toolCalls) },
+          { label: '近 30 天 credits', value: formatCredits(totals.credits) },
+        ].map((stat) => (
+          <div className="wb-admin-stat" key={stat.label}>
+            <span>{stat.label}</span>
+            <strong>{stat.value}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div className="wb-admin-toolbar">
+        <p className="wb-admin-note">
+          {isSudo ? '全部账号的用量与余额，按日汇总。' : '你创建的用户的用量与余额，按日汇总。'}
+        </p>
+        <div className="wb-admin-toolbar-actions">
+          <button onClick={() => void load()} disabled={loading} className="wb-quiet">
+            {loading ? <Loader2 size={15} className="wb-spin" /> : <RefreshCw size={15} />} 刷新
+          </button>
+          {isSudo && (
+            <button onClick={() => setLogsOpen((open) => !open)} className="wb-quiet" aria-pressed={logsOpen}>
+              <Activity size={15} /> {logsOpen ? '收起访问日志' : '访问日志'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {loading && rows.length === 0 ? (
+        <div className="wb-admin-cards" aria-busy="true">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div className="wb-admin-card" key={index}>
+              <span className="wb-admin-note">正在读取用量…</span>
+            </div>
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon={<Activity size={22} strokeWidth={2} />}
+          title="暂无用量数据"
+          description="账号产生模型调用或工具调用后，这里会按天汇总 tokens、工具次数与 credits 消耗。"
+        />
+      ) : (
+        <div className="wb-admin-cards">
+          {rows.map(({ account, tokens, toolCalls, credits }) => (
+            <div className="wb-admin-card" key={account.username}>
+              <div className="wb-admin-card-head">
+                <span className="wb-admin-card-user">
+                  {account.username}
+                  <StatusChip tone={account.plan === 'metered' || !account.plan ? 'muted' : 'accent'}>
+                    {PLAN_LABEL[account.plan || 'metered'] || account.plan}
+                  </StatusChip>
+                  {account.status === 'suspended' && <StatusChip tone="danger">已停用</StatusChip>}
+                </span>
+                <span className="wb-admin-cell-muted">
+                  余额 <strong className="wb-admin-cell-num">{formatCredits(account.credits)}</strong> credits
+                </span>
+              </div>
+              <div className="wb-admin-metrics">
+                <div className="wb-admin-metric">
+                  <span>近 30 天 tokens</span>
+                  <strong>{formatNumber(tokens)}</strong>
+                </div>
+                <div className="wb-admin-metric">
+                  <span>工具次数</span>
+                  <strong>{formatNumber(toolCalls)}</strong>
+                </div>
+                <div className="wb-admin-metric">
+                  <span>credits 消耗</span>
+                  <strong>{formatCredits(credits)}</strong>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isSudo && logsOpen && <AccessLogsPanel />}
+    </div>
+  );
+};
+
+/* ── 开屏公告 ─────────────────────────────────────────────────────────── */
+
+const AnnouncementDialog: React.FC<{
+  initial: Announcement | null;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}> = ({ initial, onClose, onDone }) => {
+  const [title, setTitle] = useState(initial?.title || '');
+  const [body, setBody] = useState(initial?.body || '');
+  const [level, setLevel] = useState<AnnouncementLevel>(initial?.level || 'info');
+  const [audience, setAudience] = useState<string[]>(initial?.audience || []);
+  const [startsAt, setStartsAt] = useState(toLocalInput(initial?.starts_at));
+  const [endsAt, setEndsAt] = useState(toLocalInput(initial?.ends_at));
+  const [active, setActive] = useState(initial?.active ?? true);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const toggleAudience = (plan: string) => {
+    setAudience((prev) => (prev.includes(plan) ? prev.filter((item) => item !== plan) : [...prev, plan]));
+  };
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!title.trim()) return setError('请填写公告标题。');
+    const payload: AnnouncementInput = {
+      title: title.trim(),
+      body,
+      level,
+      audience,
+      starts_at: fromLocalInput(startsAt),
+      ends_at: fromLocalInput(endsAt),
+      active,
+    };
+    if (payload.starts_at && payload.ends_at && new Date(payload.ends_at) <= new Date(payload.starts_at)) {
+      return setError('结束时间必须晚于开始时间。');
+    }
+    setBusy(true);
+    setError('');
+    try {
+      if (initial) {
+        await updateAnnouncement(initial.id, payload);
+        onDone('公告已保存。');
+      } else {
+        await createAnnouncement(payload);
+        onDone('公告已创建。');
+      }
+    } catch (e: any) {
+      setError(e.message || '保存公告失败。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AdminModal
+      title={initial ? '编辑公告' : '新建公告'}
+      subtitle="留空生效时间表示立即生效；受众为空表示全部账号。"
+      onClose={onClose}
+    >
+      <form onSubmit={submit}>
+        <label>
+          标题
+          <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} />
+        </label>
+        <label>
+          正文
+          <textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={5000} />
+        </label>
+        <div className="wb-admin-form-grid">
+          <label>
+            级别
+            <select value={level} onChange={(event) => setLevel(event.target.value as AnnouncementLevel)}>
+              {(['info', 'warning', 'danger'] as AnnouncementLevel[]).map((value) => (
+                <option key={value} value={value}>{LEVEL_LABEL[value]}（{value}）</option>
+              ))}
+            </select>
+          </label>
+          <label className="wb-admin-inline">
+            <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} />
+            启用（停用后不展示给任何账号）
+          </label>
+        </div>
+
+        <label>
+          受众
+          <div className="wb-admin-choices" role="group" aria-label="公告受众">
+            <button type="button" aria-pressed={audience.length === 0} onClick={() => setAudience([])}>
+              全部账号
+            </button>
+            {ALL_PLANS.map((plan) => (
+              <button
+                key={plan}
+                type="button"
+                aria-pressed={audience.includes(plan)}
+                onClick={() => toggleAudience(plan)}
+              >
+                {PLAN_LABEL[plan] || plan}
+              </button>
+            ))}
+          </div>
+        </label>
+
+        <div className="wb-admin-form-grid">
+          <label>
+            生效时间
+            <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} />
+          </label>
+          <label>
+            结束时间
+            <input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} />
+          </label>
+        </div>
+
+        {error && <Banner tone="danger">{error}</Banner>}
+        <div className="wb-admin-modal-actions">
+          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="submit" className="wb-primary" disabled={busy}>
+            {busy && <Loader2 size={15} className="wb-spin" />} 保存
+          </button>
+        </div>
+      </form>
+    </AdminModal>
+  );
+};
+
+const AnnouncementsPanel: React.FC = () => {
+  const { showConfirm } = useAppDialog();
+  const [items, setItems] = useState<Announcement[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [feedback, setFeedback] = useFeedback();
+  const [editing, setEditing] = useState<Announcement | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState('');
+  const requestIdRef = useRef(0);
+
+  const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true);
+    setError('');
+    try {
+      const data = await fetchAdminAnnouncements();
+      if (requestId !== requestIdRef.current) return;
+      setItems(data.announcements || []);
+    } catch (e: any) {
+      if (requestId !== requestIdRef.current) return;
+      setError(e.message || '读取公告失败。');
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    return () => { requestIdRef.current += 1; };
+  }, [load]);
+
+  const toggleActive = async (item: Announcement) => {
+    setBusyId(item.id);
+    setError('');
+    try {
+      await updateAnnouncement(item.id, { active: !item.active });
+      setFeedback(`公告「${item.title}」已${item.active ? '停用' : '启用'}。`);
+      void load();
+    } catch (e: any) {
+      setError(e.message || '更新公告失败。');
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  const remove = async (item: Announcement) => {
+    const confirmed = await showConfirm({
+      title: '删除公告？',
+      message: `确定要删除公告「${item.title}」吗？此操作不可撤销。`,
+      tone: 'danger',
+      confirmLabel: '删除',
+    });
+    if (!confirmed) return;
+    setBusyId(item.id);
+    setError('');
+    try {
+      await deleteAnnouncement(item.id);
+      setFeedback(`公告「${item.title}」已删除。`);
+      void load();
+    } catch (e: any) {
+      setError(e.message || '删除公告失败。');
+    } finally {
+      setBusyId('');
+    }
+  };
+
+  return (
+    <div className="wb-admin-main">
+      {feedback && <Banner tone="success">{feedback}</Banner>}
+      {error && <Banner tone="danger">{error}</Banner>}
+
+      <div className="wb-admin-toolbar">
+        <p className="wb-admin-note">登录后展示第一条未读公告；受众为空表示全部账号。</p>
+        <div className="wb-admin-toolbar-actions">
+          <button onClick={() => void load()} disabled={loading} aria-label="刷新公告列表">
+            {loading ? <Loader2 size={16} className="wb-spin" /> : <RefreshCw size={16} />}
+          </button>
+          <button className="wb-primary" onClick={() => setCreating(true)}>
+            <Plus size={16} /> 新建公告
+          </button>
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        <EmptyState
+          icon={<Megaphone size={22} strokeWidth={2} />}
+          title="还没有公告"
+          description={loading ? '正在读取公告…' : '新建公告后，登录的账号会在工作台上看到横幅。'}
+        />
+      ) : (
+        <div className="wb-admin-list">
+          {items.map((item) => (
+            <div className="wb-admin-item" key={item.id}>
+              <div className="wb-admin-item-main">
+                <div className="wb-admin-item-title">
+                  {item.title}
+                  <StatusChip tone={LEVEL_TONE[item.level] || 'muted'}>{LEVEL_LABEL[item.level] || item.level}</StatusChip>
+                  <StatusChip tone={item.active ? 'ok' : 'muted'}>{item.active ? '已启用' : '已停用'}</StatusChip>
+                </div>
+                {item.body && <div className="wb-admin-item-body">{item.body}</div>}
+                <div className="wb-admin-item-meta">
+                  <span>受众：{item.audience && item.audience.length > 0 ? item.audience.map((plan) => PLAN_LABEL[plan] || plan).join('、') : '全部账号'}</span>
+                  <span>生效：{formatDateTime(item.starts_at)}</span>
+                  <span>结束：{item.ends_at ? formatDateTime(item.ends_at) : '长期'}</span>
+                  <span>创建：{item.created_by || '—'} · {formatDateTime(item.created_at)}</span>
+                </div>
+              </div>
+              <div className="wb-admin-item-actions">
+                <button onClick={() => setEditing(item)} disabled={busyId === item.id}>
+                  <Pencil size={13} /> 编辑
+                </button>
+                <button onClick={() => void toggleActive(item)} disabled={busyId === item.id}>
+                  <Power size={13} /> {item.active ? '停用' : '启用'}
+                </button>
+                <button className="wb-admin-danger" onClick={() => void remove(item)} disabled={busyId === item.id}>
+                  <Trash2 size={13} /> 删除
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {creating && (
+        <AnnouncementDialog
+          initial={null}
+          onClose={() => setCreating(false)}
+          onDone={(message) => {
+            setCreating(false);
+            setFeedback(message);
+            void load();
+          }}
+        />
+      )}
+      {editing && (
+        <AnnouncementDialog
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onDone={(message) => {
+            setEditing(null);
+            setFeedback(message);
+            void load();
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+/* ── 服务配置 ─────────────────────────────────────────────────────────── */
+
+const ConfigPanel: React.FC<{ role: Role }> = ({ role }) => {
+  const isSudo = role === 'sudo';
+  const [section, setSection] = useState<string>('models');
+
+  if (!isSudo) {
+    return (
+      <div className="wb-admin-main">
+        <Banner tone="warning">服务配置仅超级管理员可修改；如需调整模型或连接，请联系超级管理员。</Banner>
+      </div>
+    );
+  }
+
+  return (
+    <div className="wb-admin-main">
+      <div className="wb-admin-config">
+        <nav className="wb-admin-config-nav" aria-label="服务配置分类">
+          <button
+            className={section === 'models' ? 'selected' : ''}
+            onClick={() => setSection('models')}
+            aria-pressed={section === 'models'}
+          >
+            <Sparkles size={16} /> 模型档案
+          </button>
+          <div className="wb-admin-config-sep" />
+          <span className="wb-admin-config-label">服务连接</span>
+          {PROVIDER_ORDER.map((providerKey) => {
+            const Icon = PROVIDER_ICONS[providerKey] || Settings2;
+            return (
+              <button
+                key={providerKey}
+                className={section === providerKey ? 'selected' : ''}
+                onClick={() => setSection(providerKey)}
+                aria-pressed={section === providerKey}
+                title={PROVIDER_DESCS[providerKey]}
+              >
+                <Icon size={16} /> {PROVIDER_LABELS[providerKey] || providerKey}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="wb-admin-config-pane">
+          {section === 'models' ? <LlmProfileManager /> : <ProviderSubPage providerKey={section} />}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ── 页面外壳 ─────────────────────────────────────────────────────────── */
+
+type AdminTab = 'accounts' | 'usage' | 'announcements' | 'config';
 
 interface AdminDashboardProps {
   role: Role;
   onLogout?: () => void | Promise<void>;
 }
 
-/* ── 组件 ── */
-
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, onLogout }) => {
-  // 后台返回聊天必须退栈，否则再按返回又会前进回后台。
   const goBack = useAppBack();
-  const { showConfirm } = useAppDialog();
-  const [activeTab, setActiveTab] = useState<Tab>(role === 'sudo' ? 'logs' : 'accounts');
+  const [tab, setTab] = useState<AdminTab>('accounts');
+  const isSudo = role === 'sudo';
 
-  const [logs, setLogs] = useState<string[]>([]);
-  const [ipFilter, setIpFilter] = useState('');
-  const [ignoreHeartbeat, setIgnoreHeartbeat] = useState(true);
-  const [isLogsLoading, setIsLogsLoading] = useState(false);
-  const [isClearingLogs, setIsClearingLogs] = useState(false);
-  const [isClearLogsDialogOpen, setIsClearLogsDialogOpen] = useState(false);
-  const [logsError, setLogsError] = useState('');
-  const [expandedLog, setExpandedLog] = useState<string | null>(null);
+  const tabs: { id: AdminTab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
+    { id: 'accounts', label: '账号', icon: Users },
+    { id: 'usage', label: '用量与监控', icon: Activity },
+    { id: 'announcements', label: '开屏公告', icon: Megaphone },
+    { id: 'config', label: '服务配置', icon: Settings2 },
+  ];
 
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [myQuota, setMyQuota] = useState<{ max_users?: number | null; user_max_online?: number | null }>({});
-  const [isAccountsLoading, setIsAccountsLoading] = useState(false);
-  const [accountsError, setAccountsError] = useState('');
-
-  const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [isSessionsLoading, setIsSessionsLoading] = useState(false);
-  const [sessionsError, setSessionsError] = useState('');
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<ModalMode>('add');
-  const [editUsername, setEditUsername] = useState('');
-  const [editPassword, setEditPassword] = useState('');
-  const [editRole, setEditRole] = useState<Role>('user');
-  const [newMaxOnline, setNewMaxOnline] = useState('');
-  const [newMaxUsers, setNewMaxUsers] = useState('');
-  const [newUserMaxOnline, setNewUserMaxOnline] = useState('');
-  const [modalError, setModalError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-
-  const [limitsTarget, setLimitsTarget] = useState<Account | null>(null);
-  const [limitMaxOnline, setLimitMaxOnline] = useState('');
-  const [limitMaxUsers, setLimitMaxUsers] = useState('');
-  const [limitUserMaxOnline, setLimitUserMaxOnline] = useState('');
-  const [limitsError, setLimitsError] = useState('');
-  const [isSavingLimits, setIsSavingLimits] = useState(false);
-
-  const logsRequestIdRef = useRef(0);
-  const accountsRequestIdRef = useRef(0);
-  const sessionsRequestIdRef = useRef(0);
-  const modalGenerationRef = useRef(0);
-  const logsQueryRef = useRef({ ipFilter: '', ignoreHeartbeat: true });
-
-  useEffect(() => {
-    logsQueryRef.current = { ipFilter, ignoreHeartbeat };
-  }, [ignoreHeartbeat, ipFilter]);
-
-  const loadLogs = useCallback(async () => {
-    const requestId = ++logsRequestIdRef.current;
-    const query = logsQueryRef.current;
-    setIsLogsLoading(true);
-    setLogsError('');
-    try {
-      const data = await fetchLogs(query.ipFilter, query.ignoreHeartbeat);
-      if (requestId !== logsRequestIdRef.current) return;
-      setLogs(data.logs || []);
-    } catch (error: any) {
-      if (requestId !== logsRequestIdRef.current) return;
-      setLogsError(error.message);
-    } finally {
-      if (requestId === logsRequestIdRef.current) setIsLogsLoading(false);
-    }
-  }, []);
-
-  const loadAccounts = useCallback(async () => {
-    const requestId = ++accountsRequestIdRef.current;
-    setIsAccountsLoading(true);
-    setAccountsError('');
-    try {
-      const data = await fetchAccounts();
-      if (requestId !== accountsRequestIdRef.current) return;
-      setAccounts(data.accounts || []);
-    } catch (error: any) {
-      if (requestId !== accountsRequestIdRef.current) return;
-      setAccountsError(error.message);
-    } finally {
-      if (requestId === accountsRequestIdRef.current) setIsAccountsLoading(false);
-    }
-  }, []);
-
-  const loadSessions = useCallback(async () => {
-    const requestId = ++sessionsRequestIdRef.current;
-    setIsSessionsLoading(true);
-    setSessionsError('');
-    try {
-      const data = await fetchSessions();
-      if (requestId !== sessionsRequestIdRef.current) return;
-      setSessions(data.sessions || []);
-    } catch (error: any) {
-      if (requestId !== sessionsRequestIdRef.current) return;
-      setSessionsError(error.message);
-    } finally {
-      if (requestId === sessionsRequestIdRef.current) setIsSessionsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (role === 'admin') {
-      verifyAuth()
-        .then(info => setMyQuota({ max_users: info.max_users, user_max_online: info.user_max_online }))
-        .catch(() => {});
-    }
-  }, [role]);
-
-  useEffect(() => {
-    if (activeTab === 'logs') {
-      void loadLogs();
-      return () => { logsRequestIdRef.current += 1; };
-    }
-    if (activeTab === 'accounts') {
-      void loadAccounts();
-      return () => { accountsRequestIdRef.current += 1; };
-    }
-    void loadSessions();
-    return () => { sessionsRequestIdRef.current += 1; };
-  }, [activeTab, loadAccounts, loadLogs, loadSessions]);
-
-  useEffect(() => {
-    if (!isClearLogsDialogOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isClearingLogs) setIsClearLogsDialogOpen(false);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isClearLogsDialogOpen, isClearingLogs]);
-
-  const confirmClearLogs = async () => {
-    logsRequestIdRef.current += 1;
-    setIsLogsLoading(false);
-    setIsClearingLogs(true);
-    setLogsError('');
-    try {
-      await clearLogs();
-      setLogs([]);
-      setIsClearLogsDialogOpen(false);
-    } catch (e: any) {
-      setLogsError(e.message);
-    } finally {
-      setIsClearingLogs(false);
-    }
-  };
-
-  const buildLimits = (): AccountLimits => {
-    if (role !== 'sudo' || modalMode !== 'add' || editRole === 'sudo') return {};
-    const limits: AccountLimits = {
-      max_online: newMaxOnline.trim() === '' ? 0 : Number(newMaxOnline),
-    };
-    if (editRole === 'admin') {
-      limits.max_users = newMaxUsers.trim() === '' ? -1 : Number(newMaxUsers);
-      limits.user_max_online = newUserMaxOnline.trim() === '' ? 0 : Number(newUserMaxOnline);
-    }
-    return limits;
-  };
-
-  const handleSaveAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const generation = modalGenerationRef.current;
-    setModalError('');
-    const limits = buildLimits();
-    if (Object.values(limits).some(value => Number.isNaN(value))) {
-      setModalError('配额必须是数字，留空表示不限制。');
-      return;
-    }
-    setIsSaving(true);
-    try {
-      await setAccount(editUsername, editPassword, editRole, limits);
-      void loadAccounts();
-      if (generation !== modalGenerationRef.current) return;
-      setIsSaving(false);
-      setIsModalOpen(false);
-      modalGenerationRef.current += 1;
-    } catch (error: any) {
-      if (generation !== modalGenerationRef.current) return;
-      setModalError(error.message);
-    } finally {
-      if (generation === modalGenerationRef.current) setIsSaving(false);
-    }
-  };
-
-  const handleDeleteAccount = async (username: string) => {
-    if (username === 'admin') return;
-    const confirmed = await showConfirm({
-      title: '删除账号？',
-      message: `确定要删除账号「${username}」吗？其在线设备会立即下线，此操作不可撤销。`,
-      tone: 'danger',
-      confirmLabel: '删除',
-    });
-    if (!confirmed) return;
-    try {
-      await deleteAccount(username);
-      void loadAccounts();
-    } catch (e: any) {
-      setAccountsError(e.message);
-    }
-  };
-
-  const openLimitsModal = (account: Account) => {
-    setLimitsTarget(account);
-    setLimitMaxOnline(account.max_online == null ? '' : String(account.max_online));
-    setLimitMaxUsers(account.max_users == null ? '' : String(account.max_users));
-    setLimitUserMaxOnline(account.user_max_online == null ? '' : String(account.user_max_online));
-    setLimitsError('');
-    setIsSavingLimits(false);
-  };
-
-  const handleSaveLimits = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!limitsTarget) return;
-    setLimitsError('');
-    const limits: AccountLimits =
-      limitsTarget.role === 'admin'
-        ? {
-            max_users: limitMaxUsers.trim() === '' ? -1 : Number(limitMaxUsers),
-            user_max_online: limitUserMaxOnline.trim() === '' ? 0 : Number(limitUserMaxOnline),
-          }
-        : { max_online: limitMaxOnline.trim() === '' ? 0 : Number(limitMaxOnline) };
-    if (Object.values(limits).some(value => Number.isNaN(value))) {
-      setLimitsError('配额必须是数字，留空表示不限制。');
-      return;
-    }
-    setIsSavingLimits(true);
-    try {
-      await updateAccountLimits(limitsTarget.username, limits);
-      void loadAccounts();
-      setLimitsTarget(null);
-    } catch (error: any) {
-      setLimitsError(error.message);
-    } finally {
-      setIsSavingLimits(false);
-    }
-  };
-
-  const handleKickSession = async (session: SessionInfo) => {
-    const confirmed = await showConfirm({
-      title: '下线该设备？',
-      message: `将强制账号「${session.username}」的这台设备退出登录。`,
-      tone: 'danger',
-      confirmLabel: '下线',
-    });
-    if (!confirmed) return;
-    try {
-      await revokeSession(session.sid);
-      void loadSessions();
-    } catch (e: any) {
-      setSessionsError(e.message);
-    }
-  };
-
-  const closeAccountModal = useCallback(() => {
-    modalGenerationRef.current += 1;
-    setIsModalOpen(false);
-    setIsSaving(false);
-  }, []);
-
-  const openAddModal = () => {
-    modalGenerationRef.current += 1;
-    setModalMode('add');
-    setEditUsername('');
-    setEditPassword('');
-    setEditRole('user');
-    setNewMaxOnline('');
-    setNewMaxUsers('');
-    setNewUserMaxOnline('');
-    setModalError('');
-    setIsSaving(false);
-    setIsModalOpen(true);
-  };
-
-  const openResetModal = (account: Account) => {
-    modalGenerationRef.current += 1;
-    setModalMode('reset');
-    setEditUsername(account.username);
-    setEditPassword('');
-    setEditRole(account.role);
-    setModalError('');
-    setIsSaving(false);
-    setIsModalOpen(true);
-  };
-
-  // 登出逻辑由 App 注入（内部走路由跳转，兼容网关区域前缀）。
-  const handleLogout = async () => { if (onLogout) await onLogout(); };
-
-  const parsedLogs = useMemo(() => logs.map(parseLogLine), [logs]);
-
-  const logStats = useMemo(() => {
-    // 单次遍历同时累计条数、错误数并收集 IP/用户，避免对同一数组做四遍扫描。
-    let total = 0;
-    let errors = 0;
-    const ips = new Set<string>();
-    const users = new Set<string>();
-    for (const log of parsedLogs) {
-      if (!log.ip) continue;
-      total += 1;
-      if (Number.parseInt(log.status, 10) >= 400) errors += 1;
-      ips.add(log.ip);
-      if (log.user) users.add(log.user);
-    }
-    return { total, errors, ips: ips.size, users: users.size };
-  }, [parsedLogs]);
-
-  const staffCount = useMemo(
-    () => accounts.filter(a => a.role === 'sudo' || a.role === 'admin').length,
-    [accounts]
-  );
-  const onlineDeviceCount = useMemo(
-    () => sessions.filter(s => s.online).length,
-    [sessions]
-  );
-  const quotaReached = role === 'admin' && myQuota.max_users != null && accounts.length >= myQuota.max_users;
+  const selectTab = (next: AdminTab) => setTab(next);
 
   return (
-    <div className="flex h-[100dvh] w-full max-w-full flex-col overflow-x-hidden bg-[var(--bg-app)] text-[var(--fg-1)] transition-colors duration-500">
-      <header className="lawver-topbar sticky top-0 z-30 flex w-full max-w-full shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 pb-2 pt-[calc(0.625rem+var(--safe-top))] sm:px-5 sm:pb-3 sm:pt-[calc(0.75rem+var(--safe-top))]">
-        <div className="flex min-w-0 items-center gap-2">
-          <HoverInfo label="返回聊天" placement="bottom">
-            <button
-              onClick={() => goBack('/')}
-              className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(20,23,31,0.06)] hover:text-[var(--fg-1)] dark:hover:bg-white/[0.06]"
-              aria-label="返回聊天"
-            >
-              <ArrowLeft size={20} strokeWidth={2} />
-            </button>
-          </HoverInfo>
-          <span className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-1)] sm:flex">
-            <BrandMark className="h-5 w-5" />
-          </span>
-          <div className="min-w-0">
-            <h1 className="t-title-l truncate">{role === 'sudo' ? '系统管理' : '用户管理'}</h1>
-            <p className="truncate text-[12px] text-[var(--fg-3)]">
-              {role === 'sudo' ? '访问审计与账号层级管理' : '管理自己创建的用户'}
-            </p>
+    <div className="wb-app wb-admin">
+      <div className="wb-admin-shell">
+        <header className="wb-admin-head">
+          <div className="wb-admin-identity">
+            <HoverInfo label="返回聊天" placement="bottom">
+              <button aria-label="返回聊天" onClick={() => goBack('/')}>
+                <ArrowLeft size={18} />
+              </button>
+            </HoverInfo>
+            <span className="wb-admin-mark"><BrandMark className="h-5 w-5" /></span>
+            <div className="wb-admin-title">
+              <h1>{isSudo ? '系统管理' : '用户管理'}</h1>
+              <p>{isSudo ? '账号计费、用量监控、公告与服务配置' : '管理自己创建的用户与用量'}</p>
+            </div>
           </div>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="md3-btn-text lawver-pressable shrink-0 !text-[var(--color-danger-500)] text-sm"
-        >
-          <LogOut size={16} strokeWidth={2} /> 退出
-        </button>
-      </header>
-
-      <div className="shrink-0 px-3 pt-4 sm:px-5">
-        <div className="inline-flex flex-wrap rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-1)]">
-          {role === 'sudo' && (
-            <button
-              onClick={() => setActiveTab('logs')}
-              className={`md3-seg-btn ${activeTab === 'logs' ? 'active' : ''}`}
-              aria-pressed={activeTab === 'logs'}
-            >
-              <Activity size={16} strokeWidth={2} /> 使用日志
+          <div className="wb-admin-head-actions">
+            <button className="wb-quiet wb-danger" onClick={() => { void onLogout?.(); }}>
+              <LogOut size={16} /> 退出
             </button>
-          )}
-          <button
-            onClick={() => setActiveTab('accounts')}
-            className={`md3-seg-btn ${activeTab === 'accounts' ? 'active' : ''}`}
-            aria-pressed={activeTab === 'accounts'}
-          >
-            <Users size={16} strokeWidth={2} /> {role === 'sudo' ? '全部账号' : '我的用户'}
-          </button>
-          <button
-            onClick={() => setActiveTab('sessions')}
-            className={`md3-seg-btn ${activeTab === 'sessions' ? 'active' : ''}`}
-            aria-pressed={activeTab === 'sessions'}
-          >
-            <MonitorSmartphone size={16} strokeWidth={2} /> 在线设备
-          </button>
-        </div>
+          </div>
+        </header>
+
+        <nav className="wb-manager-tabs" role="tablist" aria-label="后台分区">
+          {tabs.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              tabIndex={tab === id ? 0 : -1}
+              onClick={() => selectTab(id)}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const index = tabs.findIndex((item) => item.id === tab);
+                const nextIndex =
+                  event.key === 'Home' ? 0
+                    : event.key === 'End' ? tabs.length - 1
+                      : event.key === 'ArrowLeft'
+                        ? (index + tabs.length - 1) % tabs.length
+                        : (index + 1) % tabs.length;
+                selectTab(tabs[nextIndex].id);
+                const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+                buttons?.[nextIndex]?.focus();
+              }}
+            >
+              <Icon size={16} /> {label}
+            </button>
+          ))}
+        </nav>
+
+        <main className="wb-admin-main" aria-label={tabs.find((item) => item.id === tab)?.label}>
+          {tab === 'accounts' && <AccountsPanel role={role} />}
+          {tab === 'usage' && <UsagePanel role={role} />}
+          {tab === 'announcements' && <AnnouncementsPanel />}
+          {tab === 'config' && <ConfigPanel role={role} />}
+        </main>
       </div>
-
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden px-3 pb-5 pt-4 sm:px-5">
-        {activeTab === 'logs' && role === 'sudo' ? (
-          <div className="flex h-full min-w-0 flex-col gap-3">
-            {/* 概览 */}
-            <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                { label: '本次读取', value: logStats.total, hint: '条记录' },
-                { label: '异常响应', value: logStats.errors, hint: '4xx / 5xx', danger: logStats.errors > 0 },
-                { label: '来源 IP', value: logStats.ips, hint: '去重后' },
-                { label: '活跃用户', value: logStats.users, hint: '去重后' },
-              ].map(stat => (
-                <div
-                  key={stat.label}
-                  className="min-w-0 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2.5 shadow-[var(--shadow-1)]"
-                >
-                  <p className="text-[11px] font-medium text-[var(--fg-3)]">{stat.label}</p>
-                  <p className={`mt-0.5 text-[19px] font-semibold tabular-nums leading-6 ${
-                    stat.danger ? 'text-[var(--color-danger-500)]' : 'text-[var(--fg-1)]'
-                  }`}>
-                    {stat.value}
-                  </p>
-                  <p className="text-[11px] text-[var(--fg-4)]">{stat.hint}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* 工具条 */}
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <div className="relative min-w-0 w-full flex-1 sm:min-w-[200px] sm:max-w-sm">
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fg-4)]" strokeWidth={2} />
-                <input
-                  type="text"
-                  placeholder="按 IP 地址过滤…"
-                  value={ipFilter}
-                  onChange={e => {
-                    const value = e.target.value;
-                    logsQueryRef.current = { ...logsQueryRef.current, ipFilter: value };
-                    setIpFilter(value);
-                  }}
-                  onKeyDown={e => e.key === 'Enter' && loadLogs()}
-                  className="md3-input min-h-11 !rounded-full !py-2.5 !pl-10"
-                  aria-label="按 IP 地址过滤日志"
-                />
-              </div>
-              <AnimatedSwitch
-                checked={ignoreHeartbeat}
-                onCheckedChange={checked => {
-                  logsQueryRef.current = { ...logsQueryRef.current, ignoreHeartbeat: checked };
-                  setIgnoreHeartbeat(checked);
-                }}
-                label="隐藏心跳"
-                size="sm"
-              />
-              <button onClick={loadLogs} disabled={isLogsLoading} className="md3-btn-tonal lawver-pressable disabled:opacity-50">
-                {isLogsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" strokeWidth={2} />} 刷新
-              </button>
-              <button
-                onClick={() => setIsClearLogsDialogOpen(true)}
-                disabled={isLogsLoading || isClearingLogs}
-                className="md3-btn-tonal lawver-pressable !text-[var(--color-danger-500)] disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" strokeWidth={2} /> 清理日志
-              </button>
-            </div>
-
-            {logsError && <Banner tone="danger">{logsError}</Banner>}
-
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-1)]">
-              {isLogsLoading && parsedLogs.length === 0 ? (
-                <div className="flex-1 space-y-3 p-4" aria-busy="true">
-                  {Array.from({ length: LOG_SKELETON_ROWS }).map((_, index) => (
-                    <div key={index} className="flex items-center gap-3">
-                      <span className="h-3 w-24 animate-pulse rounded-full bg-[var(--bg-inset)]" />
-                      <span className="h-3 w-20 animate-pulse rounded-full bg-[var(--bg-inset)]" />
-                      <span className="h-3 flex-1 animate-pulse rounded-full bg-[var(--bg-inset)]" />
-                      <span className="h-3 w-10 animate-pulse rounded-full bg-[var(--bg-inset)]" />
-                    </div>
-                  ))}
-                </div>
-              ) : parsedLogs.length === 0 ? (
-                <EmptyState
-                  icon={<EyeOff size={22} strokeWidth={2} />}
-                  title="暂无日志记录"
-                  description="产生 API 访问后，这里会显示时间、来源 IP、用户、方法与响应状态。"
-                />
-              ) : (
-                <div className="md3-scroll min-h-0 flex-1 overflow-auto">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="bg-[var(--bg-surface-2)] shadow-[inset_0_-1px_0_var(--border-subtle)]">
-                        <th className="t-label-s t-muted px-3 py-2.5 text-left sm:px-4">时间</th>
-                        <th className="t-label-s t-muted px-3 py-2.5 text-left sm:px-4">IP</th>
-                        <th className="t-label-s t-muted hidden px-3 py-2.5 text-left sm:table-cell sm:px-4">用户</th>
-                        <th className="t-label-s t-muted hidden px-3 py-2.5 text-left lg:table-cell lg:px-4">客户端</th>
-                        <th className="t-label-s t-muted px-3 py-2.5 text-left sm:px-4">方法</th>
-                        <th className="t-label-s t-muted hidden px-3 py-2.5 text-left lg:table-cell lg:px-4">路径</th>
-                        <th className="t-label-s t-muted px-3 py-2.5 text-right sm:px-4">状态</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[var(--border-subtle)]">
-                      {parsedLogs.map((log, i) => (
-                        log.ip ? (
-                          <React.Fragment key={i}>
-                            <tr
-                              // 行内可展开详情，但 <tr> 不能是按钮；补 role/tabIndex/键盘处理，
-                              // 否则日志详情只有鼠标能打开。
-                              role="button"
-                              tabIndex={0}
-                              aria-expanded={expandedLog === log.raw}
-                              onClick={() => setExpandedLog(expandedLog === log.raw ? null : log.raw)}
-                              onKeyDown={(event) => {
-                                if (event.key !== 'Enter' && event.key !== ' ') return;
-                                event.preventDefault();
-                                setExpandedLog(expandedLog === log.raw ? null : log.raw);
-                              }}
-                              className={`cursor-pointer transition-colors hover:bg-[rgba(59,98,184,0.05)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent)] ${expandedLog === log.raw ? 'bg-[var(--accent-quiet)]' : ''}`}
-                            >
-                              <td className="whitespace-nowrap px-2 py-2.5 text-[var(--fg-3)] sm:px-4">
-                                <span className="flex items-center gap-1.5 tabular-nums">
-                                  <Clock className="hidden h-3.5 w-3.5 shrink-0 opacity-50 sm:block" strokeWidth={2} />
-                                  {/* 手机上只留时刻，完整日期在 sm 以上显示，避免表格横向溢出 */}
-                                  <span className="sm:hidden">{(log.time.split(' ')[1] || log.time).split(',')[0]}</span>
-                                  <span className="hidden sm:inline">{log.time.split(',')[0]}</span>
-                                </span>
-                              </td>
-                              <td className="whitespace-nowrap px-2 py-2.5 font-mono text-xs text-[var(--fg-2)] sm:px-4">
-                                <span className="flex items-center gap-1.5">
-                                  <Globe className="hidden h-3.5 w-3.5 shrink-0 opacity-40 sm:block" strokeWidth={2} />
-                                  {log.ip}
-                                </span>
-                              </td>
-                              <td className="hidden whitespace-nowrap px-3 py-2.5 sm:table-cell sm:px-4">
-                                <span className="flex items-center gap-1.5">
-                                  <User className="hidden h-3.5 w-3.5 shrink-0 opacity-40 sm:block" strokeWidth={2} />
-                                  <span className="text-[var(--fg-1)]">{log.user}</span>
-                                </span>
-                              </td>
-                              <td className="hidden whitespace-nowrap px-3 py-2.5 text-xs text-[var(--fg-3)] lg:table-cell lg:px-4">
-                                <span className="flex items-center gap-1.5">
-                                  <MonitorSmartphone className="h-3.5 w-3.5 shrink-0 opacity-40" strokeWidth={2} />
-                                  {log.client}
-                                </span>
-                              </td>
-                              <td className="whitespace-nowrap px-2 py-2.5 sm:px-4">
-                                <StatusChip tone={METHOD_TONE[log.method] || 'muted'}>{log.method}</StatusChip>
-                              </td>
-                              <td className="hidden max-w-[220px] truncate px-3 py-2.5 font-mono text-xs text-[var(--fg-2)] lg:table-cell lg:max-w-[180px] lg:px-4 xl:max-w-[320px]" title={log.path}>
-                                {log.path}
-                              </td>
-                              <td className="whitespace-nowrap px-2 py-2.5 text-right sm:px-4">
-                                <StatusChip tone={statusTone(log.status)} className="tabular-nums">{log.status}</StatusChip>
-                              </td>
-                            </tr>
-                            {expandedLog === log.raw && (
-                              <tr className="bg-[var(--bg-inset)]">
-                                <td colSpan={7} className="px-3 py-3 sm:px-4">
-                                  <p className="mb-1 text-[11px] font-medium text-[var(--fg-3)]">原始日志行</p>
-                                  <code className="block break-all font-mono text-[11px] leading-5 text-[var(--fg-2)]">{log.raw}</code>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        ) : (
-                          <tr key={i}>
-                            <td colSpan={7} className="break-all px-3 py-2 text-xs text-[var(--fg-3)] sm:px-4">{log.raw}</td>
-                          </tr>
-                        )
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : activeTab === 'accounts' ? (
-          <div className="md3-scroll flex h-full min-w-0 flex-col gap-3 overflow-auto pb-6">
-            {accountsError && <Banner tone="danger">{accountsError}</Banner>}
-
-            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-              <p className="text-[12px] text-[var(--fg-3)]">
-                {role === 'sudo'
-                  ? `共 ${accounts.length} 个账号，其中管理类账号 ${staffCount} 个`
-                  : `已创建 ${accounts.length} 个用户${myQuota.max_users != null ? ` / 上限 ${myQuota.max_users} 个` : '（不限数量）'}`}
-              </p>
-              <button
-                onClick={openAddModal}
-                disabled={quotaReached}
-                className="md3-btn-filled lawver-pressable text-sm disabled:opacity-50"
-              >
-                <Plus size={16} strokeWidth={2.4} /> 新增{role === 'sudo' ? '账号' : '用户'}
-              </button>
-            </div>
-
-            {quotaReached && (
-              <Banner tone="warning">
-                已达可创建用户上限（{myQuota.max_users} 个）。如确需更多账号，请联系超级管理员调整配额。
-              </Banner>
-            )}
-
-            {isAccountsLoading && accounts.length === 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <div key={index} className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
-                    <span className="h-11 w-11 shrink-0 animate-pulse rounded-[var(--radius-md)] bg-[var(--bg-inset)]" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block h-3.5 w-1/2 animate-pulse rounded-full bg-[var(--bg-inset)]" />
-                      <span className="mt-2 block h-3 w-1/3 animate-pulse rounded-full bg-[var(--bg-inset)]" />
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : accounts.length === 0 ? (
-              <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-                <EmptyState
-                  icon={<Users size={22} strokeWidth={2} />}
-                  title={role === 'sudo' ? '还没有账号' : '还没有创建用户'}
-                  description={role === 'sudo' ? '新增账号后，成员即可登录使用 Lawver。' : '创建用户后，他们即可登录使用 Lawver。'}
-                  action={(
-                    <button onClick={openAddModal} className="md3-btn-tonal lawver-pressable text-sm" disabled={quotaReached}>
-                      <Plus size={16} strokeWidth={2.4} /> 新增{role === 'sudo' ? '账号' : '用户'}
-                    </button>
-                  )}
-                />
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {accounts.map(acc => (
-                  <div
-                    key={acc.username}
-                    className="group flex min-w-0 flex-col gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)] transition-colors hover:border-[var(--border-default)]"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-[15px] font-semibold ${
-                        acc.role === 'user'
-                          ? 'bg-[var(--accent-quiet)] text-[var(--brand-primary-700)] dark:text-[var(--accent)]'
-                          : 'bg-[var(--accent)] text-[var(--accent-on)]'
-                      }`}>
-                        {acc.username.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[14px] font-medium text-[var(--fg-1)]">{acc.username}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          <StatusChip tone={ROLE_TONE[acc.role]}>{ROLE_LABEL[acc.role]}</StatusChip>
-                          {(acc.online_count ?? 0) > 0 && (
-                            <StatusChip tone="ok"><Wifi size={11} strokeWidth={2.4} className="mr-1" />{acc.online_count} 台在线</StatusChip>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 gap-0.5">
-                        {role === 'sudo' && (
-                          <HoverInfo label="调整配额" placement="top">
-                            <button
-                              onClick={() => openLimitsModal(acc)}
-                              className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
-                              aria-label={`调整 ${acc.username} 的配额`}
-                            >
-                              <SlidersHorizontal className="h-4 w-4" strokeWidth={2} />
-                            </button>
-                          </HoverInfo>
-                        )}
-                        <HoverInfo label="重置密码" placement="top">
-                          <button
-                            onClick={() => openResetModal(acc)}
-                            className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)]"
-                            aria-label={`重置 ${acc.username} 的密码`}
-                          >
-                            <KeyRound className="h-4 w-4" strokeWidth={2} />
-                          </button>
-                        </HoverInfo>
-                        {acc.username === 'admin' ? (
-                          <HoverInfo label="系统管理员不可删除" placement="top">
-                            <button
-                              className="inline-flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-full text-[var(--fg-4)] opacity-40"
-                              aria-label="系统管理员不可删除"
-                              disabled
-                            >
-                              <Trash2 className="h-4 w-4" strokeWidth={2} />
-                            </button>
-                          </HoverInfo>
-                        ) : (
-                          <HoverInfo label="删除账号" placement="top">
-                            <button
-                              onClick={() => handleDeleteAccount(acc.username)}
-                              className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-                              aria-label={`删除账号 ${acc.username}`}
-                            >
-                              <Trash2 className="h-4 w-4" strokeWidth={2} />
-                            </button>
-                          </HoverInfo>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--fg-3)]">
-                      {acc.owner && <span>归属：{acc.owner}</span>}
-                      {acc.role === 'admin' && (
-                        <span>
-                          可建用户：{acc.owned_count ?? 0}
-                          {acc.max_users == null ? '（不限）' : ` / ${acc.max_users}`}
-                        </span>
-                      )}
-                      {acc.role !== 'sudo' && (
-                        <span>最大在线：{acc.role === 'admin' ? (acc.user_max_online == null ? '不限' : acc.user_max_online) : (acc.max_online == null ? '不限' : acc.max_online)} 台</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-              <SettingsRow
-                dense
-                icon={<ShieldAlert size={17} strokeWidth={2} />}
-                title="账号安全提示"
-                description={
-                  role === 'sudo'
-                    ? '删除或重置密码会立即作废该账号已签发的令牌；系统管理员账号不可删除。'
-                    : '重置密码会让该用户的所有设备立即重新登录；你只能管理自己创建的用户。'
-                }
-              />
-            </div>
-          </div>
-        ) : (
-          <div className="md3-scroll flex h-full min-w-0 flex-col gap-3 overflow-auto pb-6">
-            {sessionsError && <Banner tone="danger">{sessionsError}</Banner>}
-
-            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-              <p className="text-[12px] text-[var(--fg-3)]">
-                共 {sessions.length} 台已登录设备，其中 {onlineDeviceCount} 台近期活跃
-              </p>
-              <button onClick={loadSessions} disabled={isSessionsLoading} className="md3-btn-tonal lawver-pressable disabled:opacity-50">
-                {isSessionsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" strokeWidth={2} />} 刷新
-              </button>
-            </div>
-
-            {isSessionsLoading && sessions.length === 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <div key={index} className="h-24 animate-pulse rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]" />
-                ))}
-              </div>
-            ) : sessions.length === 0 ? (
-              <div className="rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-                <EmptyState
-                  icon={<MonitorSmartphone size={22} strokeWidth={2} />}
-                  title="暂无在线设备"
-                  description={role === 'sudo' ? '所有账号的登录设备会显示在这里，可直接踢下线。' : '你的用户登录后，其设备会显示在这里。'}
-                />
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {sessions.map(session => (
-                  <div
-                    key={session.sid}
-                    className="flex min-w-0 items-center gap-3 rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[var(--shadow-1)]"
-                  >
-                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] ${
-                      session.online ? 'bg-[var(--accent-quiet)] text-[var(--accent)]' : 'bg-[var(--bg-inset)] text-[var(--fg-3)]'
-                    }`}>
-                      <MonitorSmartphone className="h-5 w-5" strokeWidth={2} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[14px] font-medium text-[var(--fg-1)]">{session.username}</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <StatusChip tone={session.online ? 'ok' : 'muted'}>
-                          {session.online ? '在线' : '离线'}
-                        </StatusChip>
-                        <span className="text-[11px] text-[var(--fg-3)]">
-                          {CLIENT_LABEL[session.client || ''] || session.client || '未知客户端'}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-[var(--fg-4)]">
-                        最近活跃：{formatTime(session.last_seen_at)}
-                      </p>
-                    </div>
-                    <HoverInfo label="下线该设备" placement="top">
-                      <button
-                        onClick={() => handleKickSession(session)}
-                        className="lawver-pressable inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)]"
-                        aria-label={`下线 ${session.username} 的设备`}
-                      >
-                        <LogOut className="h-4 w-4" strokeWidth={2} />
-                      </button>
-                    </HoverInfo>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </main>
-
-      {isClearLogsDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-[var(--bg-overlay)]"
-            onClick={() => !isClearingLogs && setIsClearLogsDialogOpen(false)}
-            aria-hidden="true"
-          />
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="clear-logs-title"
-            aria-describedby="clear-logs-description"
-            className="relative w-full max-w-md rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-6 text-[var(--fg-1)] shadow-[var(--shadow-5)]"
-            style={{ animation: 'lawverPopoverIn 0.2s ease-out' }}
-          >
-            <div className="mb-5 flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[rgba(176,70,62,0.12)] text-[var(--color-danger-500)]">
-                <Trash2 className="h-5 w-5" strokeWidth={2} />
-              </div>
-              <div className="min-w-0">
-                <h3 id="clear-logs-title" className="t-title-l">清理全部日志？</h3>
-                <p id="clear-logs-description" className="mt-2 text-sm leading-6 text-[var(--fg-3)]">
-                  此操作会清空当前使用日志和已轮转的日志文件，清理后无法撤销。
-                </p>
-                <p className="mt-3 rounded-[var(--radius-md)] bg-[var(--bg-inset)] px-3 py-2 text-xs tabular-nums text-[var(--fg-3)]">
-                  当前列表显示 {logs.length} 条记录；筛选隐藏的日志也会被一并清理。
-                </p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                className="md3-btn-text lawver-pressable"
-                onClick={() => setIsClearLogsDialogOpen(false)}
-                disabled={isClearingLogs}
-                autoFocus
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="md3-btn-tonal lawver-pressable !text-[var(--color-danger-500)]"
-                onClick={confirmClearLogs}
-                disabled={isClearingLogs}
-              >
-                {isClearingLogs ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" strokeWidth={2} />}
-                {isClearingLogs ? '清理中…' : '确认清理'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-[var(--bg-overlay)]" onClick={closeAccountModal} aria-hidden="true" />
-          <div
-            className="relative max-h-[90dvh] w-full max-w-md overflow-auto rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-5)]"
-            style={{ animation: 'lawverPopoverIn 0.2s ease-out' }}
-          >
-            <form onSubmit={handleSaveAccount}>
-              <div className="flex items-start gap-3 border-b border-[var(--border-subtle)] p-5">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent-quiet)] text-[var(--accent)]">
-                  {modalMode === 'add' ? <Plus size={18} strokeWidth={2.4} /> : <KeyRound size={17} strokeWidth={2} />}
-                </span>
-                <div className="min-w-0">
-                  <h3 className="t-title-l">
-                    {modalMode === 'add' ? `新增${role === 'sudo' ? '账号' : '用户'}` : '重置密码'}
-                  </h3>
-                  <p className="mt-0.5 text-[12px] leading-5 text-[var(--fg-3)]">
-                    {modalMode === 'add'
-                      ? (role === 'sudo' ? '创建账号并设置其权限与配额' : '创建一个归属于你的普通用户')
-                      : `为 ${editUsername} 设置新的登录密码`}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-4 p-5">
-                {modalError && <Banner tone="danger">{modalError}</Banner>}
-
-                <SettingsField label="用户名">
-                  <input
-                    type="text"
-                    required
-                    disabled={modalMode === 'reset'}
-                    value={editUsername}
-                    onChange={e => setEditUsername(e.target.value)}
-                    className={fieldInputClass}
-                    placeholder="输入用户名"
-                    autoComplete="off"
-                  />
-                </SettingsField>
-
-                <SettingsField label="密码" hint="至少 6 位字符">
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    value={editPassword}
-                    onChange={e => setEditPassword(e.target.value)}
-                    className={fieldInputClass}
-                    placeholder="最少 6 位字符"
-                    autoComplete="new-password"
-                  />
-                </SettingsField>
-
-                {modalMode === 'add' && role === 'sudo' && (
-                  <>
-                    <SettingsField label="角色">
-                      <div className="grid grid-cols-3 gap-2">
-                        {(['user', 'admin', 'sudo'] as Role[]).map(option => (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => setEditRole(option)}
-                            aria-pressed={editRole === option}
-                            className={`lawver-pressable h-11 rounded-[var(--radius-md)] border text-[13px] font-medium transition-colors ${
-                              editRole === option
-                                ? 'border-[var(--accent)] bg-[var(--accent-quiet)] text-[var(--accent)]'
-                                : 'border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--fg-2)] hover:bg-[var(--bg-surface-2)]'
-                            }`}
-                          >
-                            {ROLE_LABEL[option]}
-                          </button>
-                        ))}
-                      </div>
-                    </SettingsField>
-
-                    {editRole !== 'sudo' && (
-                      <SettingsField label="最大在线设备数" hint="留空表示不限制">
-                        <input
-                          type="number"
-                          min={1}
-                          max={1000}
-                          value={newMaxOnline}
-                          onChange={e => setNewMaxOnline(e.target.value)}
-                          className={fieldInputClass}
-                          placeholder="不限制"
-                        />
-                      </SettingsField>
-                    )}
-
-                    {editRole === 'admin' && (
-                      <>
-                        <SettingsField label="可创建用户上限 n" hint="留空表示不限制">
-                          <input
-                            type="number"
-                            min={0}
-                            max={10000}
-                            value={newMaxUsers}
-                            onChange={e => setNewMaxUsers(e.target.value)}
-                            className={fieldInputClass}
-                            placeholder="不限制"
-                          />
-                        </SettingsField>
-                        <SettingsField label="其用户默认最大在线数 m" hint="留空表示不限制">
-                          <input
-                            type="number"
-                            min={1}
-                            max={1000}
-                            value={newUserMaxOnline}
-                            onChange={e => setNewUserMaxOnline(e.target.value)}
-                            className={fieldInputClass}
-                            placeholder="不限制"
-                          />
-                        </SettingsField>
-                      </>
-                    )}
-                  </>
-                )}
-
-                {modalMode === 'add' && role === 'admin' && (
-                  <Banner tone="info">
-                    该用户的最大在线设备数由超级管理员通过你的配额 m 决定，创建后不可自行修改。
-                  </Banner>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-4">
-                <button type="button" onClick={closeAccountModal} className="md3-btn-text lawver-pressable">取消</button>
-                <button type="submit" disabled={isSaving} className="md3-btn-filled lawver-pressable disabled:opacity-50">
-                  {isSaving ? <Loader2 size={15} className="animate-spin" /> : null}
-                  {isSaving ? '保存中…' : '保存'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {limitsTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-[var(--bg-overlay)]" onClick={() => setLimitsTarget(null)} aria-hidden="true" />
-          <div
-            className="relative w-full max-w-md overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-5)]"
-            style={{ animation: 'lawverPopoverIn 0.2s ease-out' }}
-          >
-            <form onSubmit={handleSaveLimits}>
-              <div className="flex items-start gap-3 border-b border-[var(--border-subtle)] p-5">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent-quiet)] text-[var(--accent)]">
-                  <SlidersHorizontal size={17} strokeWidth={2} />
-                </span>
-                <div className="min-w-0">
-                  <h3 className="t-title-l">调整配额</h3>
-                  <p className="mt-0.5 text-[12px] leading-5 text-[var(--fg-3)]">
-                    {limitsTarget.username}（{ROLE_LABEL[limitsTarget.role]}）
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-4 p-5">
-                {limitsError && <Banner tone="danger">{limitsError}</Banner>}
-
-                {limitsTarget.role === 'admin' ? (
-                  <>
-                    <SettingsField label="可创建用户上限 n" hint="留空表示不限制">
-                      <input
-                        type="number"
-                        min={0}
-                        max={10000}
-                        value={limitMaxUsers}
-                        onChange={e => setLimitMaxUsers(e.target.value)}
-                        className={fieldInputClass}
-                        placeholder="不限制"
-                      />
-                    </SettingsField>
-                    <SettingsField label="其用户默认最大在线数 m" hint="留空表示不限制">
-                      <input
-                        type="number"
-                        min={1}
-                        max={1000}
-                        value={limitUserMaxOnline}
-                        onChange={e => setLimitUserMaxOnline(e.target.value)}
-                        className={fieldInputClass}
-                        placeholder="不限制"
-                      />
-                    </SettingsField>
-                  </>
-                ) : (
-                  <SettingsField label="最大在线设备数" hint="留空表示不限制">
-                    <input
-                      type="number"
-                      min={1}
-                      max={1000}
-                      value={limitMaxOnline}
-                      onChange={e => setLimitMaxOnline(e.target.value)}
-                      className={fieldInputClass}
-                      placeholder="不限制"
-                    />
-                  </SettingsField>
-                )}
-
-                <Banner tone="info">
-                  n 决定该管理员能创建多少用户；m 决定其用户默认的在线设备上限，管理员本人无法修改。
-                </Banner>
-              </div>
-
-              <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] px-5 py-4">
-                <button type="button" onClick={() => setLimitsTarget(null)} className="md3-btn-text lawver-pressable">取消</button>
-                <button type="submit" disabled={isSavingLimits} className="md3-btn-filled lawver-pressable disabled:opacity-50">
-                  {isSavingLimits ? <Loader2 size={15} className="animate-spin" /> : null}
-                  {isSavingLimits ? '保存中…' : '保存'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

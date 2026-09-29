@@ -56,15 +56,11 @@ def _json_body_limit_for_path(path: str) -> int:
         "/api/admin/accounts",
         "/api/settings/secret",
         "/api/settings/secret/clear",
-        "/api/chat/ack",
-        "/api/chat/cancel",
         "/api/court/memory/clear",
     }:
         route_limit = SMALL_CONTROL_JSON_BODY_BYTES
-    elif path in {"/api/chat", "/api/memory/sync", "/api/court/turn"}:
+    elif path == "/api/court/turn":
         route_limit = CHAT_JSON_BODY_BYTES
-    elif path == "/api/summarize":
-        route_limit = 4 * 1024 * 1024
     else:
         route_limit = MAX_JSON_BODY_BYTES
     return min(MAX_JSON_BODY_BYTES, route_limit)
@@ -163,6 +159,9 @@ def clear_usage_logs() -> int:
 
 
 def should_record_usage_log(method: str, path: str) -> bool:
+    # 分流核心每 5s 探活一次 /api/health：那是机器流量，记进访问日志只会把真实用户行为淹掉。
+    if path == "/api/health":
+        return False
     return path.startswith("/api") and not (method == "DELETE" and path == "/api/admin/logs")
 
 

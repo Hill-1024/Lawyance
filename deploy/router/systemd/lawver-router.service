@@ -1,0 +1,21 @@
+[Unit]
+Description=Lawver 分流核心（功能页 8081 与介绍页 8082 的唯一入口）
+Documentation=https://github.com/Hill-1024/Lawyance/blob/dev/docs/workbench/operations.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 路径与用户按部署机实际情况调整
+User=lawver
+WorkingDirectory=/srv/lawver
+ExecStart=/srv/lawver/.venv/bin/python /srv/lawver/deploy/router/router.py --config /srv/lawver/deploy/router/config.json
+# 整站入口：它挂了整站就只剩 Cloudflare 的错误页，所以必须无条件拉起
+Restart=always
+RestartSec=1
+StartLimitIntervalSec=0
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

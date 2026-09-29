@@ -2,11 +2,15 @@
 模块描述：模拟法庭单回合流式 API 与角色记忆清理 API。
 """
 
+import asyncio
 import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+
+from billing import ledger as billing, metering, pricing
+from infra import account_store
 from starlette.concurrency import run_in_threadpool
 
 from schemas import CourtMemoryClearRequest, CourtTurnRequest
@@ -36,12 +40,25 @@ def _clear_memory_scopes(scopes: list[str]) -> list[str]:
 
 @router.post("/api/court/turn")
 async def court_turn_endpoint(request: CourtTurnRequest, current_user: str = Depends(get_current_user)):
+    allowed, refusal = billing.can_spend(current_user)
+    if not allowed:
+        raise HTTPException(status_code=402, detail=refusal)
     try:
         prepared = await prepare_court_turn(request, current_user)
     except MemoryRevisionConflict as exc:
         raise HTTPException(status_code=409, detail=memory_conflict_detail(exc))
 
     async def generate():
+        turn = metering.begin_turn(
+            current_user,
+            multiplier=pricing.multiplier_for(
+                (account_store.get_user(current_user) or {}).get("plan", "metered"),
+                (account_store.get_user(current_user) or {}).get("billing_cycle", "prepaid"),
+                (account_store.get_user(current_user) or {}).get("credit_multiplier"),
+            ),
+            ref_id=request.court_session_id,
+            reason="庭审推演",
+        )
         try:
             async for event in run_court_turn_stream(prepared):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -53,6 +70,12 @@ async def court_turn_endpoint(request: CourtTurnRequest, current_user: str = Dep
                 "content": "庭审处理失败，请稍后重试。",
             }
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        finally:
+            # 庭审同样按轮结算：中断的轮次也已经消耗了模型调用。
+            summary = await asyncio.to_thread(billing.settle, turn)
+            metering.end_turn()
+            if summary:
+                yield f"data: {json.dumps({'type': 'usage', 'content': summary}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

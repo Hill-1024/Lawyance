@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from function_calling import call, create_assistant_message
 from output_sanitizer import sanitize_llm_output, strip_think_blocks, strip_wrapper_tags
+from billing import metering
 from context_usage import record_openai_usage
 from media import (
     IMAGE_SIGNAL_KEY,
@@ -534,6 +535,12 @@ class ToolLoopAgent:
                     usage = getattr(chunk, "usage", None)
                     if usage is not None:
                         record_openai_usage(usage)
+                        # 流式也要计费：usage 只在最后一个 chunk 上出现一次。
+                        metering.record_model(
+                            int(getattr(usage, "prompt_tokens", 0) or 0),
+                            int(getattr(usage, "completion_tokens", 0) or 0),
+                            model=getattr(usage, "model", "") or "",
+                        )
 
                     if not getattr(chunk, "choices", None):
                         continue

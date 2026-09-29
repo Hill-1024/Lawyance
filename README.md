@@ -353,28 +353,21 @@ python -m pytest
 
 启动日志会打印实际生效的后端：`Redis 请求防护：available=... prefix=...` 与 `会话布隆过滤器预热完成：...`。
 
-## 区域路径分流部署
+## 部署拓扑：主机名分机 + 本机分流核心
 
-同一份构建产物可以挂在网关的不同路径前缀下，由网关把 `/cn`、`/asean` 分流到各自区域的后端，例如 `lawver.dev/cn` 与 `lawver.dev/asean`。前缀列表写在 `package.json` 的 `appConfig.regions`，构建产物按相对路径引用资源，运行时的前缀由网关注入的 `<base>` 决定。
+介绍页与功能页是两个仓库、两个进程，同一个域名对外：
 
-**网关必须静态注入 `<base href="/cn/">`。** 应用内的静态资源是相对引用（`./assets/...`），浏览器按 `<base>` 解析；而 `<base>` 必须是 HTML 流里的静态标签——用脚本在运行时插入会晚于浏览器的预加载扫描器，扫描器会用「去掉尾斜杠的前缀目录」作基准，先把 `./assets/...` 请求成 `/assets/...`，这些请求会落到网关的默认区域，导致静态资源串区（`/asean` 页面加载 `cn` 区域的资源）。正确做法见 [docs/cloudflare-worker-router.js](docs/cloudflare-worker-router.js)：
-
-```js
-// 仅在返回 HTML 时注入，前缀取自命中的路由
-const injected = `<base href="${prefix}/">`;
-return new HTMLRewriter()
-  .on('head', { element: el => el.prepend(injected, { html: true }) })
-  .transform(response);
+```
+lawver.dev          → 隧道 → 国内机器：分流核心 8080 ─┬─ 介绍页进程 8082（Hill-1024/Lawyance_Intro）
+global.lawver.dev   → 隧道 → 海外机器：分流核心 8080 ─┴─ 功能页进程 8081（本仓库，FastAPI）
 ```
 
-应用侧据此推导出四项行为，无需额外配置：
-
-- **前端路由**：`BrowserRouter` 以该前缀为 `basename`，`/cn/settings` 按 `/settings` 匹配，站内跳转自动保留前缀。
-- **接口请求**：所有 `apiFetch` 走 `前缀 + /api/...`，与页面落在同一区域后端。
-- **Service Worker**：注册在 `前缀/sw.js`，scope 为前缀目录，不会跨区域接管页面。
-- **PWA manifest**：`start_url`、`scope`、图标全部使用相对路径，装到桌面后仍落在对应区域。
-
-网关未注入 `<base>` 时，应用会退回按 `appConfig.regions` 判断前缀，保证 SPA 仍能渲染，但静态资源会请求到默认区域，并在控制台给出告警。
+- **跨机分流靠主机名**：`lawver.dev` 与 `global.lawver.dev` 各自指向一台机器的隧道入口；两台机器跑同一套布局，差异只有主机名与数据源。原先按 `/cn`、`/asean` 路径前缀分流的方案已退役——前缀会渗进前端路由、SW scope 与资源基准三处，纯属把复杂度搬进应用；主机名分流把这件事留在 DNS 层。
+- **本机分流靠路径**：每台机器上的 [deploy/router](deploy/router/README.md) 是唯一入口，监听稳定端口 8080，把介绍页路径（`/`、`/design`、`/download`、`/pricing`、`/robots.txt`、`/sitemap.xml`、`/intro-assets/*`）交给介绍页进程，其余（`/home`、`/login`、`/settings/*`、`/admin`、`/business`、`/court/*`、`/api/*`…）交给功能页进程。以后任一侧怎么重启换代，隧道配置都不用动。
+- **端口**：核心 8080（`appConfig.routerPort`）、功能页 8081（`appConfig.port`）、介绍页 8082（`appConfig.introPort`）。功能页只监听回环，不直接对外。
+- **维护兜底**：任一侧下线（或 `deploy/router/state/<side>.maintenance` 文件在）时，核心把页面导航 302 到 `/under_maintenance`（「维护中／我们很快就会回来。」，恢复后自动跳回原路径），接口与静态资源返回 503 JSON + `Retry-After`。核心自己回答这个页面，所以两侧都挂时它仍然可用。
+- **`<base>` 与资源路径**：功能页仍由 `backend/routes/spa.py` 注入 `<base href="/">`，深链接（`/court/xxx`、`/settings/profile`）才会解析出正确资源；介绍页构建用绝对路径（`base: '/'`），产物落在 `/intro-assets/*`，与功能页的 `/assets/*` 不撞——同域下两个构建不能共用 `/assets`。
+- **探活**：功能页提供 `/api/health`（免鉴权、不碰数据库、不写访问日志），介绍页提供 `/healthz`；核心每 5s 探一次，页面导航遇到某一侧下线时立刻给维护页。
 
 ## 安全注意
 

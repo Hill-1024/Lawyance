@@ -1,0 +1,299 @@
+/* Workbench · session
+   会话面板：消息流、运行状态与思考时间线、确认卡片、停靠面板与分隔条。
+   由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。 */
+
+.wb-chat {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+}
+/* 会话全屏：铺满 sheet 的剩余宽度（旧版这里是 1000px 居中卡片）。 */
+.wb-chat:not(.wb-agent) {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  width: 100%;
+}
+.wb-chat-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px 10px;
+  min-height: 64px;
+  gap: 10px;
+}
+.wb-chat-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.wb-chat-heading h2 {
+  font-size: 15px;
+}
+.wb-chat-heading small {
+  font-size: 10px;
+}
+.wb-messages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 28px;
+  scrollbar-width: thin;
+}
+.wb-chat-empty {
+  padding: 70px 12px;
+  text-align: center;
+  color: var(--wb-muted);
+}
+.wb-chat-empty > svg {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  color: var(--wb-blue);
+}
+.wb-chat-empty h3 {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  color: var(--wb-ink);
+  margin-bottom: 12px;
+}
+.wb-chat-empty p {
+  font-size: 12px;
+  line-height: 1.9;
+}
+.wb-composer-wrap {
+  padding: 14px 24px 10px;
+}
+.wb-disclaimer {
+  display: block;
+  text-align: center;
+  font-size: 10px !important;
+  margin-top: 9px;
+}
+.wb-message {
+  margin-bottom: 28px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.wb-message.user {
+  padding: 14px 16px;
+  background: var(--wb-surface);
+  border-radius: 20px 20px 20px 6px;
+}
+.wb-message-label {
+  font-size: 11px;
+  color: var(--wb-muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wb-message-label .wb-role {
+  flex-shrink: 0;
+}
+/* 分支按钮始终在最右：角色名与执行过程开关留在左侧一组。 */
+.wb-message-label .wb-branch {
+  margin-left: auto;
+}
+
+/* 执行过程开关：与状态同一行，安静的小控件（不是按钮堆栈）。 */
+.wb-run-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--fg-3);
+  background: transparent;
+  transition:
+    color var(--dur-fast) var(--ease-standard),
+    background-color var(--dur-fast) var(--ease-standard);
+}
+.wb-run-badge:not(.is-static):hover {
+  color: var(--fg-1);
+  background: var(--bg-inset);
+}
+.wb-run-badge .wb-run-chevron {
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+.wb-run-badge[aria-expanded="true"] .wb-run-chevron {
+  transform: rotate(180deg);
+}
+.wb-run-badge > svg {
+  flex-shrink: 0;
+}
+.wb-thought-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-danger-500);
+}
+.wb-message-label button {
+  min-height: 22px;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+.wb-message p {
+  line-height: 1.85;
+  margin-bottom: 12px;
+}
+.wb-message ol,
+.wb-message ul {
+  padding-left: 22px;
+  list-style: revert;
+}
+.wb-message h1,
+.wb-message h2,
+.wb-message h3 {
+  font-size: 17px;
+  margin: 20px 0 10px;
+  font-weight: 600;
+}
+.wb-message pre {
+  overflow: auto;
+  background: var(--wb-hover);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+}
+.wb-message table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.wb-message td,
+.wb-message th {
+  border: 1px solid var(--wb-line);
+  padding: 6px;
+}
+.wb-message-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+/* 消息里的引用芯片与输入框里的同款：同档圆角与填充，不再用药丸形。 */
+.wb-message-refs button {
+  font-size: 11px;
+  min-height: 26px;
+  padding: 3px 10px;
+  background: var(--bg-inset);
+  border-radius: var(--radius-sm);
+  color: var(--fg-2);
+}
+.wb-message-refs button:hover {
+  color: var(--fg-1);
+  background: var(--wb-hover);
+}
+.wb-run-events summary:hover {
+  color: var(--fg-1);
+  background: var(--bg-inset);
+}
+/* 执行过程：与输入框、侧栏行同一档的安静内嵌面板（不引入彩色竖条或品牌色底）。 */
+.wb-thought-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  background: var(--bg-inset);
+  border-radius: var(--radius-md);
+}
+.wb-thought-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wb-thought-block > small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--fg-3);
+}
+.wb-thought-block.is-error > small {
+  color: var(--color-danger-500);
+}
+.wb-thought-copy {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--fg-2);
+  overflow-wrap: anywhere;
+}
+.wb-thought-copy p {
+  margin: 0 0 6px;
+}
+.wb-thought-copy p:last-child {
+  margin-bottom: 0;
+}
+.wb-thought-copy code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  /* 面板底是 inset 填充，代码块反过来用 surface 才看得出层次 */
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.wb-confirmation,
+.wb-conflict {
+  border: 1px solid color-mix(in srgb, var(--color-warning-500) 45%, var(--wb-line));
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: color-mix(in srgb, var(--color-warning-500) 5%, var(--wb-surface));
+  margin: 4px 0 24px;
+  animation: wb-island-in var(--dur-base) var(--ease-emphasized);
+  font-size: 12px;
+}
+.wb-confirmation pre,
+.wb-conflict pre {
+  max-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.wb-confirmation-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.wb-agent {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: none;
+}
+.wb-agent .wb-messages {
+  padding: 20px 22px;
+}
+.wb-agent .wb-composer-wrap {
+  padding: 12px;
+}
+.wb-resizer {
+  cursor: col-resize;
+  flex: 0 0 11px;
+  position: relative;
+  touch-action: none;
+  background: transparent;
+}
+/* 分隔线用 1px 伪元素画：命中区域保持 11px，拖动和视觉互不将就。 */
+.wb-resizer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: 0 auto;
+  width: 1px;
+  background: var(--wb-line);
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+.wb-resizer:hover::before,
+.wb-resizer:focus-visible::before {
+  background: var(--wb-blue);
+}
+[data-agent-position="top"] > .wb-resizer,
+[data-agent-position="bottom"] > .wb-resizer {
+  cursor: row-resize;
+}
+[data-agent-position="top"] > .wb-resizer::before,
+[data-agent-position="bottom"] > .wb-resizer::before {
+  margin: auto 0;
+  width: auto;
+  height: 1px;
+}

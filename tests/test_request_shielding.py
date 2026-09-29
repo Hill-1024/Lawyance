@@ -317,11 +317,11 @@ class MiddlewareShieldTests(ShieldTestBase, unittest.IsolatedAsyncioTestCase):
         rate_limit.reset()
         app_security.RATE_LIMIT = 2
 
-        self.assertEqual((await self._call(app_security, self._request("/api/chat"))).status_code, 200)
-        self.assertEqual((await self._call(app_security, self._request("/api/chat"))).status_code, 200)
+        self.assertEqual((await self._call(app_security, self._request("/api/court/turn"))).status_code, 200)
+        self.assertEqual((await self._call(app_security, self._request("/api/court/turn"))).status_code, 200)
         # 被限流的请求在读取请求体之前就该返回。
         blocked = await self._call(
-            app_security, self._request("/api/chat", read_body=False)
+            app_security, self._request("/api/court/turn", read_body=False)
         )
 
         self.assertEqual(blocked.status_code, 429)
@@ -340,7 +340,7 @@ class MiddlewareShieldTests(ShieldTestBase, unittest.IsolatedAsyncioTestCase):
         self.assertEqual(blocked.status_code, 429)
 
         # 登录桶被限流不影响同 IP 访问其他接口。
-        self.assertEqual((await self._call(app_security, self._request("/api/chat"))).status_code, 200)
+        self.assertEqual((await self._call(app_security, self._request("/api/court/turn"))).status_code, 200)
 
     async def test_options_and_non_api_paths_are_not_counted(self):
         app_security = importlib.import_module("services.app_security")
@@ -351,7 +351,7 @@ class MiddlewareShieldTests(ShieldTestBase, unittest.IsolatedAsyncioTestCase):
         for _ in range(3):
             response = await self._call(app_security, self._request("/assets/app.js", method="GET"))
             self.assertEqual(response.status_code, 200)
-            response = await self._call(app_security, self._request("/api/chat", method="OPTIONS"))
+            response = await self._call(app_security, self._request("/api/court/turn", method="OPTIONS"))
             self.assertEqual(response.status_code, 200)
 
 
@@ -359,7 +359,7 @@ class VerifyTokenBloomTests(ShieldTestBase):
     def setUp(self):
         super().setUp()
         self.auth = importlib.import_module("auth")
-        self.auth_store = importlib.import_module("infra.auth_store")
+        self.auth_store = importlib.import_module("infra.account_store")
         # auth 必须绑定到同一个 store 对象，否则下面的 patch 会打空、断言失去意义。
         self.assertIs(self.auth.auth_store, self.auth_store)
 
@@ -367,7 +367,7 @@ class VerifyTokenBloomTests(ShieldTestBase):
         ok, _, sid, _ = self.auth.create_session("admin", client="web")
         self.assertTrue(ok)
         self.auth.warm_session_bloom()
-        token = self.auth.create_token("admin", sid)
+        token = sid
         self.assertEqual(self.auth.verify_token(token), "admin")
 
         calls = {"get_session": 0}
@@ -379,7 +379,7 @@ class VerifyTokenBloomTests(ShieldTestBase):
 
         self.auth_store.get_session = spy
         try:
-            bogus = self.auth.create_token("admin", "not-a-real-sid")
+            bogus = "not-a-real-sid"
             self.assertIsNone(self.auth.verify_token(bogus))
         finally:
             self.auth_store.get_session = original
@@ -397,8 +397,7 @@ class VerifyTokenBloomTests(ShieldTestBase):
 
         self.auth_store.revoke_session = spy
         try:
-            bogus = self.auth.create_token("admin", "ghost-sid")
-            self.assertFalse(self.auth.revoke_token_session(bogus))
+            self.assertFalse(self.auth.revoke_token_session("never-issued-sid"))
         finally:
             self.auth_store.revoke_session = original
 
@@ -408,7 +407,7 @@ class VerifyTokenBloomTests(ShieldTestBase):
         ok, _, sid, _ = self.auth.create_session("admin", client="web")
         self.assertTrue(ok)
         self.auth.warm_session_bloom()
-        token = self.auth.create_token("admin", sid)
+        token = sid
         self.assertEqual(self.auth.verify_token(token), "admin")
 
         self.auth.revoke_token_session(token)
@@ -422,7 +421,7 @@ class VerifyTokenBloomTests(ShieldTestBase):
         self.auth._session_bloom = None
         self.auth.warm_session_bloom()
 
-        token = self.auth.create_token("admin", sid)
+        token = sid
         self.assertEqual(self.auth.verify_token(token), "admin")
         self.assertTrue(self.auth.bloom_status()["ready"])
 
@@ -434,9 +433,9 @@ class VerifyTokenBloomTests(ShieldTestBase):
         self.assertTrue(ok)
         self.assertEqual(self.auth.bloom_status()["backend"], "disabled")
 
-        token = self.auth.create_token("admin", sid)
+        token = sid
         self.assertEqual(self.auth.verify_token(token), "admin")
-        self.assertIsNone(self.auth.verify_token(self.auth.create_token("admin", "nope")))
+        self.assertIsNone(self.auth.verify_token("nope"))
 
 
 @unittest.skipIf(fakeredis is None, "fakeredis not installed")
@@ -457,12 +456,12 @@ class AuthSharedBloomTests(ShieldTestBase):
             self.assertTrue(ok)
             self.assertTrue(fake.exists("lawver:bloom:session"))
             self.assertFalse(fake.exists("lawver:bloom:session:ready"))
-            self.assertEqual(auth.verify_token(auth.create_token("admin", sid)), "admin")
+            self.assertEqual(auth.verify_token(sid), "admin")
 
             auth.warm_session_bloom()
             self.assertTrue(fake.exists("lawver:bloom:session:ready"))
-            self.assertEqual(auth.verify_token(auth.create_token("admin", sid)), "admin")
-            self.assertIsNone(auth.verify_token(auth.create_token("admin", "ghost-sid")))
+            self.assertEqual(auth.verify_token(sid), "admin")
+            self.assertIsNone(auth.verify_token("ghost-sid"))
         finally:
             provider.get_client = original
             auth._session_bloom = None

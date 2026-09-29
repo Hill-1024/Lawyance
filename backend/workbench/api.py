@@ -21,6 +21,7 @@ from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select, or_
 from services.auth_dependencies import get_current_user
+from billing import ledger as billing
 from workbench.store import (
     Item,
     Version,
@@ -48,7 +49,7 @@ from workbench.documents import (
 from workbench.skills import builtins
 from workbench import connectors
 
-router = APIRouter(prefix="/api/v2", tags=["workbench"])
+router = APIRouter(prefix="/api/workbench", tags=["workbench"])
 KINDS = {
     "projects": "project",
     "courts": "court",
@@ -129,6 +130,11 @@ class Branch(Body):
     title: str = Field(default="会话分支", max_length=300)
 
 
+class Suggest(Body):
+    project_id: str | None = None
+    refresh: bool = False
+
+
 def enabled(user):
     allowed = os.environ.get("LAWVER_WORKBENCH_USERS", "").split(",")
     return bool(os.environ.get("LAWVER_DATABASE_URL")) and (
@@ -203,38 +209,67 @@ def status(user=Depends(get_current_user)):
 
 
 @router.get("/search")
-def search(q: str = "", user=Depends(gate)):
+def search(
+    q: str = "",
+    kind: str | None = None,
+    space: str | None = None,
+    user=Depends(gate),
+):
     q = q.strip()[:200]
+    kinds = ["project", "conversation", "document"]
+    if kind:
+        if kind not in kinds:
+            raise HTTPException(422, "不支持的搜索类型")
+        kinds = [kind]
     with transaction() as s:
-        rows = s.scalars(
-            select(Item)
-            .where(
-                Item.owner == user,
-                Item.deleted_at.is_(None),
-                Item.kind.in_(["project", "conversation", "document"]),
-                or_(
-                    Item.title.icontains(q, autoescape=True),
-                    Item.searchable.icontains(q, autoescape=True),
-                ),
-            )
-            .order_by(Item.updated_at.desc())
-            .limit(100)
-        ).all()
+        query = select(Item).where(
+            Item.owner == user,
+            Item.deleted_at.is_(None),
+            Item.kind.in_(kinds),
+            or_(
+                Item.title.icontains(q, autoescape=True),
+                Item.searchable.icontains(q, autoescape=True),
+            ),
+        )
+        if space == "personal":
+            query = query.where(Item.project_id.is_(None))
+        elif space:
+            get_item(s, user, space, "project")
+            query = query.where(Item.project_id == space)
+        rows = s.scalars(query.order_by(Item.updated_at.desc()).limit(100)).all()
         result = []
         for item in rows:
             try:
                 get_item(s, user, item.id)
             except HTTPException:
                 continue
+            value = {**public(item)}
+            if item.kind == "document":
+                value["data"] = {
+                    key: field
+                    for key, field in value["data"].items()
+                    if key not in ("content", "text", "import_content")
+                }
             result.append(
                 {
-                    **public(item),
+                    **value,
                     "excerpt": item.searchable[
                         max(0, item.searchable.lower().find(q.lower()) - 40) :
                     ][:200],
                 }
             )
         return result
+
+
+@router.post("/suggestions")
+async def suggestions(body: Suggest, user=Depends(gate)):
+    """首页建议只读素材标题；模型失败或维护期都不影响其它接口。"""
+    if body.project_id:
+        with transaction() as s:
+            get_item(s, user, body.project_id, "project")
+    from workbench.suggestions import generate
+
+    return await generate(user, body.project_id, body.refresh)
 
 
 @router.get("/trash")
@@ -638,6 +673,10 @@ def start_run(
 ):
     if os.environ.get("LAWVER_WORKBENCH_READ_ONLY") == "1":
         raise HTTPException(503, "云端暂处于只读维护状态")
+    # 排队之前先看余额：没有 credits 就不该占住队列与模型资源。
+    allowed, refusal = billing.can_spend(user)
+    if not allowed:
+        raise HTTPException(402, refusal)
     with transaction() as s:
 
         def apply():
