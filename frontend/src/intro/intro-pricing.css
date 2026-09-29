@@ -1,0 +1,347 @@
+/* 介绍页 · 定价
+   复用 intro-base.css 的 .section / .hero / .final 骨架，这里只补定价卡与开通弹窗。
+   z-index 取 --z-modal 一档：它盖住介绍页自身，但不越过全局 alert/confirm。 */
+
+.hero--pricing {
+  padding-bottom: 24px;
+}
+
+.hero--pricing .hero__lead {
+  max-width: 62ch;
+}
+
+.section--pricing {
+  padding-top: 48px;
+}
+
+/* 计费周期切换：与卡片同宽的一小段胶囊 */
+.pricing-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 28px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
+}
+
+.pricing-toggle button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+
+.pricing-toggle button small {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--brand-tertiary-500);
+}
+
+.pricing-toggle button.is-on {
+  background: var(--bg-surface);
+  color: var(--fg-1);
+  box-shadow: var(--shadow-1);
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.pricing-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 430px;
+  padding: 32px 26px 26px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+
+.pricing-card:hover {
+  border-color: var(--border-default);
+}
+
+.pricing-card--featured {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, var(--accent-quiet), transparent 42%);
+}
+
+.pricing-card__flag {
+  position: absolute;
+  top: -11px;
+  left: 26px;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-on);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pricing-card h3 {
+  margin: 0;
+  font-family: var(--font-serif, inherit);
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--fg-1);
+}
+
+.pricing-card__tagline {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-3);
+}
+
+.pricing-card__price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 20px 0 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pricing-card__price strong {
+  font-family: var(--font-serif, inherit);
+  font-size: 34px;
+  font-weight: 500;
+  color: var(--fg-1);
+}
+
+.pricing-card__price small {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.pricing-card__consult {
+  font-family: var(--font-serif, inherit);
+  font-size: 24px;
+  color: var(--accent);
+}
+
+.pricing-card__features {
+  flex: 1;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pricing-card__features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-2);
+}
+
+.pricing-card__features li svg {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--brand-tertiary-500);
+}
+
+.pricing-card__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--fg-1);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+
+.pricing-card__cta:hover {
+  background: var(--accent-quiet);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pricing-card--featured .pricing-card__cta {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-on);
+}
+
+.pricing-card--featured .pricing-card__cta:hover {
+  background: var(--accent-hover);
+}
+
+/* ── 开通弹窗 ─────────────────────────────────────────────────────────── */
+
+.pricing-checkout {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--bg-overlay);
+  backdrop-filter: blur(4px);
+  animation: pricingFade var(--dur-fast) var(--ease-standard);
+}
+
+.pricing-checkout__panel {
+  position: relative;
+  width: min(360px, 100%);
+  padding: 30px 28px 26px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-5);
+  text-align: center;
+  animation: pricingRise var(--dur-base) var(--ease-emphasized);
+}
+
+.pricing-checkout__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+
+.pricing-checkout__close:hover {
+  background: var(--bg-inset);
+  color: var(--fg-1);
+}
+
+.pricing-checkout__plan {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-quiet);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pricing-checkout__panel h2 {
+  margin: 12px 0 6px;
+  font-family: var(--font-serif, inherit);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--fg-1);
+}
+
+.pricing-checkout__lead {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--fg-3);
+}
+
+.pricing-checkout__qr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.pricing-checkout__qr img {
+  width: 200px;
+  height: 200px;
+  border-radius: var(--radius-sm);
+}
+
+.pricing-checkout__qr-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 200px;
+  height: 200px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-2);
+  color: var(--fg-3);
+}
+
+.pricing-checkout__qr-placeholder span {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-2);
+  letter-spacing: 0.04em;
+}
+
+.pricing-checkout__qr-placeholder small {
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.pricing-checkout__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--fg-4);
+}
+
+@keyframes pricingFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pricingRise {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 窄屏：四列折成两列再折成一列 */
+@media (max-width: 980px) {
+  .pricing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .pricing-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pricing-card {
+    min-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pricing-checkout,
+  .pricing-checkout__panel {
+    animation: none;
+  }
+}

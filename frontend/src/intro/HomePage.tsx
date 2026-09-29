@@ -12,7 +12,6 @@ import { useAmbientBackground } from "./effects";
 
 interface HomePageProps {
   isAuthenticated: boolean;
-  workbenchPath: string;
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
@@ -115,7 +114,7 @@ const TRUST_ITEMS = [
   {
     no: "A",
     title: "资料在哪里保存",
-    body: "现有版本的本地资料保存在浏览器中。新版云端工作台按账号灰度启用，项目、文档与会话持久保存在服务端；浏览器保留缓存和草稿。请以账号中的实际版本为准。",
+    body: "项目、文档与会话持久保存在服务端，按账号隔离；浏览器只保留缓存与草稿。换设备登录即可继续。",
   },
   {
     no: "B",
@@ -125,16 +124,16 @@ const TRUST_ITEMS = [
   {
     no: "C",
     title: "保留原文与版本",
-    body: "新版工作台保留原始附件。AI 修改先提出建议，由你审阅后接受；文档保存会产生版本，发生冲突时保留双方内容。该流程正在发布前验证。",
+    body: "原始附件完整保留。AI 修改先提出建议，由你审阅后接受；文档保存会产生版本，发生冲突时保留双方内容。",
   },
   {
     no: "D",
     title: "产品与服务边界",
-    body: "目前仍为内部账号使用，不开放注册或付费。浏览器采集、团队共享和专家服务属于后续规划；AI 输出不能代替对事实和法律依据的专业核验。",
+    body: "账号与套餐由客服一对一开通，不开放自助注册。AI 输出不能代替对事实和法律依据的专业核验。",
   },
 ];
 
-export default function HomePage({ isAuthenticated, workbenchPath }: HomePageProps) {
+export default function HomePage({ isAuthenticated }: HomePageProps) {
   const trustRef = useRef<HTMLElement>(null);
   const methodRef = useRef<HTMLElement>(null);
   const [activeWorkflowIndex, setActiveWorkflowIndex] = useState(0);
@@ -174,14 +173,14 @@ export default function HomePage({ isAuthenticated, workbenchPath }: HomePagePro
     };
   }, []);
 
-  const startCtaTo = isAuthenticated ? workbenchPath : "/login";
+  const startCtaTo = isAuthenticated ? "/home" : "/login";
 
   return (
     <main id="top" className="page">
       <section className="hero hero--display" aria-labelledby="hero-title">
         <div className="hero__content">
           <Link to="/download" className="hero__badge reveal">
-            Lawver 新版工作台灰度发布中
+            服务条款与定价已公布
             <span aria-hidden="true">→</span>
           </Link>
           <h1 id="hero-title" className="reveal">
