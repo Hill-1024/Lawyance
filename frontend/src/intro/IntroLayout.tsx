@@ -1,7 +1,7 @@
 /*
  * 模块描述：介绍页布局（首页/产品设计/下载中心共用）。
  * 头部学 quote.law：首屏融入纸面，滚动后变白色圆角悬浮条；右侧常驻「进入工作台」，
- * 按登录态与工作台灰度分别落 /home、/legacy、/login。页脚为固定深色表面。
+ * 按登录态落 /home 或 /login。页脚为固定深色表面。
  * 滚动入场 reveal、环境光背景与锚点定位由 effects.ts 提供。
  */
 
@@ -21,16 +21,14 @@ const SECTION_ANCHORS = [
 ];
 
 interface IntroLayoutProps {
-  activePage: "home" | "design" | "download";
+  activePage: "home" | "design" | "download" | "pricing";
   isAuthenticated: boolean;
-  workbenchEnabled: boolean;
   children: React.ReactNode;
 }
 
 export default function IntroLayout({
   activePage,
   isAuthenticated,
-  workbenchEnabled,
   children,
 }: IntroLayoutProps) {
   const [scrolled, setScrolled] = useState(false);
@@ -67,7 +65,7 @@ export default function IntroLayout({
     return () => window.cancelAnimationFrame(topFrame.current);
   }, [pathname, hash]);
 
-  const workbenchPath = workbenchEnabled ? "/home" : "/legacy";
+  const workbenchPath = "/home";
 
   return (
     <div className="lawver-intro">
@@ -90,6 +88,9 @@ export default function IntroLayout({
           ))}
           <Link to="/design" className={activePage === "design" ? "is-active" : ""} aria-current={activePage === "design" ? "page" : undefined}>
             产品设计
+          </Link>
+          <Link to="/pricing" className={activePage === "pricing" ? "is-active" : ""} aria-current={activePage === "pricing" ? "page" : undefined}>
+            定价
           </Link>
           <Link to="/download" className={activePage === "download" ? "is-active" : ""} aria-current={activePage === "download" ? "page" : undefined}>
             下载中心
@@ -124,6 +125,7 @@ export default function IntroLayout({
               <span>页面</span>
               <Link to="/">产品首页</Link>
               <Link to="/design">产品设计</Link>
+              <Link to="/pricing">定价</Link>
               <Link to="/download">下载中心</Link>
             </div>
             <div className="site-footer__column">

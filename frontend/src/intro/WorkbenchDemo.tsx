@@ -81,7 +81,7 @@ export default function WorkbenchDemo() {
         </h2>
       </div>
       <p className="demo-intro">
-        选择合同片段，提出要求，再决定是否接受修改。演示在本地运行，不上传内容、不调用模型；新版工作台正在验证中。
+        选择合同片段，提出要求，再决定是否接受修改。演示在本地运行，不上传内容、不调用模型。
       </p>
       <div className="demo-workbench">
         <aside className="demo-nav">
