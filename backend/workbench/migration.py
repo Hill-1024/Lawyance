@@ -8,7 +8,7 @@ from sqlalchemy import select
 from workbench.api import Body, gate, receipt
 from workbench.store import Item, transaction, new_id, public
 
-router = APIRouter(prefix="/api/v2/migrations", tags=["migration"])
+router = APIRouter(prefix="/api/workbench/migrations", tags=["migration"])
 
 
 class Import(Body):

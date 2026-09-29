@@ -10,7 +10,6 @@ from auth import (
     authenticate_user,
     count_online,
     create_session,
-    create_token,
     get_user_limits,
     get_user_role,
     hash_client_identity,
@@ -61,7 +60,8 @@ async def login(req: LoginRequest, response: Response, request: Request):
     if not session_ok:
         raise HTTPException(status_code=429, detail=session_msg)
 
-    token = await run_in_threadpool(create_token, req.username, sid)
+    # 会话凭据就是 sid 本身：没有 JWT，撤销即删行。
+    token = sid
     response.set_cookie(
         key="auth_token",
         value=token,

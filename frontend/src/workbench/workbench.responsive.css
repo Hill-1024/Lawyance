@@ -1,0 +1,399 @@
+/* Workbench · responsive
+   响应式与偏好：断点覆盖（1280/1023/900/1600）与 prefers-reduced-motion。
+   由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。 */
+
+@media (min-width: 1600px) {
+  .wb-home {
+    padding-top: 76px;
+  }
+  .wb-sidebar {
+    width: 264px;
+  }
+  .wb-home h1 {
+    font-size: 52px;
+  }
+}
+@media (min-width: 1024px) {
+  /* 侧栏贴边：不是卡片，直接坐在画布上；主区是一张 sheet，标签行与正文同处其中。 */
+  .wb-app {
+    padding: 0;
+    gap: 0;
+  }
+  .wb-sidebar {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .wb-main {
+    padding: 8px 10px 10px 4px;
+  }
+  .wb-body {
+    padding: 0;
+  }
+  .wb-docked {
+    display: flex;
+  }
+  .wb-docked > .wb-document-column {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .wb-docked > .wb-agent {
+    min-height: 0;
+    overflow: hidden;
+  }
+  /* 文档列旁的右栏吃剩余宽度：basis 0 才不会按内容撑开、把文档列挤小。 */
+  .wb-docked > .wb-right-pane {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* 会话面板停靠在左侧/上方时排到前面 */
+  .wb-docked[data-agent-position="left"] > .wb-agent,
+  .wb-docked[data-agent-position="top"] > .wb-agent {
+    order: -1;
+  }
+  .wb-docked[data-agent-position="left"] > .wb-document-column,
+  .wb-docked[data-agent-position="top"] > .wb-document-column {
+    order: 1;
+  }
+  .wb-docked .wb-paper {
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+    margin: 0 auto;
+    padding: 44px 56px;
+  }
+  .wb-docked .wb-review {
+    margin: 0;
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .wb-app[data-navigation="right"] > .wb-sidebar {
+    order: 2;
+  }
+  .wb-docked > .wb-agent .wb-chat-heading {
+    padding: 14px 18px 8px;
+  }
+  .wb-docked > .wb-agent .wb-messages {
+    padding: 16px 18px;
+  }
+  .wb-docked > .wb-agent .wb-composer-wrap {
+    padding: 10px 12px;
+  }
+  .wb-brand .wb-dock-handle {
+    margin-left: auto;
+  }
+}
+/* 右栏（会话或首页）按自己的宽度自适应：文档排版不重排，但右栏不能被挤爆。
+   容器查询的基准是 .wb-right-pane，与窗口宽度无关，所以并排/全屏切换时会自然切换档位。 */
+.wb-right-pane {
+  container-type: inline-size;
+}
+@container (max-width: 620px) {
+  .wb-home {
+    padding: 26px 20px 20px;
+  }
+  .wb-home h1 {
+    font-size: 30px;
+    letter-spacing: 0;
+  }
+  .wb-project-head h1 {
+    font-size: 32px;
+  }
+  .wb-home-hero {
+    margin: 2px 0 16px;
+  }
+  .wb-home-hero p {
+    font-size: 13px;
+  }
+  .wb-home-suggest-head {
+    min-height: 22px;
+  }
+  .wb-home .wb-composer {
+    margin-bottom: 22px;
+  }
+  .wb-home-recent {
+    margin-top: 22px;
+  }
+  .wb-home-projects {
+    margin-top: 30px;
+  }
+  .wb-project-cards {
+    grid-template-columns: 1fr;
+  }
+  .wb-chat-heading {
+    padding: 12px 16px 6px;
+    min-height: 52px;
+  }
+  .wb-messages {
+    padding: 14px 16px;
+  }
+  .wb-composer-wrap {
+    padding: 8px 10px;
+  }
+  .wb-disclaimer {
+    font-size: 10px;
+  }
+  .wb-chat-empty h3 {
+    font-size: 17px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .wb-sidebar {
+    width: 220px;
+    padding: 18px 12px 10px;
+  }
+  .wb-home {
+    padding: 40px 32px 26px;
+  }
+  .wb-home h1 {
+    font-size: 39px;
+  }
+  .wb-paper {
+    padding: 36px;
+  }
+}
+@media (max-width: 900px) {
+  .wb-sidebar {
+    width: 200px;
+  }
+  .wb-home {
+    padding: 30px 22px 22px;
+  }
+  .wb-paper {
+    padding: 24px;
+  }
+  }
+@media (max-width: 1023px) {
+  .wb-app {
+    --wb-control-size: 44px;
+    font-size: 14px;
+  }
+  .wb-app button {
+    min-height: 44px;
+  }
+  .wb-main {
+    padding: 0;
+  }
+  .wb-sheet {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .wb-body {
+    padding: 8px 10px 10px;
+  }
+  .wb-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: var(--z-drawer);
+    width: 280px;
+    background: var(--wb-bg);
+    transform: translateX(-100%);
+    transition: transform var(--dur-base) var(--ease-standard);
+    padding-top: calc(24px + env(safe-area-inset-top));
+  }
+  .wb-sidebar.is-open {
+    transform: translateX(0);
+  }
+  .wb-sidebar-shade {
+    display: block !important;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-drawer-scrim);
+    background: var(--bg-overlay) !important;
+  }
+  .wb-mobile-only {
+    display: inline-flex !important;
+  }
+  .wb-desktop-only {
+    display: none !important;
+  }
+  .wb-tabstrip {
+    --wb-strip-pad: 10px;
+    padding: 0 10px;
+    gap: 6px;
+    min-height: 52px;
+  }
+  .wb-tabstrip-viewport {
+    /* 手机端侧栏是抽屉，不需要把标签送进侧栏下面。 */
+    margin-left: 0;
+    padding-left: 0;
+  }
+  .wb-tab {
+    max-width: 150px;
+  }
+  .wb-home {
+    padding: 26px 20px 20px;
+    max-width: none;
+  }
+  .wb-home h1 {
+    font-size: 32px;
+    letter-spacing: 0;
+  }
+    .wb-composer {
+    padding: 12px;
+  }
+  .wb-composer textarea {
+    font-size: 16px;
+    min-height: 88px;
+  }
+  .wb-composer-actions {
+    gap: 0;
+  }
+  .wb-composer-actions button {
+    min-height: 38px;
+    padding: 0 7px;
+  }
+  .wb-composer-actions button > span {
+    display: none;
+  }
+  .wb-composer-actions button:has(> span) {
+    width: var(--wb-control-size);
+  }
+  .wb-composer-actions .wb-spacer {
+    min-width: 0;
+  }
+  .wb-candidates {
+    max-height: 260px;
+  }
+  .wb-chat-heading {
+    padding: 12px 18px 8px;
+    min-height: 56px;
+  }
+  .wb-messages {
+    padding: 18px;
+  }
+  .wb-composer-wrap {
+    padding: 8px 10px;
+  }
+  .wb-disclaimer {
+    font-size: 9px !important;
+  }
+  .wb-agent {
+    max-width: none;
+    width: 100% !important;
+    min-width: 0;
+    flex: 1;
+  }
+  .wb-agent .wb-messages {
+    padding: 16px;
+  }
+  .wb-resizer {
+    display: none;
+  }
+  .has-document.mobile-会话 .wb-document-column {
+    display: none;
+  }
+  .has-document.mobile-文档 .wb-agent {
+    display: none;
+  }
+  .wb-document-scroll {
+    padding: 10px;
+  }
+  .wb-paper {
+    padding: 24px 20px;
+    min-height: 700px;
+    border-radius: var(--radius-lg);
+  }
+  .wb-paper .tiptap {
+    min-height: 640px;
+  }
+  .wb-document-toolbar {
+    padding: 4px 8px;
+    gap: 4px;
+    min-height: 46px;
+  }
+  .wb-document-toolbar button {
+    font-size: 11px;
+  }
+  .wb-select-pop {
+    left: 12px;
+    top: auto;
+    bottom: 14px;
+    width: calc(100% - 24px);
+    justify-content: space-between;
+    border-radius: var(--radius-lg);
+    padding: 6px;
+  }
+  .wb-select-primary {
+    flex: 1;
+    justify-content: center;
+    min-height: 38px;
+  }
+  .wb-select-menu {
+    top: auto;
+    bottom: calc(100% + 6px);
+  }
+  .wb-review {
+    max-height: 42%;
+    padding: 10px 12px;
+    margin: 0 8px;
+  }
+  .wb-review footer {
+    flex-wrap: wrap;
+  }
+  .wb-review footer a {
+    font-size: 10px;
+  }
+  .wb-doc-status {
+    padding: 6px 14px 8px;
+  }
+  .wb-modal-backdrop {
+    padding: 10px;
+  }
+  .wb-modal {
+    padding: 20px;
+    max-height: 90dvh;
+  }
+  /* 顶到 8px 会被会话标签条盖住，连自己的关闭按钮都点不到；让到标签条下方。 */
+  .wb-banner {
+    top: 62px;
+    max-width: calc(100% - 20px);
+  }
+  .wb-preview-controls {
+    top: 6px;
+    margin: 0 6px 12px;
+    max-width: calc(100% - 12px);
+  }
+  /* 触屏没有 hover：逐行的「管理」按钮必须常显。选择器要与
+     .wb-space-row > button:last-child 同特异性才压得住上面的 opacity:0。
+     旧选择器 .wb-recent-nav/.wb-project-nav/.wb-project-children 在仓库里已无对应 DOM，是死规则。 */
+  .wb-space-row > button:last-child {
+    opacity: 1;
+    min-width: 44px;
+  }
+  /* .wb-space-row > button:first-child 的 min-height:32px 特异性更高，会盖过
+     .wb-app button 的 44px 触摸目标，这里按同特异性补回来。 */
+  .wb-space-row > button:first-child {
+    min-height: 44px;
+  }
+  .wb-message-label button {
+    min-height: 44px;
+  }
+  .wb-notice {
+    font-size: 10px;
+  }
+  .wb-dock-handle,
+  .wb-layout-picker,
+  .wb-dock-targets {
+    display: none !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-app *,
+  .wb-app *::before,
+  .wb-app *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

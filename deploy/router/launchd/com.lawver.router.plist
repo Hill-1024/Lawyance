@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  本机彩排用：把分流核心挂在 launchd 上常驻。
+  安装：cp deploy/router/launchd/com.lawver.router.plist ~/Library/LaunchAgents/
+        launchctl load ~/Library/LaunchAgents/com.lawver.router.plist
+  卸载：launchctl unload ~/Library/LaunchAgents/com.lawver.router.plist
+  路径请按本机仓库位置改。
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.lawver.router</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/hill/Documents/Code/GDUT-Lawyer/.venv/bin/python</string>
+      <string>/Users/hill/Documents/Code/GDUT-Lawyer/deploy/router/router.py</string>
+      <string>--config</string>
+      <string>/Users/hill/Documents/Code/GDUT-Lawyer/deploy/router/config.json</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/hill/Documents/Code/GDUT-Lawyer</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/lawver-router.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/lawver-router.log</string>
+  </dict>
+</plist>

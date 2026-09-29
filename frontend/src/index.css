@@ -1,7 +1,7 @@
 /* 模块描述：全局样式入口，定义 Lawver 设计 token、布局结构、动效和组件级样式。 */
 
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
+
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -154,16 +154,6 @@
   --accent-quiet: var(--brand-primary-50);
   --accent-on: var(--neutral-0);
 
-  --glass-bg: rgba(255, 255, 255, 0.62);
-  --glass-bg-strong: rgba(255, 255, 255, 0.78);
-  --glass-border: rgba(255, 255, 255, 0.55);
-  --glass-blur: blur(24px) saturate(1.6);
-  --glass-blur-strong: blur(32px) saturate(1.8);
-  --glass-tint: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.12));
-  --glass-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.7) inset,
-    0 1px 2px rgba(20, 23, 31, 0.04),
-    0 8px 24px rgba(20, 23, 31, 0.08);
 
   --shadow-0: none;
   --shadow-1: 0 1px 2px rgba(20, 23, 31, 0.06);
@@ -219,9 +209,6 @@
   --dur-base: 240ms;
   --dur-theme: 280ms;
   --dur-slow: 360ms;
-  --motion-fade-up: lawverFadeUp var(--dur-base) var(--ease-emphasized) both;
-  --motion-sheet-in: lawverSheetIn var(--dur-slow) var(--ease-emphasized) both;
-  --motion-popover-in: lawverPopoverIn var(--dur-base) var(--ease-emphasized) both;
 }
 
 .dark,
@@ -254,14 +241,6 @@
   --accent-quiet: rgba(138, 164, 221, 0.14);
   --accent-on: var(--brand-primary-900);
 
-  --glass-bg: rgba(28, 32, 44, 0.55);
-  --glass-bg-strong: rgba(28, 32, 44, 0.74);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-tint: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01));
-  --glass-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 12px 32px rgba(0, 0, 0, 0.45);
 }
 
 * {
@@ -318,21 +297,8 @@ html.lawver-theme-view-transition::view-transition-new(root) {
   mix-blend-mode: normal;
 }
 
-.lawver-chat-shell {
-  height: 100vh;
-  height: 100svh;
-  height: 100dvh;
-  min-height: 100svh;
-}
-
 .lawver-topbar {
   min-height: calc(56px + var(--safe-top));
-}
-
-.lawver-mobile-drawer {
-  height: 100vh;
-  height: 100svh;
-  height: 100dvh;
 }
 
 .lawver-mobile-drawer-header {
@@ -340,38 +306,9 @@ html.lawver-theme-view-transition::view-transition-new(root) {
   padding: calc(10px + var(--safe-top)) 16px 10px;
 }
 
-.lawver-drawer-close {
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
-}
-
-.lawver-header-title {
-  font-size: 17px;
-  line-height: 24px;
-}
-
-.lawver-composer-footer {
-  position: sticky;
-  bottom: 0;
-  z-index: var(--z-sticky);
-  background:
-    linear-gradient(180deg, rgba(246, 248, 251, 0), var(--bg-app) 34%);
-}
-
-.dark .lawver-composer-footer {
-  background:
-    linear-gradient(180deg, rgba(11, 13, 20, 0), var(--bg-app) 34%);
-}
-
 @media (min-width: 640px) {
-  .lawver-topbar {
+.lawver-topbar {
     min-height: calc(64px + var(--safe-top));
-  }
-
-  .lawver-header-title {
-    font-size: var(--type-title-l-size);
-    line-height: var(--type-title-l-line);
   }
 }
 
@@ -392,12 +329,6 @@ select:focus-visible,
   outline-offset: 2px;
 }
 
-textarea.composer-textarea:focus,
-textarea.composer-textarea:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
-}
-
 .lawver-choice-custom-input:focus,
 .lawver-choice-custom-input:focus-visible {
   border-color: var(--accent) !important;
@@ -409,55 +340,18 @@ textarea.composer-textarea:focus-visible {
  * 选项行与自定义输入各自带选中/聚焦态样式，环形描边会重复；底部「忽略 / 确认」没有替代样式，
  * 必须保留 focus ring。原来的写法把整个浮层里的按钮都摘掉了描边，底部两个键在键盘下就没了焦点指示。
  */
+
 .lawver-choice-prompt :where([role="option"], .lawver-choice-custom-input):focus,
 .lawver-choice-prompt :where([role="option"], .lawver-choice-custom-input):focus-visible {
   outline: none !important;
 }
 
-.lawver-composer-shell {
-  display: flex;
-  min-height: 52px;
-  width: 100%;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--border-default);
-  border-radius: 26px;
-  background: var(--bg-surface);
-  padding: 5px;
-  box-shadow: var(--shadow-1);
-  transition:
-    border-color var(--dur-base) var(--ease-standard),
-    box-shadow var(--dur-base) var(--ease-standard),
-    border-radius var(--dur-base) var(--ease-standard),
-    background-color var(--dur-base) var(--ease-standard);
-}
-
 /* 多行展开后胶囊形不再成立：圆角收成卡片，操作按钮贴底。 */
-.lawver-composer-shell[data-multiline='true'] {
-  align-items: flex-end;
-  border-radius: var(--radius-lg);
-}
-
-.lawver-composer-shell[data-multiline='true'] .lawver-composer-textarea {
-  align-self: flex-end;
-}
 
 /*
  * 左侧控件组：默认横排，间距与改造前 shell 的直接子元素一致。
  * 竖排形态见下方媒体查询——轨道数由 CSS 自己推，不由外部注入。
  */
-.lawver-composer-actions {
-  --composer-action-size: 40px;
-  display: grid;
-  flex: 0 0 auto;
-  grid-auto-flow: column;
-  grid-auto-columns: var(--composer-action-size);
-  grid-template-rows: var(--composer-action-size);
-  gap: 6px;
-  align-items: center;
-  justify-items: center;
-}
 
 /*
  * 竖排（仅 sm 以上）：输入框增高后左侧控件改为单列；可见视口放不下单列时改用两列。
@@ -466,116 +360,21 @@ textarea.composer-textarea:focus-visible {
  * （grid-auto-flow: row + grid-auto-rows），两列只写死 2。因此即使 JS 对控件数量估计有误，
  * 也只会影响“单列还是两列”这个选择，不会凭空多出空轨道把外壳撑高。
  */
+
 @media (min-width: 640px) {
-  .lawver-composer-shell:is([data-actions-layout='column'], [data-actions-layout='columns']) .lawver-composer-actions {
-    grid-auto-flow: row;
-    grid-template-rows: none;
-    grid-auto-rows: var(--composer-action-size);
-    gap: 4px;
-  }
-
-  .lawver-composer-shell[data-actions-layout='column'] .lawver-composer-actions {
-    grid-template-columns: var(--composer-action-size);
-  }
-
-  .lawver-composer-shell[data-actions-layout='columns'] .lawver-composer-actions {
-    grid-template-columns: repeat(2, var(--composer-action-size));
-  }
-
-  /* 控件组成为最高元素时文字从顶部开始，发送键仍在右下角。 */
-  .lawver-composer-shell:is([data-actions-layout='column'], [data-actions-layout='columns']) .lawver-composer-textarea {
-    align-self: flex-start;
-  }
-}
-
-.lawver-composer-shell:focus-within {
-  border-color: var(--accent);
-  box-shadow:
-    0 0 0 1px var(--accent),
-    var(--shadow-1);
-}
-
-.lawver-composer-action {
-  display: inline-flex;
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-pill);
-}
-
-.lawver-composer-textarea {
-  min-height: 40px;
-  min-width: 0;
-  align-self: center;
-  overflow-y: hidden;
-  padding: 8.75px 6px;
-  font-size: 15px;
-  line-height: 1.5;
-}
-
-@media (max-width: 480px) {
-  .lawver-composer-shell {
-    min-height: 54px;
-    gap: 3px;
-    padding: 4px;
-  }
-
-  .lawver-composer-action {
-    width: 44px;
-    height: 44px;
-    flex-basis: 44px;
-  }
-
-  .lawver-composer-textarea {
-    min-height: 44px;
-    padding: 10px 3px;
-    font-size: 14px;
-  }
-
-  .lawver-composer-actions {
-    --composer-action-size: 44px;
-    gap: 3px;
-  }
+/* 控件组成为最高元素时文字从顶部开始，发送键仍在右下角。 */
 }
 
 /* Court controls retain a 44px touch target without squeezing the textarea. */
-.lawver-court-composer .lawver-composer-shell {
-  min-height: 56px;
-}
-
-.lawver-court-composer .lawver-composer-action {
-  width: 44px;
-  height: 44px;
-  flex-basis: 44px;
-}
-
-.lawver-court-composer .lawver-composer-actions {
-  --composer-action-size: 44px;
-}
-
-.lawver-court-composer .lawver-composer-textarea {
-  min-height: 44px;
-  padding: 9px 4px;
-}
 
 @media (max-height: 720px) {
-  .lawver-guided-tour-preview {
-    min-height: 210px;
-  }
-
-  .lawver-guided-tour-preview-body {
+.lawver-guided-tour-preview-body {
     min-height: 126px;
     padding-block: 8px;
-  }
-
-  .lawver-guided-tour-preview-pane,
+  }.lawver-guided-tour-preview-pane,
   .lawver-guided-tour-copy {
     padding-block: 12px;
-  }
-
-  .lawver-guided-tour-copy .lawver-guided-tour-step {
+  }.lawver-guided-tour-copy .lawver-guided-tour-step {
     min-height: 0;
   }
 }
@@ -790,36 +589,6 @@ textarea.composer-textarea:focus-visible {
   color: var(--fg-4);
 }
 
-.liquid-glass,
-.glass {
-  position: relative;
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow);
-}
-
-/*
- * 不裁切自身内容：使用 .glass 的浮层会把气泡尖角放在盒子外侧（例如输入区设置面板的 -bottom-1.5
- * 三角），overflow:hidden 会把它整条吃掉。圆角改用 ::before 继承，而不是靠父级裁切。
- */
-.liquid-glass::before,
-.glass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: var(--glass-tint);
-  pointer-events: none;
-}
-
-.glass-strong {
-  background: var(--glass-bg-strong);
-  -webkit-backdrop-filter: var(--glass-blur-strong);
-  backdrop-filter: var(--glass-blur-strong);
-}
-
 .md3-surface {
   background: var(--accent-quiet);
   border-radius: var(--radius-xl);
@@ -999,38 +768,6 @@ textarea.composer-textarea:focus-visible {
   color: var(--color-danger-500);
 }
 
-.md3-fab {
-  position: fixed;
-  right: 28px;
-  bottom: 28px;
-  z-index: var(--z-fab);
-  display: inline-flex;
-  width: 56px;
-  height: 56px;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: var(--radius-lg);
-  background: var(--accent);
-  color: var(--accent-on);
-  box-shadow: var(--shadow-3);
-  cursor: pointer;
-  transition:
-    transform var(--dur-fast) var(--ease-standard),
-    background-color var(--dur-base) var(--ease-standard),
-    box-shadow var(--dur-base) var(--ease-standard);
-  animation: lawverFabIn var(--dur-slow) var(--ease-emphasized) both;
-}
-
-.md3-fab:hover {
-  background: var(--accent-hover);
-  box-shadow: var(--shadow-4);
-}
-
-.md3-fab:active {
-  transform: scale(0.96);
-}
-
 .custom-scrollbar,
 .md3-scroll {
   scrollbar-color: rgba(107, 115, 133, 0.35) transparent;
@@ -1056,289 +793,6 @@ textarea.composer-textarea:focus-visible {
   background-clip: content-box;
 }
 
-.prose {
-  color: var(--fg-1);
-}
-
-.message-copy,
-.message-copy.prose,
-.thought-copy,
-.thought-copy.prose {
-  min-width: 0;
-  max-width: 100%;
-  font-family: var(--font-sans);
-  font-synthesis: none;
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.message-copy.prose {
-  color: inherit;
-  font-size: 15px;
-  line-height: 1.65;
-}
-
-@media (min-width: 640px) {
-  .message-copy.prose {
-    font-size: 16px;
-    line-height: 1.7;
-  }
-}
-
-.thought-copy.prose {
-  color: inherit;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.message-copy.prose :where(h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table, thead, tbody, tr, th, td, strong, em, a):not(:where([class~="not-prose"], [class~="not-prose"] *)),
-.thought-copy.prose :where(h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table, thead, tbody, tr, th, td, strong, em, a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  max-width: 100%;
-  font-family: var(--font-sans);
-  letter-spacing: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.message-copy.prose :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  color: var(--fg-1);
-  font-weight: var(--weight-semibold);
-  line-height: 1.35;
-  margin-top: 1.1em;
-  margin-bottom: 0.55em;
-}
-
-.message-copy.prose :where(h1):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  font-size: 1.28em;
-}
-
-.message-copy.prose :where(h2):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  font-size: 1.18em;
-}
-
-.message-copy.prose :where(h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  font-size: 1.08em;
-}
-
-.thought-copy.prose :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  color: var(--fg-2);
-  font-size: 1em;
-  font-weight: var(--weight-semibold);
-  line-height: 1.45;
-  margin-top: 0.7em;
-  margin-bottom: 0.35em;
-}
-
-.message-copy.prose :where(p, ul, ol, blockquote, table):not(:where([class~="not-prose"], [class~="not-prose"] *)),
-.thought-copy.prose :where(p, ul, ol, blockquote, table):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  margin-top: 0.7em;
-  margin-bottom: 0.7em;
-}
-
-.thought-copy.prose :where(p, ul, ol, blockquote, table):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  margin-top: 0.35em;
-  margin-bottom: 0.35em;
-}
-
-.message-copy.prose > :first-child,
-.thought-copy.prose > :first-child {
-  margin-top: 0;
-}
-
-.message-copy.prose > :last-child,
-.thought-copy.prose > :last-child {
-  margin-bottom: 0;
-}
-
-.message-copy.prose :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)),
-.thought-copy.prose :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  color: inherit;
-  font-weight: var(--weight-semibold);
-}
-
-.message-copy.prose :where(code, pre, kbd, samp):not(:where([class~="not-prose"], [class~="not-prose"] *)),
-.thought-copy.prose :where(code, pre, kbd, samp):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  font-family: var(--font-mono);
-}
-
-.message-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)),
-.thought-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)) {
-  border-radius: 6px;
-  background: rgba(20, 23, 31, 0.06);
-  color: var(--fg-1);
-  font-size: 0.86em;
-  font-weight: var(--weight-medium);
-  padding: 0.14em 0.45em;
-}
-
-.thought-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)) {
-  font-size: 11px;
-}
-
-.dark .message-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)),
-.dark .thought-copy.prose :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)) {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.message-copy.prose :where(code)::before,
-.message-copy.prose :where(code)::after,
-.thought-copy.prose :where(code)::before,
-.thought-copy.prose :where(code)::after {
-  content: none;
-}
-
-.message-copy.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)),
-.thought-copy.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  max-width: 100%;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-inset);
-  color: var(--fg-1);
-  font-size: 0.9em;
-}
-
-.prose a {
-  color: var(--accent);
-  text-decoration: none;
-  border-bottom: 1px dashed rgba(59, 98, 184, 0.35);
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.prose a:hover {
-  border-bottom-style: solid;
-}
-
-.message-copy.prose.court-markdown-on-accent,
-.message-copy.prose.court-markdown-on-accent :where(h1, h2, h3, h4, h5, h6, p, ul, ol, li, blockquote, table, thead, tbody, tr, th, td, strong, em, a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  color: var(--accent-on);
-}
-
-.message-copy.prose.court-markdown-on-accent :where(h1, h2, h3, h4, h5, h6):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  color: var(--accent-on);
-}
-
-.message-copy.prose.court-markdown-on-accent :where(code):not(:where(pre code, [class~="not-prose"], [class~="not-prose"] *)) {
-  background: rgba(255, 255, 255, 0.16);
-  color: var(--accent-on);
-}
-
-.message-copy.prose.court-markdown-on-accent a {
-  color: var(--accent-on);
-  border-bottom-color: rgba(255, 255, 255, 0.55);
-}
-
-.prose sup {
-  position: relative;
-  top: -0.5em;
-  display: inline-flex;
-  width: 1.8em;
-  height: 1.8em;
-  align-items: center;
-  justify-content: center;
-  margin-left: 2px;
-  border: 1px solid rgba(156, 163, 175, 0.3);
-  border-radius: 50%;
-  background-color: rgba(156, 163, 175, 0.2);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  color: var(--fg-2);
-  font-size: 0.75em;
-  font-weight: 600;
-  line-height: 1;
-  text-decoration: none !important;
-}
-
-.prose sup a {
-  color: inherit !important;
-  text-decoration: none !important;
-  border: 0;
-  font-weight: inherit !important;
-}
-
-.source-list-container {
-  margin-top: 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background-color: rgba(255, 255, 255, 0.62);
-  padding: 12px 16px;
-}
-
-.dark .source-list-container {
-  background-color: rgba(28, 32, 44, 0.55);
-}
-
-.prose pre {
-  max-width: 100%;
-  overflow-x: auto !important;
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-}
-
-.prose code {
-  max-width: 100%;
-  white-space: pre-wrap !important;
-  overflow-wrap: anywhere !important;
-  word-break: break-word !important;
-}
-
-.prose :where(img, video, canvas, svg):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  max-width: 100%;
-  height: auto;
-}
-
-.prose :where(table):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  max-width: 100%;
-  table-layout: auto;
-}
-
-.prose :where(th, td):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-@keyframes logSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.log-row {
-  animation: none;
-}
-
-@keyframes lawverFadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes lawverSheetIn {
-  from {
-    opacity: 0;
-    transform: translateX(-12px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
 @keyframes lawverPopoverIn {
   from {
     opacity: 0;
@@ -1351,44 +805,11 @@ textarea.composer-textarea:focus-visible {
   }
 }
 
-@keyframes lawverFabIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.94);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes lawverBloom {
-  0%,
-  100% {
-    opacity: 0.22;
-    transform: scale(0.92);
-  }
-
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.lawver-fade-up {
-  animation: var(--motion-fade-up);
-}
-
 /*
  * 浮层定位锚点：定位与偏移全部由 JS 依 visualViewport 算好后以 inline style 注入，这里只负责
  * 把它钉在视口上。与 .glass 同用时必须压过 .glass 的 position:relative（见 :is() 提高优先级），
  * 否则浮层会退回文档流并被祖先的裁剪/滚动截断。
  */
-:is(.lawver-popover, .lawver-popover.glass, .glass.lawver-popover) {
-  position: fixed;
-  transform-origin: bottom center;
-}
 
 .lawver-pressable {
   transition:
@@ -1401,18 +822,6 @@ textarea.composer-textarea:focus-visible {
 
 .lawver-pressable:active:not(:disabled) {
   transform: scale(0.97);
-}
-
-.lawver-bloom-dot {
-  animation: lawverBloom 1.5s var(--ease-standard) infinite;
-}
-
-.lawver-bloom-dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.lawver-bloom-dot:nth-child(3) {
-  animation-delay: 0.4s;
 }
 
 .lawver-status-glyph {
@@ -1458,19 +867,6 @@ textarea.composer-textarea:focus-visible {
   animation: lawverAppleCheck 0.4s var(--ease-spring) 0.35s forwards;
 }
 
-.thought-step-label .thought-step-label-text {
-  color: var(--fg-4);
-  transition: color var(--dur-base) var(--ease-standard);
-}
-
-.thought-step-label.is-running .thought-step-label-text {
-  color: var(--accent);
-}
-
-.thought-step-label.is-done .thought-step-label-text {
-  color: var(--brand-tertiary-700);
-}
-
 .dark .lawver-status-glyph.is-running .status-track,
 [data-theme="dark"] .lawver-status-glyph.is-running .status-track {
   stroke: rgba(138, 164, 221, 0.24);
@@ -1481,11 +877,6 @@ textarea.composer-textarea:focus-visible {
 [data-theme="dark"] .lawver-status-glyph.is-done .status-ring,
 [data-theme="dark"] .lawver-status-glyph.is-done .status-check {
   stroke: #8ecdc7;
-}
-
-.dark .thought-step-label.is-done .thought-step-label-text,
-[data-theme="dark"] .thought-step-label.is-done .thought-step-label-text {
-  color: #8ecdc7;
 }
 
 @keyframes lawverAppleSweep {
@@ -1518,7 +909,7 @@ textarea.composer-textarea:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
+*,
   *::before,
   *::after {
     animation-duration: 1ms !important;
@@ -1529,7 +920,6 @@ textarea.composer-textarea:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lawver-status-glyph * { animation:none !important; }
-  .lawver-status-glyph.is-done .status-ring,
+.lawver-status-glyph * { animation:none !important; }.lawver-status-glyph.is-done .status-ring,
   .lawver-status-glyph.is-done .status-check { stroke-dashoffset:0; }
 }

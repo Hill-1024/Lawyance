@@ -423,7 +423,7 @@ export function ManageDialog({
               <button
                 onClick={() =>
                   downloadApiFile(
-                    "/api/v2/backup",
+                    "/api/workbench/backup",
                     "lawver-workbench-v5.zip",
                   ).catch((e) => onError(e.message))
                 }

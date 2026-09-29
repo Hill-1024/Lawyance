@@ -1,4 +1,9 @@
 from alembic import context
+
+# 导入所有模型模块，Base.metadata 才是完整的（否则 autogenerate 会误判要删表）。
+from billing import models as billing_models  # noqa: F401
+from infra import account_store  # noqa: F401
+from infra import throttle as throttle_models  # noqa: F401
 from workbench.store import Base, database_url, engine_for
 
 if context.is_offline_mode():

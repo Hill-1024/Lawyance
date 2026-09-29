@@ -106,6 +106,22 @@ async def execute(identifier, user):
     from services.chat_pipeline import prepare_chat_turn, run_agent_stream
     from services.agent_builder import build_tool_executor
     from services.workspace_service import get_workspace_scope, get_workspace_dirs
+    from billing import ledger as billing_ledger, metering, pricing as billing_pricing
+    from infra import account_store
+
+    # 计费：整轮（多次模型调用 + 工具 + 文档）算作一次用量，倍率在开始时快照。
+    account = await asyncio.to_thread(account_store.get_user, user)
+    turn = metering.begin_turn(
+        user,
+        multiplier=billing_pricing.multiplier_for(
+            (account or {}).get("plan", "metered"),
+            (account or {}).get("billing_cycle", "prepaid"),
+            (account or {}).get("credit_multiplier"),
+        ),
+        ref_id=identifier,
+        reason="工作台任务",
+    )
+    await asyncio.to_thread(billing_ledger.ensure_tables)
 
     with transaction() as s:
         run = get_item(s, user, identifier, "run")
@@ -449,6 +465,11 @@ async def execute(identifier, user):
             )
     change_state(identifier, status="failed" if failure else "completed")
     emit(identifier, {"type": "done"})
+    # 结算放在最后：无论成功、失败还是中断，已经花掉的用量都要落账。
+    summary = await asyncio.to_thread(billing_ledger.settle, turn)
+    metering.end_turn()
+    if summary:
+        emit(identifier, {"type": "usage", "content": summary})
 
 
 async def supervise(identifier, user):

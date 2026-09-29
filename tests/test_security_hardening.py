@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 
+from sqlalchemy import select
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -35,7 +36,9 @@ class SecurityBootstrapTests(unittest.TestCase):
             env["LAWVER_DATA_DIR"] = tmp
             env["PYTHONPATH"] = os.pathsep.join([REPO_ROOT, os.path.join(REPO_ROOT, "backend")])
             result = subprocess.run(
-                [sys.executable, "-c", "import auth"],
+                # 引导现在是惰性的：导入不再连库（缺配置也要能起服务），
+                # 于是这些安全校验在「第一次真正用到账号库」时触发。
+                [sys.executable, "-c", "import auth; auth.ensure_auth_store_ready()"],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
@@ -54,7 +57,9 @@ class SecurityBootstrapTests(unittest.TestCase):
             env["LAWVER_DATA_DIR"] = tmp
             env["PYTHONPATH"] = os.pathsep.join([REPO_ROOT, os.path.join(REPO_ROOT, "backend")])
             result = subprocess.run(
-                [sys.executable, "-c", "import auth"],
+                # 引导现在是惰性的：导入不再连库（缺配置也要能起服务），
+                # 于是这些安全校验在「第一次真正用到账号库」时触发。
+                [sys.executable, "-c", "import auth; auth.ensure_auth_store_ready()"],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
@@ -78,7 +83,9 @@ class SecurityBootstrapTests(unittest.TestCase):
             env["LAWVER_DATA_DIR"] = tmp
             env["PYTHONPATH"] = os.pathsep.join([REPO_ROOT, os.path.join(REPO_ROOT, "backend")])
             result = subprocess.run(
-                [sys.executable, "-c", "import auth"],
+                # 引导现在是惰性的：导入不再连库（缺配置也要能起服务），
+                # 于是这些安全校验在「第一次真正用到账号库」时触发。
+                [sys.executable, "-c", "import auth; auth.ensure_auth_store_ready()"],
                 cwd=tmp,
                 env=env,
                 capture_output=True,
@@ -100,7 +107,7 @@ class AuthStateConcurrencyTests(unittest.TestCase):
             sys.modules.pop("auth", None)
             try:
                 auth = importlib.import_module("auth")
-                auth_store = importlib.import_module("infra.auth_store")
+                auth_store = importlib.import_module("infra.account_store")
                 captured_errors = []
 
                 # Lockout records are only created for real accounts. Reuse the
@@ -114,7 +121,6 @@ class AuthStateConcurrencyTests(unittest.TestCase):
                             "username": f"user{index}",
                             "password_hash": bootstrap_hash,
                             "role": "user",
-                            "auth_version": 0,
                             "owner": None,
                             "max_online": None,
                             "max_users": None,
@@ -137,24 +143,30 @@ class AuthStateConcurrencyTests(unittest.TestCase):
                 self.assertTrue(all(not success for success, _ in results))
                 self.assertEqual(captured_errors, [])
 
-                with open(os.path.join(tmp, "lockout.json"), "r", encoding="utf-8") as f:
-                    lockouts = json.load(f)
+                # 节流状态在云端库里；两个 scope 的桶都要在。
+                throttle = importlib.import_module("infra.throttle")
+                with throttle.transaction() as session:
+                    rows = {
+                        (row.scope, row.key): row.fails
+                        for row in session.scalars(
+                            select(throttle.LoginThrottle)
+                        ).all()
+                    }
 
-                # Each real account has an aggregate account bucket and a
-                # username/client bucket.
-                self.assertEqual(len(lockouts), 16)
-                self.assertTrue(all(key.startswith("v2:") and len(key) == 67 for key in lockouts))
+                # 每个真实账号一个聚合桶 + 一个来源桶。
+                self.assertEqual(len(rows), 16)
+                self.assertTrue(all(len(key) == 64 for _, key in rows))
                 for index in range(8):
                     username = f"user{index}"
-                    client_record = lockouts[auth._client_lockout_key(username, "unknown")]
-                    account_record = lockouts[auth._account_lockout_key(username)]
-                    self.assertEqual(client_record["fails"], auth.LOCKOUT_FAIL_LIMIT)
-                    self.assertGreater(client_record["locked_until"], 0)
-                    self.assertGreaterEqual(account_record["fails"], auth.LOCKOUT_FAIL_LIMIT)
-                    self.assertLessEqual(
-                        account_record["fails"],
-                        auth.ACCOUNT_LOCKOUT_PROGRESSIVE_START,
-                    )
+                    client_fails = rows[(throttle.SCOPE_CLIENT, throttle.client_key(username, "unknown"))]
+                    account_fails = rows[(throttle.SCOPE_ACCOUNT, throttle.account_key(username))]
+                    # 来源桶锁在阈值上就不再累加，所以这个数必须精确。
+                    self.assertEqual(client_fails, auth.LOCKOUT_FAIL_LIMIT)
+                    # 聚合桶起步更晚，因此此时至少已经攒到同样的量。
+                    self.assertGreaterEqual(account_fails, auth.LOCKOUT_FAIL_LIMIT)
+                    self.assertLessEqual(account_fails, auth.ACCOUNT_LOCKOUT_FAIL_CAP)
+                # 并发几百次之后，这个账号确实处于锁定状态。
+                self.assertIsNotNone(auth.check_lockout("user0", "unknown"))
             finally:
                 sys.modules.pop("auth", None)
                 for key, value in old_env.items():

@@ -11,6 +11,9 @@ PyMuPDF
 python-docx
 python-multipart>=0.0.31
 docxtpl>=0.18.0
+# 分流核心（deploy/router）用它做流式反向代理；此前只作为 openai 的传递依赖存在，
+# 显式声明，避免哪天上游换实现把它带走。
+httpx>=0.28,<1
 # 可选：配置 LAWVER_REDIS_URL 后用于共享限流计数与会话布隆过滤器；未配置时不使用。
 redis>=5.0.0
 # 代理兼容：当环境存在 ALL_PROXY=socks5://... 时 httpx（openai 依赖）需要 socksio，

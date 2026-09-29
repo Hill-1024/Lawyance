@@ -1,0 +1,181 @@
+/* Workbench · tabs
+   会话标签条：标签、新建按钮、右端动作与标签右键菜单。
+   由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。 */
+
+/* 会话标签条：贴着主区顶行，标签组在换空间时整组左移，从侧栏下方穿过消失。 */
+.wb-tabstrip {
+  --wb-strip-pad: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 46px;
+  padding: 0 var(--wb-strip-pad);
+}
+.wb-tabstrip-nav {
+  flex: 0 0 auto;
+}
+.wb-tabstrip-viewport {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  /* 向左多留一截再裁掉：标签滑出时刚好没入侧栏边缘，而不是在侧栏旁提前消失。 */
+  margin-left: calc(-1 * var(--wb-strip-pad));
+  padding-left: var(--wb-strip-pad);
+}
+.wb-tabstrip-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+.wb-tabstrip-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* 只占内容宽度，让「＋」紧贴最后一个标签；标签多了再收缩滚动。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wb-tabstrip-list::-webkit-scrollbar {
+  display: none;
+}
+.wb-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 200px;
+  /* 固定高度：活动态带关闭键也保持与其他标签、其他控件同高。 */
+  height: var(--wb-control-size);
+  min-height: 0;
+  padding: 0 3px 0 11px;
+  /* 与工作台的控件/行同一档圆角（--radius-sm），不再用药丸形。 */
+  border-radius: var(--radius-sm);
+  color: var(--wb-muted);
+  cursor: default;
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+.wb-tab:hover {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+.wb-tab.is-active {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+.wb-tab-button {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  gap: 6px;
+  font-size: 12px;
+  color: inherit;
+}
+.wb-tab-button > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wb-tab-button:hover {
+  background: transparent !important;
+}
+.wb-tab-running,
+.wb-tab-unseen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+.wb-tab-unseen {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.wb-tab-close {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-standard);
+}
+.wb-tab:hover .wb-tab-close,
+.wb-tab.is-active .wb-tab-close {
+  opacity: 0.65;
+}
+.wb-tab-close:hover {
+  opacity: 1;
+  background: var(--bg-inset);
+}
+.wb-tab-new,
+.wb-tabstrip-action {
+  width: var(--wb-control-size);
+  min-width: var(--wb-control-size);
+  height: var(--wb-control-size);
+  min-height: var(--wb-control-size);
+  padding: 0;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  color: var(--wb-muted);
+}
+.wb-tab-new:hover,
+.wb-tabstrip-action:hover:not(:disabled) {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+}
+.wb-tabstrip-action[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-quiet);
+}
+.wb-tabstrip-action:disabled {
+  opacity: 0.35;
+}
+.wb-tab-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: min(240px, calc(100vw - 16px));
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+}
+.wb-tab-menu > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-1);
+  font: 13px/1.6 var(--font-sans);
+  text-align: left;
+  transition: background-color 140ms var(--ease-standard);
+}
+.wb-tab-menu > button:hover,
+.wb-tab-menu > button:not(:disabled):active {
+  background: var(--bg-inset);
+}
+.wb-tab-menu > button.danger {
+  color: var(--color-danger-500);
+}

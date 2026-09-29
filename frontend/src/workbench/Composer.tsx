@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Link } from "react-router-dom";
 import {
   ArrowUp,
   Square,
@@ -11,6 +10,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Item, Reference, templates } from "./client";
+import { formatKeys, getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
 export type Draft = { text: string; references: Reference[] };
 export function Composer({
   draft,
@@ -226,7 +226,7 @@ export function Composer({
           ) : (
             <p>没有匹配项</p>
           )}
-          <small>↑ ↓ 选择 · Enter / Tab 确认 · Esc 关闭</small>
+          <small>{formatKeys(getBinding(SHORTCUT_IDS.candidateUp))} {formatKeys(getBinding(SHORTCUT_IDS.candidateDown))} 选择 · Enter / Tab 确认 · {formatKeys(getBinding(SHORTCUT_IDS.overlayClose))} 关闭</small>
         </div>
       )}
       {!!draft.references.length && (
@@ -315,12 +315,16 @@ export function Composer({
           )
             return;
           if (menu) {
-            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            if (matchKeys(e, getBinding(SHORTCUT_IDS.candidateDown))) {
               e.preventDefault();
               setIndex(
-                (index +
-                  (e.key === "ArrowDown" ? 1 : -1) +
-                  Math.max(1, candidates.length)) %
+                (index + 1 + Math.max(1, candidates.length)) %
+                  Math.max(1, candidates.length),
+              );
+            } else if (matchKeys(e, getBinding(SHORTCUT_IDS.candidateUp))) {
+              e.preventDefault();
+              setIndex(
+                (index - 1 + Math.max(1, candidates.length)) %
                   Math.max(1, candidates.length),
               );
             } else if (
@@ -329,17 +333,20 @@ export function Composer({
             ) {
               e.preventDefault();
               choose(candidates[index]);
-            } else if (e.key === "Escape") {
+            } else if (matchKeys(e, getBinding(SHORTCUT_IDS.overlayClose))) {
               e.preventDefault();
               setMenu("");
             }
             if (e.key === "Enter") e.preventDefault();
             return;
           }
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (matchKeys(e, getBinding(SHORTCUT_IDS.composerSend))) {
             e.preventDefault();
             if (!running) onSend();
+            return;
           }
+          // 换行是浏览器的默认行为；这里显式放行，让绑定可读也可改。
+          if (matchKeys(e, getBinding(SHORTCUT_IDS.composerNewline))) return;
         }}
       />
       <div className="wb-composer-actions">
@@ -425,7 +432,6 @@ export function Composer({
             />
             高级输出审查
           </label>
-          <Link to="/settings">模型设置</Link>
         </div>
       )}
     </div>

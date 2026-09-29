@@ -1,0 +1,577 @@
+/* Workbench · document
+   文档窗格：工具栏、纸张排版、审阅卡片、预览控件、PDF 文字层与区域选择。
+   由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。 */
+
+/* 文档窗格标题行：接管原文档标签条高度，标签条已并入会话标签。 */
+.wb-doc-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: 8px 6px 0;
+  color: var(--wb-muted);
+}
+.wb-doc-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  color: var(--wb-ink);
+}
+.wb-doc-collapse {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--wb-muted);
+}
+.wb-doc-collapse:hover {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+}
+.wb-document-column {
+  /* 宽度由 motion 的 flexBasis 驱动，这里不能再抢剩余空间 */
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.wb-document-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  /* 排版宽度钉在「并排档」的宽度上：展开/收起时外层负责裁切（卡牌式覆盖/展现），
+     文字不跟着面板变窄重排。--wb-doc-percent 由 Workbench 按分栏比例注入。 */
+  min-width: calc(var(--wb-doc-percent, 65) * 1cqw);
+}
+.wb-document-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  font-size: 12px;
+  flex-shrink: 0;
+  min-height: 50px;
+}
+@media (min-width: 1024px) {
+  .wb-document-toolbar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
+.wb-document-toolbar::-webkit-scrollbar {
+  display: none;
+}
+.wb-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.wb-toolbar-group > button {
+  min-height: 32px;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+}
+.wb-heading-select {
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  height: 32px;
+  padding: 0 4px;
+  max-width: 92px;
+}
+.wb-format-badge {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--wb-muted);
+  padding: 0 6px;
+}
+.wb-text-action {
+  font-size: 12px;
+  gap: 6px;
+  border: 1px solid var(--wb-line) !important;
+  background: var(--wb-surface) !important;
+  border-radius: var(--radius-pill);
+  padding: 5px 12px;
+  min-height: 32px;
+  flex-shrink: 0;
+}
+.wb-text-action:hover {
+  background: var(--wb-hover) !important;
+}
+.wb-text-action.selected {
+  background: var(--accent-quiet) !important;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--wb-line)) !important;
+}
+.wb-u-glyph {
+  text-decoration: underline;
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 500;
+}
+.wb-overflow {
+  position: relative;
+  flex-shrink: 0;
+}
+.wb-overflow-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  min-width: 208px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  color: var(--fg-1);
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-overflow-menu > button {
+  justify-content: flex-start;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  min-height: 36px;
+}
+.wb-overflow-menu label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  padding: 6px 8px;
+  color: var(--fg-3);
+}
+.wb-overflow-menu select {
+  border: 1px solid var(--border-default);
+  background: var(--bg-app);
+  color: var(--fg-1);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+}
+.wb-notice {
+  font-size: 11px;
+  padding: 8px 16px;
+  margin: 0 !important;
+  color: var(--wb-muted);
+  background: var(--wb-hover);
+  border-radius: var(--radius-sm);
+  margin: 0 16px 8px !important;
+}
+.wb-document-scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  /* 文档区在 sheet 里，底就是 sheet 的白，不再自带画布灰。 */
+  background: transparent;
+  padding: 16px 24px 24px;
+  scrollbar-width: thin;
+}
+.wb-document-scroll ::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.wb-paper {
+  padding: 52px 56px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-lg);
+  min-height: 850px;
+  /* 比并排档的常用宽度略窄：两种档位下纸张宽度一致，切换时不重排。 */
+  max-width: 800px;
+  margin: 4px auto 24px;
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-serif);
+  font-size: var(--document-font-size);
+  line-height: 2;
+}
+.wb-paper .tiptap {
+  outline: none;
+  min-height: 700px;
+  caret-color: var(--wb-blue);
+}
+.wb-paper .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--wb-muted);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+.wb-paper mark {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.wb-paper h1 {
+  font: 600 1.8em/1.5 var(--font-serif);
+  margin-bottom: 28px;
+}
+.wb-paper h2 {
+  font: 600 1.3em/1.6 var(--font-serif);
+  margin: 24px 0 12px;
+}
+.wb-paper h3 {
+  font-size: 1.1em;
+  margin: 18px 0 10px;
+}
+.wb-paper p {
+  margin: 0 0 16px;
+}
+.wb-paper ul,
+.wb-paper ol {
+  list-style: revert;
+  padding-left: 28px;
+}
+.wb-paper table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 18px 0;
+  table-layout: fixed;
+}
+.wb-paper td,
+.wb-paper th {
+  border: 1px solid var(--wb-line);
+  padding: 7px;
+  vertical-align: top;
+}
+.wb-paper blockquote {
+  border-left: 3px solid var(--wb-line);
+  padding-left: 18px;
+}
+.wb-paper img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+.wb-paper hr[data-page-break] {
+  border: 0;
+  border-top: 2px dashed var(--wb-line);
+  margin: 30px 0;
+}
+.wb-inline-before {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-danger-500) 60%, transparent);
+  color: var(--fg-3);
+  background: color-mix(in srgb, var(--color-danger-500) 7%, transparent);
+  border-radius: 3px;
+}
+.wb-inline-after {
+  color: var(--color-success-500);
+  background: color-mix(in srgb, var(--color-success-500) 10%, transparent);
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.wb-select-pop {
+  position: absolute;
+  left: var(--sel-x, 50%);
+  top: var(--sel-y, 40%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-3);
+  white-space: nowrap;
+  animation: wb-pop-in 220ms var(--wb-ease-pop);
+  transform-origin: bottom;
+}
+.wb-select-pop.open {
+  border-color: color-mix(in srgb, var(--wb-blue) 45%, var(--wb-line));
+}
+.wb-select-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-on);
+  font-size: 12px;
+  min-height: 30px;
+  padding: 4px 13px;
+}
+.wb-select-primary:hover {
+  background: var(--accent);
+  filter: brightness(0.94);
+}
+.wb-select-more {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  min-height: 30px;
+}
+.wb-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 124px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-select-menu button {
+  width: 100%;
+  justify-content: flex-start;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  min-height: 34px;
+}
+.wb-review {
+  max-height: 35%;
+  overflow: auto;
+  padding: 12px 18px 14px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  margin: 0 10px;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-2);
+  animation: wb-island-in var(--dur-base) var(--ease-emphasized);
+  scrollbar-width: thin;
+}
+.wb-review header {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wb-review header strong {
+  font-weight: 500;
+}
+.wb-batch-reject,
+.wb-batch-accept {
+  border-radius: var(--radius-pill) !important;
+  min-height: 30px;
+  padding: 4px 14px;
+  font-size: 12px;
+  gap: 5px;
+}
+.wb-batch-reject {
+  border: 1px solid var(--wb-line);
+  background: var(--wb-surface);
+}
+.wb-batch-reject:hover {
+  background: var(--wb-hover);
+}
+.wb-batch-accept {
+  background: var(--accent);
+  color: var(--accent-on);
+}
+.wb-batch-accept:hover {
+  background: var(--accent);
+  filter: brightness(0.94);
+}
+.wb-review-list {
+  margin-top: 6px;
+}
+.wb-review-card {
+  border-top: 1px solid var(--wb-line);
+  padding: 12px 0;
+  font-size: 12px;
+}
+.wb-review-locate {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+  padding: 2px 0;
+  min-height: 0;
+  font-size: 12px;
+  color: var(--wb-ink);
+  font-weight: 500;
+  border-radius: var(--radius-xs);
+}
+.wb-review-locate:hover {
+  background: transparent;
+  color: var(--wb-blue);
+}
+.wb-review-card del,
+.wb-review-card ins {
+  display: block;
+  padding: 6px 10px;
+  margin: 4px 0;
+  border-radius: var(--radius-sm);
+}
+.wb-review-card del {
+  color: var(--color-danger-500);
+  background: color-mix(in srgb, var(--color-danger-500) 8%, transparent);
+}
+.wb-review-card ins {
+  color: var(--color-success-500);
+  background: color-mix(in srgb, var(--color-success-500) 8%, transparent);
+  text-decoration: none;
+}
+.wb-review-card footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.wb-review-card footer small {
+  font-size: 10px;
+}
+.wb-review-card footer .wb-quiet,
+.wb-review-card footer .wb-primary {
+  min-height: 28px;
+  padding: 3px 12px;
+  font-size: 12px;
+  border-radius: var(--radius-pill);
+}
+.wb-doc-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 20px 8px;
+  font-size: 11px;
+  color: var(--wb-muted);
+  flex-shrink: 0;
+}
+.wb-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.wb-original {
+  width: 100%;
+  overflow: auto;
+}
+.wb-original .docx-wrapper {
+  padding: 0 !important;
+  background: transparent !important;
+}
+.wb-original .docx-wrapper > section.docx {
+  margin: 0 auto 20px !important;
+  max-width: 100%;
+}
+.wb-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-2);
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  margin: 0 auto 16px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  flex-wrap: nowrap;
+  font-size: 11px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wb-preview-controls button {
+  min-height: 30px;
+  border-radius: var(--radius-pill);
+  padding: 4px 8px;
+}
+.wb-preview-controls > button:not(.wb-text-action) {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+.wb-preview-controls span {
+  font-size: 11px;
+  padding: 0 4px;
+  color: var(--wb-muted);
+  min-width: 52px;
+  text-align: center;
+}
+.wb-preview-controls input {
+  width: 110px;
+  min-width: 0;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--wb-line);
+  background: var(--wb-bg);
+}
+.wb-page-surface {
+  position: relative;
+  width: fit-content;
+  margin: auto;
+  max-width: 100%;
+}
+.wb-page-surface img {
+  max-width: 100%;
+  display: block;
+  border-radius: var(--radius-sm);
+}
+.wb-page-surface canvas {
+  display: block;
+  border-radius: var(--radius-sm);
+}
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 1;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 2;
+}
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+.textLayer ::selection {
+  background: color-mix(in srgb, var(--accent) 33%, transparent);
+}
+.select-region {
+  touch-action: none;
+  cursor: crosshair;
+}
+.select-region .textLayer {
+  pointer-events: none;
+  user-select: none;
+}
+.wb-region {
+  position: absolute;
+  z-index: 4;
+  border: 2px solid var(--wb-blue);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.wb-box-toggle {
+  margin: 0 auto 16px;
+  display: flex;
+  width: fit-content;
+}

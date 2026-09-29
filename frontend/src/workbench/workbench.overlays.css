@@ -1,0 +1,414 @@
+/* Workbench · overlays
+   浮层与布局：拖放遮罩、管理弹窗、提示条、搜索结果、停靠目标与布局选择器。
+   由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。 */
+
+.wb-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-chrome);
+  background: color-mix(in srgb, var(--bg-app) 55%, transparent);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.wb-drop-overlay strong {
+  display: inline-flex;
+  border: 1.5px dashed var(--accent);
+  color: var(--accent);
+  background: var(--wb-surface);
+  border-radius: var(--radius-lg);
+  padding: 18px 26px;
+  font-size: 15px;
+  animation: wb-island-in 220ms var(--ease-emphasized);
+  font-weight: 500;
+  box-shadow: var(--shadow-4);
+}
+.wb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.wb-row:hover {
+  background: var(--wb-hover);
+}
+.wb-row small {
+  display: block;
+}
+.wb-row > button:first-child {
+  justify-content: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+.wb-row > button:first-child span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.wb-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wb-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--bg-overlay);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: wb-fade-in 200ms var(--ease-standard) both;
+}
+.wb-modal {
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  padding: 28px;
+  border-radius: var(--radius-lg);
+  width: 620px;
+  max-width: 100%;
+  max-height: 85dvh;
+  overflow: auto;
+  box-shadow: var(--shadow-4);
+  animation: wb-modal-in 300ms var(--wb-ease-pop);
+}
+.wb-modal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.wb-modal h2 {
+  font-family: var(--font-serif);
+  font-size: 22px;
+}
+.wb-modal p {
+  font-size: 12px;
+  color: var(--wb-muted);
+}
+.wb-modal label {
+  display: block;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.wb-modal label > input:not([type="checkbox"]),
+.wb-modal label > textarea,
+.wb-modal label > select {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  margin-top: 6px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  background: var(--wb-bg);
+}
+.wb-modal textarea {
+  min-height: 150px;
+}
+.wb-small-modal {
+  width: 390px;
+}
+.wb-small-modal > button {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.wb-small-modal > button:hover {
+  background: var(--wb-hover);
+}
+.wb-small-modal > button.wb-danger:hover {
+  background: color-mix(in srgb, var(--color-danger-500) 8%, transparent);
+}
+.wb-banner {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-chrome);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(620px, calc(100% - 24px));
+  padding: 6px 8px 6px 16px;
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-3);
+  font-size: 12px;
+  flex-shrink: 0;
+  animation: wb-island-in var(--dur-base) var(--ease-emphasized);
+}
+.wb-banner span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wb-banner.error {
+  color: var(--color-danger-500);
+  border-color: color-mix(in srgb, var(--color-danger-500) 35%, var(--wb-line));
+}
+.wb-banner button {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  min-height: 26px;
+  border-radius: var(--radius-pill);
+  padding: 0;
+}
+.wb-search-results button {
+  width: 100%;
+  display: block;
+  text-align: left;
+  border-radius: var(--radius-sm);
+}
+.wb-search-results small {
+  display: block;
+  font-size: 10px;
+}
+.wb-mobile-only,
+.wb-sidebar-shade {
+  display: none !important;
+}
+.wb-manager-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+.wb-app .wb-manager-tabs [role="tab"] {
+  min-height: 44px;
+  color: var(--fg-3);
+  border: 1px solid transparent;
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-xs);
+}
+.wb-app .wb-manager-tabs [aria-selected="true"] {
+  background: var(--bg-surface);
+  color: var(--accent);
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-1);
+}
+/* Docking changes only grid placement so editors and drafts stay mounted. */
+.wb-dock-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  cursor: grab;
+  color: var(--wb-muted);
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+}
+.wb-dock-handle:active {
+  cursor: grabbing;
+}
+.wb-dock-handle:hover {
+  color: var(--wb-blue);
+  background: var(--wb-hover);
+}
+.wb-dock-handle > svg {
+  pointer-events: none;
+}
+.wb-chat-heading:has(.wb-dock-handle) {
+  gap: 10px;
+}
+.wb-layout-picker {
+  position: relative;
+}
+.wb-layout-options {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 260px;
+  padding: 16px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-md);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-3);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-layout-options p {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.wb-layout-options button {
+  justify-content: flex-start;
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+}
+.wb-layout-options button[aria-pressed="true"] {
+  background: var(--wb-hover);
+  color: var(--wb-blue);
+}
+.wb-layout-options label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wb-layout-options select {
+  background: var(--wb-bg);
+  color: var(--wb-ink);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+}
+.wb-dock-targets {
+  position: absolute;
+  inset: 64px 12px 12px;
+  z-index: var(--z-chrome);
+  pointer-events: none;
+}
+.wb-dock-target {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+.wb-dock-target span {
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  background: var(--wb-surface);
+  color: var(--wb-muted);
+  font-size: 12px;
+  box-shadow: var(--shadow-2);
+  transition:
+    color 160ms,
+    border-color 160ms,
+    transform 160ms;
+}
+.wb-dock-target.is-active span {
+  color: var(--wb-blue);
+  border-color: var(--wb-blue);
+  transform: scale(1.03);
+}
+.wb-dock-target.left,
+.wb-dock-target.right {
+  top: 25%;
+  bottom: 25%;
+  width: 20%;
+}
+.wb-dock-target.left {
+  left: 0;
+}
+.wb-dock-target.right {
+  right: 0;
+}
+.wb-dock-target.top,
+.wb-dock-target.bottom {
+  left: 25%;
+  right: 25%;
+  height: 20%;
+}
+.wb-dock-target.top {
+  top: 0;
+}
+.wb-dock-target.bottom {
+  bottom: 0;
+}
+.wb-dock-preview {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--wb-blue) 32%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--wb-blue) 7%, transparent);
+}
+.wb-dock-preview.left,
+.wb-dock-preview.right {
+  top: 8px;
+  bottom: 8px;
+  width: 34%;
+}
+.wb-dock-preview.left {
+  left: 8px;
+}
+.wb-dock-preview.right {
+  right: 8px;
+}
+.wb-dock-preview.top,
+.wb-dock-preview.bottom {
+  left: 8px;
+  right: 8px;
+  height: 34%;
+}
+.wb-dock-preview.top {
+  top: 8px;
+}
+.wb-dock-preview.bottom {
+  bottom: 8px;
+}
+/* Shared control geometry: icon-only targets, labels and toolbars use one grid. */
+.wb-app .lucide {
+  width: var(--wb-icon-size);
+  height: var(--wb-icon-size);
+  stroke-width: 1.75;
+}
+.wb-app button[aria-label]:has(> .lucide:only-child) {
+  width: var(--wb-control-size);
+  min-width: var(--wb-control-size);
+  height: var(--wb-control-size);
+  min-height: var(--wb-control-size);
+  padding: 0;
+  flex-shrink: 0;
+}
+.wb-file-button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  min-height: var(--wb-control-size);
+  border-radius: var(--wb-radius-control);
+  line-height: 20px;
+  position: relative;
+}
+.wb-file-button:hover {
+  background: var(--wb-hover);
+}
+.wb-file-button:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.wb-file-button input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+.wb-toolbar-group .wb-image-upload {
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  color: inherit;
+  border-radius: var(--radius-sm);
+}

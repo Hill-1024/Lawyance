@@ -1,11 +1,10 @@
 """
-模块描述：上传、工作区缓存、心跳和下载 API。
+模块描述：上传、工作区缓存和下载 API。
 """
 
 import errno
 import os
 import shutil
-import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, UploadFile
@@ -252,15 +251,6 @@ async def delete_workspace(
         raise HTTPException(status_code=500, detail="Unable to delete workspace")
     active_conversations.pop(scope, None)
 
-    return {"status": "success"}
-
-
-@router.post("/api/heartbeat/{conversation_id}")
-async def heartbeat(
-    conversation_id: Annotated[str, Path(min_length=1, max_length=MAX_IDENTIFIER_CHARS)],
-    current_user: str = Depends(get_current_user),
-):
-    active_conversations[get_workspace_scope(current_user, conversation_id)] = time.time()
     return {"status": "success"}
 
 

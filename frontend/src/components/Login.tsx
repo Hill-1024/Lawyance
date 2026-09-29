@@ -1,29 +1,41 @@
 /*
  * 模块描述：登录表单组件，负责账号密码提交、错误展示和登录成功回调。
+ * 视觉沿用工作台 island 语言（暖画布 + 一张白卡 + 品牌组合字标），样式见同目录 login.css。
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { motion, useReducedMotion } from 'motion/react';
 import { ArrowLeft, ShieldAlert } from 'lucide-react';
 import { login, type LoginResult } from '../services/api';
-import { BrandMark } from './Brand';
+import { BrandLockup } from './Brand';
+import './login.css';
 
 interface LoginProps {
   onLoginSuccess: (result: LoginResult) => void;
+  /** 通过 IP 直连时的安全提示等页级通知，与卡片同列居中。 */
+  notice?: React.ReactNode;
 }
 
 const ENTER_EASE = [0.16, 1, 0.3, 1] as const;
 
-export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
+export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const reduceMotion = Boolean(useReducedMotion());
+  const passwordRef = useRef<HTMLInputElement>(null);
+  // 失败后要把焦点放回密码框：必须等提交后的这一帧落地（输入框还是 disabled 时 focus/select 都无效）。
+  const refocusPassword = useRef(false);
+  useEffect(() => {
+    if (isLoading || !refocusPassword.current) return;
+    refocusPassword.current = false;
+    passwordRef.current?.focus();
+    passwordRef.current?.select();
+  }, [isLoading]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async () => {
     if (!username.trim() || !password.trim()) {
       setError('请输入账号和密码');
       return;
@@ -37,130 +49,124 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       onLoginSuccess(result);
     } catch (err: any) {
       setError(err.message || '登录失败，请检查账号密码');
+      // 重新输入比重新点一遍表单快：标记回焦，交给上面的 effect 在提交后执行。
+      refocusPassword.current = true;
     } finally {
       setIsLoading(false);
     }
   };
 
-  /*
-   * 入场用一次分层的淡入（品牌 → 表单 → 底部返回），而不是逐个元素各动一遍：
-   * 登录页每次都是冷启动第一屏，需要交代“先看标题、再填表”的次序。
-   * 关闭动效时直接落到终态，不做位移。
-   */
-  const enter = (delay: number) => (reduceMotion
-    ? { initial: false as const, animate: { opacity: 1 } }
-    : {
-      initial: { opacity: 0, y: 14 },
-      animate: { opacity: 1, y: 0 },
-      transition: { duration: 0.5, delay, ease: ENTER_EASE },
-    });
+  // 密码框里按 Enter 也要能登录：不依赖浏览器的隐式提交（实测在部分内嵌环境不触发）。
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    void submit();
+  };
 
   return (
-    <div className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[var(--bg-app)] px-4 py-12 transition-colors duration-300 sm:px-6 lg:px-8">
-      {/* 与空会话首屏同一套语言：一层极淡的强调色光晕，让登录页不像一个孤立的表单。 */}
-      <div
-        className="pointer-events-none absolute inset-x-0 top-[12%] mx-auto h-72 max-w-xl rounded-full bg-[var(--accent)] opacity-[0.06] blur-3xl"
-        aria-hidden="true"
-      />
+    <div className="lg-page">
+      {notice}
+      <motion.section
+        className="lg-sheet"
+        aria-labelledby="login-title"
+        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.42, ease: ENTER_EASE }}
+      >
+        <header className="lg-head">
+          <BrandLockup />
+          <h1 className="lg-title" id="login-title">
+            登录工作台
+          </h1>
+        </header>
 
-      <div className="relative w-full max-w-md">
-        <motion.div
-          {...enter(0)}
-          className="flex flex-col gap-7 rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-8 shadow-[var(--shadow-3)] sm:p-10"
+        <form
+          className="lg-form"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
         >
-          <div className="text-center">
-            <motion.div
-              initial={reduceMotion ? false : { opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={reduceMotion ? { duration: 0.01 } : { type: 'spring', damping: 22, stiffness: 260 }}
-              className="mx-auto flex h-14 w-14 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--accent-quiet)]"
-            >
-              <BrandMark className="h-9 w-9 text-[var(--accent)]" />
-            </motion.div>
-            <h1 className="t-headline-m mt-4">
-              登录 Lawver
-            </h1>
-            <p className="t-body-s t-muted mt-2">
-              仅限内部人员使用
-            </p>
+          {/* role=alert + aria-live：读屏也能听到失败原因，而不仅是视觉上出现。 */}
+          <div aria-live="assertive" aria-atomic="true">
+            {error && (
+              <p className="lg-alert" role="alert">
+                <ShieldAlert size={15} strokeWidth={2} aria-hidden="true" />
+                <span>{error}</span>
+              </p>
+            )}
           </div>
 
-          <form className="space-y-5" onSubmit={handleSubmit} noValidate>
-            {/* role=alert 让读屏软件念出失败原因：原来错误只在视觉上出现，辅助技术完全收不到。 */}
-            <div aria-live="assertive" aria-atomic="true">
-              {error && (
-                <div
-                  role="alert"
-                  className="flex items-start gap-2.5 rounded-[var(--radius-md)] border border-[rgba(176,70,62,0.3)] bg-[rgba(176,70,62,0.1)] px-4 py-3 text-sm text-[var(--color-danger-500)]"
-                >
-                  <ShieldAlert size={16} strokeWidth={2} className="mt-0.5 shrink-0" />
-                  <span className="min-w-0 flex-1">{error}</span>
-                </div>
-              )}
-            </div>
+          <div className="lg-field">
+            <label className="lg-label" htmlFor="username">
+              账号
+            </label>
+            <input
+              id="username"
+              name="username"
+              type="text"
+              required
+              autoFocus
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="next"
+              className="lg-input"
+              placeholder="请输入账号"
+              value={username}
+              disabled={isLoading}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  passwordRef.current?.focus();
+                }
+              }}
+            />
+          </div>
 
-            <motion.div {...enter(0.06)} className="space-y-4">
-              <div>
-                <label className="sr-only" htmlFor="username">
-                  账号
-                </label>
-                <input
-                  id="username"
-                  name="username"
-                  type="text"
-                  required
-                  autoComplete="username"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  className="md3-input"
-                  placeholder="账号"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="sr-only" htmlFor="password">
-                  密码
-                </label>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  className="md3-input"
-                  placeholder="密码"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-            </motion.div>
+          <div className="lg-field">
+            <label className="lg-label" htmlFor="password">
+              密码
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              required
+              ref={passwordRef}
+              autoComplete="current-password"
+              enterKeyHint="go"
+              className="lg-input"
+              placeholder="请输入密码"
+              value={password}
+              disabled={isLoading}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={handleKeyDown}
+            />
+          </div>
 
-            <motion.div {...enter(0.12)}>
-              <button
-                type="submit"
-                disabled={isLoading}
-                aria-busy={isLoading}
-                className="md3-btn-filled lawver-pressable w-full py-3"
-              >
-                {isLoading ? '登录中…' : '登录'}
-              </button>
-            </motion.div>
-          </form>
-        </motion.div>
+          <button type="submit" className="lg-submit" disabled={isLoading} aria-busy={isLoading}>
+            {isLoading ? (
+              <>
+                <span className="lg-spin" aria-hidden="true" />
+                正在验证
+              </>
+            ) : (
+              '登录'
+            )}
+          </button>
+        </form>
 
-        {/* 登录页是受守卫路由的入口，此前没有任何回到公开页面的出口。 */}
-        <motion.div {...enter(0.18)} className="mt-5 text-center">
-          <RouterLink
-            to="/"
-            className="lawver-pressable inline-flex min-h-11 items-center gap-1.5 rounded-full px-4 text-[13px] text-[var(--fg-3)] transition-colors hover:text-[var(--fg-1)]"
-          >
-            <ArrowLeft size={15} strokeWidth={2} />
+        <footer className="lg-foot">
+          <RouterLink to="/" className="lg-link">
+            <ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
             返回首页
           </RouterLink>
-        </motion.div>
-      </div>
+        </footer>
+      </motion.section>
     </div>
   );
 };

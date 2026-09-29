@@ -124,6 +124,6 @@ export const downloadApiFile = async (path: string, name: string) => {
 
 export const downloadWorkbenchFile = (id: string, name: string, word = false) =>
   downloadApiFile(
-    `/api/v2/documents/${encodeURIComponent(id)}/${word ? "export" : "blob"}`,
+    `/api/workbench/documents/${encodeURIComponent(id)}/${word ? "export" : "blob"}`,
     name + (word ? ".docx" : ""),
   );

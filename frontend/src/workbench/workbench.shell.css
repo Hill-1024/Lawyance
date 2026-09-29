@@ -1,0 +1,391 @@
+/* Workbench · shell
+   应用外壳与基础件：令牌、按钮/表单基线、动效关键帧、侧栏（品牌、空间切换、文件区、底部入口）。
+   由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。 */
+
+/* Workbench — island visual language: floating rounded panels on the warm
+   canvas, pill controls, spring-eased surfaces. Brand glyphs and fonts
+   intentionally inherit the existing Lawver identity.
+   Radius scale (tokens only): controls & rows --radius-sm (10), floating
+   menus/popovers --radius-md (14), islands (cards/paper/composer/modals)
+   --radius-lg (20), interactive pills --radius-pill. Control height: 32 base,
+   28 for filter pills. */
+
+.wb-app {
+  /* 定位基准：.wb-dock-targets / .wb-banner 用 absolute 定位在应用盒内，
+     而 WorkspaceLayout 也按 .wb-app 的 rect 算落点，两边必须同一个包含块。 */
+  position: relative;
+  --wb-control-size: 32px;
+  --wb-icon-size: 18px;
+  --wb-radius-control: var(--radius-sm);
+  --wb-bg: var(--bg-app);
+  --wb-surface: var(--bg-surface);
+  --wb-ink: var(--fg-1);
+  --wb-muted: var(--fg-3);
+  --wb-line: var(--border-default);
+  --wb-hover: var(--bg-inset);
+  --wb-blue: var(--accent);
+  display: flex;
+  height: 100dvh;
+  background: var(--wb-bg);
+  color: var(--wb-ink);
+  font: 14px/1.6 var(--font-sans);
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.wb-app * {
+  box-sizing: border-box;
+}
+.wb-app button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--wb-control-size);
+  line-height: 20px;
+  border-radius: var(--wb-radius-control);
+  padding: 7px 10px;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    opacity var(--dur-fast) var(--ease-standard);
+}
+.wb-app button:hover {
+  background: var(--wb-hover);
+}
+.wb-app button:not(:disabled):active {
+  transform: scale(0.97);
+}
+.wb-app button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wb-app :is(button, input, textarea, select, a):focus-visible {
+  outline: 2px solid var(--wb-blue);
+  outline-offset: 2px;
+}
+.wb-app input,
+.wb-app textarea,
+.wb-app select {
+  font: inherit;
+  color: inherit;
+}
+.wb-app input,
+.wb-app select {
+  background: var(--wb-surface);
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
+.wb-app small {
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+.wb-app p {
+  margin: 0 0 12px;
+}
+.wb-app h1,
+.wb-app h2,
+.wb-app h3 {
+  margin: 0;
+  font-weight: 500;
+}
+.wb-app a {
+  color: var(--wb-blue);
+}
+.wb-app svg {
+  flex-shrink: 0;
+}
+.wb-spacer {
+  flex: 1;
+}
+.wb-primary,
+.wb-app .wb-send {
+  background: var(--wb-blue) !important;
+  color: var(--accent-on) !important;
+}
+.wb-app .wb-primary:hover {
+  background: var(--wb-blue) !important;
+  filter: brightness(0.94);
+}
+.wb-app .wb-quiet {
+  border: 1px solid var(--wb-line);
+  background: var(--wb-surface);
+}
+.wb-app .wb-quiet:hover {
+  background: var(--wb-hover);
+}
+.wb-danger {
+  color: var(--color-danger-500) !important;
+}
+.wb-app .selected {
+  background: var(--wb-hover);
+  color: var(--wb-blue);
+}
+/* Surfaces enter with a soft rise, never a hard cut. */
+@keyframes wb-island-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+/* 弹层动效三件套：下拉自触发器方向展开（origin top），上浮件自底部展开，
+   模态整体上滑。缓动带轻微回弹（过冲约 2%），即 Quote 的「柔顺 spring」手感。
+   只动 transform/opacity，全部走合成器。 */
+.wb-app {
+  --wb-ease-pop: cubic-bezier(0.3, 1.12, 0.36, 1);
+}
+@keyframes wb-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes wb-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+@keyframes wb-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+@keyframes wb-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+}
+@keyframes wb-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.wb-spin {
+  animation: wb-rotate 0.9s linear infinite;
+}
+/* 三个门户菜单挂在 <body> 上、位于 .wb-app 之外，拿不到 .wb-app button:active 的按压反馈。 */
+.wb-space-menu > button:not(:disabled):active,
+.wb-thread-menu > button:not(:disabled):active,
+.wb-overflow-menu > button:not(:disabled):active {
+  transform: scale(0.97);
+}
+.wb-sidebar {
+  width: 248px;
+  flex-shrink: 0;
+  padding: 22px 14px 10px;
+  display: flex;
+  flex-direction: column;
+}
+.wb-brand {
+  padding: 0 8px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wb-brand-link {
+  color: inherit;
+  border-radius: var(--radius-sm);
+}
+.wb-brand-link:hover {
+  background: transparent;
+  opacity: 0.85;
+}
+.wb-space-head {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.wb-space-pill {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 6px;
+  border: 1px solid var(--wb-line);
+  background: var(--wb-hover);
+  border-radius: var(--radius-pill);
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.wb-space-pill:hover {
+  background: var(--wb-surface);
+  border-color: color-mix(in srgb, var(--wb-blue) 35%, var(--wb-line));
+}
+.wb-space-pill span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.wb-space-pill > svg:last-child {
+  color: var(--wb-muted);
+}
+.wb-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 14px;
+  padding: 0 8px;
+  color: var(--wb-muted);
+}
+.wb-search input {
+  border: 0;
+  background: transparent;
+  width: 100%;
+  padding: 8px 0;
+  font-size: 13px;
+  outline: 0;
+}
+.wb-nav-scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  scrollbar-width: thin;
+}
+/* Portal menus mount on <body>, outside .wb-app — use root-level tokens only. */
+.wb-space-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: min(240px, calc(100vw - 16px));
+  max-height: 420px;
+  overflow: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  color: var(--fg-1);
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-space-menu > button,
+.wb-thread-menu > button,
+.wb-overflow-menu > button {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-1);
+  font: 13px/1.6 var(--font-sans);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  min-height: 36px;
+  min-width: 0;
+  padding: 6px 10px;
+  text-align: left;
+  transition: background-color 140ms var(--ease-standard);
+}
+.wb-space-menu > button:hover:not(.selected),
+.wb-thread-menu > button:hover:not(.selected),
+.wb-overflow-menu > button:hover:not(.selected) {
+  background: var(--bg-inset);
+}
+.wb-space-menu > button > span,
+.wb-thread-menu > button > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.wb-space-menu > button.selected,
+.wb-thread-menu > button.selected {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+.wb-space-menu-sep {
+  height: 1px;
+  background: var(--border-default);
+  margin: 4px 6px;
+}
+/* 侧栏文件区标题行：接管原会话/文件双页签的位置与职责。 */
+.wb-files-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 28px;
+  margin: 2px 4px 10px;
+  font-size: 12px;
+  color: var(--wb-muted);
+}
+.wb-space-add {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  color: var(--wb-muted);
+}
+.wb-space-add:hover {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+}
+/* 文件页加号：悬停弹出 上传/新建 菜单，点击本体默认上传。 */
+.wb-space-add-wrap {
+  position: relative;
+  display: flex;
+}
+.wb-space-add-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  padding-top: 6px;
+  z-index: 30;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px) scale(0.98);
+  transform-origin: bottom right;
+  transition:
+    opacity 180ms var(--wb-ease-pop),
+    transform 180ms var(--wb-ease-pop),
+    visibility 180ms var(--ease-standard);
+}
+.wb-space-add-wrap:hover .wb-space-add-menu,
+.wb-space-add-wrap:focus-within .wb-space-add-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+.wb-space-add-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: max-content;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-sm);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-2);
+  font-size: 12px;
+  color: var(--wb-ink);
+}
+.wb-space-add-menu > button + button {
+  margin-top: 4px;
+}
+.wb-space-add-menu > button:hover {
+  background: var(--wb-hover);
+}

@@ -1,0 +1,14 @@
+{
+  "host": "127.0.0.1",
+  "port": 8080,
+  "app_upstream": "http://127.0.0.1:8081",
+  "intro_upstream": "http://127.0.0.1:8082",
+  "state_dir": "/srv/lawver/deploy/router/state",
+  "intro_exact": ["/", "/design", "/download", "/pricing", "/robots.txt", "/sitemap.xml"],
+  "intro_prefixes": ["/intro-assets/"],
+  "probe_interval": 5,
+  "probe_timeout": 2,
+  "connect_timeout": 5,
+  "retry_after": 30,
+  "log_level": "info"
+}

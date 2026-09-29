@@ -4,7 +4,7 @@
   "short_name": "Lawver",
   "description": "工大法智团队的中文法律 AI 助手原型",
   "lang": "zh-CN",
-  "start_url": "./",
+  "start_url": "./home",
   "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
@@ -31,7 +31,7 @@
     {
       "name": "新对话",
       "short_name": "新对话",
-      "url": "./",
+      "url": "./home",
       "icons": [
         {
           "src": "pwa-icon-192.png",

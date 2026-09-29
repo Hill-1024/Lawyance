@@ -1,0 +1,184 @@
+/* Workbench · nav
+   导航与列表骨架：文档窗格标题行、会话历史下拉、内容行、侧栏工具与主区/主体容器。
+   由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。 */
+
+.wb-space-head > button {
+  width: var(--wb-control-size);
+  min-width: var(--wb-control-size);
+  height: var(--wb-control-size);
+  min-height: var(--wb-control-size);
+  padding: 0;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  color: var(--wb-muted);
+}
+.wb-space-head > button:hover {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+}
+.wb-thread-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.wb-thread-history {
+  position: relative;
+}
+.wb-thread-history > button {
+  border-radius: var(--radius-pill);
+  gap: 4px;
+  padding: 0 9px;
+  min-height: 32px;
+}
+.wb-thread-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: min(300px, calc(100vw - 16px));
+  max-height: 380px;
+  overflow: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  color: var(--fg-1);
+  animation: wb-menu-in 220ms var(--wb-ease-pop);
+  transform-origin: top;
+}
+.wb-thread-menu > button {
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  border-radius: var(--radius-sm);
+  min-height: 36px;
+  min-width: 0;
+  color: var(--fg-1);
+}
+.wb-thread-menu > button > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.wb-app .wb-thread-menu > button > small {
+  flex-shrink: 0;
+  color: var(--fg-3);
+  margin-left: auto;
+}
+.wb-thread-menu > button:hover:not(.selected) {
+  background: var(--bg-inset);
+}
+.wb-thread-group {
+  padding: 8px 8px 2px;
+  font-size: 10px;
+  color: var(--fg-3);
+}
+.wb-space-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+.wb-space-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  min-height: 32px;
+  padding: 4px 8px;
+  text-align: left;
+}
+.wb-space-row > button:first-child span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wb-space-row > button:last-child {
+  opacity: 0;
+  padding: 2px;
+  min-width: 22px;
+  margin-right: 4px;
+}
+.wb-space-row:hover > button:last-child,
+.wb-space-row > button:last-child:focus-visible {
+  opacity: 1;
+}
+.wb-space-hint {
+  margin: 2px 6px 4px;
+  font-size: 11px;
+  color: var(--wb-muted);
+  line-height: 1.6;
+}
+.wb-space-upload-link {
+  min-height: 0;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--wb-blue);
+  text-decoration: underline;
+}
+.wb-nav-footer {
+  padding-top: 12px;
+  margin-top: 12px;
+}
+.wb-nav-footer > button {
+  width: 100%;
+  justify-content: flex-start;
+}
+.wb-nav-footer > div {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+}
+.wb-nav-footer > div span {
+  font-size: 11px;
+  margin-left: auto;
+  overflow: hidden;
+  max-width: 80px;
+  text-overflow: ellipsis;
+  color: var(--wb-muted);
+}
+.wb-sidebar-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+.wb-sidebar-tools small {
+  font-size: 11px;
+  color: var(--wb-muted);
+}
+.wb-sidebar-tools .wb-layout-options {
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: auto;
+  width: 232px;
+}
+.wb-app[data-navigation="right"] .wb-sidebar-tools .wb-layout-options {
+  left: auto;
+  right: 0;
+}
+
+/* 侧栏底部的 credits 读数：与账号名同排，弱化处理，不抢主操作。
+   选择器要比 `.wb-nav-footer > div span`（账号名那条）更具体，否则会被它的
+   margin-left:auto / max-width 截断。 */
+.wb-nav-footer > div span.wb-credits {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  max-width: none;
+  overflow: visible;
+  padding: 2px 7px;
+  border-radius: var(--wb-radius-control);
+  background: var(--wb-hover);
+  color: var(--wb-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}

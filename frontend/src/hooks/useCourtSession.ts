@@ -8,7 +8,7 @@ import type { ContextUsage, ConversationMemory, CourtAgentState, CourtAgentState
 import { fileDB } from '../lib/db';
 import { CourtRepository } from '../workbench/courtRepository';
 import { isNative } from '../lib/platform';
-import { clearCourtMemory, courtTurn, deleteWorkspace, sendHeartbeat } from '../services/api';
+import { clearCourtMemory, courtTurn, deleteWorkspace } from '../services/api';
 import { addLocalStorageDataChangeListener } from '../services/storageEvents';
 import { SessionRunBarrier } from '../lib/stream-run-guards';
 
@@ -385,28 +385,6 @@ export function useCourtSession(enabled = true) {
     if(persistTimer.current) clearTimeout(persistTimer.current);
     void repository.current.save(sessionsRef.current).catch(error => console.error('Court snapshot retained for recovery:', error.message));
   }, []);
-
-  // 心跳保活，防止庭审 workspace 文件被清理。
-  useEffect(() => {
-    if (!enabled || !isInitialized || !currentCourtId) return;
-
-    sendHeartbeat(currentCourtId).catch(console.error);
-    const interval = setInterval(() => {
-      sendHeartbeat(currentCourtId).catch(console.error);
-    }, 5 * 60 * 1000);
-
-    const handleReconnect = () => {
-      sendHeartbeat(currentCourtId).catch(console.error);
-    };
-    window.addEventListener('focus', handleReconnect);
-    window.addEventListener('online', handleReconnect);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', handleReconnect);
-      window.removeEventListener('online', handleReconnect);
-    };
-  }, [currentCourtId, enabled, isInitialized]);
 
   const createCourtSession = useCallback((input: {
     project_id?: string;

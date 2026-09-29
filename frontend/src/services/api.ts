@@ -45,6 +45,13 @@ export interface Account {
   user_max_online?: number | null;
   online_count?: number;
   owned_count?: number | null;
+  /** 计费与状态：由 GET /api/admin/accounts 返回。 */
+  plan?: string;
+  billing_cycle?: string;
+  credits?: number;
+  status?: string;
+  /** 仍被登录锁定多少秒；0 表示没被锁。 */
+  locked_seconds?: number;
 }
 
 export interface AccountLimits {
@@ -116,33 +123,6 @@ export class StreamExpiredError extends Error {
     this.name = 'StreamExpiredError';
   }
 }
-
-export const buildChatRequestBody = (
-  message: string,
-  history: any[],
-  conversationId: string,
-  stream: boolean,
-  agentMode: string,
-  useOcp: boolean,
-  memorySnapshot?: ConversationMemory | null,
-  memorySyncMode?: 'merge' | 'rebuild',
-  memoryConflictStrategy?: 'server_merge',
-  lastContextTokens?: number | null,
-  resumeEnabled = false
-) => ({
-  message,
-  history,
-  conversation_id: conversationId,
-  stream,
-  resume_enabled: resumeEnabled,
-  agent_mode: agentMode,
-  use_ocp: useOcp,
-  memory_snapshot: memorySnapshot || null,
-  memory_sync_mode: memorySyncMode,
-  expected_revision: memorySnapshot?.revision,
-  memory_conflict_strategy: memoryConflictStrategy,
-  last_context_tokens: lastContextTokens ?? null
-});
 
 export const verifyAuth = async (): Promise<AuthInfo> => {
   const res = await apiFetch('/api/verify_auth');
@@ -285,91 +265,6 @@ export const uploadFile = async (
   return res.json();
 };
 
-export const chat = async (
-  message: string,
-  history: any[],
-  conversationId: string,
-  stream: boolean,
-  agentMode: string,
-  useOcp: boolean,
-  memorySnapshot?: ConversationMemory | null,
-  memorySyncMode?: 'merge' | 'rebuild',
-  memoryConflictStrategy?: 'server_merge',
-  lastContextTokens?: number | null,
-  resumeEnabled = false,
-  signal?: AbortSignal
-) => {
-  const response = await apiFetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal,
-    body: JSON.stringify(buildChatRequestBody(
-      message,
-      history,
-      conversationId,
-      stream,
-      agentMode,
-      useOcp,
-      memorySnapshot,
-      memorySyncMode,
-      memoryConflictStrategy,
-      lastContextTokens,
-      resumeEnabled
-    ))
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    const detail = errorData?.detail || errorData;
-    if (response.status === 409 && detail?.error === 'memory_revision_conflict') {
-      throw new MemoryRevisionConflictError(detail);
-    }
-    throw new Error(errorData?.detail || errorData?.error || 'Network response was not ok');
-  }
-
-  return response;
-};
-
-export const resumeStream = async (streamId: string, fromSeq: number, signal?: AbortSignal) => {
-  const response = await apiFetch(`/api/chat/resume/${encodeURIComponent(streamId)}?from_seq=${encodeURIComponent(String(fromSeq))}`, {
-    signal,
-  });
-  if (response.status === 410) {
-    throw new StreamExpiredError();
-  }
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new Error(errorData?.detail || errorData?.error || 'Resume stream failed');
-  }
-  return response;
-};
-
-export const ackStream = async (streamId: string, ackedSeq: number) => {
-  const response = await apiFetch('/api/chat/ack', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stream_id: streamId, acked_seq: ackedSeq })
-  });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new Error(errorData?.detail || errorData?.error || 'Ack stream failed');
-  }
-  return response.json();
-};
-
-export const cancelStream = async (streamId: string) => {
-  const response = await apiFetch('/api/chat/cancel', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stream_id: streamId })
-  });
-  if (!response.ok && response.status !== 404) {
-    const errorData = await response.json().catch(() => null);
-    throw new Error(errorData?.detail || errorData?.error || 'Cancel stream failed');
-  }
-  return response.ok ? response.json() : { ok: true };
-};
-
 export const courtTurn = async (session: CourtSession, signal?: AbortSignal) => {
   const response = await apiFetch('/api/court/turn', {
     method: 'POST',
@@ -406,36 +301,6 @@ export const clearCourtMemory = async (courtSessionId: string, roles?: string[])
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Clear court memory failed');
-  }
-  return res.json();
-};
-
-export const syncConversationMemory = async (
-  conversationId: string,
-  memorySnapshot?: ConversationMemory | null,
-  history: any[] = [],
-  mode: 'merge' | 'rebuild' = 'rebuild',
-  memoryConflictStrategy?: 'server_merge'
-) => {
-  const res = await apiFetch('/api/memory/sync', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      conversation_id: conversationId,
-      memory_snapshot: memorySnapshot || null,
-      history,
-      mode,
-      expected_revision: memorySnapshot?.revision,
-      memory_conflict_strategy: memoryConflictStrategy
-    })
-  });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null);
-    const detail = errorData?.detail || errorData;
-    if (res.status === 409 && detail?.error === 'memory_revision_conflict') {
-      throw new MemoryRevisionConflictError(detail);
-    }
-    throw new Error(errorData?.detail || 'Memory sync failed');
   }
   return res.json();
 };
@@ -485,16 +350,6 @@ export const deleteWorkspaceFile = async (conversationId: string, path: string) 
   return res.json();
 };
 
-export const sendHeartbeat = async (conversationId: string) => {
-  const res = await apiFetch(`/api/heartbeat/${encodeURIComponent(conversationId)}`, {
-    method: 'POST'
-  });
-  if (!res.ok) {
-    throw new Error('Heartbeat failed');
-  }
-  return res.json();
-};
-
 export const fetchLogs = async (ip?: string, ignoreHeartbeat?: boolean) => {
   const params = new URLSearchParams();
   if (ip) params.append('ip', ip);
@@ -529,20 +384,108 @@ export const fetchAccounts = async (): Promise<{ status: string; accounts: Accou
   return res.json();
 };
 
+export interface AccountProvision {
+  /** 建账号时的套餐与计费方式；不传由后端填默认值。 */
+  plan?: string;
+  billing_cycle?: string;
+  credit_multiplier?: number;
+  /** 开户额度（credits）：只在新建账号时经账本入账。 */
+  initial_credits?: number;
+}
+
 export const setAccount = async (
   username: string,
   password: string,
   role: Role = 'user',
-  limits: AccountLimits = {}
+  limits: AccountLimits = {},
+  provision: AccountProvision = {}
 ) => {
   const res = await apiFetch('/api/admin/accounts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, role, ...limits })
+    body: JSON.stringify({ username, password, role, ...limits, ...provision })
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Failed to update account');
+  }
+  return res.json();
+};
+
+/** 解除登录锁定（账号桶 + 该账号名下全部来源桶）。 */
+export const unlockAccount = async (username: string) => {
+  const res = await apiFetch(`/api/admin/accounts/${encodeURIComponent(username)}/unlock`, {
+    method: 'POST'
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || '解锁失败');
+  }
+  return res.json();
+};
+
+/** Business 母账号创建子账号（只能建普通用户，受 max_users 约束）。 */
+export const createSubaccount = async (username: string, password: string) => {
+  const res = await apiFetch('/api/business/subaccounts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || '创建子账号失败');
+  }
+  return res.json();
+};
+
+/** Business 母账号停用/启用自己名下的子账号。 */
+export const setSubaccountStatus = async (username: string, status: 'active' | 'suspended') => {
+  const res = await apiFetch(`/api/business/subaccounts/${encodeURIComponent(username)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || '状态更新失败');
+  }
+  return res.json();
+};
+
+export const setAccountStatus = async (username: string, status: 'active' | 'suspended') => {
+  const res = await apiFetch(`/api/admin/accounts/${encodeURIComponent(username)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to update account status');
+  }
+  return res.json();
+};
+
+export interface TopUpResult {
+  status: string;
+  username: string;
+  id: string;
+  credited: number;
+  balance: number;
+}
+
+export const topUpAccount = async (
+  username: string,
+  amountYuan: number,
+  note = ''
+): Promise<TopUpResult> => {
+  const res = await apiFetch(`/api/admin/accounts/${encodeURIComponent(username)}/topups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount_yuan: amountYuan, note })
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || 'Failed to top up account');
   }
   return res.json();
 };
@@ -589,18 +532,6 @@ export const revokeSession = async (sid: string) => {
     throw new Error(errorData.detail || 'Failed to revoke session');
   }
   return res.json();
-};
-
-export const summarizeTitle = async (titleSource: string) => {
-  const response = await apiFetch('/api/summarize', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      history: [{ role: 'user', content: titleSource.substring(0, 200) }]
-    })
-  });
-  if (!response.ok) throw new Error('Summarize failed');
-  return response.json();
 };
 
 export interface ProviderStatus {
@@ -764,4 +695,204 @@ export const fetchLlmModels = async (): Promise<LlmModel[]> => {
   } catch {
     return [];
   }
+};
+
+/* ── 用量与监控 ───────────────────────────────────────────────────────── */
+
+export interface UsageRow {
+  day: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  tool_calls: number;
+  documents: number;
+  turns: number;
+  credits: number;
+}
+
+export interface UsageAccount {
+  username: string;
+  plan: string;
+  billing_cycle: string;
+  status: string;
+  credits: number;
+  usage: UsageRow[];
+}
+
+export const fetchAdminUsage = async (): Promise<{ status: string; accounts: UsageAccount[] }> => {
+  const res = await apiFetch('/api/admin/usage');
+  if (!res.ok) {
+    if (res.status === 403) throw new Error('需要管理员权限。');
+    throw new Error('读取用量数据失败。');
+  }
+  return res.json();
+};
+
+/* ── 我的额度 ─────────────────────────────────────────────────────────── */
+
+export interface MyCredits {
+  username: string;
+  plan: string;
+  billing_cycle: string;
+  credits: number;
+  multiplier: number;
+  credit_quota: number | null;
+  exempt: boolean;
+}
+
+/** 当前账号的余额与套餐：侧栏余额、Business 入口与设置页都读这一份。 */
+export const fetchMyCredits = async (): Promise<MyCredits> => {
+  const res = await apiFetch('/api/credits');
+  if (!res.ok) throw new Error('读取额度失败。');
+  return res.json();
+};
+
+/* ── Business：母账号管理子账号 ───────────────────────────────────────── */
+
+/** 403 表示当前账号不是 Business 套餐：调用方据此渲染说明页，而不是错误屏。 */
+export class PlanForbiddenError extends Error {
+  constructor(message = '仅 Business 账号可用。') {
+    super(message);
+    this.name = 'PlanForbiddenError';
+  }
+}
+
+export interface BusinessSubAccount {
+  username: string;
+  status: string;
+  credits: number;
+  /** 预算上限；null 表示不限。 */
+  quota: number | null;
+  usage: UsageRow[];
+}
+
+export interface BusinessOverview {
+  parent_credits: number;
+  max_users: number | null;
+  subaccounts: BusinessSubAccount[];
+}
+
+export const fetchBusinessOverview = async (): Promise<BusinessOverview> => {
+  const res = await apiFetch('/api/business/subaccounts');
+  if (res.status === 403) throw new PlanForbiddenError();
+  if (!res.ok) throw new Error('读取子账号失败。');
+  return res.json();
+};
+
+export interface BusinessAllocation {
+  status: string;
+  username: string;
+  parent_credits: number;
+  child_credits: number;
+}
+
+/** 母账号划转 credits 给子账号；返回划转后的双方余额。 */
+export const allocateSubaccountCredits = async (
+  username: string,
+  credits: number
+): Promise<BusinessAllocation> => {
+  const res = await apiFetch(`/api/business/subaccounts/${encodeURIComponent(username)}/credits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credits })
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data?.detail === 'string' ? data.detail : '分配 credits 失败。');
+  }
+  return res.json();
+};
+
+/* ── 开屏公告 ─────────────────────────────────────────────────────────── */
+
+export type AnnouncementLevel = 'info' | 'warning' | 'danger';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  level: AnnouncementLevel;
+  audience?: string[];
+  starts_at?: string | null;
+  ends_at?: string | null;
+  active?: boolean;
+  created_by?: string | null;
+  created_at?: string | null;
+}
+
+export interface AnnouncementInput {
+  title: string;
+  body: string;
+  level: AnnouncementLevel;
+  audience: string[];
+  starts_at?: string | null;
+  ends_at?: string | null;
+  active: boolean;
+}
+
+const announcementError = async (response: Response, fallback: string) =>
+  response.json()
+    .then(data => {
+      const detail = (data as any)?.detail;
+      if (typeof detail === 'string') return new Error(detail);
+      return new Error(fallback);
+    })
+    .catch(() => new Error(fallback));
+
+export const fetchAnnouncements = async (): Promise<{ status: string; announcements: Announcement[] }> => {
+  const res = await apiFetch('/api/announcements');
+  if (!res.ok) throw new Error('读取公告失败。');
+  return res.json();
+};
+
+export const fetchAdminAnnouncements = async (): Promise<{ status: string; announcements: Announcement[] }> => {
+  const res = await apiFetch('/api/admin/announcements');
+  if (!res.ok) throw await announcementError(res, '读取公告列表失败。');
+  return res.json();
+};
+
+export const createAnnouncement = async (payload: AnnouncementInput): Promise<Announcement> => {
+  const res = await apiFetch('/api/admin/announcements', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw await announcementError(res, '保存公告失败。');
+  const data = await res.json();
+  return data.announcement as Announcement;
+};
+
+export const updateAnnouncement = async (
+  id: string,
+  patch: Partial<AnnouncementInput>
+): Promise<Announcement> => {
+  const res = await apiFetch(`/api/admin/announcements/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch)
+  });
+  if (!res.ok) throw await announcementError(res, '保存公告失败。');
+  const data = await res.json();
+  return data.announcement as Announcement;
+};
+
+export const deleteAnnouncement = async (id: string): Promise<void> => {
+  const res = await apiFetch(`/api/admin/announcements/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw await announcementError(res, '删除公告失败。');
+};
+
+
+export type ThrottleBucket = {
+  scope: 'account' | 'client';
+  key: string;
+  fails: number;
+  locked_seconds: number;
+  last_failed_at: number;
+};
+
+export const fetchThrottleBuckets = async (): Promise<{ buckets: ThrottleBucket[] }> => {
+  const response = await apiFetch('/api/admin/throttle');
+  if (!response.ok) throw new Error('无法读取登录节流状态');
+  return response.json();
 };

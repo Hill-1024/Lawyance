@@ -12,7 +12,18 @@ import auth as auth_service
 from infra import redis_backend
 from memory_system import reload_embedding_config
 from workbench import api as workbench_api, worker as workbench_worker, migration as workbench_migration, backup as workbench_backup
-from routes import admin, auth, chat, court, releases, settings, spa, webdav, workspace
+from routes import (
+    admin,
+    announcements,
+    auth,
+    billing,
+    court,
+    health,
+    releases,
+    settings,
+    spa,
+    workspace,
+)
 from services import law_cache, release_sync, settings_service, stream_buffer, workspace_cleanup
 from services.app_security import security_and_logging_middleware
 
@@ -21,7 +32,14 @@ _logger = logging.getLogger("lawver.startup")
 
 
 def _prepare_request_shielding() -> None:
-    """启动时探测 Redis 并用有效会话预热布隆过滤器。"""
+    """启动时引导账号库、探测 Redis 并用有效会话预热布隆过滤器。"""
+    # 账号库现在在云端：这里显式连一次，让「没配数据库」或「引导失败」
+    # 在启动日志里就暴露，而不是拖到某个用户点登录。缺配置时不会中断启动。
+    auth_service.ensure_auth_store_ready()
+    if auth_service.auth_store_ready():
+        _logger.info("云端账号库已就绪。")
+    else:
+        _logger.warning("云端账号库不可用：登录与工作台将不可使用，请检查 LAWVER_DATABASE_URL。")
     redis_status = redis_backend.status()
     if redis_status["configured"]:
         _logger.info(
@@ -60,14 +78,15 @@ def create_app() -> FastAPI:
     # 1. 安全/日志中间件必须在路由前注册。
     app.middleware("http")(security_and_logging_middleware)
 
-    # 2. API 路由顺序固定：auth -> admin -> chat -> court -> releases -> workspace/upload/download。
+    # 2. API 路由顺序固定：health -> auth -> admin -> court -> releases -> workspace/upload/download。
+    app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(admin.router)
-    app.include_router(chat.router)
+    app.include_router(billing.router)
+    app.include_router(announcements.router)
     app.include_router(court.router)
     app.include_router(releases.router)
     app.include_router(settings.router)
-    app.include_router(webdav.router)
     app.include_router(workspace.router)
     app.include_router(workbench_backup.router)
     app.include_router(workbench_migration.router)
