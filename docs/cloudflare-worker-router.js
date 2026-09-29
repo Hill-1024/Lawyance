@@ -1,6 +1,11 @@
 /*
  * Cloudflare Worker 区域路径分流示例。
  *
+ * ⚠️ 已退役（2026-09-30）：区域路径前缀 + Worker 的分流方案被「主机名分机 +
+ * 本机分流核心」取代——lawver.dev 与 global.lawver.dev 各指一台机器，各机自己的
+ * deploy/router 按路径分派本机后端。本文件只作历史参考与回滚对照，新部署不要再接 Worker；
+ * 现行拓扑见 README 的「部署拓扑：主机名分机 + 本机分流核心」与 deploy/router/README.md。
+ *
  * 按路径前缀把请求转发到不同区域后端，并为 HTML 静态注入 <base>。
  *
  * 路径前缀会自动移除：
