@@ -68,7 +68,6 @@ def upgrade():
     for name, column_type, nullable, server_default in COLUMNS:
         if name in existing:
             continue
-        column = sa.Column(name, column_type, nullable=nullable, server_default=server_default)
         if is_sqlite:
             # sqlite 的 ADD COLUMN 不接受「NOT NULL 且无默认」；若给常量默认，回填前
             # 所有行同值，唯一索引也建不起来。uid 一律先加可空列、回填后靠唯一索引
@@ -83,7 +82,12 @@ def upgrade():
                 )
             )
         else:
+            # Postgres 同理：存量行让 NOT NULL 直加会被拒。uid 先可空、回填后补
+            # SET NOT NULL；带 server_default 的列（avatar_version）可以直加。
             op.add_column("accounts", column)
+            if not nullable and name == "uid":
+                _backfill_uid(conn)
+                op.alter_column("accounts", "uid", existing_type=sa.String(32), nullable=False)
 
     _backfill_uid(conn)
     conn.execute(
