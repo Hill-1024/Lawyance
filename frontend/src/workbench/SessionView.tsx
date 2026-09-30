@@ -1,10 +1,12 @@
 import { ChevronDown, CircleAlert, FileText, Pause, X } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { BrandMark } from "../components/Brand";
 import { WorkflowStatusIcon } from "../components/WorkflowStatusIcon";
 import { currentActivityLabel, ThoughtBlock } from "./activity";
+import { useT } from "../i18n";
 import { api, Item, Reference } from "./client";
 
 const CourtConversation = React.lazy(() => import("./CourtConversation"));
@@ -96,6 +98,8 @@ export function SessionView({
     );
   // 执行过程挂在「Lawver」标签行右侧：状态本身就是开关标签，展开后时间线出现在标签行下方。
   const [timelineOpen, setTimelineOpen] = React.useState(false);
+  const { t } = useT();
+  const reduceMotion = useReducedMotion();
   React.useEffect(() => {
     if (running) setTimelineOpen(true);
   }, [running]);
@@ -156,30 +160,42 @@ export function SessionView({
     )
   ) : null;
   // 时间线：只在展开且确有内容时出现；错误信息也在这里交代。
-  const timeline =
-    timelineOpen && run && (hasTimeline || run.data.error) ? (
-      <div className="wb-thought-list">
-        {run.data.error && <p className="wb-thought-error">{run.data.error}</p>}
-        {activityBlocks.map((block) => (
-          <div key={block.key} className={"wb-thought-block is-" + block.kind}>
-            <small>{block.label}</small>
-            <div className="wb-thought-copy">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
-            </div>
-          </div>
-        ))}
-        {events
-          .filter((event) => event.type === "document")
-          .map((event) => (
-            <div key={event.seq}>
-              <button onClick={() => onOpenDocument(event.content.document_id)}>
-                <FileText size={15} />
-                {event.content.title || "打开文档"}
-              </button>
+  // 展开/收起走高度过渡（与输入框高级面板、庭审选项同一手法）：直接挂载是硬切，
+  // 一大段思考内容会瞬间把下面的消息顶走。
+  const timeline = (
+    <AnimatePresence initial={false}>
+      {timelineOpen && run && (hasTimeline || run.data.error) ? (
+        <motion.div
+          className="wb-thought-list"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.2, 0, 0, 1] }}
+          style={{ overflow: "hidden" }}
+        >
+          {run.data.error && <p className="wb-thought-error">{run.data.error}</p>}
+          {activityBlocks.map((block) => (
+            <div key={block.key} className={"wb-thought-block is-" + block.kind}>
+              <small>{block.label}</small>
+              <div className="wb-thought-copy">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
+              </div>
             </div>
           ))}
-      </div>
-    ) : null;
+          {events
+            .filter((event) => event.type === "document")
+            .map((event) => (
+              <div key={event.seq}>
+                <button onClick={() => onOpenDocument(event.content.document_id)}>
+                  <FileText size={15} />
+                  {event.content.title || "打开文档"}
+                </button>
+              </div>
+            ))}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
 
   return (
     <section className={"wb-chat " + (showDoc ? "wb-agent" : "")}>
@@ -273,22 +289,35 @@ export function SessionView({
         )}
       </div>
       {/* 失败提示挂在会话层，不挂在消息里：失败路径不产出 assistant 消息，徽标与
-          「任务未完成」就永远没有落点，用户只看到自己那条消息，以为发送成功了。 */}
+          「任务未完成」就永远没有落点，用户只看到自己那条消息，以为发送成功了。
+          这里的「查看执行过程」很关键：失败时活动块与错误详情都在时间线里，
+          而徽标挂在 assistant 消息上，失败路径永远没有那个落点。 */}
       {failureNotice && (
         <div className="wb-run-failure" role="status">
           <CircleAlert size={16} />
           <div>
-            <strong>任务未完成</strong>
+            <strong>{t("workbench.session.runFailed")}</strong>
             <p>{failureNotice}</p>
           </div>
+          {run && (hasTimeline || !!run.data.error) && (
+            <button
+              className="wb-quiet"
+              aria-expanded={timelineOpen}
+              onClick={() => setTimelineOpen((open) => !open)}
+            >
+              {timelineOpen ? t("workbench.session.collapseRun") : t("workbench.session.viewRun")}
+              <ChevronDown size={12} className={timelineOpen ? "is-open" : ""} aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
+      {runFailed && !lastAssistantId && <div className="wb-run-thought">{timeline}</div>}
       <div className="wb-composer-wrap">
         {composer}
         <small className="wb-disclaimer">
           {offline
-            ? "离线可编辑草稿；联网后请主动发送。"
-            : "法律意见需结合事实核验 · 仅使用本次明确引用的资料"}
+            ? t("workbench.composer.offlineHint")
+            : t("workbench.composer.disclaimer")}
         </small>
       </div>
     </section>

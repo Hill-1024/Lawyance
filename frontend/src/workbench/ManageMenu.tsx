@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { SelectField } from "./SelectField";
 import { Item } from "./client";
 
 /** 内容管理弹窗：会话/文档/项目的重命名、收藏、归档、跨空间移动与回收站。 */
@@ -46,20 +47,15 @@ export function ManageMenu({
           {item.data.archived ? "取消归档" : "归档"}
         </button>
         {item.kind !== "project" && (
-          <label>
-            移动到项目
-            <select
-              value={item.project_id || ""}
-              onChange={(event) => onMove(item, event.target.value || undefined)}
-            >
-              <option value="">个人工作区</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.title}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SelectField
+            label="移动到项目"
+            value={item.project_id || ""}
+            onChange={(value) => onMove(item, value || undefined)}
+            options={[
+              { value: "", label: "个人工作区" },
+              ...projects.map((project) => ({ value: project.id, label: project.title })),
+            ]}
+          />
         )}
         <button className="wb-danger" onClick={() => onDelete(item)}>
           移入回收站（保留 30 天）

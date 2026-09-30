@@ -15,7 +15,7 @@ import { usePortalMenuDismiss } from "./usePortalMenu";
 export type SelectOption = { value: string; label: string };
 
 // 菜单 portal 到 body：豁免列表要含菜单自身类名，否则按下菜单项时它已被卸载。
-const SELECT_MENU_SELECTORS = [".wb-select-menu", ".wb-select"] as const;
+const SELECT_MENU_SELECTORS = [".wb-choice-menu", ".wb-choice"] as const;
 
 export function SelectField({
   label,
@@ -23,12 +23,18 @@ export function SelectField({
   options,
   onChange,
   disabled = false,
+  className = "",
+  ariaLabel,
 }: {
   label?: string;
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
   disabled?: boolean;
+  /** 需要局部尺寸/间距覆盖时传入（例如文档工具栏的紧凑样式）。 */
+  className?: string;
+  /** 没有可见标签时（如工具栏里的紧凑下拉）用它给按钮一个可访问名。 */
+  ariaLabel?: string;
 }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<{ top: number; left: number } | null>(null);
@@ -55,9 +61,9 @@ export function SelectField({
   }, [disabled]);
 
   return (
-    <span className="wb-select">
+    <span className={"wb-choice" + (className ? " " + className : "")}>
       {label && (
-        <span className="wb-select-label" id={labelId}>
+        <span className="wb-choice-label" id={labelId}>
           {label}
         </span>
       )}
@@ -67,10 +73,11 @@ export function SelectField({
       <button
         ref={buttonRef}
         type="button"
-        className="wb-select-button"
+        className="wb-choice-button"
         aria-haspopup="listbox"
         aria-expanded={menu !== null}
-        aria-labelledby={label ? `${labelId} ${valueId}` : valueId}
+        aria-labelledby={label ? `${labelId} ${valueId}` : undefined}
+        aria-label={label ? undefined : ariaLabel}
         disabled={disabled}
         onClick={() => (menu ? setMenu(null) : open())}
         onKeyDown={(event) => {
@@ -85,7 +92,7 @@ export function SelectField({
       {menu &&
         createPortal(
           <div
-            className="wb-tab-menu wb-select-menu"
+            className="wb-tab-menu wb-choice-menu"
             role="listbox"
             aria-label={label || "选择"}
             style={{ position: "fixed", top: menu.top, left: menu.left }}
@@ -98,13 +105,13 @@ export function SelectField({
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={selected ? "wb-select-option is-selected" : "wb-select-option"}
+                  className={selected ? "wb-choice-option is-selected" : "wb-choice-option"}
                   onClick={() => {
                     setMenu(null);
                     if (!selected) onChange(option.value);
                   }}
                 >
-                  <span className="wb-select-check" aria-hidden="true">
+                  <span className="wb-choice-check" aria-hidden="true">
                     {selected ? <Check size={13} strokeWidth={2.4} /> : null}
                   </span>
                   {option.label}

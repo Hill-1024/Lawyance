@@ -7,6 +7,7 @@ import {createRoot} from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { MotionConfig } from 'motion/react';
 import App from './App';
+import { I18nProvider } from './i18n';
 import { DialogProvider } from './contexts/DialogContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { setupNativeChrome } from './lib/native-bootstrap';
@@ -27,11 +28,13 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">
       <BrowserRouter basename={BASE_PATH || undefined}>
-        <ThemeProvider>
-          <DialogProvider>
-            <App />
-          </DialogProvider>
-        </ThemeProvider>
+        <I18nProvider>
+          <ThemeProvider>
+            <DialogProvider>
+              <App />
+            </DialogProvider>
+          </ThemeProvider>
+        </I18nProvider>
       </BrowserRouter>
     </MotionConfig>
   </StrictMode>,

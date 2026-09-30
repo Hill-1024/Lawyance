@@ -35,14 +35,18 @@ export const usePortalMenuDismiss = (
       if (!insideMenu(event.target)) onClose();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (matchKeys(event, getBinding(SHORTCUT_IDS.overlayClose))) onClose();
+      if (!matchKeys(event, getBinding(SHORTCUT_IDS.overlayClose))) return;
+      // 捕获阶段吃掉：模态（设置页、对话框）也在 window 上监听 Escape，
+      // 不拦住的话菜单与模态会一起关掉，用户白丢一层。
+      event.stopPropagation();
+      onClose();
     };
     window.addEventListener("mousedown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
     if (closeOnResize) window.addEventListener("resize", onPointerDown);
     return () => {
       window.removeEventListener("mousedown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keydown", onKeyDown, true);
       if (closeOnResize) window.removeEventListener("resize", onPointerDown);
     };
   }, [open, onClose, selectors, closeOnResize]);

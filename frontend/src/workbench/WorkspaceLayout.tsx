@@ -1,4 +1,5 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { SelectField } from "./SelectField";
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { Columns2, Rows2, LayoutTemplate, GripVertical, RotateCcw } from "lucide-react";
 
@@ -100,8 +101,8 @@ export function LayoutToolbar({ workspace }: { workspace: ReturnType<typeof useW
     <AnimatePresence>{open && <motion.div initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-4}} transition={{duration:reduceMotion ? 0 : .14}} className="wb-layout-options" id="workspace-layout-options" onKeyDown={e => {if(e.key === "Escape") {e.stopPropagation();setOpen(false);}}}>
       <strong>工作区排列</strong><p>打开文档后生效。拖动面板把手可自由停靠。</p>
       {presets.map(({name,edge,Icon}) => <button key={name} aria-pressed={workspace.layout.agent === edge} onClick={() => {workspace.update({agent:edge,split:edge === "bottom" ? 45 : 35}); setOpen(false);}}><Icon size={18}/>{name}</button>)}
-      <label>Agent 位置<select value={workspace.layout.agent} onChange={e=>workspace.update({agent:e.target.value as Edge})}>{Object.entries({left:"左侧",right:"右侧",top:"上方",bottom:"下方"}).map(([value,label])=><option key={value} label={label} value={value}/>)}</select></label>
-      <label>项目导航<select value={workspace.layout.navigation} onChange={e=>workspace.update({navigation:e.target.value as "left"|"right"})}><option key="left" label="左侧" value="left"/><option key="right" label="右侧" value="right"/></select></label>
+      <SelectField label="Agent 位置" value={workspace.layout.agent} onChange={value=>workspace.update({agent:value as Edge})} options={Object.entries({left:"左侧",right:"右侧",top:"上方",bottom:"下方"}).map(([value,label])=>({value,label}))} />
+      <SelectField label="项目导航" value={workspace.layout.navigation} onChange={value=>workspace.update({navigation:value as "left"|"right"})} options={[{value:"left",label:"左侧"},{value:"right",label:"右侧"}]} />
       <button onClick={() => {workspace.reset();setOpen(false);}}><RotateCcw size={16}/>恢复默认排列</button>
     </motion.div>}</AnimatePresence>
   </div>;

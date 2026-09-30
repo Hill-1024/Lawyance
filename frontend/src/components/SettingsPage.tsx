@@ -75,6 +75,8 @@ import {
   StatusChip,
   fieldInputClass,
 } from './settings/SettingsUI';
+import { SelectField } from '../workbench/SelectField';
+import { LOCALES, useT, type Locale } from '../i18n';
 import { describeError } from '../lib/errors';
 
 /*
@@ -659,6 +661,7 @@ const AppearanceCard: React.FC<{
   refreshMonet,
   resolvedTheme,
 }) => {
+  const { locale, setLocale } = useT();
   const [seedDraft, setSeedDraft] = useState(customSeed);
   const seedValid = isHexColor(seedDraft);
 
@@ -775,6 +778,20 @@ const AppearanceCard: React.FC<{
               <span className="text-[11px] leading-4 text-[var(--fg-3)]">{monetDescription}</span>
             </button>
           </div>
+        </div>
+
+        {/* 界面语言：词条表在 frontend/src/i18n，新增语言只需在 LOCALES 里登记。 */}
+        <div className="min-w-0">
+          <p className="mb-2 text-[12px] font-medium text-[var(--fg-3)]">界面语言</p>
+          <SelectField
+            value={locale}
+            onChange={(value) => setLocale(value as Locale)}
+            options={Object.entries(LOCALES).map(([value, entry]) => ({
+              value,
+              label: entry.label,
+            }))}
+            ariaLabel="界面语言"
+          />
         </div>
 
         {colorSource === 'custom' && (
