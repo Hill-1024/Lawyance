@@ -694,7 +694,7 @@ export function DocumentPane({
                 <div
                   className="wb-overflow-menu"
                   role="menu"
-                  aria-label="更多文档操作"
+                  aria-label={t("workbench.doc.moreDocActions")}
                   style={{
                     position: "fixed",
                     top: overflowPos?.top,

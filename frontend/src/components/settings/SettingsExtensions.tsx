@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useT } from '../../i18n';
 import { ManageDialog } from '../../workbench/ManageDialog';
 import { api, type Item } from '../../workbench/client';
 import { Banner, CenteredSpinner } from './SettingsUI';
 import '../../workbench/workbench.css';
 export function SettingsExtensions() {
+  const { t } = useT();
   const [data, setData] = useState<{skills:Item[];connectors:Item[]}>();
   const [error,setError] = useState('');
   const [enabled,setEnabled] = useState<boolean>();
@@ -22,8 +24,8 @@ export function SettingsExtensions() {
     } catch(e) {if (alive.current) setError((e as Error).message);}
   },[]);
   useEffect(() => {alive.current = true; void load();},[load]);
-  if(error && !data) return <Banner tone="danger">{error}<button className="settings-back" onClick={() => void load()}>重试</button></Banner>;
-  if(enabled === false) return <Banner>该账号尚未启用云端工作台，技能与插件管理将在启用后提供。</Banner>;
-  if(!data) return <CenteredSpinner label="正在读取技能与插件…"/>;
-  return <><p className="settings-hint">管理可用能力；每次任务仍需明确选择要使用的技能或插件。</p>{error && <Banner tone="danger">{error}</Banner>}<div className="wb-app wb-settings-extensions"><ManageDialog embedded tab="skills" skills={data.skills} connectors={data.connectors} projects={[]} conversations={[]} documents={[]} onClose={() => {}} onReload={() => {void load();window.dispatchEvent(new Event('lawver:extensions-updated'));}} onError={setError}/></div></>;
+  if(error && !data) return <Banner tone="danger">{error}<button className="settings-back" onClick={() => void load()}>{t('common.retry')}</button></Banner>;
+  if(enabled === false) return <Banner>{t('settings.extensions.disabled')}</Banner>;
+  if(!data) return <CenteredSpinner label={t('settings.extensions.loading')}/>;
+  return <><p className="settings-hint">{t("settings.extensions.hint")}</p>{error && <Banner tone="danger">{error}</Banner>}<div className="wb-app wb-settings-extensions"><ManageDialog embedded tab="skills" skills={data.skills} connectors={data.connectors} projects={[]} conversations={[]} documents={[]} onClose={() => {}} onReload={() => {void load();window.dispatchEvent(new Event('lawver:extensions-updated'));}} onError={setError}/></div></>;
 }

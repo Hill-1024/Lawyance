@@ -16,7 +16,8 @@ declare const __LAWVER_BUILD_INFO__: LawverBuildInfo | undefined;
 const FALLBACK_BUILD_INFO: LawverBuildInfo = {
   appName: 'Lawver',
   version: '0.0.0',
-  description: '工大法智团队的中文法律 AI 助手原型',
+  // 仅作为构建元数据（构建脚本会覆盖）；界面上显示的是 settings.about.description 词条。
+  description: 'Lawver',
   environment: 'Development',
   buildTime: 'unknown',
   projectUrl: 'https://github.com/Hill-1024/Lawyance',
