@@ -1,4 +1,4 @@
-import { Gavel, MessageSquare, Plus, RefreshCw } from "lucide-react";
+import { Gavel, MessageSquare, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
 import React from "react";
 import { Item } from "./client";
 import { TabRef, tabKey } from "./tabs";
@@ -20,6 +20,8 @@ export type HomeViewProps = {
   onRefreshSuggestions: () => void;
   onApplySuggestion: (suggestion: SuggestionItem) => void;
   onOpenSession: (tab: TabRef) => void;
+  /** 行内「管理」：打开与侧栏同一个管理菜单（重命名/收藏/归档/移入回收站）。 */
+  onManageItem: (item: Item) => void;
   onOpenHistory: () => void;
   onOpenProject: (projectId: string) => void;
   onNewProject: () => void;
@@ -38,6 +40,7 @@ export function HomeView({
   onRefreshSuggestions,
   onApplySuggestion,
   onOpenSession,
+  onManageItem,
   onOpenHistory,
   onOpenProject,
   onNewProject,
@@ -103,17 +106,27 @@ export function HomeView({
           )}
         </header>
         {recentSessions.map(({ tab, item }) => (
-          <button className="wb-file-row" key={tabKey(tab)} onClick={() => onOpenSession(tab)}>
-            {tab.kind === "court" ? <Gavel size={17} /> : <MessageSquare size={17} />}
-            <span>
-              {item.title}
-              <small>
-                {new Date(item.updated_at).toDateString() === new Date().toDateString()
-                  ? "今天"
-                  : new Date(item.updated_at).toLocaleDateString()}
-              </small>
-            </span>
-          </button>
+          <div className="wb-file-row" key={tabKey(tab)}>
+            <button className="wb-file-row-main" onClick={() => onOpenSession(tab)}>
+              {tab.kind === "court" ? <Gavel size={17} /> : <MessageSquare size={17} />}
+              <span>
+                {item.title}
+                <small>
+                  {new Date(item.updated_at).toDateString() === new Date().toDateString()
+                    ? "今天"
+                    : new Date(item.updated_at).toLocaleDateString()}
+                </small>
+              </span>
+            </button>
+            {/* 悬停才露面，与侧栏文件行、标签关闭键同一档；此前这一行只有打开、没有管理入口。 */}
+            <button
+              className="wb-file-row-manage"
+              aria-label={"管理 " + item.title}
+              onClick={() => onManageItem(item)}
+            >
+              <MoreHorizontal size={14} />
+            </button>
+          </div>
         ))}
         {!recentSessions.length && <p className="wb-empty-hint">发送第一条消息，开启会话。</p>}
       </section>

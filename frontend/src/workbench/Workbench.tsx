@@ -1217,6 +1217,7 @@ export default function Workbench({ username }: { username: string }) {
               onRefreshSuggestions={() => void suggestions.load(space, true)}
               onApplySuggestion={applySuggestion}
               onOpenSession={pickSession}
+              onManageItem={setMenu}
               onOpenHistory={openHistory}
               onOpenProject={quick}
               onNewProject={createProject}

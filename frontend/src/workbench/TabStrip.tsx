@@ -147,7 +147,7 @@ export function TabStrip({
               <Reorder.Item
                 key={key}
                 value={tab}
-                className={"wb-tab" + (key === activeKey ? " is-active" : "")}
+                className={"wb-tab" + (key === activeKey ? " is-active" : "") + (isRunning ? " is-running" : "") + (!isRunning && state?.unseen ? " has-unseen" : "")}
                 onDragStart={() => {
                   dragged.current = true;
                 }}

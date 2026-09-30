@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowUp,
   Square,
@@ -10,6 +11,8 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Item, Reference, templates } from "./client";
+import { SelectField } from "./SelectField";
+import { AnimatedSwitch } from "../components/AnimatedSwitch";
 import { formatKeys, getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
 export type Draft = { text: string; references: Reference[] };
 export function Composer({
@@ -53,6 +56,7 @@ export function Composer({
     [query, setQuery] = useState(""),
     [index, setIndex] = useState(0),
     [advanced, setAdvanced] = useState(false);
+  const reduceMotion = useReducedMotion();
   // 候选列表按 fixed 定位：它开在输入框正上方，而 .wb-home 是 overflow:auto 的滚动容器，
   // 留在文档流里会被上方内容区裁掉大半。坐标仿照工作台其它菜单（space/thread/overflow）由 JS 算。
   const [popupPos, setPopupPos] = useState<{ left: number; width: number; bottom: number; maxHeight: number } | null>(null);
@@ -415,25 +419,41 @@ export function Composer({
           </button>
         )}
       </div>
-      {advanced && (
-        <div className="wb-advanced">
-          <label>
-            任务模式
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="default">标准</option>
-              <option value="plan_and_solve">规划与执行</option>
-            </select>
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={ocp}
-              onChange={(e) => setOcp(e.target.checked)}
-            />
-            高级输出审查
-          </label>
-        </div>
-      )}
+      {/* 展开/收起要有过渡：直接挂载是硬切，输入框高度会瞬间跳一截。
+          与庭审作曲区（.wc-options）同一套 motion 手法，reduced-motion 下时长归零。
+          内层承载分隔线与留白，动画只作用在最外层高度上，避免边框跟着闪烁。 */}
+      <AnimatePresence initial={false}>
+        {advanced && (
+          <motion.div
+            className="wb-advanced"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.16, ease: [0.2, 0, 0, 1] }}
+            style={{ overflow: "hidden" }}
+          >
+            <div className="wb-advanced-inner">
+              <SelectField
+                label="任务模式"
+                value={mode}
+                onChange={setMode}
+                options={[
+                  { value: "default", label: "标准" },
+                  { value: "plan_and_solve", label: "规划与执行" },
+                ]}
+              />
+              {/* 复选框换成应用里既有的开关（设置页同款），原生方框与这套 UI 不同源。 */}
+              <AnimatedSwitch
+                size="sm"
+                checked={ocp}
+                onCheckedChange={setOcp}
+                label="高级输出审查"
+                ariaLabel="高级输出审查"
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
