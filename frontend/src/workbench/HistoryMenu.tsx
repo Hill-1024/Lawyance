@@ -2,9 +2,12 @@ import { ChevronDown, Gavel, History, MessageSquare, Plus } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Item } from "./client";
-import { getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
+import { usePortalMenuDismiss } from "./usePortalMenu";
 
-/** 标签条右端的会话历史入口：下拉里是该空间的会话与庭审，外加新建会话。 */
+// 菜单 portal 到 body，必须把菜单自身类名也列进来，否则按下菜单项时菜单已被卸载。
+const KEEP_OPEN_SELECTORS = [".wb-thread-menu", ".wb-thread-history"] as const;
+
+/** 标签条右端的会话历史入口：下拉里是该空间的会话与庭审，外加新建会话/庭审。 */
 export type HistoryMenuProps = {
   conversations: Item[];
   courts: Item[];
@@ -16,6 +19,7 @@ export type HistoryMenuProps = {
   onOpenConversation: (id: string) => void;
   onOpenCourt: (id: string) => void;
   onNewSession: () => void;
+  onNewCourt: () => void;
 };
 
 export function HistoryMenu({
@@ -29,6 +33,7 @@ export function HistoryMenu({
   onOpenConversation,
   onOpenCourt,
   onNewSession,
+  onNewCourt,
 }: HistoryMenuProps) {
   const [pos, setPos] = useState<{ top: number; left: number }>();
   useLayoutEffect(() => {
@@ -43,21 +48,7 @@ export function HistoryMenu({
       ),
     });
   }, [open, buttonRef]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest?.(".wb-thread-history")) onToggle(false);
-    };
-    const esc = (event: KeyboardEvent) => {
-      if (matchKeys(event, getBinding(SHORTCUT_IDS.overlayClose))) onToggle(false);
-    };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", esc);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", esc);
-    };
-  }, [open, onToggle]);
+  usePortalMenuDismiss(open, () => onToggle(false), { selectors: KEEP_OPEN_SELECTORS });
   return (
     <div className="wb-thread-history">
       <button
@@ -123,6 +114,18 @@ export function HistoryMenu({
             >
               <Plus size={14} />
               新会话
+            </button>
+            {/* 此前全应用没有发起新建庭审的入口：/court/new 只能靠手输地址，而那条路径
+                又会被标签清理 effect 弹回 /home（同一张卡的另一半）。 */}
+            <button
+              role="menuitem"
+              onClick={() => {
+                onToggle(false);
+                onNewCourt();
+              }}
+            >
+              <Gavel size={14} />
+              新建庭审
             </button>
           </div>,
           document.body,

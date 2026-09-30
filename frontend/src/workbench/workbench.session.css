@@ -121,6 +121,28 @@
 .wb-run-badge[aria-expanded="true"] .wb-run-chevron {
   transform: rotate(180deg);
 }
+/* 会话级失败提示：失败路径不产出 assistant 消息，徽标没法挂在消息里。 */
+.wb-run-failure {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-danger-100);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-danger-500) 8%, var(--bg-surface));
+  color: var(--color-danger-500);
+  font-size: 13px;
+  line-height: 20px;
+}
+.wb-run-failure strong {
+  display: block;
+  font-weight: 600;
+}
+.wb-run-failure p {
+  margin: 2px 0 0;
+  color: var(--fg-2);
+}
 .wb-run-badge > svg {
   flex-shrink: 0;
 }

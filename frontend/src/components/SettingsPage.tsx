@@ -56,6 +56,7 @@ import { SettingsExtensions } from './settings/SettingsExtensions';
 import { SettingsShortcuts, ShortcutCheatSheet } from './settings/SettingsShortcuts';
 import {
   clearSecret,
+  changePassword,
   fetchMyCredits,
   getProviderStatus,
   getSettings,
@@ -74,6 +75,105 @@ import {
   StatusChip,
   fieldInputClass,
 } from './settings/SettingsUI';
+import { describeError } from '../lib/errors';
+
+/*
+ * 账号：自助修改密码。
+ * 此前只有管理员能在后台重置（且不需要旧密码），密码泄露后用户没有任何自助止损手段——
+ * 管理员的「无校验重置」因此成了唯一改密通道，反过来说也是个社会工程面。
+ * 改密语义：保留当前设备，其他设备的登录立即失效。
+ */
+const AccountCard: React.FC = () => {
+  const { showAlert } = useAppDialog();
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (next.length < 6) {
+      await showAlert({ title: '无法修改密码', message: '新密码至少 6 位字符。', tone: 'danger' });
+      return;
+    }
+    if (next !== repeat) {
+      await showAlert({ title: '无法修改密码', message: '两次输入的新密码不一致。', tone: 'danger' });
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await changePassword(current, next);
+      setCurrent('');
+      setNext('');
+      setRepeat('');
+      await showAlert({
+        title: '密码已更新',
+        message: result.revoked_sessions
+          ? `其他 ${result.revoked_sessions} 台设备的登录已失效，本设备继续有效。`
+          : '其他设备上的登录已失效，本设备继续有效。',
+        tone: 'success',
+      });
+    } catch (error) {
+      await showAlert({
+        title: '修改失败',
+        message: describeError(error, '修改密码失败，请稍后重试。'),
+        tone: 'danger',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field = (
+    label: string,
+    value: string,
+    onChange: (value: string) => void,
+    autoComplete: string,
+  ) => (
+    <label className="flex min-w-0 flex-col gap-1.5 text-[12px] font-medium text-[var(--fg-3)]">
+      {label}
+      <input
+        className={fieldInputClass}
+        type="password"
+        value={value}
+        autoComplete={autoComplete}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+
+  return (
+    <section className="min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-2)]">
+      <div className="flex min-w-0 items-center gap-3 border-b border-[var(--border-subtle)] p-4 sm:p-5">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-on)]">
+          <KeyRound size={20} strokeWidth={2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="t-title-m">修改密码</h2>
+          <p className="mt-0.5 text-[12px] leading-5 text-[var(--fg-3)]">
+            需要当前密码；改完后其他设备需重新登录，本设备不受影响
+          </p>
+        </div>
+      </div>
+      <form className="flex min-w-0 flex-col gap-4 p-4 sm:p-5" onSubmit={submit}>
+        {field('当前密码', current, setCurrent, 'current-password')}
+        {field('新密码', next, setNext, 'new-password')}
+        {field('确认新密码', repeat, setRepeat, 'new-password')}
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="submit"
+            disabled={busy}
+            className="lawver-pressable flex h-10 items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--accent)] px-4 text-[13px] font-medium text-[var(--accent-on)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} strokeWidth={2} />}
+            {busy ? '正在保存…' : '更新密码'}
+          </button>
+          <p className="text-[12px] text-[var(--fg-3)]">新密码至少 6 位字符</p>
+        </div>
+      </form>
+    </section>
+  );
+};
 
 const MODE_OPTIONS: Array<{
   value: ThemeMode;
@@ -208,7 +308,7 @@ export const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey
       } catch (error) {
         if (!cancelled) {
           setUserRole('user');
-          setLoadError((error as Error).message);
+          setLoadError(describeError(error, '读取设置失败，请稍后重试。'));
         }
       }
     };
@@ -254,7 +354,7 @@ export const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey
       setStatuses(await getProviderStatus().catch(() => []));
       setFeedback(`${label} 的非敏感配置已保存。`);
     } catch (error) {
-      await showAlert({ title: '保存失败', message: (error as Error).message || '保存配置时发生未知错误。', tone: 'danger' });
+      await showAlert({ title: '保存失败', message: describeError(error, '保存配置时发生未知错误。'), tone: 'danger' });
     } finally { setBusy(''); }
   };
 
@@ -268,7 +368,7 @@ export const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey
       setStatuses(await getProviderStatus().catch(() => []));
       setFeedback(`${label} 的凭据已更新。`);
     } catch (error) {
-      await showAlert({ title: '保存失败', message: (error as Error).message || '保存凭据时发生未知错误。', tone: 'danger' });
+      await showAlert({ title: '保存失败', message: describeError(error, '保存凭据时发生未知错误。'), tone: 'danger' });
     } finally { setBusy(''); }
   };
 
@@ -280,7 +380,7 @@ export const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey
       setStatuses(await getProviderStatus().catch(() => []));
       setFeedback(`${label} 的已保存凭据已清除。`);
     } catch (error) {
-      await showAlert({ title: '清除失败', message: (error as Error).message || '清除凭据时发生未知错误。', tone: 'danger' });
+      await showAlert({ title: '清除失败', message: describeError(error, '清除凭据时发生未知错误。'), tone: 'danger' });
     } finally { setBusy(''); }
   };
 
@@ -291,7 +391,7 @@ export const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey
       setStatuses(await getProviderStatus().catch(() => []));
       setFeedback(result.message || `${label} 配置完整。`);
     } catch (error) {
-      await showAlert({ title: '检测失败', message: (error as Error).message || '连接检测失败。', tone: 'danger' });
+      await showAlert({ title: '检测失败', message: describeError(error, '连接检测失败。'), tone: 'danger' });
     } finally { setBusy(''); }
   };
 
@@ -761,6 +861,7 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
   const reduceMotion = useReducedMotion();
   const categories = useMemo(() => [
     {id:'appearance', label:'外观', icon:Palette, hint:'主题、配色与显示'},
+    {id:'account', label:'账号', icon:KeyRound, hint:'修改密码与登录设备'},
     {id:'extensions', label:'技能与插件', icon:PlugZap, hint:'技能指令与 MCP 插件'},
     {id:'shortcuts', label:'操作快捷键', icon:Keyboard, hint:'按键绑定与恢复默认'},
     {id:'help', label:'帮助', icon:BookOpen, hint:'功能说明与使用指引'},
@@ -834,6 +935,7 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
   const select = (id: string) => {setQuery(''); navigate(`/settings/${id}`, {replace:true});};
   const renderPane = (key: string) => {
     if(key === 'extensions') return <SettingsExtensions/>;
+    if(key === 'account') return <><p className="settings-hint">密码只保存在服务端，改造后其他设备需重新登录。</p><AccountCard/></>;
     if(key === 'appearance') return <><p className="settings-hint">外观调整即时生效，并保存在当前设备。</p><AppearanceCard {...theme} /></>;
     if(key === 'shortcuts') return <SettingsShortcuts/>;
     if(key === 'help') return <HelpSection onStartTour={() => {void closeRef.current().then(closed => {if(closed) requestGuidedTour();});}}/>;

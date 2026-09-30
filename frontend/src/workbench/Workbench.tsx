@@ -47,6 +47,7 @@ import "./workbench.css";
 import { getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
 import { useBackButton } from "../hooks/useBackButton";
 import { useWorkspaceLayout } from "./WorkspaceLayout";
+import { describeError } from "../lib/errors";
 import { SessionView } from "./SessionView";
 import { TextDialog } from "./TextDialog";
 import { TabMenuItem, TabStrip } from "./TabStrip";
@@ -78,6 +79,9 @@ export default function Workbench({ username }: { username: string }) {
   }>();
   const workspace = useWorkspaceLayout(username);
   const [error, setError] = useState("");
+  // 子组件与各处 catch 报上来的原始错误统一过一遍翻译：浏览器网络层抛的是英文原文，
+  // 界面只该显示中文。也把它交给子组件的 onError，避免每个调用点各写一遍。
+  const reportError = React.useCallback((value: unknown) => setError(describeError(value)), []);
   const {
     projects,
     conversations,
@@ -231,7 +235,7 @@ export default function Workbench({ username }: { username: string }) {
         saved(d);
         openDocument(d);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => reportError(e));
   }
   useEffect(() => {
     if (!notice) return;
@@ -295,7 +299,7 @@ export default function Workbench({ username }: { username: string }) {
             encodeURIComponent(query),
         )
           .then(setResults)
-          .catch((e) => setError(e.message)),
+          .catch((e) => reportError(e)),
       180,
     );
     return () => clearTimeout(timer);
@@ -463,7 +467,7 @@ export default function Workbench({ username }: { username: string }) {
         if (scroll.current) scroll.current.scrollTop = position || 0;
       });
     } catch (e) {
-      setError(e.message);
+      reportError(e);
     }
   }
   // UI 入口只负责改路径；会话加载由路由同步 effect 驱动 loadConversation。
@@ -491,7 +495,7 @@ export default function Workbench({ username }: { username: string }) {
       setProjectId(d.project_id || undefined);
       setSidebar(false);
     } catch (e) {
-      setError(e.message);
+      reportError(e);
     }
   }
   function saved(d: Item) {
@@ -550,7 +554,7 @@ export default function Workbench({ username }: { username: string }) {
       for (const name of Object.keys(book)) next = purgeTabs(next, name, alive);
       return next;
     });
-    if ((!isConversationPath && !isCourtPath) || !routeUuid) return;
+    if ((!isConversationPath && !isCourtPath) || !routeUuid || routeUuid === "new") return;
     if (!alive({ kind: isCourtPath ? "court" : "conversation", id: routeUuid }))
       navigate(projectId ? "/project/" + encodeURIComponent(projectId) : "/home");
   }, [conversations, courtItems]);
@@ -654,7 +658,7 @@ export default function Workbench({ username }: { username: string }) {
         setMenu(undefined);
         reload();
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => reportError(e));
   }
   function renameItem(item: Item) {
     setTextDialog({
@@ -774,7 +778,7 @@ export default function Workbench({ username }: { username: string }) {
           await reload();
           quick(p.id);
         } catch (e) {
-          setError(e.message);
+          reportError(e);
         }
       },
     });
@@ -831,17 +835,24 @@ export default function Workbench({ username }: { username: string }) {
       navigate("/conversation/" + encodeURIComponent(c.id), { replace: true });
       reload();
     } catch (e) {
-      setError(e.message);
+      reportError(e);
     }
   }
   async function upload(files: File[]) {
     setUploading(true);
-    try {
-      for (const f of files) {
-        const body = new FormData();
-        body.append("file", f);
-        if (projectId) body.append("project_id", projectId);
+    // 逐文件处理：一个文件失败不该把剩下的静默丢掉，也要逐条给出原因——
+    // 批量选中的文件里混一个超限的，其余合法文件全不上传，用户会以为「都传过了」。
+    const failures: string[] = [];
+    const renamed: string[] = [];
+    let uploaded = 0;
+    for (const f of files) {
+      const body = new FormData();
+      body.append("file", f);
+      if (projectId) body.append("project_id", projectId);
+      try {
         const d = await api<Item>("/documents/upload", "POST", body);
+        uploaded += 1;
+        if (d.title !== f.name) renamed.push(`${f.name} → ${d.title}`);
         updateDraft({
           ...draftValue.current,
           references: [
@@ -854,18 +865,29 @@ export default function Workbench({ username }: { username: string }) {
             },
           ],
         });
+      } catch (e) {
+        failures.push(`${f.name}：${describeError(e, "上传失败")}`);
       }
-      await reload();
-      setNotice(
-        projectId
-          ? "文件已上传，并加入本次引用"
-          : "文件已存入个人工作区，可在管理菜单移动进项目",
-      );
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setUploading(false);
     }
+    if (uploaded) await reload();
+    setUploading(false);
+    if (!failures.length) {
+      // 成功必须清掉上一次的失败横幅：否则「重试成功」之后界面还挂着 Failed to fetch，
+      // 用户会以为没传上去，再传一遍。
+      setError("");
+      setNotice(
+        (projectId
+          ? "文件已上传，并加入本次引用"
+          : "文件已存入个人工作区，可在管理菜单移动进项目") +
+          (renamed.length ? `（同名文件已重命名：${renamed.join("；")}）` : ""),
+      );
+      return;
+    }
+    setError(
+      uploaded
+        ? `已上传 ${uploaded} 个，${failures.length} 个失败：${failures.join("；")}`
+        : `上传失败：${failures.join("；")}`,
+    );
   }
   function reference(r: Reference, action = "加入引用") {
     if(courtSelection) {if(!r.text){setNotice("请划选文档文字，作为本次庭审的公开引用。");return;}setCourtReference(r);setAgentVisible(true);setMobile("会话");return;}
@@ -900,7 +922,7 @@ export default function Workbench({ username }: { username: string }) {
       setMenu(undefined);
       reload();
     } catch (e) {
-      setError(e.message);
+      reportError(e);
     }
   }
   const composer = (
@@ -910,7 +932,7 @@ export default function Workbench({ username }: { username: string }) {
       onSend={send}
       onStop={() =>
         api("/runs/" + run.id + "/stop", "POST").catch((e) =>
-          setError(e.message),
+          reportError(e),
         )
       }
       onUpload={upload}
@@ -955,7 +977,7 @@ export default function Workbench({ username }: { username: string }) {
             reload();
             openConversation(c.id);
           })
-          .catch((e) => setError(e.message))
+          .catch((e) => reportError(e))
       }
       onOpenDocument={openDocumentById}
       onOpenReference={(referenceId) => {
@@ -966,7 +988,7 @@ export default function Workbench({ username }: { username: string }) {
       onSelectCourt={(id, pid) => openCourt(pid, id)}
       onCancelCourt={() => quick(projectId)}
       onClearCourtReference={() => setCourtReference(undefined)}
-      onError={setError}
+      onError={reportError}
     />
   );
   return (
@@ -1059,6 +1081,7 @@ export default function Workbench({ username }: { username: string }) {
                 onOpenConversation={(id) => pickSession({ kind: "conversation", id })}
                 onOpenCourt={(id) => pickSession({ kind: "court", id })}
                 onNewSession={() => quick(projectId)}
+                onNewCourt={() => navigate("/court/new")}
               />
               <button
                 className="wb-tabstrip-action"
@@ -1133,7 +1156,7 @@ export default function Workbench({ username }: { username: string }) {
                   user={username}
                   onSaved={saved}
                   onReference={reference}
-                  onError={setError}
+                  onError={reportError}
                 />
               </motion.section>
           )}
@@ -1260,7 +1283,7 @@ export default function Workbench({ username }: { username: string }) {
           documents={documents}
           onClose={() => setDialog("")}
           onReload={reload}
-          onError={setError}
+          onError={reportError}
         />
       )}
     </div>

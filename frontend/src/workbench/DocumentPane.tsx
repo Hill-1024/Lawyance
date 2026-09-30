@@ -42,6 +42,10 @@ import {
   CircleAlert,
 } from "lucide-react";
 import { TextDialog } from "./TextDialog";
+import { usePortalMenuDismiss } from "./usePortalMenu";
+
+// 「更多操作」菜单 portal 到 body：自身类名必须列入豁免，否则鼠标按下菜单项时菜单已被卸载。
+const OVERFLOW_MENU_SELECTORS = [".wb-overflow-menu", ".wb-overflow"] as const;
 import {
   api,
   binary,
@@ -258,20 +262,7 @@ export function DocumentPane({
     const items = native ? pending : [];
     editor.view.dispatch(editor.state.tr.setMeta(inlineKey, { items }));
   }, [editor, proposals, native]);
-  useEffect(() => {
-    if (!overflow) return;
-    const close = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest?.(".wb-overflow")) setOverflow(false);
-    };
-    const esc = (e: KeyboardEvent) =>
-      e.key === "Escape" && setOverflow(false);
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", esc);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", esc);
-    };
-  }, [overflow]);
+  usePortalMenuDismiss(overflow, () => setOverflow(false), { selectors: OVERFLOW_MENU_SELECTORS });
   useEffect(() => {
     cached<number>(user, "doc-position:" + doc.id).then((p) => {
       if (reading.current) reading.current.scrollTop = p || 0;

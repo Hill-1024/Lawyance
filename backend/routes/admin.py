@@ -145,6 +145,9 @@ async def patch_admin_account_status(
         set_account_status, admin_user, username, req.status
     )
     if not success:
+        # 越权要与格式错误分开：客户端和监控靠状态码区分，unlock 端点同样返 403。
+        if msg == "只能管理自己创建的账号":
+            raise HTTPException(status_code=403, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     return {"status": "success", "message": msg}
 

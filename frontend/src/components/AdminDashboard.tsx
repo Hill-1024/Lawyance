@@ -30,6 +30,7 @@ import { useAppBack } from '../hooks/useAppBack';
 import { useAppDialog } from '../contexts/DialogContext';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
+import { describeError } from '../lib/errors';
 import { LlmProfileManager } from './settings/LlmProfileManager';
 import {
   PROVIDER_DESCS,
@@ -302,7 +303,7 @@ const CreateAccountDialog: React.FC<{
       await setAccount(username.trim(), password, isSudo ? newRole : 'user', limits, provision);
       onDone(`账号「${username.trim()}」已创建。`);
     } catch (e: any) {
-      setError(e.message || '创建账号失败。');
+      setError(describeError(e, '创建账号失败。'));
     } finally {
       setBusy(false);
     }
@@ -477,7 +478,7 @@ const ResetPasswordDialog: React.FC<{
       await setAccount(account.username, password, account.role, {});
       onDone(`账号「${account.username}」的密码已重置，其设备需重新登录。`);
     } catch (e: any) {
-      setError(e.message || '重置密码失败。');
+      setError(describeError(e, '重置密码失败。'));
     } finally {
       setBusy(false);
     }
@@ -542,7 +543,7 @@ const LimitsDialog: React.FC<{
       await updateAccountLimits(account.username, limits);
       onDone(`账号「${account.username}」的配额已更新。`);
     } catch (e: any) {
-      setError(e.message || '保存配额失败。');
+      setError(describeError(e, '保存配额失败。'));
     } finally {
       setBusy(false);
     }
@@ -554,7 +555,7 @@ const LimitsDialog: React.FC<{
         {account.role === 'admin' ? (
           <>
             <label>
-              可创建用户上限 n
+              该管理员可创建的账号数上限
               <input
                 type="number"
                 min={0}
@@ -565,7 +566,7 @@ const LimitsDialog: React.FC<{
               />
             </label>
             <label>
-              其用户默认最大在线数 m
+              他创建的账号默认最大在线设备数
               <input
                 type="number"
                 min={0}
@@ -623,7 +624,7 @@ const TopUpDialog: React.FC<{
         `已为「${account.username}」充值 ${yuan} 元：到账 ${formatCredits(result.credited)} credits，当前余额 ${formatCredits(result.balance)} credits。`,
       );
     } catch (e: any) {
-      setError(e.message || '充值失败。');
+      setError(describeError(e, '充值失败。'));
     } finally {
       setBusy(false);
     }
@@ -693,7 +694,7 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
       setAccounts(data.accounts || []);
     } catch (e: any) {
       if (requestId !== requestIdRef.current) return;
-      setError(e.message || '读取账号失败。');
+      setError(describeError(e, '读取账号失败。'));
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
@@ -733,7 +734,7 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
       setFeedback(`账号「${account.username}」已${suspending ? '停用' : '启用'}。`);
       void load();
     } catch (e: any) {
-      setError(e.message || '更新账号状态失败。');
+      setError(describeError(e, '更新账号状态失败。'));
     } finally {
       setBusyUser('');
     }

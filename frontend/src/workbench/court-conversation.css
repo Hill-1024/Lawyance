@@ -45,6 +45,9 @@
 .wc-reference-row { display:flex; flex-wrap:wrap; gap:6px; }
 .wc-reference-row > span { display:flex; align-items:center; gap:6px; padding:2px 8px; border:1px solid var(--wb-line); border-radius:var(--radius-sm); font-size:12px; margin-bottom:8px; max-width:100%; overflow-wrap:anywhere; }
 .wc-reference-row button { padding:0; min-height:28px; }
+/* 图片附件发送前的缩略图：pendingUploads 早就生成了 previewUrl，却没有任何渲染点，
+   于是图片和普通文档在待发送区长得一模一样，误发只能事后发现。 */
+.wc-reference-row .wc-reference-thumb { width:22px; height:22px; object-fit:cover; border-radius:var(--radius-xs); border:1px solid var(--wb-line); }
 .wc-continuation { display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--wb-muted); font-size:10px; margin-top:6px; }
 .wc-continuation > span { display:flex; align-items:center; gap:5px; }
 .wc-continuation button { color:var(--wb-blue); min-height:30px; }

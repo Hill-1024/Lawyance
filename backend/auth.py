@@ -1082,6 +1082,9 @@ def create_session(
     record = auth_store.get_user(username)
     if record is None:
         return False, "账号不存在", None, []
+    # 兜底：签发会话不止登录一个入口，状态检查不能只放在 authenticate_user。
+    if (record.get("status") or "active") == "suspended":
+        return False, "账号已停用，请联系管理员", None, []
     sid = secrets.token_urlsafe(32)
     ok, message, evicted = auth_store.reserve_session(
         sid=sid,
@@ -1138,6 +1141,62 @@ def revoke_user_sessions(username: str) -> int:
         _drop_session_cache(session["sid"])
     redis_backend.execute(lambda client: client.delete(_online_key(username)))
     return auth_store.revoke_user_sessions(username)
+
+
+def revoke_other_sessions(username: str, keep_sid: Optional[str]) -> int:
+    """撤销该账号除 keep_sid 之外的会话：改密后其他设备下线，当前设备继续用。"""
+    removed = 0
+    for session in auth_store.list_sessions(
+        usernames=[username], online_window=ONLINE_WINDOW_SECONDS
+    ):
+        sid = session["sid"]
+        if keep_sid and sid == keep_sid:
+            continue
+        _drop_session_cache(sid)
+        if auth_store.revoke_session(sid):
+            removed += 1
+    return removed
+
+
+def change_password(
+    username: str,
+    current_password: str,
+    new_password: str,
+    *,
+    keep_sid: Optional[str] = None,
+) -> tuple[bool, str, int]:
+    """用户自助改密：校验旧密码、写入新摘要，并踢掉其他设备的会话。
+
+    返回 (是否成功, 提示, 被撤销的会话数)。管理员重置密码走 upsert_account，语义是
+    「全部端重登」；这里保留当前设备——用户正在用的这台不该因为改密而被踢。
+    """
+    _ensure_auth_store()
+    record = auth_store.get_user(username)
+    if not isinstance(record, dict):
+        return False, "账号不存在", 0
+    if (record.get("status") or "active") == "suspended":
+        return False, "账号已停用，请联系管理员", 0
+    if not isinstance(new_password, str) or len(new_password) > AUTH_PASSWORD_MAX_LENGTH:
+        return False, f"密码长度不能超过 {AUTH_PASSWORD_MAX_LENGTH} 位", 0
+    if len(new_password) < PASSWORD_MIN_LENGTH:
+        return False, f"密码长度不能小于 {PASSWORD_MIN_LENGTH} 位", 0
+    if not verify_password(current_password, record.get("password_hash")):
+        return False, "当前密码不正确", 0
+    if verify_password(new_password, record.get("password_hash")):
+        return False, "新密码不能与当前密码相同", 0
+
+    with _auth_state_lock():
+        if not auth_store.update_user(username, password_hash=hash_password(new_password)):
+            return False, "保存失败，请稍后重试", 0
+    removed = revoke_other_sessions(username, keep_sid)
+    # 改密成功顺手解开登录锁定：用户已经证明了自己是谁，不必再等满锁定窗口。
+    try:
+        from infra import throttle
+
+        throttle.unlock(username)
+    except Exception:
+        _logger.exception("改密后解除锁定时失败：%s", username)
+    return True, "密码已更新，其他设备需重新登录", removed
 
 
 def list_sessions(actor: Optional[str] = None, *, online_only: bool = False) -> list:
@@ -1262,11 +1321,20 @@ def authenticate_user(username, password, client_identity: str = "unknown"):
 
     lock_msg = check_lockout(username, client_identity)
     if lock_msg:
+        # 锁定期间对**密码错误**的尝试仍回统一文案，不向猜密码的人泄露账号是否被锁；
+        # 但密码正确的本人必须看到锁定提示——否则他会以为密码被改了，只能干等或找管理员。
+        if verify_password(password, user_data.get("password_hash")):
+            return False, lock_msg
         verify_password(password, _DUMMY_PASSWORD_HASH)
         return False, "用户名或密码错误"
 
     hashed = user_data.get("password_hash")
     if verify_password(password, hashed):
+        # 停用必须在这里拦住：只靠停用时撤销存量会话的话，被停用者用正确密码就能拿回全新会话，
+        # 「停用」等于没停。放在密码校验之后是有意的——向猜密码的人泄露账号状态没有必要，
+        # 而密码正确的本人才需要知道真相。
+        if (user_data.get("status") or "active") == "suspended":
+            return False, "账号已停用，请联系管理员"
         record_login_attempt(username, True, client_identity, account_exists=True)
         if password_needs_rehash(hashed):
             try:

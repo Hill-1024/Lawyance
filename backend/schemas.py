@@ -206,6 +206,13 @@ class LoginRequest(RequestModel):
     password: str = Field(min_length=1, max_length=MAX_PASSWORD_CHARS)
 
 
+class ChangePasswordRequest(RequestModel):
+    """自助改密：旧密码是本人证明，新密码长度交给 auth.change_password 统一校验。"""
+
+    current_password: str = Field(min_length=1, max_length=MAX_PASSWORD_CHARS)
+    new_password: str = Field(min_length=1, max_length=MAX_PASSWORD_CHARS)
+
+
 class AccountRequest(RequestModel):
     username: str = Field(min_length=1, max_length=MAX_USERNAME_CHARS)
     password: str = Field(min_length=6, max_length=MAX_PASSWORD_CHARS)

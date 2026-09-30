@@ -21,6 +21,7 @@ from workbench.store import (
 )
 from workbench.documents import native, text_of, extract, save_version
 from workbench import connectors
+from infra import database
 
 log = logging.getLogger("lawver.workbench")
 worker_id = new_id()
@@ -377,6 +378,8 @@ async def execute(identifier, user):
     answer = ""
     trace = []
     failure = False
+    # 失败原因要落到 run 上：界面只能读 run/消息，日志对用户和客服都看不见。
+    failure_reason = ""
     import time
 
     pending = ""
@@ -391,6 +394,7 @@ async def execute(identifier, user):
                 trace.extend(event.get("content", []))
             elif event.get("type") == "error":
                 failure = True
+                failure_reason = str(event.get("content") or "").strip()[:300]
             if event.get("type") == "content":
                 pending += event.get("content", "")
                 if time.monotonic() - last_flush < 0.15 and len(pending) < 1000:
@@ -463,7 +467,15 @@ async def execute(identifier, user):
                     "content": "一份工具产物无法归档，请检查任务结果。",
                 },
             )
-    change_state(identifier, status="failed" if failure else "completed")
+    change_state(
+        identifier,
+        status="failed" if failure else "completed",
+        **(
+            {"error": failure_reason or "任务执行失败；过程和已完成产物已保留。"}
+            if failure
+            else {}
+        ),
+    )
     emit(identifier, {"type": "done"})
     # 结算放在最后：无论成功、失败还是中断，已经花掉的用量都要落账。
     summary = await asyncio.to_thread(billing_ledger.settle, turn)
@@ -523,10 +535,9 @@ async def loop():
 
 
 def start(app):
-    if (
-        os.environ.get("LAWVER_DATABASE_URL")
-        and os.environ.get("LAWVER_WORKBENCH_READ_ONLY") != "1"
-    ):
+    # 判据与 workbench.api 的门禁共用一处：只看 LAWVER_DATABASE_URL 的话，
+    # 测试模式（派生 sqlite）下界面能用、任务却永远停在 queued——比直接报错更难查。
+    if database.cloud_database_ready() and os.environ.get("LAWVER_WORKBENCH_READ_ONLY") != "1":
         app.state.workbench_worker = asyncio.create_task(loop())
 
 
