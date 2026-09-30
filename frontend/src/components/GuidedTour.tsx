@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { getGuidedTourSeen, setGuidedTourSeen, subscribeGuidedTourRequest } from '../lib/guided-tour';
+import { useT, type Translator } from '../i18n';
 
 type TourIcon = React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
 
@@ -153,69 +154,70 @@ const FeatureRow: React.FC<{ feature: TourFeature; index: number; reduceMotion: 
  * 工作台的入口和旧版聊天不一样，锚点也就不能用同一套：以 /home 上一定存在的三个控件为准。
  * 侧栏在窄屏是抽屉，主目标量不到时退回「打开导航」按钮，卡片会指着用户真正该按的那个键。
  */
-const WORKBENCH_STEPS: TourStep[] = [
+const workbenchSteps = (t: Translator): TourStep[] => [
   {
     id: 'welcome',
-    title: '欢迎使用 Lawver 工作台',
-    summary: '这是一份 30 秒的功能地图。跟着高亮的控件走一遍，你就知道每个入口在哪。',
+    title: t('tour.welcomeTitle'),
+    summary: t('tour.welcomeSummary'),
     icon: Sparkles,
     features: [
-      { icon: Folder, label: '一条线索走完全程', detail: '项目把资料、会话与庭审训练串在一起，上下文不会散落在各处。' },
-      { icon: BookOpen, label: '随时可以重看', detail: '这份指引在「设置 → 帮助与指引」里可以随时重新打开。' },
+      { icon: Folder, label: t('tour.welcomeFeature1'), detail: t('tour.welcomeFeature1Detail') },
+      { icon: BookOpen, label: t('tour.welcomeFeature2'), detail: t('tour.welcomeFeature2Detail') },
     ],
   },
   {
     id: 'space',
-    title: '左侧是文件区',
-    summary: '左侧只放当前工作区的资料；切换工作区也在这里，切过去时上方的会话标签会整组换掉。',
+    title: t('tour.sidebarTitle'),
+    summary: t('tour.sidebarSummary'),
     icon: MessageSquareText,
     target: 'wb-sidebar',
     fallbackTarget: 'wb-nav-toggle',
     features: [
-      { icon: Folder, label: '当前空间的文件', detail: '点文件即在主区打开，一个会话标签同时只显示一篇，切会话就切回它那篇。' },
-      { icon: Cloud, label: '上传资料', detail: '也可以把文件直接拖到页面任意位置，边写边收进当前工作区。' },
+      { icon: Folder, label: t('tour.sidebarFeature1'), detail: t('tour.sidebarFeature1Detail') },
+      { icon: Cloud, label: t('tour.sidebarFeature2'), detail: t('tour.sidebarFeature2Detail') },
     ],
   },
   {
     id: 'tabs',
-    title: '会话都在标签页里',
-    summary: '每个会话是一个标签，切换不丢上下文；同一个会话不会开出第二个标签。',
+    title: t('tour.tabsTitle'),
+    summary: t('tour.tabsSummary'),
     icon: MessageSquareText,
     target: 'wb-tabstrip',
     fallbackTarget: 'wb-nav-toggle',
     features: [
-      { icon: Plus, label: '＋ 新建会话', detail: '新开一个标签进入首页，当前标签不会被关掉。' },
-      { icon: MessageSquareText, label: '右键与拖动', detail: '右键可重命名、收藏、归档、移入回收站；拖动标签可以排序。' },
-      { icon: BookOpen, label: '右端两个按钮', detail: '会话历史下拉，以及会话全屏与并排文档之间的切换。' },
+      { icon: Plus, label: t('tour.tabsFeature1'), detail: t('tour.tabsFeature1Detail') },
+      { icon: MessageSquareText, label: t('tour.tabsFeature2'), detail: t('tour.tabsFeature2Detail') },
+      { icon: BookOpen, label: t('tour.tabsFeature3'), detail: t('tour.tabsFeature3Detail') },
     ],
   },
   {
     id: 'composer',
-    title: '输入区用符号引用上下文',
-    summary: '除了直接写问题，还能用三个符号把具体资料拉进这一轮对话，避免整库上下文互相干扰。',
+    title: t('tour.composerTitle'),
+    summary: t('tour.composerSummary'),
     icon: Send,
     target: 'wb-composer',
     features: [
-      { icon: Paperclip, label: '/ 选择任务模板', detail: '把常见文书与流程一键铺进输入框，再改细节。' },
-      { icon: MessageSquareText, label: '@ 引用文件或插件', detail: '只把这一轮要用的资料挂进来，其余不必进入上下文。' },
-      { icon: Sparkles, label: '$ 引用技能', detail: '选择已发布的技能，让这一轮按既定方法执行。' },
+      { icon: Paperclip, label: t('tour.composerFeature1'), detail: t('tour.composerFeature1Detail') },
+      { icon: MessageSquareText, label: t('tour.composerFeature2'), detail: t('tour.composerFeature2Detail') },
+      { icon: Sparkles, label: t('tour.composerFeature3'), detail: t('tour.composerFeature3Detail') },
     ],
   },
   {
     id: 'project',
-    title: '用项目收拢一次法律工作',
-    summary: '新建项目后，资料、会话与文书都挂在同一条线索下，换设备也能顺着找回。',
+    title: t('tour.projectTitle'),
+    summary: t('tour.projectSummary'),
     icon: Plus,
     target: 'wb-new-project',
     features: [
-      { icon: Plus, label: '新建项目', detail: '为案件、客户或研究主题建一条独立线索。' },
-      { icon: Folder, label: '项目资料', detail: '放进项目的文件会出现在每个会话的引用候选里。' },
+      { icon: Plus, label: t('tour.projectFeature1'), detail: t('tour.projectFeature1Detail') },
+      { icon: Folder, label: t('tour.projectFeature2'), detail: t('tour.projectFeature2Detail') },
     ],
   },
 ];
 
 export const GuidedTour: React.FC = () => {
-  const steps = WORKBENCH_STEPS;
+  const { t } = useT();
+  const steps = workbenchSteps(t);
   const reduceMotion = Boolean(useReducedMotion());
   const [isOpen, setIsOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
@@ -476,7 +478,7 @@ export const GuidedTour: React.FC = () => {
                   type="button"
                   onClick={closeTour}
                   className="lawver-pressable -mr-1 -mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--fg-1)]"
-                  aria-label="关闭指引"
+                  aria-label={t("tour.close")}
                 >
                   <X size={17} strokeWidth={2} />
                 </button>
@@ -500,7 +502,7 @@ export const GuidedTour: React.FC = () => {
 
               <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-5 py-3.5">
                 {/* 分段进度条：当前段用 spring 撑开，取代原来的无限脉冲圆点。 */}
-                <div className="flex min-w-0 flex-1 items-center gap-1.5" role="group" aria-label="步骤进度">
+                <div className="flex min-w-0 flex-1 items-center gap-1.5" role="group" aria-label={t("tour.progress")}>
                   {steps.map((step, index) => (
                     <button
                       key={step.id}
@@ -508,7 +510,7 @@ export const GuidedTour: React.FC = () => {
                       tabIndex={-1}
                       onClick={() => { setDirection(index > stepIndex ? 1 : -1); setStepIndex(index); }}
                       className="group flex h-8 min-w-0 flex-1 items-center"
-                      aria-label={`第 ${index + 1} 步`}
+                      aria-label={t("tour.stepLabel", { index: index + 1 })}
                     >
                       <motion.span
                         className="block h-1.5 w-full rounded-full"
@@ -528,14 +530,14 @@ export const GuidedTour: React.FC = () => {
                     onClick={closeTour}
                     className="md3-btn-text min-h-10 whitespace-nowrap px-3 py-2 !text-[13px]"
                   >
-                    跳过
+                    {t("tour.skip")}
                   </button>
                   <button
                     type="button"
                     onClick={goBack}
                     disabled={isFirstStep}
                     className="lawver-pressable inline-flex h-10 w-10 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--bg-inset)] hover:text-[var(--fg-1)] disabled:pointer-events-none disabled:opacity-30"
-                    aria-label="上一步"
+                    aria-label={t("tour.prev")}
                   >
                     <ArrowLeft size={17} strokeWidth={2} />
                   </button>
@@ -547,11 +549,11 @@ export const GuidedTour: React.FC = () => {
                     {isLastStep ? (
                       <>
                         <Check size={15} strokeWidth={2.4} />
-                        开始使用
+                        {t("tour.start")}
                       </>
                     ) : (
                       <>
-                        下一步
+                        {t("tour.next")}
                         <ArrowRight size={15} strokeWidth={2.4} />
                       </>
                     )}
