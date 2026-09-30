@@ -148,6 +148,8 @@ const InlineProposals = Extension.create({
   },
 });
 
+type SaveStatus = "saved" | "restoredDraft" | "unsaved" | "offlineDraft" | "cacheFailed" | "saving" | "saveFailed" | "cloudAdopted";
+
 export function DocumentPane({
   document: doc,
   user,
@@ -166,7 +168,8 @@ export function DocumentPane({
   const [linkDialog, setLinkDialog] = useState(false);
   const [overflow, setOverflow] = useState(false);
   const [overflowPos, setOverflowPos] = useState<{ top: number; right: number }>();
-  const [status, setStatus] = useState("已保存"),
+  // 保存状态存"码"不存文案：图标与分支判断都按码走，切语言不影响逻辑。
+  const [status, setStatus] = useState<SaveStatus>("saved"),
     [conflict, setConflict] = useState<Item>(),
     [versions, setVersions] = useState<any[]>(),
     [proposals, setProposals] = useState<Item[]>([]),
@@ -204,7 +207,7 @@ export function DocumentPane({
       TableKit,
       Image.configure({ allowBase64: true }),
       PageBreak,
-      Placeholder.configure({ placeholder: "开始撰写…" }),
+      Placeholder.configure({ placeholder: t("workbench.doc.editorPlaceholder") }),
       InlineProposals,
     ],
     content: doc.data.content || {
@@ -281,7 +284,7 @@ export function DocumentPane({
         editorRef.current?.commands.setContent(d.content, {
           emitUpdate: false,
         });
-        setStatus("已恢复本地草稿");
+        setStatus("restoredDraft");
         if (d.revision !== doc.revision) {
           blocked.current = true;
           setConflict(doc);
@@ -291,16 +294,16 @@ export function DocumentPane({
   }, [doc.id]);
   function schedule(content: any) {
     markDirty(true);
-    setStatus(navigator.onLine ? "尚未保存" : "离线草稿");
+    setStatus(navigator.onLine ? "unsaved" : "offlineDraft");
     remember(user, "doc-draft:" + doc.id, {
       revision: latest.current.revision,
       content,
-    }).catch(() => setStatus("本地缓存失败，请导出草稿"));
+    }).catch(() => setStatus("cacheFailed"));
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       serial.current = serial.current.then(async () => {
         if (blocked.current || !navigator.onLine) return;
-        setStatus("正在保存…");
+        setStatus("saving");
         try {
           const d = await api<Item>(`/documents/${doc.id}/content`, "PUT", {
             expected_revision: latest.current.revision,
@@ -313,7 +316,7 @@ export function DocumentPane({
           ) {
             markDirty(false);
             await remember(user, "doc-draft:" + doc.id, null);
-            if (alive.current) setStatus("已保存");
+            if (alive.current) setStatus("saved");
           }
           if (alive.current) onSaved(d);
         } catch (e) {
@@ -321,7 +324,7 @@ export function DocumentPane({
             blocked.current = true;
             setConflict(e.current);
           }
-          if (alive.current) setStatus("保存失败 · 本地草稿已保留");
+          if (alive.current) setStatus("saveFailed");
         }
       });
     }, 800);
@@ -423,7 +426,7 @@ export function DocumentPane({
       .catch((e) => onError(e.message));
   async function decision(p: Item, action: "accept" | "reject") {
     try {
-      if (dirty.current) throw new Error("请先保存本地文档，再审阅建议");
+      if (dirty.current) throw new Error(t("workbench.doc.saveBeforeReview"));
       const result = await api(
         `/change-proposals/${p.id}/decision`,
         "POST",
@@ -454,11 +457,21 @@ export function DocumentPane({
     }
     setProposals(await api(`/change-proposals?document_id=${doc.id}`));
   }
-  const saveIcon = !native ? null : status.includes("正在保存") ? (
+  const statusText: Record<SaveStatus, string> = {
+    saved: t("workbench.doc.statusSaved"),
+    restoredDraft: t("workbench.doc.statusRestoredDraft"),
+    unsaved: t("workbench.doc.statusUnsaved"),
+    offlineDraft: t("workbench.doc.statusOfflineDraft"),
+    cacheFailed: t("workbench.doc.statusCacheFailed"),
+    saving: t("workbench.doc.statusSaving"),
+    saveFailed: t("workbench.doc.statusSaveFailed"),
+    cloudAdopted: t("workbench.doc.statusCloudAdopted"),
+  };
+  const saveIcon = !native ? null : status === "saving" ? (
     <Loader2 size={13} className="wb-spin" />
-  ) : status.includes("失败") ? (
+  ) : status === "saveFailed" ? (
     <CircleAlert size={13} />
-  ) : status === "已保存" || status.startsWith("已恢复") ? (
+  ) : status === "saved" || status === "restoredDraft" || status === "cloudAdopted" ? (
     <Check size={13} />
   ) : null;
   return (
@@ -468,16 +481,16 @@ export function DocumentPane({
           <>
             <div className="wb-toolbar-group">
               <button
-                title="撤销"
-                aria-label="撤销"
+                title={t("workbench.doc.undo")}
+                aria-label={t("workbench.doc.undo")}
                 disabled={!ui?.undo}
                 onClick={() => editor.chain().focus().undo().run()}
               >
                 <Undo />
               </button>
               <button
-                title="重做"
-                aria-label="重做"
+                title={t("workbench.doc.redo")}
+                aria-label={t("workbench.doc.redo")}
                 disabled={!ui?.redo}
                 onClick={() => editor.chain().focus().redo().run()}
               >
@@ -487,7 +500,7 @@ export function DocumentPane({
             <div className="wb-toolbar-group">
               <SelectField
                 className="wb-heading-select"
-                aria-label="段落格式"
+                aria-label={t("workbench.doc.paragraphFormat")}
                 value={ui?.heading || "p"}
                 onChange={(value) =>
                   value === "p"
@@ -499,47 +512,47 @@ export function DocumentPane({
                         .run()
                 }
                 options={[
-                  { value: "p", label: "正文" },
-                  { value: "1", label: "一级标题" },
-                  { value: "2", label: "二级标题" },
-                  { value: "3", label: "三级标题" },
+                  { value: "p", label: t("workbench.doc.paragraphBody") },
+                  { value: "1", label: t("workbench.doc.paragraphH1") },
+                  { value: "2", label: t("workbench.doc.paragraphH2") },
+                  { value: "3", label: t("workbench.doc.paragraphH3") },
                 ]}
               />
               <button
-                title="加粗"
-                aria-label="加粗"
+                title={t("workbench.doc.bold")}
+                aria-label={t("workbench.doc.bold")}
                 aria-pressed={ui?.bold}
                 onClick={() => editor.chain().focus().toggleBold().run()}
               >
                 <Bold />
               </button>
               <button
-                title="斜体"
-                aria-label="斜体"
+                title={t("workbench.doc.italic")}
+                aria-label={t("workbench.doc.italic")}
                 aria-pressed={ui?.italic}
                 onClick={() => editor.chain().focus().toggleItalic().run()}
               >
                 <Italic />
               </button>
               <button
-                title="下划线"
-                aria-label="下划线"
+                title={t("workbench.doc.underline")}
+                aria-label={t("workbench.doc.underline")}
                 aria-pressed={ui?.underline}
                 onClick={() => editor.chain().focus().toggleUnderline().run()}
               >
                 <u className="wb-u-glyph">U</u>
               </button>
               <button
-                title="删除线"
-                aria-label="删除线"
+                title={t("workbench.doc.strike")}
+                aria-label={t("workbench.doc.strike")}
                 aria-pressed={ui?.strike}
                 onClick={() => editor.chain().focus().toggleStrike().run()}
               >
                 <Strikethrough />
               </button>
               <button
-                title="高亮"
-                aria-label="高亮"
+                title={t("workbench.doc.highlight")}
+                aria-label={t("workbench.doc.highlight")}
                 aria-pressed={ui?.highlight}
                 onClick={() => editor.chain().focus().toggleHighlight().run()}
               >
@@ -548,16 +561,16 @@ export function DocumentPane({
             </div>
             <div className="wb-toolbar-group">
               <button
-                title="项目列表"
-                aria-label="项目列表"
+                title={t("workbench.doc.bulletList")}
+                aria-label={t("workbench.doc.bulletList")}
                 aria-pressed={ui?.bullet}
                 onClick={() => editor.chain().focus().toggleBulletList().run()}
               >
                 <List />
               </button>
               <button
-                title="编号列表"
-                aria-label="编号列表"
+                title={t("workbench.doc.orderedList")}
+                aria-label={t("workbench.doc.orderedList")}
                 aria-pressed={ui?.ordered}
                 onClick={() =>
                   editor.chain().focus().toggleOrderedList().run()
@@ -566,8 +579,8 @@ export function DocumentPane({
                 <ListOrdered />
               </button>
               <button
-                title="插入表格"
-                aria-label="插入表格"
+                title={t("workbench.doc.insertTable")}
+                aria-label={t("workbench.doc.insertTable")}
                 onClick={() =>
                   editor
                     .chain()
@@ -579,26 +592,26 @@ export function DocumentPane({
                 <Table />
               </button>
               <button
-                title="引用段落"
-                aria-label="引用段落"
+                title={t("workbench.doc.blockquote")}
+                aria-label={t("workbench.doc.blockquote")}
                 onClick={() => editor.chain().focus().toggleBlockquote().run()}
               >
                 <Quote />
               </button>
             </div>
             <div className="wb-toolbar-group">
-              <label className="wb-file-button wb-image-upload" title="插入图片">
+              <label className="wb-file-button wb-image-upload" title={t("workbench.doc.insertImage")}>
                 <ImagePlus aria-hidden="true" />
-                <span className="sr-only">插入图片</span>
+                <span className="sr-only">{t("workbench.doc.insertImage")}</span>
                 <input
                   type="file"
-                  aria-label="插入图片"
+                  aria-label={t("workbench.doc.insertImage")}
                   accept="image/png,image/jpeg,image/webp"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (!f) return;
                     if (f.size > 4 * 1024 * 1024) {
-                      onError("图片需小于 4 MB");
+                      onError(t("workbench.doc.imageTooLarge"));
                       return;
                     }
                     const reader = new FileReader();
@@ -613,15 +626,15 @@ export function DocumentPane({
                 />
               </label>
               <button
-                title="插入链接"
-                aria-label="插入链接"
+                title={t("workbench.doc.insertLink")}
+                aria-label={t("workbench.doc.insertLink")}
                 onClick={() => setLinkDialog(true)}
               >
                 <Link />
               </button>
               <button
-                title="插入分页"
-                aria-label="插入分页"
+                title={t("workbench.doc.insertPageBreak")}
+                aria-label={t("workbench.doc.insertPageBreak")}
                 onClick={() =>
                   editor.chain().focus().insertContent({ type: "pageBreak" }).run()
                 }
@@ -644,7 +657,7 @@ export function DocumentPane({
               }
             >
               <FilePlus2 size={15} />
-              创建编辑副本
+              {t("workbench.doc.createEditCopy")}
             </button>
           )}
           <button
@@ -656,12 +669,12 @@ export function DocumentPane({
             }
           >
             <Download size={15} />
-            {native ? "导出 Word" : "下载原件"}
+            {native ? t("workbench.doc.exportWord") : t("workbench.doc.downloadOriginal")}
           </button>
           <div className="wb-overflow">
             <button
-              title="更多文档操作"
-              aria-label="更多文档操作"
+              title={t("workbench.doc.moreDocActions")}
+              aria-label={t("workbench.doc.moreDocActions")}
               aria-expanded={overflow}
               onClick={(e) => {
                 if (!overflow) {
@@ -690,10 +703,10 @@ export function DocumentPane({
                 >
                   <button role="menuitem" onClick={() => { setOverflow(false); openVersions(); }}>
                     <History size={15} />
-                    版本记录
+                    {t("workbench.doc.versionHistory")}
                   </button>
                   <SelectField
-                    label="字号"
+                    label={t("workbench.doc.fontSize")}
                     value={String(font)}
                     onChange={(value) => setFont(+value)}
                     options={[15, 17, 19, 22].map((n) => ({ value: String(n), label: String(n) }))}
@@ -709,17 +722,17 @@ export function DocumentPane({
       )}
       {conflict && (
         <div className="wb-conflict">
-          <strong>另一设备已保存新版本，本地修改已保留</strong>
-          <p>当前云端版本 {conflict.revision}。先对照，再选择保留方式。</p>
+          <strong>{t("workbench.doc.conflictTitle")}</strong>
+          <p>{t("workbench.doc.conflictLead", { revision: conflict.revision })}</p>
           <details>
-            <summary>查看云端内容</summary>
+            <summary>{t("workbench.doc.viewCloud")}</summary>
             <pre>{JSON.stringify(conflict.data.content, null, 2)}</pre>
           </details>
           <button
             onClick={async () => {
               try {
                 const copy = await api<Item>("/documents", "POST", {
-                  title: doc.title + " · 冲突副本",
+                  title: doc.title + t("workbench.doc.conflictCopySuffix"),
                   project_id: doc.project_id,
                   content: editor.getJSON(),
                 });
@@ -733,7 +746,7 @@ export function DocumentPane({
               }
             }}
           >
-            将本地内容保存为副本
+            {t("workbench.doc.saveCopy")}
           </button>
           <button
             onClick={() => {
@@ -746,10 +759,10 @@ export function DocumentPane({
               remember(user, "doc-draft:" + doc.id, null);
               setConflict(undefined);
               onSaved(conflict);
-              setStatus("已采用云端版本");
+              setStatus("cloudAdopted");
             }}
           >
-            采用云端版本
+            {t("workbench.doc.useCloudVersion")}
           </button>
         </div>
       )}
@@ -844,9 +857,9 @@ export function DocumentPane({
         </div>
       )}
       {!!pending.length && (
-        <aside className="wb-review" aria-label="修改建议审阅">
+        <aside className="wb-review" aria-label={t("workbench.doc.reviewPanel")}>
           <header>
-            <strong>修改建议 · {pending.length}</strong>
+            <strong>{t("workbench.doc.reviewTitle", { count: pending.length })}</strong>
             <span className="wb-spacer" />
             <button
               className="wb-batch-reject"
@@ -854,7 +867,7 @@ export function DocumentPane({
               onClick={() => batch("reject")}
             >
               <X size={13} />
-              全部拒绝
+              {t("workbench.doc.rejectAll")}
             </button>
             <button
               className="wb-batch-accept"
@@ -862,7 +875,7 @@ export function DocumentPane({
               onClick={() => batch("accept")}
             >
               <Check size={13} />
-              全部接受
+              {t("workbench.doc.acceptAll")}
             </button>
           </header>
           <div className="wb-review-list">
@@ -870,7 +883,7 @@ export function DocumentPane({
               <div key={p.id} className="wb-review-card">
                 <button
                   className="wb-review-locate"
-                  title="在正文中定位"
+                  title={t("workbench.doc.locateInText")}
                   onClick={() => locate(p.id)}
                 >
                   <span>{p.data.reason}</span>
@@ -878,14 +891,14 @@ export function DocumentPane({
                 <del>{p.data.before}</del>
                 <ins>{p.data.after}</ins>
                 <footer>
-                  <small>基于版本 {p.data.base_revision}</small>
-                  <RouterLink to={"/conversation/" + p.data.conversation_id}>关联会话</RouterLink>
+                  <small>{t("workbench.doc.basedOnRevision", { revision: p.data.base_revision })}</small>
+                  <RouterLink to={"/conversation/" + p.data.conversation_id}>{t("workbench.doc.relatedSession")}</RouterLink>
                   <span className="wb-spacer" />
                   <button className="wb-quiet" onClick={() => decision(p, "reject")}>
-                    拒绝
+                    {t("workbench.doc.reject")}
                   </button>
                   <button className="wb-primary" onClick={() => decision(p, "accept")}>
-                    接受
+                    {t("workbench.doc.accept")}
                   </button>
                 </footer>
               </div>
@@ -894,19 +907,19 @@ export function DocumentPane({
         </aside>
       )}
       <footer className="wb-doc-status">
-        <span>{native ? `${ui?.chars ?? 0} 字符` : (doc.data.format || "").toUpperCase()}</span>
+        <span>{native ? t("workbench.doc.charsCount", { count: ui?.chars ?? 0 }) : (doc.data.format || "").toUpperCase()}</span>
         <span className="wb-save-state" role="status">
           {saveIcon}
-          {native ? status : "原始文件 · 只读"}
+          {native ? statusText[status] : t("workbench.doc.originalReadonly")}
         </span>
       </footer>
       {linkDialog && (
         <TextDialog
-          title="链接地址（https://）"
+          title={t("workbench.doc.linkTitle")}
           onClose={() => setLinkDialog(false)}
           onSubmit={(href) => {
             if (!/^https?:\/\//.test(href)) {
-              onError("请输入 HTTP 或 HTTPS 链接");
+              onError(t("workbench.doc.invalidLink"));
               return;
             }
             editor.chain().focus().setLink({ href }).run();
@@ -924,17 +937,17 @@ export function DocumentPane({
             className="wb-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="版本记录"
+            aria-label={t("workbench.doc.versionHistory")}
           >
             <header>
-              <h2>版本记录</h2>
-              <button onClick={() => setVersions(undefined)}>关闭</button>
+              <h2>{t("workbench.doc.versionHistory")}</h2>
+              <button onClick={() => setVersions(undefined)}>{t("common.close")}</button>
             </header>
-            <p>恢复会产生新版本，可再次撤销恢复。</p>
+            <p>{t("workbench.doc.restoreNote")}</p>
             {versions.map((v) => (
               <div className="wb-row" key={v.revision}>
                 <span>
-                  版本 {v.revision}
+                  {t("workbench.doc.versionLabel", { revision: v.revision })}
                   <small>{new Date(v.created_at).toLocaleString()}</small>
                 </span>
                 <button
@@ -956,7 +969,7 @@ export function DocumentPane({
                     }
                   }}
                 >
-                  恢复此版本
+                  {t("workbench.doc.restoreVersion")}
                 </button>
               </div>
             ))}
@@ -977,6 +990,7 @@ function OriginalPreview({
   onRegion: (r: Reference) => void;
   onError: (s: string) => void;
 }) {
+  const { t } = useT();
   const container = useRef<HTMLDivElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
     textLayer = useRef<HTMLDivElement>(null),
@@ -1087,7 +1101,7 @@ function OriginalPreview({
       await layer.render();
     })().catch((e) => {
       if (e.name !== "RenderingCancelledException" && !cancelled)
-        onError("PDF 页面无法渲染");
+        onError(t("workbench.doc.pdfRenderFailed"));
     });
     return () => {
       cancelled = true;
@@ -1111,7 +1125,7 @@ function OriginalPreview({
         return;
       }
     }
-    onError("未找到匹配文字");
+    onError(t("workbench.doc.noMatchText"));
   }
   function point(e: React.PointerEvent) {
     const b = e.currentTarget.getBoundingClientRect();
@@ -1166,7 +1180,7 @@ function OriginalPreview({
       {doc.data.format === "pdf" && (
         <div className="wb-preview-controls">
           <button
-            aria-label="上一页"
+            aria-label={t("workbench.doc.prevPage")}
             disabled={page === 1}
             onClick={() => setPage(page - 1)}
           >
@@ -1176,36 +1190,36 @@ function OriginalPreview({
             {page} / {pdf?.numPages || "…"}
           </span>
           <button
-            aria-label="下一页"
+            aria-label={t("workbench.doc.nextPage")}
             disabled={!pdf || page === pdf.numPages}
             onClick={() => setPage(page + 1)}
           >
             <ChevronRight size={16} />
           </button>
           <button
-            aria-label="缩小"
+            aria-label={t("workbench.doc.zoomOut")}
             onClick={() => setZoom(Math.max(0.5, zoom - 0.2))}
           >
             <ZoomOut size={16} />
           </button>
           <button
-            aria-label="放大"
+            aria-label={t("workbench.doc.zoomIn")}
             onClick={() => setZoom(Math.min(3, zoom + 0.2))}
           >
             <ZoomIn size={16} />
           </button>
-          <button aria-label="旋转页面" onClick={() => setRotation((rotation + 90) % 360)}>
+          <button aria-label={t("workbench.doc.rotatePage")} onClick={() => setRotation((rotation + 90) % 360)}>
             <RotateCw size={16} />
           </button>
           <input
-            aria-label="搜索 PDF"
-            placeholder="查找文档…"
+            aria-label={t("workbench.doc.searchPdf")}
+            placeholder={t("workbench.doc.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && find()}
           />
           <button className="wb-text-action" onClick={find}>
-            查找
+            {t("workbench.doc.find")}
           </button>
           <button
             className={"wb-text-action wb-box-toggle" + (boxMode ? " selected" : "")}
@@ -1213,7 +1227,7 @@ function OriginalPreview({
             onClick={() => setBoxMode(!boxMode)}
           >
             <Scan size={15} />
-            框选提问
+            {t("workbench.doc.selectRegionAsk")}
           </button>
         </div>
       )}
@@ -1263,7 +1277,7 @@ function OriginalPreview({
             onClick={() => setBoxMode(!boxMode)}
           >
             <Scan size={15} />
-            框选提问
+            {t("workbench.doc.selectRegionAsk")}
           </button>
         )}
       </div>
