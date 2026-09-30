@@ -1,12 +1,14 @@
 import { AnimatePresence, Reorder, motion, useReducedMotion } from "motion/react";
 import { Gavel, Loader, Menu, MessageSquare, PenLine, Plus, X } from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TabRef, tabKey } from "./tabs";
 import { usePortalMenuDismiss } from "./usePortalMenu";
 
 // 右键菜单是 portal 到 body 的：豁免列表里要有菜单自身的类名。
 const TAB_MENU_SELECTORS = [".wb-tab-menu"] as const;
+// 「+」的浮现菜单同理；触发按钮的容器也要在列，点「+」本身不算点外面。
+const NEW_MENU_SELECTORS = [".wb-tab-new-menu", ".wb-tab-new-wrap"] as const;
 
 export type TabMenuItem = {
   label: string;
@@ -28,6 +30,8 @@ type Props = {
   onClose: (tab: TabRef) => void;
   onReorder: (tabs: TabRef[]) => void;
   onCreate: () => void;
+  /** 「+」浮现菜单里的第二条路：新建模拟庭审。 */
+  onCreateCourt: () => void;
   onNav: () => void;
 };
 
@@ -47,10 +51,15 @@ export function TabStrip({
   onClose,
   onReorder,
   onCreate,
+  onCreateCourt,
   onNav,
 }: Props) {
   const reduceMotion = useReducedMotion();
   const [menu, setMenu] = useState<{ x: number; y: number; tab: TabRef }>();
+  const [newMenu, setNewMenu] = useState<{ top: number; left: number } | null>(null);
+  const newMenuTimer = useRef<number | null>(null);
+  const newMenuKeyboard = useRef(false);
+  const newMenuItems = useRef<Array<HTMLButtonElement | null>>([]);
   const dragged = useRef(false);
   const tabButtons = useRef(new Map<string, HTMLButtonElement>());
   const newTabButton = useRef<HTMLButtonElement>(null);
@@ -66,6 +75,43 @@ export function TabStrip({
   // 菜单 portal 到 body：豁免列表必须含菜单自身类名，否则鼠标按下菜单项时它已被卸载。
   usePortalMenuDismiss(menu !== undefined, () => setMenu(undefined), {
     selectors: TAB_MENU_SELECTORS,
+    closeOnResize: true,
+  });
+  const openNewMenu = useCallback(() => {
+    const button = newTabButton.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    const width = 200;
+    setNewMenu({
+      top: Math.round(rect.bottom + 6),
+      left: Math.round(Math.max(8, Math.min(rect.left - 4, window.innerWidth - width - 8))),
+    });
+  }, []);
+  const cancelNewMenuClose = useCallback(() => {
+    if (newMenuTimer.current !== null) {
+      window.clearTimeout(newMenuTimer.current);
+      newMenuTimer.current = null;
+    }
+  }, []);
+  const scheduleNewMenuClose = useCallback(() => {
+    cancelNewMenuClose();
+    // 宽限期：从「+」移到菜单上会先触发一次 mouseleave，立即关会让人够不着菜单项。
+    newMenuTimer.current = window.setTimeout(() => setNewMenu(null), 240);
+  }, [cancelNewMenuClose]);
+  const openNewMenuSoon = useCallback(() => {
+    cancelNewMenuClose();
+    newMenuKeyboard.current = false;
+    newMenuTimer.current = window.setTimeout(openNewMenu, 140);
+  }, [cancelNewMenuClose, openNewMenu]);
+  useEffect(() => () => cancelNewMenuClose(), [cancelNewMenuClose]);
+  // 只有键盘打开时才把焦点移进菜单；悬停打开时抢焦点会打断正在做的事。
+  useEffect(() => {
+    if (!newMenu || !newMenuKeyboard.current) return;
+    newMenuKeyboard.current = false;
+    newMenuItems.current[0]?.focus();
+  }, [newMenu]);
+  usePortalMenuDismiss(newMenu !== null, () => setNewMenu(null), {
+    selectors: NEW_MENU_SELECTORS,
     closeOnResize: true,
   });
   const group = (
@@ -172,15 +218,83 @@ export function TabStrip({
           })}
         </AnimatePresence>
       </Reorder.Group>
-      <button
-        className="wb-tab-new"
-        aria-label="新建会话标签页"
-        title="新建会话标签页"
-        ref={newTabButton}
-        onClick={onCreate}
+      {/* 「+」是分裂控件：点它仍然新建会话（默认行为），鼠标悬停 / 按 ↓ / 长按右键
+          才会浮现菜单，给出「会话」与「模拟庭审」两条路。菜单是整个移植里最容易漏的
+          一类交互，所以悬停开、移开经 240ms 宽限关，键盘与触屏各留一条入口。 */}
+      <div
+        className="wb-tab-new-wrap"
+        onMouseEnter={openNewMenuSoon}
+        onMouseLeave={scheduleNewMenuClose}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node)) setNewMenu(null);
+        }}
       >
-        <Plus size={15} />
-      </button>
+        <button
+          className="wb-tab-new"
+          aria-label="新建会话标签页"
+          aria-haspopup="menu"
+          aria-expanded={newMenu !== null}
+          title="新建会话标签页（悬停或按 ↓ 可选择模拟庭审）"
+          ref={newTabButton}
+          onClick={() => {
+            setNewMenu(null);
+            onCreate();
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowDown") return;
+            event.preventDefault();
+            newMenuKeyboard.current = true;
+            openNewMenu();
+          }}
+          onContextMenu={(event) => {
+            // 触屏没有 hover：长按会走 contextmenu，这里同样浮出菜单。
+            event.preventDefault();
+            newMenuKeyboard.current = false;
+            openNewMenu();
+          }}
+        >
+          <Plus size={15} />
+        </button>
+      </div>
+      {newMenu &&
+        createPortal(
+          <div
+            className="wb-tab-menu wb-tab-new-menu"
+            role="menu"
+            aria-label="新建"
+            style={{ position: "fixed", top: newMenu.top, left: newMenu.left }}
+            onMouseEnter={cancelNewMenuClose}
+            onMouseLeave={scheduleNewMenuClose}
+          >
+            <button
+              role="menuitem"
+              ref={(el) => {
+                newMenuItems.current[0] = el;
+              }}
+              onClick={() => {
+                setNewMenu(null);
+                onCreate();
+              }}
+            >
+              <MessageSquare size={14} />
+              会话
+            </button>
+            <button
+              role="menuitem"
+              ref={(el) => {
+                newMenuItems.current[1] = el;
+              }}
+              onClick={() => {
+                setNewMenu(null);
+                onCreateCourt();
+              }}
+            >
+              <Gavel size={14} />
+              模拟庭审
+            </button>
+          </div>,
+          document.body,
+        )}
     </motion.div>
   );
   return (
