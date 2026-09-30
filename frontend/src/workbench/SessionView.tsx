@@ -68,6 +68,8 @@ export function SessionView({
   onClearCourtReference,
   onError,
 }: SessionViewProps) {
+  // 放在早退之前：庭审分支也要用词条，且无条件调用 hook 顺序才稳定。
+  const { t } = useT();
   if (courtSelection)
     return (
       <section
@@ -78,7 +80,7 @@ export function SessionView({
         <React.Suspense
           fallback={
             <div className="wb-empty-hint" role="status">
-              正在打开庭审会话…
+              {t("workbench.court.opening")}
             </div>
           }
         >
@@ -98,19 +100,18 @@ export function SessionView({
     );
   // 执行过程挂在「Lawver」标签行右侧：状态本身就是开关标签，展开后时间线出现在标签行下方。
   const [timelineOpen, setTimelineOpen] = React.useState(false);
-  const { t } = useT();
   const reduceMotion = useReducedMotion();
   React.useEffect(() => {
     if (running) setTimelineOpen(true);
   }, [running]);
   const RUN_TEXT: Record<string, string> = {
-    queued: "等待执行",
-    running: "正在处理材料",
-    waiting_confirmation: "等待你的确认",
-    completed: "任务已完成",
-    failed: "任务未完成",
-    interrupted: "任务已中断",
-    stopped: "已停止",
+    queued: t("workbench.session.runQueued"),
+    running: t("workbench.session.runRunning"),
+    waiting_confirmation: t("workbench.session.runWaiting"),
+    completed: t("workbench.session.runCompleted"),
+    failed: t("workbench.session.runFailed"),
+    interrupted: t("workbench.session.runInterrupted"),
+    stopped: t("workbench.session.runStopped"),
   };
   const RUN_ICON = (status: string) =>
     status === "completed" ? (
@@ -132,23 +133,23 @@ export function SessionView({
   const runFailed = run?.data.status === "failed" || run?.data.status === "interrupted";
   const stalled = !running && !run && messages.length > 0 && messages[messages.length - 1]?.role === "user";
   const failureNotice = runFailed
-    ? run?.data.error || "本轮任务执行失败，请重试；若反复失败请把时间点告诉管理员。"
+    ? run?.data.error || t("workbench.session.runFailedFallback")
     : stalled
-      ? "上一轮没有收到回复，可能是任务失败或被中断，可以重新发送。"
+      ? t("workbench.session.runStalled")
       : "";
   const runBadge = run ? (
     hasTimeline || run.data.error ? (
       <button
         className="wb-run-badge"
         aria-expanded={timelineOpen}
-        title={timelineOpen ? "收起执行过程" : "查看执行过程"}
+        title={timelineOpen ? t("workbench.session.collapseRun") : t("workbench.session.viewRun")}
         onClick={() => setTimelineOpen((open) => !open)}
       >
         {RUN_ICON(run.data.status)}
         {running && hasTimeline
           ? currentActivityLabel(activityBlocks)
           : hasTimeline
-            ? RUN_TEXT[run.data.status] + " · " + (timelineOpen ? "收起思考过程" : "查看思考过程")
+            ? RUN_TEXT[run.data.status] + " · " + (timelineOpen ? t("workbench.session.collapseThought") : t("workbench.session.viewThought"))
             : RUN_TEXT[run.data.status]}
         <ChevronDown size={12} className="wb-run-chevron" />
       </button>
@@ -188,7 +189,7 @@ export function SessionView({
               <div key={event.seq}>
                 <button onClick={() => onOpenDocument(event.content.document_id)}>
                   <FileText size={15} />
-                  {event.content.title || "打开文档"}
+                  {event.content.title || t("workbench.session.openDocument")}
                 </button>
               </div>
             ))}
@@ -202,15 +203,15 @@ export function SessionView({
       <header className="wb-chat-heading">
         {showDoc && dragHandle}
         <div>
-          <small>{showDoc ? "与文档一起思考" : "当前会话"}</small>
-          <h2>{conv?.title || "新的开始"}</h2>
+          <small>{showDoc ? t("workbench.session.headingDoc") : t("workbench.session.headingChat")}</small>
+          <h2>{conv?.title || t("workbench.session.untitled")}</h2>
         </div>
         <div className="wb-thread-tools">
           {showDoc && (
             <button
               className="wb-desktop-only"
-              aria-label="收起对话，仅看文档"
-              title="收起对话，仅看文档"
+              aria-label={t("workbench.session.collapseChat")}
+              title={t("workbench.session.collapseChat")}
               onClick={onCollapseChat}
             >
               <X size={17} />
@@ -222,21 +223,21 @@ export function SessionView({
         {!messages.length && !running && (
           <div className="wb-chat-empty">
             <BrandMark className="wb-empty-brand" />
-            <h3>{showDoc ? "让思考与文档同行" : "从一个问题开始"}</h3>
+            <h3>{showDoc ? t("workbench.session.emptyDoc") : t("workbench.session.emptyChat")}</h3>
             <p>
               {showDoc
-                ? "选择文档片段，即可提问、解释或提出修改建议。"
-                : "引用材料，选择技能，描述你希望完成的工作。"}
+                ? t("workbench.session.emptyDocLead")
+                : t("workbench.session.emptyChatLead")}
             </p>
           </div>
         )}
         {messages.map((message: any) => (
           <article key={message.id} className={"wb-message " + message.role}>
             <div className="wb-message-label">
-              <span className="wb-role">{message.role === "user" ? "你" : "Lawver"}</span>
+              <span className="wb-role">{message.role === "user" ? t("workbench.session.you") : t("workbench.session.assistant")}</span>
               {runBadge && message.role === "assistant" && message.id === lastAssistantId && runBadge}
-              <button className="wb-branch" title="从此处分支" onClick={() => onBranch(message.id)}>
-                分支
+              <button className="wb-branch" title={t("workbench.session.branch")} onClick={() => onBranch(message.id)}>
+                {t("workbench.session.branchShort")}
               </button>
             </div>
             {timeline && message.role === "assistant" && message.id === lastAssistantId && timeline}
@@ -265,10 +266,10 @@ export function SessionView({
         )}
         {run?.data.status === "waiting_confirmation" && (
           <div className="wb-confirmation">
-            <strong>插件请求执行工具</strong>
+            <strong>{t("workbench.session.toolRequest")}</strong>
             <p>{run.data.confirmation?.tool}</p>
             <pre>{JSON.stringify(run.data.confirmation?.arguments, null, 2)}</pre>
-            <p>确认后将把上述参数发送给外部插件，可能产生外部变更。</p>
+            <p>{t("workbench.session.toolConfirm")}</p>
             <div className="wb-confirmation-actions">
               {[false, true].map((allow) => (
                 <button
@@ -281,7 +282,7 @@ export function SessionView({
                     }).catch((e) => onError(e.message))
                   }
                 >
-                  {allow ? "允许本次调用" : "拒绝"}
+                  {allow ? t("workbench.session.allowOnce") : t("workbench.session.deny")}
                 </button>
               ))}
             </div>

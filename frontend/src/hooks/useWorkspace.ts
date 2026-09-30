@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { fileDB } from '../lib/db';
 import { uploadFile, getWorkspaceFiles, restoreFile, deleteWorkspaceFile, apiFetch } from '../services/api';
 import { useAppDialog } from '../contexts/DialogContext';
+import { useT } from '../i18n';
 import type { PendingUpload, WorkspaceFile } from '../types';
 import { toWorkspaceRelativePath } from '../lib/workspace-path';
 import { isImageAttachment } from '../lib/attachment-prompt';
@@ -21,6 +22,7 @@ const createUploadTempId = () => {
 };
 
 export function useWorkspace(currentId: string, enabled = true) {
+  const { t } = useT();
   const { showAlert } = useAppDialog();
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([]);
@@ -238,8 +240,8 @@ export function useWorkspace(currentId: string, enabled = true) {
       releasePreviewUrl(previewUrl);
       removeUploadingFile();
       await showAlert({
-        title: '上传失败',
-        message: error.message || 'Upload failed',
+        title: t('workbench.shell.uploadFailed'),
+        message: error.message,
         tone: 'danger',
       });
     }
@@ -341,8 +343,8 @@ export function useWorkspace(currentId: string, enabled = true) {
         deletionTombstonesRef.current.delete(tombstoneKey);
         console.error('Failed to delete file from server:', err);
         await showAlert({
-          title: '删除失败',
-          message: err?.message || '文件删除未完成，本地缓存已恢复。',
+          title: t('workspace.deleteFailed'),
+          message: err?.message || t('workspace.deleteFailedMessage'),
           tone: 'danger',
         });
         return;

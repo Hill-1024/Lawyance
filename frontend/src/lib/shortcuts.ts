@@ -6,6 +6,8 @@
  * 规范按键串一律形如 "mod+n" / "shift+enter" / "arrowdown"：mod 在 macOS 指 ⌘、其它平台指 Ctrl。
  */
 
+import type { MessageKey } from '../i18n';
+
 /* ── 注册表 ───────────────────────────────────────────────────────────── */
 
 /** 作用域决定冲突检测的范围：同域内两个动作不允许绑定同一组按键。 */
@@ -13,22 +15,23 @@ export type ShortcutScope = 'global' | 'composer' | 'court' | 'overlay';
 
 export type ShortcutDef = {
   id: string;
-  label: string;
-  /** 设置页与帮助页的分组标题。 */
-  group: string;
+  /** 显示名词条键：文案在渲染时取，避免模块加载时固定成一种语言。 */
+  labelKey: MessageKey;
+  /** 设置页与帮助页的分组标题词条键。 */
+  groupKey: MessageKey;
   /** 规范化的默认按键串。 */
   defaultKeys: string;
   scope: ShortcutScope;
 };
 
 export const SHORTCUTS: readonly ShortcutDef[] = [
-  { id: 'session.new', label: '新建会话', group: '工作台', defaultKeys: 'mod+n', scope: 'global' },
-  { id: 'composer.send', label: '发送', group: '输入区', defaultKeys: 'enter', scope: 'composer' },
-  { id: 'composer.newline', label: '换行', group: '输入区', defaultKeys: 'shift+enter', scope: 'composer' },
-  { id: 'composer.candidate-up', label: '候选项上移', group: '输入区', defaultKeys: 'arrowup', scope: 'composer' },
-  { id: 'composer.candidate-down', label: '候选项下移', group: '输入区', defaultKeys: 'arrowdown', scope: 'composer' },
-  { id: 'court.send', label: '发送（庭审/命令）', group: '庭审', defaultKeys: 'mod+enter', scope: 'court' },
-  { id: 'overlay.close', label: '关闭候选/弹层', group: '通用', defaultKeys: 'escape', scope: 'overlay' },
+  { id: 'session.new', labelKey: 'shortcut.sessionNew', groupKey: 'shortcutGroup.workbench', defaultKeys: 'mod+n', scope: 'global' },
+  { id: 'composer.send', labelKey: 'shortcut.composerSend', groupKey: 'shortcutGroup.composer', defaultKeys: 'enter', scope: 'composer' },
+  { id: 'composer.newline', labelKey: 'shortcut.composerNewline', groupKey: 'shortcutGroup.composer', defaultKeys: 'shift+enter', scope: 'composer' },
+  { id: 'composer.candidate-up', labelKey: 'shortcut.candidateUp', groupKey: 'shortcutGroup.composer', defaultKeys: 'arrowup', scope: 'composer' },
+  { id: 'composer.candidate-down', labelKey: 'shortcut.candidateDown', groupKey: 'shortcutGroup.composer', defaultKeys: 'arrowdown', scope: 'composer' },
+  { id: 'court.send', labelKey: 'shortcut.courtSend', groupKey: 'shortcutGroup.court', defaultKeys: 'mod+enter', scope: 'court' },
+  { id: 'overlay.close', labelKey: 'shortcut.overlayClose', groupKey: 'shortcutGroup.overlay', defaultKeys: 'escape', scope: 'overlay' },
 ];
 
 export const SHORTCUT_IDS = {
@@ -41,11 +44,11 @@ export const SHORTCUT_IDS = {
   overlayClose: 'overlay.close',
 } as const;
 
-export const SCOPE_LABELS: Record<ShortcutScope, string> = {
-  global: '工作台内任意位置',
-  composer: '输入区聚焦时',
-  court: '庭审发言框聚焦时',
-  overlay: '候选与弹层打开时',
+export const SCOPE_LABELS: Record<ShortcutScope, MessageKey> = {
+  global: 'shortcutScope.global',
+  composer: 'shortcutScope.composer',
+  court: 'shortcutScope.court',
+  overlay: 'shortcutScope.overlay',
 };
 
 /* ── 按键规范化与匹配 ─────────────────────────────────────────────────── */

@@ -8,6 +8,7 @@
 import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Keyboard, RotateCcw, X } from 'lucide-react';
 import { Banner, SettingsGroup, SettingsRow, StatusChip } from './SettingsUI';
+import { useT } from '../../i18n';
 import {
   SCOPE_LABELS,
   SHORTCUTS,
@@ -34,31 +35,32 @@ export const ShortcutKeys: React.FC<{ spec: string; className?: string }> = ({ s
 );
 
 const groupOf = (defs: readonly ShortcutDef[]) => {
-  const groups: Array<[string, ShortcutDef[]]> = [];
+  const groups: Array<[ShortcutDef['groupKey'], ShortcutDef[]]> = [];
   for (const def of defs) {
-    const bucket = groups.find(([label]) => label === def.group);
+    const bucket = groups.find(([key]) => key === def.groupKey);
     if (bucket) bucket[1].push(def);
-    else groups.push([def.group, [def]]);
+    else groups.push([def.groupKey, [def]]);
   }
   return groups;
 };
 
 /** 帮助页的只读速查：与设置页同源。 */
 export const ShortcutCheatSheet: React.FC = () => {
+  const { t } = useT();
   const overrides = useSyncExternalStore(subscribe, getOverrides);
   const rows = useMemo(
     () => SHORTCUTS.map(def => ({ def, keys: overrides[def.id] || def.defaultKeys })),
     [overrides],
   );
   return (
-    <SettingsGroup label="键盘快捷键" hint="绑定保存在当前设备，可在「操作快捷键」里修改。">
+    <SettingsGroup label={t('settingsShortcuts.cheatSheetTitle')} hint={t('settingsShortcuts.cheatSheetHint')}>
       {rows.map(({ def, keys }) => (
         <SettingsRow
           key={def.id}
           dense
           icon={<Keyboard size={17} strokeWidth={2} />}
-          title={def.label}
-          description={SCOPE_LABELS[def.scope]}
+          title={t(def.labelKey)}
+          description={t(SCOPE_LABELS[def.scope])}
           trailing={<ShortcutKeys spec={keys} />}
         />
       ))}
@@ -68,6 +70,7 @@ export const ShortcutCheatSheet: React.FC = () => {
 
 /** 操作快捷键面板：改键、单条恢复默认、全部恢复默认。 */
 export const SettingsShortcuts: React.FC = () => {
+  const { t } = useT();
   const overrides = useSyncExternalStore(subscribe, getOverrides);
   const [recording, setRecording] = useState('');
   const [error, setError] = useState('');
@@ -93,17 +96,17 @@ export const SettingsShortcuts: React.FC = () => {
       event.stopPropagation();
       const conflict = findConflict(recording, spec);
       if (conflict) {
-        setError(`「${formatKeys(spec)}」已用于「${conflict.label}」，请换一组按键或先恢复默认。`);
+        setError(t('settingsShortcuts.conflict', { keys: formatKeys(spec), label: t(conflict.labelKey) }));
         return;
       }
-      const label = SHORTCUTS.find(item => item.id === recording)?.label || recording;
+      const label = t(SHORTCUTS.find(item => item.id === recording)?.labelKey || 'shortcut.unknown');
       if (!setBinding(recording, spec)) {
-        setError('这组按键不可用，请换一组。');
+        setError(t('settingsShortcuts.unavailable'));
         return;
       }
       setRecording('');
       setError('');
-      setNotice(`「${label}」已改为 ${formatKeys(spec)}。`);
+      setNotice(t('settingsShortcuts.changed', { label, keys: formatKeys(spec) }));
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -112,7 +115,7 @@ export const SettingsShortcuts: React.FC = () => {
   return (
     <>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <p className="settings-hint">绑定保存在当前设备，只影响本机的按键行为；改键后立即生效。</p>
+        <p className="settings-hint">{t("settingsShortcuts.hint")}</p>
         <button
           type="button"
           className={smallButtonClass}
@@ -121,18 +124,18 @@ export const SettingsShortcuts: React.FC = () => {
             resetAll();
             setRecording('');
             setError('');
-            setNotice('全部快捷键已恢复默认。');
+            setNotice(t('settingsShortcuts.resetAllDone'));
           }}
         >
           <RotateCcw size={14} strokeWidth={2} />
-          全部恢复默认
+          {t("settingsShortcuts.resetAll")}
         </button>
       </div>
       {error && <Banner tone="danger">{error}</Banner>}
       {notice && !error && <div role="status"><Banner tone="success">{notice}</Banner></div>}
 
       {groups.map(([group, defs]) => (
-        <SettingsGroup key={group} label={group}>
+        <SettingsGroup key={group} label={t(group)}>
           {defs.map(def => {
             const active = recording === def.id;
             const overridden = overrides[def.id] !== undefined;
@@ -141,12 +144,12 @@ export const SettingsShortcuts: React.FC = () => {
                 key={def.id}
                 dense
                 icon={<Keyboard size={17} strokeWidth={2} />}
-                title={def.label}
-                description={active ? '请按下新的按键组合，按 Esc 取消。' : SCOPE_LABELS[def.scope]}
+                title={t(def.labelKey)}
+                description={active ? t('settingsShortcuts.recording') : t(SCOPE_LABELS[def.scope])}
                 trailing={
                   active ? (
                     <>
-                      <span className="text-[12px] text-[var(--accent)]">等待按键…</span>
+                      <span className="text-[12px] text-[var(--accent)]">{t("settingsShortcuts.waitingKeys")}</span>
                       <button
                         type="button"
                         className={smallButtonClass}
@@ -156,12 +159,12 @@ export const SettingsShortcuts: React.FC = () => {
                         }}
                       >
                         <X size={14} strokeWidth={2} />
-                        取消
+                        {t("common.cancel")}
                       </button>
                     </>
                   ) : (
                     <>
-                      {overridden && <StatusChip tone="accent">已改键</StatusChip>}
+                      {overridden && <StatusChip tone="accent">{t("settingsShortcuts.overridden")}</StatusChip>}
                       <ShortcutKeys spec={getBinding(def.id)} />
                       <button
                         type="button"
@@ -172,7 +175,7 @@ export const SettingsShortcuts: React.FC = () => {
                           setRecording(def.id);
                         }}
                       >
-                        改键
+                        {t("settingsShortcuts.rebind")}
                       </button>
                       <button
                         type="button"
@@ -180,11 +183,11 @@ export const SettingsShortcuts: React.FC = () => {
                         disabled={!overridden}
                         onClick={() => {
                           resetBinding(def.id);
-                          setNotice(`「${def.label}」已恢复默认。`);
+                          setNotice(t('settingsShortcuts.restored', { label: t(def.labelKey) }));
                           setError('');
                         }}
                       >
-                        恢复默认
+                        {t("settingsShortcuts.resetOne")}
                       </button>
                     </>
                   )

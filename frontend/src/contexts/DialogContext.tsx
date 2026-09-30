@@ -5,6 +5,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, ShieldAlert } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { useT, type MessageKey } from '../i18n';
 
 type DialogTone = 'info' | 'success' | 'warning' | 'danger';
 
@@ -39,27 +40,22 @@ const DialogContext = createContext<DialogContextValue | null>(null);
 const toneMeta: Record<DialogTone, {
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   iconClass: string;
-  title: string;
 }> = {
   info: {
     icon: Info,
     iconClass: 'bg-[var(--accent-quiet)] text-[var(--accent)]',
-    title: '提示',
   },
   success: {
     icon: CheckCircle2,
     iconClass: 'bg-[rgba(44,118,112,0.12)] text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]',
-    title: '已完成',
   },
   warning: {
     icon: AlertTriangle,
     iconClass: 'bg-[rgba(184,132,42,0.14)] text-[var(--color-warning-500)]',
-    title: '请注意',
   },
   danger: {
     icon: ShieldAlert,
     iconClass: 'bg-[rgba(176,70,62,0.12)] text-[var(--color-danger-500)]',
-    title: '需要确认',
   },
 };
 
@@ -70,6 +66,14 @@ const normalizeAlertOptions = (options: string | DialogOptions): DialogOptions =
 );
 
 export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { t } = useT();
+  // 语气标题也走词条：对话框有默认标题时（未显式传 title）语言切换要跟着变。
+  const toneTitle: Record<string, MessageKey> = {
+    info: 'dialog.info',
+    success: 'dialog.success',
+    warning: 'dialog.warning',
+    danger: 'dialog.danger',
+  };
   const [activeDialog, setActiveDialog] = useState<DialogRequest | null>(null);
   const activeDialogRef = useRef<DialogRequest | null>(null);
   const queueRef = useRef<DialogRequest[]>([]);
@@ -112,10 +116,10 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await enqueueDialog({
       kind: 'alert',
       tone,
-      title: normalized.title || toneMeta[tone].title,
+      title: normalized.title || t(toneTitle[tone]),
       message: normalized.message,
-      confirmLabel: normalized.confirmLabel || '知道了',
-      cancelLabel: normalized.cancelLabel || '取消',
+      confirmLabel: normalized.confirmLabel || t('common.gotIt'),
+      cancelLabel: normalized.cancelLabel || t('common.cancel'),
     });
   }, [enqueueDialog]);
 
@@ -124,10 +128,10 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const result = await enqueueDialog({
       kind: 'confirm',
       tone,
-      title: options.title || toneMeta[tone].title,
+      title: options.title || t(toneTitle[tone]),
       message: options.message,
-      confirmLabel: options.confirmLabel || '确认',
-      cancelLabel: options.cancelLabel || '取消',
+      confirmLabel: options.confirmLabel || t('common.confirm'),
+      cancelLabel: options.cancelLabel || t('common.cancel'),
     });
     return result === true;
   }, [enqueueDialog]);
@@ -137,10 +141,10 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const result = await enqueueDialog({
       kind: 'choice',
       tone,
-      title: options.title || toneMeta[tone].title,
+      title: options.title || t(toneTitle[tone]),
       message: options.message,
-      confirmLabel: options.confirmLabel || '确认',
-      cancelLabel: options.cancelLabel || '取消',
+      confirmLabel: options.confirmLabel || t('common.confirm'),
+      cancelLabel: options.cancelLabel || t('common.cancel'),
       secondaryLabel: options.secondaryLabel,
     });
     if (result === true) return 'confirm';

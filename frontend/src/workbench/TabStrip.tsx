@@ -321,7 +321,7 @@ export function TabStrip({
           <div
             className="wb-tab-menu"
             role="menu"
-            aria-label={titleOf(menu.tab) + " 标签操作"}
+            aria-label={t("workbench.tabs.actions", { title: titleOf(menu.tab) })}
             style={{ position: "fixed", top: menu.y, left: menu.x }}
           >
             {menuItems(menu.tab).map((item) => (

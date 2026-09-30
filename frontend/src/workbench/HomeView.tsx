@@ -46,7 +46,7 @@ export function HomeView({
   onOpenProject,
   onNewProject,
 }: HomeViewProps) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const visibleProjects = projectFilter === "最近"
     ? projects
         .filter((item) => !item.data.archived)
@@ -63,8 +63,8 @@ export function HomeView({
         </header>
       ) : (
         <div className="wb-home-hero">
-          <h1>{greeting}，今天先处理哪件事？</h1>
-          <p>从左侧选择文件，或直接描述你要完成的工作。</p>
+          <h1>{greeting}</h1>
+          <p>{t("workbench.home.greetingLead")}</p>
         </div>
       )}
       <div className="wb-home-suggest">
@@ -142,13 +142,13 @@ export function HomeView({
                   className={projectFilter === "全部" ? "active" : ""}
                   onClick={() => onFilter("全部")}
                 >
-                  全部
+                  {t("workbench.home.filterAll")}
                 </button>
                 <button
                   className={projectFilter === "最近" ? "active" : ""}
                   onClick={() => onFilter("最近")}
                 >
-                  最近
+                  {t("workbench.home.filterRecent")}
                 </button>
               </div>
             </div>
@@ -172,12 +172,12 @@ export function HomeView({
                 <strong>{item.title}</strong>
                 {item.data.desc && <small className="wb-project-card-desc">{item.data.desc}</small>}
                 <span className="wb-project-card-meta">
-                  最后修改{" "}
-                  {new Date(item.updated_at).toLocaleDateString("zh-CN", {
+                  {t("workbench.home.lastModified")}{" "}
+                  {new Date(item.updated_at).toLocaleDateString(locale, {
                     month: "numeric",
                     day: "numeric",
                   })}{" "}
-                  {new Date(item.updated_at).toLocaleTimeString("zh-CN", {
+                  {new Date(item.updated_at).toLocaleTimeString(locale, {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
@@ -186,7 +186,7 @@ export function HomeView({
             ))}
             {!projects.filter((item) => !item.data.archived).length && (
               <p className="wb-empty-hint">
-                还没有项目，点击右上角「新建项目」开始归拢你的材料。
+                {t("workbench.home.emptyProjects")}
               </p>
             )}
           </div>

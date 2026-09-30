@@ -48,6 +48,7 @@ import { getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
 import { useBackButton } from "../hooks/useBackButton";
 import { useWorkspaceLayout } from "./WorkspaceLayout";
 import { describeError } from "../lib/errors";
+import { useT } from "../i18n";
 import { SessionView } from "./SessionView";
 import { TextDialog } from "./TextDialog";
 import { TabMenuItem, TabStrip } from "./TabStrip";
@@ -92,6 +93,7 @@ export default function Workbench({ username }: { username: string }) {
     offline,
     reload,
   } = useWorkbenchIndex(username, setError);
+  const { t } = useT();
   const suggestions = useSuggestions();
   const navigate = useNavigate(),
     location = useLocation(),
@@ -207,11 +209,11 @@ export default function Workbench({ username }: { username: string }) {
   // 首页问候语按本地时间走，避免固定文案显得像模板。
   const greeting = (() => {
       const hour = new Date().getHours();
-      if (hour < 6) return "夜深了";
-      if (hour < 11) return "早上好";
-      if (hour < 13) return "中午好";
-      if (hour < 18) return "下午好";
-      return "晚上好";
+      if (hour < 6) return t("workbench.home.greetingNight");
+      if (hour < 11) return t("workbench.home.greetingMorning");
+      if (hour < 13) return t("workbench.home.greetingNoon");
+      if (hour < 18) return t("workbench.home.greetingAfternoon");
+      return t("workbench.home.greetingEvening");
     })(),
     recentSessions = [
       ...spaceConversations.map((item) => ({
@@ -228,7 +230,7 @@ export default function Workbench({ username }: { username: string }) {
 
   function createDocument() {
     api<Item>("/documents", "POST", {
-      title: "未命名文档",
+      title: t("workbench.manage.untitledDocument"),
       project_id: projectId,
     })
       .then((d) => {
@@ -282,7 +284,7 @@ export default function Workbench({ username }: { username: string }) {
     setDraft(d);
     if (draftReady.current === draftKey)
       remember(username, "draft:" + draftKey, d).catch(() =>
-        setError("草稿缓存失败，请保留输入内容"),
+        setError(t("workbench.shell.draftCacheFailed")),
       );
   }
   useEffect(() => {
@@ -371,7 +373,7 @@ export default function Workbench({ username }: { username: string }) {
         setTimeout(poll, data.has_more ? 50 : 1500);
       } catch (e) {
         if (!canceled) {
-          setNotice("连接中断，正在恢复任务状态…");
+          setNotice(t("workbench.session.connectInterrupted"));
           setTimeout(poll, 2500);
         }
       }
@@ -623,8 +625,8 @@ export default function Workbench({ username }: { username: string }) {
     const link = new URL(path, window.location.origin).href;
     navigator.clipboard
       ?.writeText(link)
-      .then(() => setNotice("会话链接已复制"))
-      .catch(() => setNotice("复制失败，链接：" + link));
+      .then(() => setNotice(t("workbench.shell.linkCopied")))
+      .catch(() => setNotice(t("workbench.shell.linkCopyFailed", { link })));
   }
   // 会话全屏 ⇄ 并排：收起文档窗格但保持文档打开，侧栏文件选中态随之清除。
   function toggleScreen() {
@@ -662,7 +664,7 @@ export default function Workbench({ username }: { username: string }) {
   }
   function renameItem(item: Item) {
     setTextDialog({
-      title: "新名称",
+      title: t("workbench.manage.newName"),
       initial: item.title,
       submit: (title) => {
         void mutate(item, { title });
@@ -704,33 +706,33 @@ export default function Workbench({ username }: { username: string }) {
           );
     const items: TabMenuItem[] = [];
     if (item && item.kind === "conversation") {
-      items.push({ label: "重命名", icon: <PenLine size={14} />, onSelect: () => renameItem(item) });
+      items.push({ label: t("workbench.manage.rename"), icon: <PenLine size={14} />, onSelect: () => renameItem(item) });
       items.push({
-        label: item.data.favorite ? "取消收藏" : "收藏",
+        label: item.data.favorite ? t("workbench.manage.unfavorite") : t("workbench.manage.favorite"),
         icon: <Star size={14} />,
         onSelect: () => void mutate(item, { favorite: !item.data.favorite }),
       });
       items.push({
-        label: item.data.archived ? "取消归档" : "归档",
+        label: item.data.archived ? t("workbench.manage.unarchive") : t("workbench.manage.archive"),
         icon: <Archive size={14} />,
         onSelect: () => archiveItem(item),
       });
     }
     if (tab.kind !== "new")
       items.push({
-        label: "复制会话链接",
+        label: t("workbench.tabs.copyLink"),
         icon: <Link2 size={14} />,
         onSelect: () => copyTabLink(tab),
       });
-    items.push({ label: "关闭标签页", icon: <X size={14} />, onSelect: () => closeTab(tab) });
+    items.push({ label: t("workbench.tabs.closeTab"), icon: <X size={14} />, onSelect: () => closeTab(tab) });
     items.push({
-      label: "关闭其他标签页",
+      label: t("workbench.tabs.closeOthers"),
       icon: <Minimize2 size={14} />,
       onSelect: () => closeOtherTabs(tab),
     });
     if (item && item.kind === "conversation")
       items.push({
-        label: "移入回收站（保留 30 天）",
+        label: t("workbench.manage.trash"),
         icon: <Trash2 size={14} />,
         danger: true,
         onSelect: () => void removeItem(item),
@@ -769,7 +771,7 @@ export default function Workbench({ username }: { username: string }) {
   }
   function createProject() {
     setTextDialog({
-      title: "创建项目",
+      title: t("workbench.sidebar.newProject"),
       withDescription: true,
       submit: async (title, desc) => {
         try {
@@ -866,7 +868,7 @@ export default function Workbench({ username }: { username: string }) {
           ],
         });
       } catch (e) {
-        failures.push(`${f.name}：${describeError(e, "上传失败")}`);
+        failures.push(`${f.name}：${describeError(e, t("workbench.shell.uploadFailed"))}`);
       }
     }
     if (uploaded) await reload();
@@ -877,32 +879,32 @@ export default function Workbench({ username }: { username: string }) {
       setError("");
       setNotice(
         (projectId
-          ? "文件已上传，并加入本次引用"
-          : "文件已存入个人工作区，可在管理菜单移动进项目") +
-          (renamed.length ? `（同名文件已重命名：${renamed.join("；")}）` : ""),
+          ? t("workbench.shell.uploadedReferenced")
+          : t("workbench.shell.uploadedWorkspace")) +
+          (renamed.length ? t("workbench.shell.renamedNote", { names: renamed.join("；") }) : ""),
       );
       return;
     }
     setError(
       uploaded
-        ? `已上传 ${uploaded} 个，${failures.length} 个失败：${failures.join("；")}`
-        : `上传失败：${failures.join("；")}`,
+        ? t("workbench.shell.uploadPartial", { ok: uploaded, failed: failures.length, list: failures.join("；") })
+        : t("workbench.shell.uploadFailedWithList", { list: failures.join("；") }),
     );
   }
-  function reference(r: Reference, action = "加入引用") {
-    if(courtSelection) {if(!r.text){setNotice("请划选文档文字，作为本次庭审的公开引用。");return;}setCourtReference(r);setAgentVisible(true);setMobile("会话");return;}
+  function reference(r: Reference, action: "add" | "ask" | "rewrite" | "explain" = "add") {
+    if(courtSelection) {if(!r.text){setNotice(t("workbench.shell.selectTextForCourt"));return;}setCourtReference(r);setAgentVisible(true);setMobile("会话");return;}
     updateDraft({
       ...draft,
       references: [...draft.references, r],
       text:
-        action === "加入引用"
+        action === "add"
           ? draft.text
           : (draft.text ? draft.text + "\n" : "") +
-            (action === "改写"
-              ? "请修改所引用的片段，并提出可审阅的修改建议。"
-              : action === "解释"
-                ? "请解释所引用的片段。"
-                : "关于所引用的内容："),
+            (action === "rewrite"
+              ? t("workbench.shell.promptRewrite")
+              : action === "explain"
+                ? t("workbench.shell.promptExplain")
+                : t("workbench.shell.promptAsk")),
     });
     setAgentVisible(true);
     setMobile("会话");
@@ -966,12 +968,12 @@ export default function Workbench({ username }: { username: string }) {
       offline={offline}
       composer={composer}
       scrollRef={scroll}
-      dragHandle={workspace.handle("agent", courtSelection ? "模拟庭审" : "Agent")}
+      dragHandle={workspace.handle("agent", courtSelection ? t("workbench.history.groupCourt") : t("workbench.shell.agent"))}
       courtReference={courtReference}
       onBranch={(messageId) =>
         api<Item>(`/conversations/${conv.id}/branch`, "POST", {
           message_id: messageId,
-          title: conv.title + " · 分支",
+          title: conv.title + t("workbench.manage.branchSuffix"),
         })
           .then((c) => {
             reload();
@@ -1050,7 +1052,7 @@ export default function Workbench({ username }: { username: string }) {
       {sidebar && (
         <button
           className="wb-sidebar-shade"
-          aria-label="关闭导航"
+          aria-label={t("workbench.shell.closeNav")}
           onClick={() => setSidebar(false)}
         />
       )}
@@ -1086,9 +1088,9 @@ export default function Workbench({ username }: { username: string }) {
               />
               <button
                 className="wb-tabstrip-action"
-                aria-label={fullScreen ? "并排显示文档" : "会话全屏"}
+                aria-label={fullScreen ? t("workbench.tabs.fullscreenOff") : t("workbench.tabs.fullscreenOn")}
                 aria-pressed={fullScreen}
-                title={fullScreen ? "并排显示文档" : "会话全屏（收起文档窗格，文档保持打开）"}
+                title={fullScreen ? t("workbench.tabs.fullscreenOff") : t("workbench.tabs.fullscreenOnHint")}
                 disabled={!activeTab?.doc}
                 onClick={toggleScreen}
               >
@@ -1099,9 +1101,9 @@ export default function Workbench({ username }: { username: string }) {
         />
         {(error || notice || uploading) && (
           <div className={"wb-banner " + (error ? "error" : "")} role="status">
-            <span>{error || (uploading ? "正在上传并提取文件…" : notice)}</span>
+            <span>{error || (uploading ? t("workbench.shell.uploading") : notice)}</span>
             <button
-              aria-label="关闭提示"
+              aria-label={t("workbench.shell.closeNotice")}
               onClick={() => {
                 setError("");
                 setNotice("");
@@ -1139,13 +1141,13 @@ export default function Workbench({ username }: { username: string }) {
                 aria-hidden={!showDoc}
               >
                 <div className="wb-doc-heading">
-                  {workspace.handle("document", "文档")}
+                  {workspace.handle("document", t("workbench.shell.document"))}
                   <FileText size={15} />
                   <span className="wb-doc-title">{doc.title}</span>
                   <button
                     className="wb-doc-collapse"
-                    aria-label="收起文档，会话全屏"
-                    title="收起文档，会话全屏（文档保持打开）"
+                    aria-label={t("workbench.shell.collapseDoc")}
+                    title={t("workbench.shell.collapseDocHint")}
                     onClick={collapseDocument}
                   >
                     <Minimize2 size={15} />
@@ -1165,7 +1167,7 @@ export default function Workbench({ username }: { username: string }) {
                   <div
                     className="wb-resizer"
                     role="separator"
-                    aria-label="调整 Agent 面板大小"
+                    aria-label={t("workbench.layout.resizeAgent")}
                     aria-orientation={workspace.layout.agent === "top" || workspace.layout.agent === "bottom" ? "horizontal" : "vertical"}
                     aria-valuemin={25} aria-valuemax={65} aria-valuenow={workspace.layout.split}
                     tabIndex={0}
@@ -1229,7 +1231,7 @@ export default function Workbench({ username }: { username: string }) {
       </main>
       {appDrag && (
         <div className="wb-drop-overlay" aria-hidden="true">
-          <strong>松开，上传到「{project?.title || "个人工作区"}」</strong>
+          <strong>{t("workbench.shell.dropToUpload", { target: project?.title || t("workbench.sidebar.personalWorkspace") })}</strong>
         </div>
       )}
       {workspace.targets}

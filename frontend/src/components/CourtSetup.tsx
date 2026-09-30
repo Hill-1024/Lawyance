@@ -8,6 +8,7 @@ import { CourtMaterials, CourtSource } from '../workbench/CourtMaterials';
 import React, { useState } from 'react';
 import { Gavel, Landmark, Lock, Scale, ShieldCheck, Sparkles } from 'lucide-react';
 import type { CourtCaseType, CourtSession } from '../types';
+import { useT } from '../i18n';
 
 type CreateInput = {
   project_id?: string;
@@ -33,27 +34,6 @@ type SetupForm = {
   strategy: string;
   logic_chain: string;
   risk_notes: string;
-};
-
-const CASE_OPTIONS: Array<{ value: CourtCaseType; label: string; hint: string }> = [
-  { value: 'civil', label: '民事', hint: '原告 / 被告' },
-  { value: 'administrative', label: '行政', hint: '相对人 / 行政机关' },
-  { value: 'criminal', label: '刑事', hint: '公诉 / 辩护' }
-];
-
-const SIDE_OPTIONS_BY_CASE_TYPE: Record<CourtCaseType, Array<{ value: string; label: string; hint: string }>> = {
-  civil: [
-    { value: '原告', label: '原告', hint: '提出诉讼请求' },
-    { value: '被告', label: '被告', hint: '抗辩并反驳请求' }
-  ],
-  administrative: [
-    { value: '原告（行政相对人）', label: '行政相对人', hint: '起诉行政行为一方' },
-    { value: '行政机关（被告）', label: '行政机关', hint: '被诉机关一方' }
-  ],
-  criminal: [
-    { value: '辩护方', label: '辩护方', hint: '为被告人辩护' },
-    { value: '公诉方', label: '公诉方', hint: '指控与举证一方' }
-  ]
 };
 
 const charCount = (value: string) => {
@@ -94,6 +74,27 @@ const SetupField: React.FC<{
 
 export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel, initialProject = "" }) => {
   const {showConfirm} = useAppDialog();
+  const { t } = useT();
+  // 案件类型/立场的 value 会随创建请求发给后端，属于事实值，任何语言下都不变；只翻译标签与提示。
+  const CASE_OPTIONS: Array<{ value: CourtCaseType; label: string; hint: string }> = [
+    { value: 'civil', label: t('courtSetup.caseCivil'), hint: t('courtSetup.caseCivilHint') },
+    { value: 'administrative', label: t('courtSetup.caseAdministrative'), hint: t('courtSetup.caseAdministrativeHint') },
+    { value: 'criminal', label: t('courtSetup.caseCriminal'), hint: t('courtSetup.caseCriminalHint') },
+  ];
+  const SIDE_OPTIONS_BY_CASE_TYPE: Record<CourtCaseType, Array<{ value: string; label: string; hint: string }>> = {
+    civil: [
+      { value: '原告', label: t('courtSetup.sidePlaintiff'), hint: t('courtSetup.sidePlaintiffHint') },
+      { value: '被告', label: t('courtSetup.sideDefendant'), hint: t('courtSetup.sideDefendantHint') },
+    ],
+    administrative: [
+      { value: '原告（行政相对人）', label: t('courtSetup.sideCitizen'), hint: t('courtSetup.sideCitizenHint') },
+      { value: '行政机关（被告）', label: t('courtSetup.sideAgency'), hint: t('courtSetup.sideAgencyHint') },
+    ],
+    criminal: [
+      { value: '辩护方', label: t('courtSetup.sideDefense'), hint: t('courtSetup.sideDefenseHint') },
+      { value: '公诉方', label: t('courtSetup.sideProsecution'), hint: t('courtSetup.sideProsecutionHint') },
+    ],
+  };
   const [tab,setTab] = useState<"public"|"private"|"sources">("public");
   const [project,setProject] = useState(initialProject);
   const [materialsReady,setMaterialsReady] = useState(!initialProject);
@@ -139,7 +140,7 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel, init
       },
       private_brief: {
         strategy: form.strategy.trim(),
-        logic_chain: [form.logic_chain.trim(), autoNotes ? "【同项目会话备庭资料 · 仅私有】\n" + autoNotes : ""].filter(Boolean).join("\n\n"),
+        logic_chain: [form.logic_chain.trim(), autoNotes ? t('courtSetup.autoNotesHeader') + "\n" + autoNotes : ""].filter(Boolean).join("\n\n"),
         risk_notes: form.risk_notes.trim()
       }
     });
@@ -147,31 +148,31 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel, init
 
   return <div className="court-setup court-setup-modern custom-scrollbar">
     <div className="court-setup-content">
-      <header className="court-welcome"><span><Gavel size={22}/></span><div><h1>在这里，准备你的下一次出庭。</h1><p>整理案卷，选择立场，与法官和对方律师展开一场模拟对话。</p></div></header>
+      <header className="court-welcome"><span><Gavel size={22}/></span><div><h1>{t('courtSetup.welcomeTitle')}</h1><p>{t('courtSetup.welcomeLead')}</p></div></header>
       <div className="court-role-config">
-        <SelectField label="案件类型" value={form.case_type} options={CASE_OPTIONS} onChange={v=>selectCaseType(v as CourtCaseType)} />
-        <SelectField label="我的立场" value={form.user_side} options={sideOptions} onChange={v=>setField('user_side',v)} />
+        <SelectField label={t('courtSetup.caseType')} value={form.case_type} options={CASE_OPTIONS} onChange={v=>selectCaseType(v as CourtCaseType)} />
+        <SelectField label={t('courtSetup.mySide')} value={form.user_side} options={sideOptions} onChange={v=>setField('user_side',v)} />
       </div>
-      <nav className="court-preparation-tabs" aria-label="庭审准备">
-        <button aria-pressed={tab==='public'} onClick={()=>setTab('public')}><Landmark size={16}/>公开案卷</button>
-        <button aria-pressed={tab==='private'} onClick={()=>setTab('private')}><Lock size={16}/>私有备庭</button>
-        <button aria-pressed={tab==='sources'} onClick={()=>setTab('sources')}><Scale size={16}/>项目材料 <small>{sources.length}</small></button>
+      <nav className="court-preparation-tabs" aria-label={t('courtSetup.preparation')}>
+        <button aria-pressed={tab==='public'} onClick={()=>setTab('public')}><Landmark size={16}/>{t('workbench.court.publicDossier')}</button>
+        <button aria-pressed={tab==='private'} onClick={()=>setTab('private')}><Lock size={16}/>{t('workbench.court.privateBrief')}</button>
+        <button aria-pressed={tab==='sources'} onClick={()=>setTab('sources')}><Scale size={16}/>{t('courtSetup.projectMaterials')} <small>{sources.length}</small></button>
       </nav>
       <section className="court-preparation-pane" hidden={tab!=='public'}>
-        <p className="court-scope-note">法官与对方律师均可阅读。请确认这里的事实和证据可以公开。</p>
-        <SetupField label="案情与争议焦点" hint="案件经过、核心争议，以及需要法庭查明的事实…" value={form.summary} onChange={v=>setField('summary',v)} rows={5}/>
-        <SetupField label="诉求 / 指控" hint="你希望获得什么裁判结果？" value={form.claims} onChange={v=>setField('claims',v)} rows={3}/>
-        <SetupField label="公开证据线索" hint="列出已公开的证据，或从项目材料中选择加入。" value={form.evidence} onChange={v=>setField('evidence',v)} rows={3}/>
+        <p className="court-scope-note">{t('courtSetup.publicScopeNote')}</p>
+        <SetupField label={t('courtSetup.summaryLabel')} hint={t('courtSetup.summaryHint')} value={form.summary} onChange={v=>setField('summary',v)} rows={5}/>
+        <SetupField label={t('courtSetup.claimsLabel')} hint={t('courtSetup.claimsHint')} value={form.claims} onChange={v=>setField('claims',v)} rows={3}/>
+        <SetupField label={t('courtSetup.evidenceLabel')} hint={t('courtSetup.evidenceHint')} value={form.evidence} onChange={v=>setField('evidence',v)} rows={3}/>
       </section>
       <section className="court-preparation-pane" hidden={tab!=='private'}>
-        <p className="court-scope-note"><ShieldCheck size={16}/>仅供我方代理与复盘员使用，不向法官和对方提供。</p>
-        <SetupField label="庭审策略" hint="你的应对方案与谈判空间" value={form.strategy} onChange={v=>setField('strategy',v)} rows={3}/>
-        <SetupField label="证据链与推理路径" hint="核心论证与事实之间的联系" value={form.logic_chain} onChange={v=>setField('logic_chain',v)} rows={3}/>
-        <SetupField label="担心的漏洞与突发情况" hint="希望在模拟中重点检验的薄弱环节" value={form.risk_notes} onChange={v=>setField('risk_notes',v)} rows={3}/>
-        {autoNotes && <details className="court-auto-notes"><summary>已自动收集的私有备庭资料 · {sources.length} 个会话</summary><textarea aria-label="自动收集的私有备庭资料" value={autoNotes} onChange={e=>setAutoNotes(e.target.value)} rows={8}/></details>}
+        <p className="court-scope-note"><ShieldCheck size={16}/>{t('courtSetup.privateScopeNote')}</p>
+        <SetupField label={t('courtSetup.strategyLabel')} hint={t('courtSetup.strategyHint')} value={form.strategy} onChange={v=>setField('strategy',v)} rows={3}/>
+        <SetupField label={t('courtSetup.logicLabel')} hint={t('courtSetup.logicHint')} value={form.logic_chain} onChange={v=>setField('logic_chain',v)} rows={3}/>
+        <SetupField label={t('courtSetup.riskLabel')} hint={t('courtSetup.riskHint')} value={form.risk_notes} onChange={v=>setField('risk_notes',v)} rows={3}/>
+        {autoNotes && <details className="court-auto-notes"><summary>{t('courtSetup.autoNotesSummary',{count:sources.length})}</summary><textarea aria-label={t('courtSetup.autoNotesLabel')} value={autoNotes} onChange={e=>setAutoNotes(e.target.value)} rows={8}/></details>}
       </section>
-      <div hidden={tab!=='sources'}>        <CourtMaterials onReady={setMaterialsReady} project={project} onProject={async id=>{if(Object.entries(form).some(([key,value])=>!['case_type','user_side'].includes(key)&&value.trim()) && !await showConfirm({title:'切换庭审项目？',message:'已填写的案卷和私有笔记将清空，重新收集新项目材料。',confirmLabel:'切换项目',cancelLabel:'继续编辑'}))return;setProject(id);setForm(prev=>({...prev,summary:'',claims:'',evidence:'',strategy:'',logic_chain:'',risk_notes:''}));}} onAuto={(text,sources)=>{setAutoNotes(text);setSources(sources);}} onSelect={text => setForm(prev => ({...prev, evidence: [prev.evidence, text].filter(Boolean).join("\n\n")}))} /></div>
+      <div hidden={tab!=='sources'}>        <CourtMaterials onReady={setMaterialsReady} project={project} onProject={async id=>{if(Object.entries(form).some(([key,value])=>!['case_type','user_side'].includes(key)&&value.trim()) && !await showConfirm({title:t('courtSetup.switchProjectTitle'),message:t('courtSetup.switchProjectMessage'),confirmLabel:t('courtSetup.switchProjectConfirm'),cancelLabel:t('courtSetup.switchProjectCancel')}))return;setProject(id);setForm(prev=>({...prev,summary:'',claims:'',evidence:'',strategy:'',logic_chain:'',risk_notes:''}));}} onAuto={(text,sources)=>{setAutoNotes(text);setSources(sources);}} onSelect={text => setForm(prev => ({...prev, evidence: [prev.evidence, text].filter(Boolean).join("\n\n")}))} /></div>
     </div>
-    <footer className="court-setup-actions"><span>{canCreate ? '准备就绪 · 创建后由你决定何时开始' : '填写至少一项公开案卷信息后即可创建'}</span><div>{onCancel && <button onClick={onCancel}>取消</button>}<button className="court-primary" disabled={!canCreate} onClick={handleSubmit}><Gavel size={16}/>创建庭审会话</button></div></footer>
+    <footer className="court-setup-actions"><span>{canCreate ? t('courtSetup.readyNote') : t('courtSetup.needMoreNote')}</span><div>{onCancel && <button onClick={onCancel}>{t('common.cancel')}</button>}<button className="court-primary" disabled={!canCreate} onClick={handleSubmit}><Gavel size={16}/>{t('courtSetup.create')}</button></div></footer>
   </div>;
 };

@@ -22,6 +22,7 @@ import { fetchMyCredits } from "../services/api";
 import { Item } from "./client";
 import { LayoutToolbar, useWorkspaceLayout } from "./WorkspaceLayout";
 import { usePortalMenuDismiss } from "./usePortalMenu";
+import { useT } from "../i18n";
 
 // 空间菜单 portal 到 body：豁免列表里要有菜单自身的类名。
 const SPACE_MENU_SELECTORS = [".wb-space-menu", ".wb-space-pill"] as const;
@@ -81,6 +82,7 @@ export function Sidebar({
   onRestoreAgent,
   onOpen,
 }: SidebarProps) {
+  const { t } = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>();
   // 余额显示在侧栏底部：计费是后台行为，用户至少要有地方看到自己还剩多少。
@@ -113,11 +115,11 @@ export function Sidebar({
   return (
     <aside data-tour="wb-sidebar" className={"wb-sidebar " + (sidebarOpen ? "is-open" : "")}>
       <div className="wb-brand">
-        <Link to="/home" className="wb-brand-link" aria-label="回到工作台首页">
+        <Link to="/home" className="wb-brand-link" aria-label={t("workbench.sidebar.home")}>
           <BrandLockup />
         </Link>
-        {workspace.handle("navigation", "文件")}
-        <button className="wb-mobile-only" aria-label="关闭导航" onClick={onClose}>
+        {workspace.handle("navigation", t("workbench.sidebar.files"))}
+        <button className="wb-mobile-only" aria-label={t("workbench.shell.closeNav")} onClick={onClose}>
           <X size={18} />
         </button>
       </div>
@@ -126,7 +128,7 @@ export function Sidebar({
           className="wb-space-pill"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          title="切换工作区"
+          title={t("workbench.sidebar.switchWorkspace")}
           onClick={(e) => {
             if (!menuOpen) {
               const r = e.currentTarget.getBoundingClientRect();
@@ -143,11 +145,11 @@ export function Sidebar({
           }}
         >
           {project ? <Folder size={15} /> : <User size={15} />}
-          <span>{project ? project.title : "个人工作区"}</span>
+          <span>{project ? project.title : t("workbench.sidebar.personalWorkspace")}</span>
           <ChevronDown size={14} />
         </button>
         {project && (
-          <button aria-label={"管理 " + project.title} onClick={() => onManageItem(project)}>
+          <button aria-label={t("workbench.sidebar.manageProject", { title: project.title })} onClick={() => onManageItem(project)}>
             <MoreHorizontal size={15} />
           </button>
         )}
@@ -157,7 +159,7 @@ export function Sidebar({
           <div
             className="wb-space-menu"
             role="menu"
-            aria-label="切换工作区"
+            aria-label={t("workbench.sidebar.switchWorkspace")}
             style={{ position: "fixed", top: menuPos?.top, left: menuPos?.left }}
           >
             <button
@@ -169,7 +171,7 @@ export function Sidebar({
               }}
             >
               <User size={14} />
-              <span>个人工作区</span>
+              <span>{t("workbench.sidebar.personalWorkspace")}</span>
             </button>
             {projects
               .filter((item) => !item.data.archived)
@@ -196,31 +198,31 @@ export function Sidebar({
               }}
             >
               <Plus size={14} />
-              <span>创建项目</span>
+              <span>{t("workbench.sidebar.newProject")}</span>
             </button>
           </div>,
           document.body,
         )}
       <div className="wb-files-head">
-        <span>文件</span>
+        <span>{t("workbench.sidebar.files")}</span>
         <div className="wb-space-add-wrap">
           <button
             className="wb-space-add"
-            aria-label="上传文件"
+            aria-label={t("workbench.composer.upload")}
             aria-haspopup="menu"
-            title="上传文件（悬停可选新建文档）"
+            title={t("workbench.sidebar.uploadHint")}
             onClick={() => fileInput.current?.click()}
           >
             <Plus size={16} />
           </button>
-          <div className="wb-space-add-menu" role="menu" aria-label="文件操作">
+          <div className="wb-space-add-menu" role="menu" aria-label={t("workbench.sidebar.fileActions")}>
             <button role="menuitem" onClick={() => fileInput.current?.click()}>
               <Upload size={14} />
-              上传文件
+              {t("workbench.composer.upload")}
             </button>
             <button role="menuitem" onClick={onCreateDocument}>
               <FileText size={14} />
-              新建文档
+              {t("workbench.sidebar.newDocument")}
             </button>
           </div>
         </div>
@@ -239,8 +241,8 @@ export function Sidebar({
       <label className="wb-search">
         <Search size={16} />
         <input
-          aria-label="搜索文件"
-          placeholder="搜索文件"
+          aria-label={t("workbench.sidebar.searchFiles")}
+          placeholder={t("workbench.sidebar.searchFiles")}
           value={query}
           onChange={(e) => onQuery(e.target.value)}
         />
@@ -258,12 +260,12 @@ export function Sidebar({
               >
                 <span>{result.title}</span>
                 <small>
-                  {(result.data?.format || "文件").toUpperCase()} · 版本 {result.revision}
+                  {(result.data?.format || t("workbench.sidebar.fileFallback")).toUpperCase()} · {t("workbench.sidebar.version", { revision: result.revision })}
                 </small>
                 <small>{result.excerpt}</small>
               </button>
             ))}
-            {!results.length && <p className="wb-space-hint">没有匹配的文件。</p>}
+            {!results.length && <p className="wb-space-hint">{t("workbench.sidebar.noMatch")}</p>}
           </div>
         ) : (
           <>
@@ -278,16 +280,16 @@ export function Sidebar({
                   <FileText size={14} />
                   <span>{item.title}</span>
                 </button>
-                <button aria-label={"管理 " + item.title} onClick={() => onManageItem(item)}>
+                <button aria-label={t("workbench.sidebar.manageProject", { title: item.title })} onClick={() => onManageItem(item)}>
                   <MoreHorizontal size={13} />
                 </button>
               </div>
             ))}
             {!docs.length && (
               <p className="wb-space-hint">
-                暂无文件，拖到页面任意位置即可上传，或
+                {t("workbench.sidebar.emptyDocs")}
                 <button className="wb-space-upload-link" onClick={() => fileInput.current?.click()}>
-                  上传文件
+                  {t("workbench.composer.upload")}
                 </button>
               </p>
             )}
@@ -299,41 +301,41 @@ export function Sidebar({
         {showDoc && agentCollapsed && (
           <button className="wb-desktop-only" onClick={onRestoreAgent}>
             <Sparkles size={16} />
-            {courtSession ? "庭审" : "Agent"}
+            {courtSession ? t("workbench.shell.court") : t("workbench.shell.agent")}
           </button>
         )}
-        {offline && <small>离线</small>}
+        {offline && <small>{t("workbench.shell.offline")}</small>}
       </div>
       <footer className="wb-nav-footer">
         {plan === "business" && (
           <button onClick={() => onOpen("/business")}>
             <Building2 size={17} />
-            Business 控制台
+            {t("workbench.shell.businessConsole")}
           </button>
         )}
         <button onClick={() => onOpen("/settings/extensions")}>
           <Sparkles size={17} />
-          技能与插件
+          {t("workbench.shell.skillsAndPlugins")}
         </button>
         <button onClick={() => onOpen("migration")}>
           <Archive size={17} />
-          本地旧资料
+          {t("workbench.shell.localArchive")}
         </button>
         <div>
-          <button aria-label="归档与回收站" onClick={() => onOpen("trash")}>
+          <button aria-label={t("workbench.sidebar.archive")} onClick={() => onOpen("trash")}>
             <Trash2 size={16} />
           </button>
           <button onClick={() => onOpen("/settings")}>
             <Settings size={16} />
-            设置
+            {t("workbench.shell.settings")}
           </button>
           <span>{username}</span>
           {credits !== null && (
             <span
               className="wb-credits"
-              title={`credits 余额 ${credits.toFixed(2)}${exempt ? "（运维账号不限）" : ""}`}
+              title={t("workbench.sidebar.creditsBalance", { amount: credits.toFixed(2) }) + (exempt ? t("workbench.sidebar.creditsExempt") : "")}
             >
-              {exempt ? "不限" : credits.toFixed(2)}
+              {exempt ? t("workbench.shell.unlimited") : credits.toFixed(2)}
             </span>
           )}
         </div>

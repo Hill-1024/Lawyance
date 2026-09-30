@@ -17,6 +17,8 @@ import { AnimatedSwitch } from "../components/AnimatedSwitch";
 import { CheckBox } from "../components/CheckBox";
 import { formatKeys, getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
 export type Draft = { text: string; references: Reference[] };
+type CandidateKind = "task" | "skill" | "document" | "folder" | "connector";
+
 export function Composer({
   draft,
   onChange,
@@ -65,19 +67,27 @@ export function Composer({
   const [popupPos, setPopupPos] = useState<{ left: number; width: number; bottom: number; maxHeight: number } | null>(null);
   const composing = useRef(false),
     start = useRef(-1);
-  const options =
+  // kind 是稳定判别值（choose() 与引用类型都按它分支），label 才是给人看的；两者分开，
+  // 否则切语言时判断逻辑会跟着文案漂移。
+  const options: Array<{ id: string; title: string; text?: string; kind: CandidateKind; label: string }> =
     menu === "/"
-      ? templates.map((t) => ({ ...t, type: "任务" }))
+      ? templates.map((def) => ({
+          id: def.id,
+          title: t(def.titleKey),
+          text: t(def.textKey),
+          kind: "task" as const,
+          label: t("workbench.composer.task"),
+        }))
       : menu === "$"
         ? skills
             .filter((x) => x.data.published && x.data.enabled !== false)
-            .map((x) => ({ ...x, type: "技能" }))
+            .map((x) => ({ ...x, kind: "skill" as const, label: t("workbench.composer.skill") }))
         : [
-            ...documents.map((x) => ({ ...x, type: "文件" })),
-            ...(project ? [{ ...project, type: "项目资料" }] : []),
+            ...documents.map((x) => ({ ...x, kind: "document" as const, label: t("workbench.sidebar.fileFallback") })),
+            ...(project ? [{ ...project, kind: "folder" as const, label: t("workbench.composer.projectMaterial") }] : []),
             ...connectors
               .filter((x) => x.data.enabled)
-              .map((x) => ({ ...x, type: "插件" })),
+              .map((x) => ({ ...x, kind: "connector" as const, label: t("workbench.manage.plugins") })),
           ];
   const candidates = options
     .filter((x) => x.title.toLowerCase().includes(query.toLowerCase()))
@@ -145,13 +155,7 @@ export function Composer({
       onChange({ ...draft, text: text + (text ? "\n" : "") + item.text });
     else {
       const kind =
-        menu === "$"
-          ? "skill"
-          : item.type === "插件"
-            ? "connector"
-            : item.type === "项目资料"
-              ? "folder"
-              : "document";
+        menu === "$" ? "skill" : item.kind === "connector" ? "connector" : item.kind === "folder" ? "folder" : "document";
       onChange({
         text,
         references: [
@@ -208,10 +212,10 @@ export function Composer({
         >
           <div className="wb-caption">
             {menu === "/"
-              ? "选择任务，编辑后发送"
+              ? t("workbench.composer.chooseTask")
               : menu === "$"
-                ? "选择已发布技能"
-                : "选择本次使用的资料或插件"}
+                ? t("workbench.composer.chooseSkill")
+                : t("workbench.composer.chooseMaterial")}
             <button aria-label={t("workbench.composer.closeCandidates")} onClick={() => setMenu("")}>
               <X size={14} />
             </button>
@@ -227,18 +231,18 @@ export function Composer({
                 onClick={() => choose(x)}
               >
                 <span>{x.title}</span>
-                <small>{x.type}</small>
+                <small>{x.label}</small>
               </button>
             ))
           ) : (
-            <p>没有匹配项</p>
+            <p>{t("workbench.composer.noMatch")}</p>
           )}
-          <small>{formatKeys(getBinding(SHORTCUT_IDS.candidateUp))} {formatKeys(getBinding(SHORTCUT_IDS.candidateDown))} 选择 · Enter / Tab 确认 · {formatKeys(getBinding(SHORTCUT_IDS.overlayClose))} 关闭</small>
+          <small>{t("workbench.composer.candidateHint", { up: formatKeys(getBinding(SHORTCUT_IDS.candidateUp)), down: formatKeys(getBinding(SHORTCUT_IDS.candidateDown)), close: formatKeys(getBinding(SHORTCUT_IDS.overlayClose)) })}</small>
         </div>
       )}
       {!!draft.references.length && (
         <div className="wb-reference-list">
-          <small>本次引用</small>
+          <small>{t("workbench.composer.references")}</small>
           {draft.references.map((ref, i) => (
             <div className="wb-reference" key={i}>
               <details>
@@ -246,8 +250,8 @@ export function Composer({
                   {ref.kind === "skill" ? "$" : "@"} {ref.title || ref.id}
                 </summary>
                 <p>
-                  版本 {ref.revision || 1}
-                  {ref.page ? ` · 第 ${ref.page} 页` : ""}
+                  {t("workbench.sidebar.version", { revision: ref.revision || 1 })}
+                  {ref.page ? ` · ${t("workbench.composer.page", { page: ref.page })}` : ""}
                 </p>
                 {ref.text && <blockquote>{ref.text}</blockquote>}
                 {ref.kind === "connector" &&
@@ -294,7 +298,7 @@ export function Composer({
       <textarea
         ref={input}
         value={draft.text}
-        aria-label="输入任务"
+        aria-label={t("workbench.composer.inputLabel")}
         placeholder={t("workbench.composer.placeholder")}
         disabled={disabled}
         onChange={(e) => update(e.target.value, e.target.selectionStart)}
@@ -365,35 +369,35 @@ export function Composer({
           }}
         />
         <button
-          title="上传文件"
+          title={t("workbench.composer.upload")}
           aria-label={t("workbench.composer.upload")}
           onClick={() => file.current?.click()}
         >
           <Paperclip size={17} />
         </button>
         <button
-          aria-label="引用"
+          aria-label={t("workbench.composer.reference")}
           title={t("workbench.composer.referenceHint")}
           onClick={() => open("@")}
         >
           <AtSign size={16} />
-          <span>引用</span>
+          <span>{t("workbench.composer.reference")}</span>
         </button>
         <button
-          aria-label="技能"
+          aria-label={t("workbench.composer.skill")}
           title={t("workbench.composer.skillHint")}
           onClick={() => open("$")}
         >
           <Sparkles size={16} />
-          <span>技能</span>
+          <span>{t("workbench.composer.skill")}</span>
         </button>
         <button
-          aria-label="任务"
+          aria-label={t("workbench.composer.task")}
           title={t("workbench.composer.taskHint")}
           onClick={() => open("/")}
         >
           <Slash size={16} />
-          <span>任务</span>
+          <span>{t("workbench.composer.task")}</span>
         </button>
         <button
           aria-label={t("workbench.composer.taskSettings")}

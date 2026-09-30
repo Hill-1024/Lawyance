@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { SelectField } from "./SelectField";
+import { useT } from "../i18n";
 import { createPortal } from "react-dom";
 import { Link as RouterLink } from "react-router-dom";
 import { useReducedMotion } from "motion/react";
@@ -160,6 +161,7 @@ export function DocumentPane({
   onReference: (r: Reference, action?: string) => void;
   onError: (s: string) => void;
 }) {
+  const { t } = useT();
   const reduceMotion = useReducedMotion();
   const [linkDialog, setLinkDialog] = useState(false);
   const [overflow, setOverflow] = useState(false);
@@ -790,7 +792,7 @@ export function DocumentPane({
           <OriginalPreview
             user={user}
             doc={doc}
-            onRegion={(r) => onReference(r, "询问")}
+            onRegion={(r) => onReference(r, "ask")}
             onError={onError}
           />
         )}
@@ -802,19 +804,19 @@ export function DocumentPane({
             { "--sel-x": sel.x + "px", "--sel-y": sel.y + "px" } as React.CSSProperties
           }
           role="toolbar"
-          aria-label="选区操作"
+          aria-label={t("workbench.doc.selActions")}
         >
           <button
             className="wb-select-primary"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => selected("加入引用")}
+            onClick={() => selected("add")}
           >
             <Quote size={13} />
-            引用到会话
+            {t("workbench.doc.referenceToSession")}
           </button>
           <button
             className="wb-select-more"
-            aria-label="更多选区操作"
+            aria-label={t("workbench.doc.moreActions")}
             aria-expanded={selMenu}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => setSelMenu(!selMenu)}
@@ -822,15 +824,19 @@ export function DocumentPane({
             <ChevronDown size={14} />
           </button>
           {selMenu && (
-            <div className="wb-select-menu" role="menu" aria-label="更多选区操作">
-              {["询问", "改写", "解释"].map((a) => (
+            <div className="wb-select-menu" role="menu" aria-label={t("workbench.doc.moreActions")}>
+              {([
+                ["ask", t("workbench.shell.refAsk")],
+                ["rewrite", t("workbench.shell.refRewrite")],
+                ["explain", t("workbench.shell.refExplain")],
+              ] as const).map(([key, label]) => (
                 <button
-                  key={a}
+                  key={key}
                   role="menuitem"
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => selected(a)}
+                  onClick={() => selected(key)}
                 >
-                  {a}
+                  {label}
                 </button>
               ))}
             </div>

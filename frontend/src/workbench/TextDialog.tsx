@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useT } from "../i18n";
 export function TextDialog({
   title,
   initial = "",
@@ -12,6 +13,7 @@ export function TextDialog({
   onSubmit: (text: string, desc?: string) => void | Promise<void>;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const [text, setText] = useState(initial);
   const [desc, setDesc] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,11 +41,11 @@ export function TextDialog({
         <header>
           <h2>{title}</h2>
           <button type="button" onClick={onClose}>
-            取消
+            {t("common.cancel")}
           </button>
         </header>
         <label>
-          {withDescription ? "项目名称" : title}
+          {withDescription ? t("workbench.textDialog.projectName") : title}
           <input
             autoFocus
             value={text}
@@ -56,14 +58,14 @@ export function TextDialog({
           />
         </label>
         {withDescription && <label>
-          项目描述（可选）
+          {t("workbench.textDialog.projectDesc")}
           <textarea value={desc} maxLength={2000} rows={3}
-            placeholder="简要说明项目背景、目标或需要关注的事项"
+            placeholder={t("workbench.textDialog.projectDescPlaceholder")}
             onChange={e => setDesc(e.target.value)}
           />
         </label>}
         <button className="wb-primary" disabled={!text.trim() || busy}>
-          {busy ? "正在保存…" : withDescription ? "创建项目" : "确认"}
+          {busy ? t("workbench.textDialog.saving") : withDescription ? t("workbench.sidebar.newProject") : t("common.confirm")}
         </button>
       </form>
     </div>

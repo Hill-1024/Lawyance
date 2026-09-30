@@ -96,22 +96,14 @@ export async function remember(user: string, key: string, value: unknown) {
     tx.onerror = () => reject(tx.error);
   });
 }
+/**
+ * 任务模板：id 是稳定标识（后端与快捷键都按它引用），文案在渲染时取词条，
+ * 否则切语言后模板名会停在加载时的语言。
+ */
 export const templates = [
-  {
-    id: "review",
-    title: "审查合同",
-    text: "请审查所引用的合同，逐项说明风险、依据，并提出可审阅的修改建议。",
-  },
-  {
-    id: "organize",
-    title: "整理材料",
-    text: "请整理所引用的材料，形成事实时间线、争点及待补充的证据清单。",
-  },
-  {
-    id: "draft",
-    title: "起草文书",
-    text: "请根据所引用的材料起草一份文书。文书类型：\n诉求：\n需要特别注意：",
-  },
-];
+  { id: "review", titleKey: "template.review", textKey: "template.reviewText" },
+  { id: "organize", titleKey: "template.organize", textKey: "template.organizeText" },
+  { id: "draft", titleKey: "template.draft", textKey: "template.draftText" },
+] as const;
 export const withoutTitle = (refs: Reference[]) =>
   refs.map(({ title, ...ref }) => ref);
