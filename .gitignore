@@ -45,3 +45,6 @@ test
 # 架构图视觉验收产物与 UX 调研截图（本地自查用，不入库）
 docs/architecture/*.visual-check.*
 docs/research/
+
+# Product shots: generated from a seeded local instance, regenerate rather than commit.
+docs/visuals/
