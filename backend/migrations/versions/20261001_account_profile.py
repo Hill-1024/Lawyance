@@ -82,9 +82,10 @@ def upgrade():
                 )
             )
         else:
-            # Postgres 同理：存量行让 NOT NULL 直加会被拒。uid 先可空、回填后补
-            # SET NOT NULL；带 server_default 的列（avatar_version）可以直加。
-            column = sa.Column(name, column_type, nullable=nullable, server_default=server_default)
+            # Postgres 同理：存量行让 NOT NULL 直加会被拒（ADD COLUMN NOT NULL 立即
+            # 校验，回填根本没机会跑）。uid 一律先可空、回填后补 SET NOT NULL；
+            # 带 server_default 的列（avatar_version）可以直加。
+            column = sa.Column(name, column_type, nullable=True, server_default=server_default)
             op.add_column("accounts", column)
             if not nullable and name == "uid":
                 _backfill_uid(conn)
