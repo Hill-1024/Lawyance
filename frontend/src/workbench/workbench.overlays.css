@@ -370,7 +370,15 @@
   height: var(--wb-icon-size);
   stroke-width: 1.75;
 }
-.wb-app button[aria-label]:has(> .lucide:only-child) {
+/*
+ * 纯图标按钮统一成 32px 方钮：带 aria-label，且唯一的子**元素**是 lucide 图标。
+ * 两个已知误伤与对策（2026-09-30）：
+ *   · 文字节点不算元素，所以「图标 + 可见文字 + aria-label」的按钮也会中招（庭审「案卷」）——
+ *     那类按钮不该再给 aria-label，可见文字本身就是可访问名；
+ *   · 子元素不止图标时也不该中招（例如「当前值 span + 箭头」的下拉按钮），
+ *     所以补一条 :not(:has(> :not(.lucide)))。真·图标按钮不受影响。
+ */
+.wb-app button[aria-label]:has(> .lucide:only-child):not(:has(> :not(.lucide))) {
   width: var(--wb-control-size);
   min-width: var(--wb-control-size);
   height: var(--wb-control-size);

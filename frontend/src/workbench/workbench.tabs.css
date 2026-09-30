@@ -94,6 +94,18 @@
   justify-content: center;
   flex: 0 0 auto;
   color: var(--accent);
+  /* 顶到标签尾部：运行指示贴着标题右侧读起来像标题的一部分（Chrome 里是尾槽元件）。 */
+  margin-left: auto;
+}
+/* 尾槽只显示一件事：运行中/有新结果时显示状态，鼠标移上去让位给关闭键。 */
+.wb-tab:hover .wb-tab-running,
+.wb-tab:hover .wb-tab-unseen {
+  display: none;
+}
+.wb-tab.is-running:not(:hover) .wb-tab-close,
+.wb-tab.has-unseen:not(:hover) .wb-tab-close {
+  opacity: 0;
+  pointer-events: none;
 }
 .wb-tab-unseen {
   width: 7px;
