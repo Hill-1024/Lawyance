@@ -481,6 +481,89 @@ def get_user_limits(username: str) -> dict:
     }
 
 
+# ─── 个人资料（uid / custom_id / 头像）────────────────────────────────────
+#
+# uid 是账号的稳定标识（介绍页头像 URL 等对外引用一律用它）；custom_id 是用户
+# 自选的展示句柄。两者都不参与鉴权——改它们不影响会话。
+
+CUSTOM_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,30}[a-z0-9]$")
+RESERVED_CUSTOM_IDS = frozenset(
+    {
+        "admin", "administrator", "root", "api", "www", "lawver", "support",
+        "system", "me", "user", "users", "account", "accounts", "null",
+        "undefined", "login", "logout", "settings", "home", "business",
+    }
+)
+AVATAR_MAX_BYTES = 1 * 1024 * 1024
+AVATAR_CONTENT_TYPES = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+}
+
+
+def get_account_profile(username: str) -> Optional[dict]:
+    """会话/个人资料共用的对外形状；不含任何凭据字节。"""
+    record = get_user_record(username)
+    if not record:
+        return None
+    return {
+        "username": record["username"],
+        "uid": record.get("uid"),
+        "custom_id": record.get("custom_id"),
+        "role": record.get("role", ROLE_USER),
+        "plan": record.get("plan", "metered"),
+        "avatar_version": record.get("avatar_version", 0),
+    }
+
+
+def validate_custom_id(custom_id: str) -> Optional[str]:
+    """返回人话错误；None 表示合法。"""
+    value = (custom_id or "").strip().lower()
+    if not CUSTOM_ID_PATTERN.fullmatch(value):
+        return "自定义 ID 需 2-32 位小写字母、数字、连字符或下划线，且以字母或数字开头结尾。"
+    if value in RESERVED_CUSTOM_IDS:
+        return "该 ID 为保留字，请换一个。"
+    return None
+
+
+def update_custom_id(username: str, custom_id: Optional[str]) -> tuple[bool, str]:
+    """置空表示清除。返回 (是否成功, 错误消息)。"""
+    value = (custom_id or "").strip().lower() or None
+    if value:
+        error = validate_custom_id(value)
+        if error:
+            return False, error
+    outcome = auth_store.set_custom_id(username, value)
+    if outcome == "conflict":
+        return False, "该自定义 ID 已被占用，请换一个。"
+    if outcome != "ok":
+        return False, "保存失败，请稍后重试。"
+    return True, ""
+
+
+def update_avatar(username: str, data: bytes, content_type: str) -> tuple[Optional[int], str]:
+    if content_type not in AVATAR_CONTENT_TYPES:
+        return None, "头像仅支持 PNG / JPEG / WebP。"
+    if len(data) > AVATAR_MAX_BYTES:
+        return None, "头像图片需小于 1 MB。"
+    if not data:
+        return None, "头像文件为空。"
+    return auth_store.set_avatar(username, data, content_type), ""
+
+
+def clear_user_avatar(username: str) -> int:
+    return auth_store.clear_avatar(username)
+
+
+def get_user_avatar(username: str) -> Optional[dict]:
+    return auth_store.get_avatar(username)
+
+
+def get_user_avatar_by_uid(uid: str) -> Optional[dict]:
+    return auth_store.get_avatar_by_uid(uid)
+
+
 def count_online(username: str) -> int:
     """在线设备数：Redis 有序集合优先，不可用或为空时回落到数据库统计。"""
     now = time.time()

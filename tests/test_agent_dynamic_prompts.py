@@ -7,7 +7,10 @@ import asyncio
 import unittest
 
 from prompt_loader import build_system_prompt
-from services.prompt_focus import current_focus, resolve_intent
+# 一律走模块属性访问（prompt_focus.resolve_intent(...)），不要 from-import：
+# 先跑的测试文件可能 purge 掉 services.* 再重导入，from-import 会把旧实例的函数
+# 绑死在顶部，测试内对「新实例」的 monkeypatch 就打不到调用方（真实发生过）。
+import services.prompt_focus as prompt_focus
 
 
 class AgentDynamicPromptTests(unittest.TestCase):
@@ -48,7 +51,7 @@ class AgentDynamicPromptTests(unittest.TestCase):
             self.assertNotIn(forbidden, prompt)
 
     def test_prompt_focus_routes_by_current_task(self):
-        focus = current_focus("我要起诉一个上传的合同", [{"role": "user", "content": "合同.pdf"}])
+        focus = prompt_focus.current_focus("我要起诉一个上传的合同", [{"role": "user", "content": "合同.pdf"}])
         prompt = build_system_prompt(focus=focus)
 
         self.assertEqual(focus, ["general_gate", "legal_retrieval", "file_processing"])
@@ -56,7 +59,7 @@ class AgentDynamicPromptTests(unittest.TestCase):
         self.assertIn('name="file_processing"', prompt)
         self.assertIn('name="legal_retrieval"', prompt)
 
-        general_focus = current_focus("我们继续升级记忆系统架构", [])
+        general_focus = prompt_focus.current_focus("我们继续升级记忆系统架构", [])
         general_prompt = build_system_prompt(focus=general_focus)
         self.assertEqual(general_focus, ["general_gate"])
         self.assertIn('name="general_gate"', general_prompt)
@@ -85,7 +88,7 @@ class AgentDynamicPromptTests(unittest.TestCase):
                 }
 
             prompt_focus.classify_intent_with_llm = fake_classifier
-            intent = asyncio.run(resolve_intent("帮我看看这个问题", []))
+            intent = asyncio.run(prompt_focus.resolve_intent("帮我看看这个问题", []))
             self.assertEqual(intent["task_type"], "legal_retrieval")
             self.assertIn("legal_retrieval", intent["focus"])
             self.assertTrue(intent["requires_legal_evidence"])
@@ -94,7 +97,7 @@ class AgentDynamicPromptTests(unittest.TestCase):
                 raise RuntimeError("router unavailable")
 
             prompt_focus.classify_intent_with_llm = failing_classifier
-            fallback = asyncio.run(resolve_intent("帮我看看这个问题", []))
+            fallback = asyncio.run(prompt_focus.resolve_intent("帮我看看这个问题", []))
             self.assertEqual(fallback["source"], "rules_fallback")
             self.assertEqual(fallback["focus"], ["general_gate"])
         finally:
@@ -184,7 +187,7 @@ class AgentDynamicPromptTests(unittest.TestCase):
                 }
 
             prompt_focus.classify_intent_with_llm = fake_classifier
-            intent = asyncio.run(resolve_intent("继续处理它，再找找上次说的内容", [{"role": "user", "content": "已上传劳动合同"}]))
+            intent = asyncio.run(prompt_focus.resolve_intent("继续处理它，再找找上次说的内容", [{"role": "user", "content": "已上传劳动合同"}]))
         finally:
             prompt_focus.classify_intent_with_llm = original_classifier
             if original_mode is None:

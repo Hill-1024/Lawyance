@@ -164,6 +164,63 @@ export const fetchSession = async (): Promise<SessionProbe> => {
   return res.json();
 };
 
+// ─── 个人资料（自定义 ID / 头像）──────────────────────────────────────────
+
+export interface AccountProfile {
+  username: string;
+  uid: string;
+  custom_id: string | null;
+  role: Role;
+  plan: string;
+  avatar_version: number;
+}
+
+export const fetchAccountProfile = async (): Promise<AccountProfile | null> => {
+  const res = await apiFetch('/api/profile');
+  if (!res.ok) return null;
+  return res.json();
+};
+
+export const updateCustomId = async (customId: string | null): Promise<AccountProfile> => {
+  const res = await apiFetch('/api/profile', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ custom_id: customId }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string })?.detail || '保存失败');
+  }
+  const data = await res.json();
+  return data.profile;
+};
+
+/** 头像 URL：version 参与缓存失效，改头像后换 URL 即可。 */
+export const avatarUrl = (uid: string, version: number) =>
+  `${apiUrl(`/api/avatars/${uid}`)}?v=${version}`;
+
+export const uploadAvatar = async (file: File): Promise<AccountProfile> => {
+  const body = new FormData();
+  body.append('file', file);
+  const res = await apiFetch('/api/profile/avatar', { method: 'PUT', body });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string })?.detail || '上传失败');
+  }
+  const data = await res.json();
+  return data.profile;
+};
+
+export const removeAvatar = async (): Promise<AccountProfile> => {
+  const res = await apiFetch('/api/profile/avatar', { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string })?.detail || '移除失败');
+  }
+  const data = await res.json();
+  return data.profile;
+};
+
 export const login = async (username: string, password: string) => {
   const res = await apiFetch('/api/login', {
     method: 'POST',

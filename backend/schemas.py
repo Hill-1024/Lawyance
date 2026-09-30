@@ -206,6 +206,12 @@ class LoginRequest(RequestModel):
     password: str = Field(min_length=1, max_length=MAX_PASSWORD_CHARS)
 
 
+class ProfileUpdateRequest(RequestModel):
+    """个人资料更新。custom_id 传 None/省略语义不同：model_fields_set 区分「没提」与「置空」。"""
+
+    custom_id: Optional[str] = Field(default=None, max_length=32)
+
+
 class ChangePasswordRequest(RequestModel):
     """自助改密：旧密码是本人证明，新密码长度交给 auth.change_password 统一校验。"""
 

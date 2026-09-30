@@ -21,6 +21,7 @@ import {
   Folder,
   Gavel,
   Globe,
+  ImagePlus,
   KeyRound,
   Keyboard,
   Link2,
@@ -39,6 +40,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  UserRound,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { DEFAULT_SEED } from '../lib/palette';
@@ -55,15 +57,21 @@ import './settings/settings-modal.css';
 import { SettingsExtensions } from './settings/SettingsExtensions';
 import { SettingsShortcuts, ShortcutCheatSheet } from './settings/SettingsShortcuts';
 import {
-  clearSecret,
+  avatarUrl,
   changePassword,
+  clearSecret,
+  fetchAccountProfile,
   fetchMyCredits,
   getProviderStatus,
   getSettings,
+  removeAvatar,
   setSecret,
   testProvider,
+  updateCustomId,
   updateSettings,
+  uploadAvatar,
   verifyAuth,
+  type AccountProfile,
   type ProviderStatus,
 } from '../services/api';
 import {
@@ -85,6 +93,262 @@ import { describeError } from '../lib/errors';
  * 管理员的「无校验重置」因此成了唯一改密通道，反过来说也是个社会工程面。
  * 改密语义：保留当前设备，其他设备的登录立即失效。
  */
+const PLAN_BADGES: Record<string, { label: string; className: string }> = {
+  go: { label: 'Go', className: 'bg-[var(--brand-primary-50)] text-[var(--brand-primary-700)]' },
+  pro: { label: 'Pro', className: 'bg-[var(--brand-tertiary-50)] text-[var(--brand-tertiary-700)]' },
+  max: { label: 'Max', className: 'bg-[#faf3e0] text-[#8a6116]' },
+  business: { label: 'Business', className: 'bg-[var(--brand-secondary-800)] text-white' },
+};
+
+/** 头像：有图用图，没图用用户名首字母落在品牌蓝上。 */
+export const AccountAvatar: React.FC<{
+  profile: AccountProfile | null;
+  size: number;
+  className?: string;
+}> = ({ profile, size, className = '' }) => {
+  const version = profile?.avatar_version ?? 0;
+  const src = profile && version > 0 ? avatarUrl(profile.uid, version) : null;
+  const initial = (profile?.username || '?').slice(0, 1).toUpperCase();
+  return (
+    <span
+      className={
+        'inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full bg-[var(--accent)] text-[var(--accent-on)] ' +
+        className
+      }
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
+      aria-hidden="true"
+    >
+      {src ? (
+        <img src={src} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <span className="font-semibold leading-none">{initial}</span>
+      )}
+    </span>
+  );
+};
+
+const PLAN_LABELS_I18N: Record<string, MessageKey> = {
+  metered: 'settings.profile.planMetered',
+  go: 'settings.profile.planGo',
+  pro: 'settings.profile.planPro',
+  max: 'settings.profile.planMax',
+  business: 'settings.profile.planBusiness',
+};
+
+/** 个人资料卡：头像 + 自定义 ID（对外句柄）+ 只读 UID（稳定标识）。 */
+const ProfileCard: React.FC = () => {
+  const { t } = useT();
+  const { showAlert } = useAppDialog();
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [handle, setHandle] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState<'id' | 'avatar' | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAccountProfile().then((data) => {
+      if (cancelled || !data) return;
+      setProfile(data);
+      setHandle(data.custom_id ?? '');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const applyProfile = (next: AccountProfile) => {
+    setProfile(next);
+    setHandle(next.custom_id ?? '');
+    setError('');
+  };
+
+  const saveHandle = async () => {
+    const value = handle.trim().toLowerCase();
+    if (value === (profile?.custom_id ?? '')) return;
+    setBusy('id');
+    try {
+      applyProfile(await updateCustomId(value || null));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('settings.profile.saveFailed'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onPickFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 1024 * 1024) {
+      await showAlert({
+        title: t('settings.profile.avatarTooLargeTitle'),
+        message: t('settings.profile.avatarTooLarge'),
+        tone: 'warning',
+      });
+      return;
+    }
+    setBusy('avatar');
+    try {
+      applyProfile(await uploadAvatar(file));
+    } catch (e) {
+      await showAlert({
+        title: t('settings.profile.avatarFailedTitle'),
+        message: e instanceof Error ? e.message : t('settings.profile.avatarFailed'),
+        tone: 'danger',
+      });
+    } finally {
+      setBusy(null);
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+
+  const badge = profile ? PLAN_BADGES[profile.plan] : undefined;
+  const handleValue = handle.trim().toLowerCase();
+
+  return (
+    <section className="min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[var(--shadow-2)]">
+      <div className="flex min-w-0 items-center gap-3 border-b border-[var(--border-subtle)] p-4 sm:p-5">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-on)]">
+          <UserRound size={20} strokeWidth={2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="t-title-m">{t('settings.profile.title')}</h2>
+          <p className="mt-0.5 text-[12px] leading-5 text-[var(--fg-3)]">
+            {t('settings.profile.hint')}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-5 p-4 sm:p-5">
+        {/* 身份行：头像 + 用户名 + 订阅徽标 */}
+        <div className="flex min-w-0 items-center gap-4">
+          <AccountAvatar profile={profile} size={56} />
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="truncate text-[15px] font-semibold text-[var(--fg-1)]">
+                {profile?.username ?? '…'}
+              </span>
+              {badge && (
+                <span
+                  className={
+                    'inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold tracking-wide ' +
+                    badge.className
+                  }
+                >
+                  {badge.label}
+                </span>
+              )}
+            </div>
+            <p className="mt-0.5 truncate text-[12px] text-[var(--fg-3)]">
+              {t(profile ? PLAN_LABELS_I18N[profile.plan] ?? 'settings.profile.planMetered' : 'settings.profile.planMetered')}
+            </p>
+          </div>
+        </div>
+
+        {/* 头像 */}
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-[12px] font-medium text-[var(--fg-3)]">
+            {t('settings.profile.avatarLabel')}
+          </span>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={busy === 'avatar'}
+              onClick={() => fileInput.current?.click()}
+              className="lawver-pressable flex h-9 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 text-[13px] font-medium text-[var(--fg-1)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy === 'avatar' ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} strokeWidth={2} />}
+              {t('settings.profile.avatarUpload')}
+            </button>
+            {profile && profile.avatar_version > 0 && (
+              <button
+                type="button"
+                disabled={busy === 'avatar'}
+                onClick={async () => {
+                  setBusy('avatar');
+                  try {
+                    applyProfile(await removeAvatar());
+                  } finally {
+                    setBusy(null);
+                  }
+                }}
+                className="lawver-pressable flex h-9 items-center rounded-[var(--radius-sm)] px-3 text-[13px] font-medium text-[var(--color-danger-500)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {t('settings.profile.avatarRemove')}
+              </button>
+            )}
+            <span className="text-[12px] text-[var(--fg-3)]">{t('settings.profile.avatarHint')}</span>
+          </div>
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            hidden
+            onChange={(e) => void onPickFile(e.target.files?.[0])}
+          />
+        </div>
+
+        {/* 自定义 ID */}
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <label
+            htmlFor="profile-custom-id"
+            className="text-[12px] font-medium text-[var(--fg-3)]"
+          >
+            {t('settings.profile.customIdLabel')}
+          </label>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <input
+              id="profile-custom-id"
+              className={fieldInputClass + ' max-w-[240px] font-mono'}
+              value={handle}
+              placeholder={t('settings.profile.customIdPlaceholder')}
+              maxLength={32}
+              spellCheck={false}
+              autoCapitalize="none"
+              onChange={(e) => {
+                setHandle(e.target.value);
+                setError('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void saveHandle();
+                }
+              }}
+            />
+            <button
+              type="button"
+              disabled={busy === 'id' || handleValue === (profile?.custom_id ?? '')}
+              onClick={() => void saveHandle()}
+              className="lawver-pressable flex h-9 items-center gap-2 rounded-[var(--radius-sm)] bg-[var(--accent)] px-3 text-[13px] font-medium text-[var(--accent-on)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy === 'id' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} strokeWidth={2} />}
+              {t('settings.profile.customIdSave')}
+            </button>
+          </div>
+          {error ? (
+            <p className="text-[12px] text-[var(--color-danger-500)]" role="alert">
+              {error}
+            </p>
+          ) : (
+            <p className="text-[12px] text-[var(--fg-3)]">{t('settings.profile.customIdHint')}</p>
+          )}
+        </div>
+
+        {/* 只读 UID：稳定标识，不随自定义 ID 改变 */}
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-[12px] font-medium text-[var(--fg-3)]">
+            {t('settings.profile.uidLabel')}
+          </span>
+          <code className="w-fit max-w-full truncate rounded-[var(--radius-sm)] bg-[var(--bg-inset)] px-2 py-1 font-mono text-[12px] text-[var(--fg-2)]">
+            {profile?.uid ?? '…'}
+          </code>
+          <p className="text-[12px] text-[var(--fg-3)]">{t('settings.profile.uidHint')}</p>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const AccountCard: React.FC = () => {
   const { t } = useT();
   const { showAlert } = useAppDialog();
@@ -940,7 +1204,7 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
   const select = (id: string) => {setQuery(''); navigate(`/settings/${id}`, {replace:true});};
   const renderPane = (key: string) => {
     if(key === 'extensions') return <SettingsExtensions/>;
-    if(key === 'account') return <><p className="settings-hint">{t('settings.accountHint')}</p><AccountCard/></>;
+    if(key === 'account') return <><p className="settings-hint">{t('settings.accountHint')}</p><ProfileCard/><AccountCard/></>;
     if(key === 'appearance') return <><p className="settings-hint">{t('settings.appearanceHint')}</p><AppearanceCard {...theme} /></>;
     if(key === 'shortcuts') return <SettingsShortcuts/>;
     if(key === 'help') return <HelpSection onStartTour={() => {void closeRef.current().then(closed => {if(closed) requestGuidedTour();});}}/>;
