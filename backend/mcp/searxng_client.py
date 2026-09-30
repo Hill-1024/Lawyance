@@ -199,10 +199,12 @@ def _access_headers() -> tuple[dict[str, str], tuple[str, str] | None]:
             "CONFIG_ERROR",
             "Cloudflare Access Service Token 配置不完整，请同时设置 Client ID 和 Client Secret。",
         )
-    return {}, (
-        "CONFIG_ERROR",
-        "缺少 Cloudflare Access Service Token，请设置 CF_ACCESS_CLIENT_ID 和 CF_ACCESS_CLIENT_SECRET。",
-    )
+    # 两个凭据都没配：自托管实例通常没有 Cloudflare Access，凭据是可选的——
+    # 直接不带 Access 头发请求；实例若真开了 Access 会以 403 拒绝，在响应侧报错。
+    return {
+        "Accept": "application/json",
+        "User-Agent": SEARCH_USER_AGENT,
+    }, None
 
 
 def _redact_url(raw_url: Any) -> str:
