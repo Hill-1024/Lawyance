@@ -21,6 +21,7 @@ from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select, or_
 from services.auth_dependencies import get_current_user
+from infra import database
 from billing import ledger as billing
 from workbench.store import (
     Item,
@@ -136,10 +137,19 @@ class Suggest(Body):
 
 
 def enabled(user):
-    allowed = os.environ.get("LAWVER_WORKBENCH_USERS", "").split(",")
-    return bool(os.environ.get("LAWVER_DATABASE_URL")) and (
-        "*" in allowed or user in allowed
-    )
+    """是否对该账号开放工作台。
+
+    库是否可用的判断与 infra.database 走同一处（测试模式下派生 sqlite 也算可用）——
+    这里只看 LAWVER_DATABASE_URL 的话，用仓库给的启动命令起的演示实例会出现
+    「账号能登录、工作台全 403」的半可用状态。
+    """
+    if not database.cloud_database_ready():
+        return False
+    allowed = [name.strip() for name in os.environ.get("LAWVER_WORKBENCH_USERS", "").split(",") if name.strip()]
+    if not allowed:
+        # 空名单只在测试模式（显式开关 + 派生库）下放行全部账号；生产必须显式给名单。
+        return database.derived_test_database()
+    return "*" in allowed or user in allowed
 
 
 def gate(request: Request, user=Depends(get_current_user)):
@@ -181,6 +191,37 @@ def receipt(session, user, key, payload, action):
     return result
 
 
+def _unique_document_title(session, user, project_id, title: str) -> str:
+    """同名文件自动加序号（name (2).ext）。
+
+    静默创建两条标题完全相同的记录，会让引用选择、搜索和清理都分不出彼此；
+    破坏性方案（覆盖、拒绝）对已经上传完成的文件风险更大，所以取加序号。
+    """
+
+    def taken(candidate: str) -> bool:
+        query = select(Item.id).where(
+            Item.owner == user,
+            Item.kind == "document",
+            Item.title == candidate,
+            Item.deleted_at.is_(None),
+        )
+        query = (
+            query.where(Item.project_id == project_id)
+            if project_id
+            else query.where(Item.project_id.is_(None))
+        )
+        return session.scalar(query.limit(1)) is not None
+
+    if not taken(title):
+        return title
+    stem, suffix = os.path.splitext(title)
+    for index in range(2, 100):
+        candidate = f"{stem} ({index}){suffix}"
+        if not taken(candidate):
+            return candidate
+    return f"{stem} ({new_id()[:4]}){suffix}"
+
+
 def create_document(session, user, project_id, title, content):
     validate_content(content)
     item = Item(
@@ -204,7 +245,7 @@ def status(user=Depends(get_current_user)):
     return {
         "enabled": enabled(user),
         "username": user,
-        "configured": bool(os.environ.get("LAWVER_DATABASE_URL")),
+        "configured": database.cloud_database_ready(),
     }
 
 
@@ -375,6 +416,9 @@ async def upload(
     with transaction() as s:
         if project_id:
             get_item(s, user, project_id, "project")
+        # 同名文件自动加序号：此前两次上传同名文件会产生两条标题完全相同的记录，
+        # 引用、搜索和清理时都分不出彼此。
+        title = _unique_document_title(s, user, project_id, title)
         data.update(
             blob_key=BlobStore().put(raw),
             size=len(raw),

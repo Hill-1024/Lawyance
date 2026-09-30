@@ -120,6 +120,18 @@ export function SessionView({
     );
   const lastAssistantId = [...messages].reverse().find((m: any) => m.role === "assistant")?.id;
   const hasTimeline = activityBlocks.length > 0;
+  /*
+   * 失败反馈的兜底：运行失败的终态写在 run 上（后端会带上 error 文案），
+   * 但重新进入会话时前端不一定还持有那个 run 对象——此时用「最后一条消息是用户的、
+   * 而且没有任务在跑」来判断上一轮没有收尾，至少让用户知道该重发。
+   */
+  const runFailed = run?.data.status === "failed" || run?.data.status === "interrupted";
+  const stalled = !running && !run && messages.length > 0 && messages[messages.length - 1]?.role === "user";
+  const failureNotice = runFailed
+    ? run?.data.error || "本轮任务执行失败，请重试；若反复失败请把时间点告诉管理员。"
+    : stalled
+      ? "上一轮没有收到回复，可能是任务失败或被中断，可以重新发送。"
+      : "";
   const runBadge = run ? (
     hasTimeline || run.data.error ? (
       <button
@@ -260,6 +272,17 @@ export function SessionView({
           </div>
         )}
       </div>
+      {/* 失败提示挂在会话层，不挂在消息里：失败路径不产出 assistant 消息，徽标与
+          「任务未完成」就永远没有落点，用户只看到自己那条消息，以为发送成功了。 */}
+      {failureNotice && (
+        <div className="wb-run-failure" role="status">
+          <CircleAlert size={16} />
+          <div>
+            <strong>任务未完成</strong>
+            <p>{failureNotice}</p>
+          </div>
+        </div>
+      )}
       <div className="wb-composer-wrap">
         {composer}
         <small className="wb-disclaimer">

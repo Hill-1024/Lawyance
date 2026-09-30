@@ -41,6 +41,20 @@ def raw_database_url() -> str:
     return os.environ.get("LAWVER_DATABASE_URL", "").strip()
 
 
+def derived_test_database() -> bool:
+    """测试模式且未显式配库：database_url() 会按数据目录派生 sqlite。"""
+    return not raw_database_url() and os.environ.get("LAWVER_WORKBENCH_TESTING") == SQLITE_TESTING
+
+
+def cloud_database_ready() -> bool:
+    """账号库是否可用（显式配置，或测试模式下可派生）。
+
+    启动日志、工作台门禁都问这一个函数：此前门禁只看 LAWVER_DATABASE_URL，
+    于是「账号能登录、工作台全 403」的半可用状态会在演示/验收实例上稳定复现。
+    """
+    return bool(raw_database_url()) or derived_test_database()
+
+
 def database_url(message: str = "云端数据库尚未配置") -> str:
     """返回可直接交给 SQLAlchemy 的连接串；未配置或类型不合法时抛出可读错误。"""
     url = raw_database_url()

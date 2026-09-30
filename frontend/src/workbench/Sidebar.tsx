@@ -18,10 +18,13 @@ import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { BrandLockup } from "../components/Brand";
-import { getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
 import { fetchMyCredits } from "../services/api";
 import { Item } from "./client";
 import { LayoutToolbar, useWorkspaceLayout } from "./WorkspaceLayout";
+import { usePortalMenuDismiss } from "./usePortalMenu";
+
+// 空间菜单 portal 到 body：豁免列表里要有菜单自身的类名。
+const SPACE_MENU_SELECTORS = [".wb-space-menu", ".wb-space-pill"] as const;
 
 /** 侧栏：只负责当前工作区的文件、空间切换与底部工具入口。 */
 export type SidebarProps = {
@@ -106,22 +109,7 @@ export function Sidebar({
       window.clearInterval(timer);
     };
   }, []);
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest?.(".wb-space-menu, .wb-space-pill"))
-        setMenuOpen(false);
-    };
-    const esc = (event: KeyboardEvent) => {
-      if (matchKeys(event, getBinding(SHORTCUT_IDS.overlayClose))) setMenuOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", esc);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", esc);
-    };
-  }, [menuOpen]);
+  usePortalMenuDismiss(menuOpen, () => setMenuOpen(false), { selectors: SPACE_MENU_SELECTORS });
   return (
     <aside data-tour="wb-sidebar" className={"wb-sidebar " + (sidebarOpen ? "is-open" : "")}>
       <div className="wb-brand">

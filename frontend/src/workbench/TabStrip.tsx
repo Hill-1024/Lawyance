@@ -3,7 +3,10 @@ import { Gavel, Loader, Menu, MessageSquare, PenLine, Plus, X } from "lucide-rea
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TabRef, tabKey } from "./tabs";
-import { getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
+import { usePortalMenuDismiss } from "./usePortalMenu";
+
+// 右键菜单是 portal 到 body 的：豁免列表里要有菜单自身的类名。
+const TAB_MENU_SELECTORS = [".wb-tab-menu"] as const;
 
 export type TabMenuItem = {
   label: string;
@@ -60,25 +63,11 @@ export function TabStrip({
     pendingFocus.current = null;
     (target === NEW_TAB ? newTabButton.current : tabButtons.current.get(target))?.focus();
   });
-  useEffect(() => {
-    if (!menu) return;
-    // 菜单挂在 body 的 portal 上，mousedown 会冒泡到 window；不排除菜单自身的话，
-    // 按下菜单项的那一刻菜单就被卸载，click 永远不触发 —— 整张右键菜单对鼠标就废了。
-    const close = (event: MouseEvent) => {
-      if (!(event.target as HTMLElement).closest?.(".wb-tab-menu")) setMenu(undefined);
-    };
-    const esc = (event: KeyboardEvent) => {
-      if (matchKeys(event, getBinding(SHORTCUT_IDS.overlayClose))) setMenu(undefined);
-    };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", esc);
-    window.addEventListener("resize", close);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", esc);
-      window.removeEventListener("resize", close);
-    };
-  }, [menu]);
+  // 菜单 portal 到 body：豁免列表必须含菜单自身类名，否则鼠标按下菜单项时它已被卸载。
+  usePortalMenuDismiss(menu !== undefined, () => setMenu(undefined), {
+    selectors: TAB_MENU_SELECTORS,
+    closeOnResize: true,
+  });
   const group = (
     <motion.div
       className="wb-tabstrip-group"

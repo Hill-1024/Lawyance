@@ -9,7 +9,7 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import { ShieldAlert, ExternalLink } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useStorage } from './hooks/useStorage';
-import { apiFetch, verifyAuth, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
+import { apiFetch, fetchSession, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
 import { isNative } from './lib/platform';
 import { APP_CONFIG } from './lib/app-config';
 import { exitNativeApp, useBackButton } from './hooks/useBackButton';
@@ -28,6 +28,24 @@ const SettingsPage = React.lazy(() => import('./components/SettingsPage').then(m
 
 const SECURE_DOMAIN = APP_CONFIG.domain;
 const ROUTE_TRANSITION = { duration: 0.26, ease: [0.2, 0, 0, 1] } as const;
+
+/*
+ * 设置是「盖在当前页面上的模态」，所以它需要一个 backgroundLocation 来渲染背后那一层。
+ * 以下三种 location 不能直接当背景：
+ *   · `/settings*`——整页加载直接落在设置上时，location 自己就是设置页；拿它当背景会同时
+ *     渲染「路由里的设置」和「盖在上面的设置」两份对话框；
+ *   · `/`——`/` 路由会 Navigate 到 /home，replace 之后 URL 不再是 /settings，
+ *     设置面板当场被卸载，于是「收藏链接 / 输入网址 / 刷新」三条路径都打不开设置；
+ *   · `/login`——一张空页，背景会很难看。
+ * 一律换成 /home：受守卫的正常页面，不会改写 URL。
+ */
+const SETTINGS_BACKGROUND_FALLBACK = '/home';
+const asBackgroundLocation = <T extends { pathname: string; search: string; hash: string }>(location: T): T =>
+  location.pathname === '/' ||
+  location.pathname.startsWith('/login') ||
+  location.pathname.startsWith('/settings')
+    ? { ...location, pathname: SETTINGS_BACKGROUND_FALLBACK, search: '', hash: '' }
+    : location;
 
 const RouteLoadingFallback = () => (
   <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--bg-app)] text-[var(--accent)]">
@@ -67,8 +85,8 @@ function App() {
   const goUp = useAppBackUp();
   const location = useLocation();
   const settingsOpen = location.pathname.startsWith('/settings');
-  const backgroundLocation = useRef(location.pathname.startsWith('/settings') ? { ...location, pathname: '/', search: '', hash: '' } : location);
-  if (!settingsOpen) backgroundLocation.current = location;
+  const backgroundLocation = useRef(asBackgroundLocation(location));
+  if (!settingsOpen) backgroundLocation.current = asBackgroundLocation(location);
   const surfaceLocation = settingsOpen ? backgroundLocation.current : location;
 
   const { requestPersistence } = useStorage();
@@ -126,8 +144,8 @@ function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const data = await verifyAuth();
-        setIsAuthenticated(true);
+        const data = await fetchSession();
+        setIsAuthenticated(data.authenticated);
         setUserRole(data.role || 'user');
       } catch (e) {
         setIsAuthenticated(false);
@@ -156,8 +174,8 @@ function App() {
     CapacitorApp.addListener('appStateChange', async ({ isActive }) => {
       if (!isActive) return;
       try {
-        const data = await verifyAuth();
-        setIsAuthenticated(true);
+        const data = await fetchSession();
+        setIsAuthenticated(data.authenticated);
         setUserRole(data.role || 'user');
       } catch {
         setIsAuthenticated(false);

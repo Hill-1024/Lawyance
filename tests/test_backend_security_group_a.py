@@ -100,7 +100,10 @@ class AuthLockoutBudgetTests(IsolatedBackendTest):
         locked_result = auth.authenticate_user("admin", "bootstrap-password", "198.51.100.21")
         other_source_result = auth.authenticate_user("admin", "bootstrap-password", "198.51.100.22")
         # 锁只作用于这个来源；换个来源仍能正常登录。
-        self.assertEqual(locked_result, (False, "用户名或密码错误"))
+        # 锁定期间**密码正确**的本人会看到锁定提示（否则他会以为密码被改了）；
+        # 密码错误的尝试仍回统一文案，见下一个测试的断言。
+        self.assertEqual(locked_result, (False, auth.check_lockout("admin", "198.51.100.21")))
+        self.assertIn("已被锁定", locked_result[1])
         self.assertEqual(other_source_result, (True, "登录成功"))
 
         raw = str([(row["scope"], row["key"]) for row in self._rows()])
@@ -121,8 +124,14 @@ class AuthLockoutBudgetTests(IsolatedBackendTest):
 
         # 聚合桶在跨来源第 6 次失败时开始退避锁定。
         self.assertIsNotNone(auth.check_lockout("admin", "198.51.100.99"))
+        # 密码正确 → 提示已被锁定（不泄露给只是猜密码的人）。
+        self.assertIn(
+            "已被锁定",
+            auth.authenticate_user("admin", "bootstrap-password", "198.51.100.99")[1],
+        )
+        # 密码错误 → 仍是统一文案。
         self.assertEqual(
-            auth.authenticate_user("admin", "bootstrap-password", "198.51.100.99"),
+            auth.authenticate_user("admin", "bad-password", "198.51.100.99"),
             (False, "用户名或密码错误"),
         )
 
@@ -163,11 +172,10 @@ class LockoutUnlockTests(IsolatedBackendTest):
 
         for _ in range(auth.LOCKOUT_FAIL_LIMIT):
             auth.authenticate_user("admin", "bad-password", "198.51.100.40")
-        # 锁上之后连正确密码也进不去
-        self.assertEqual(
-            auth.authenticate_user("admin", "bootstrap-password", "198.51.100.40"),
-            (False, "用户名或密码错误"),
-        )
+        # 锁上之后连正确密码也进不去，但本人能看到「已被锁定」而不是被误导成密码错
+        blocked = auth.authenticate_user("admin", "bootstrap-password", "198.51.100.40")
+        self.assertFalse(blocked[0])
+        self.assertIn("已被锁定", blocked[1])
         self.assertGreater(throttle.locked_seconds("admin", "198.51.100.40"), 0)
 
         cleared = throttle.unlock("admin")

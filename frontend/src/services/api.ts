@@ -130,6 +130,40 @@ export const verifyAuth = async (): Promise<AuthInfo> => {
   return res.json();
 };
 
+export interface SessionProbe {
+  authenticated: boolean;
+  username?: string;
+  role?: Role;
+}
+
+/** 自助改密：需要当前密码；改完其他设备下线，当前设备保留。 */
+export const changePassword = async (
+  currentPassword: string,
+  newPassword: string
+): Promise<{ status: string; message: string; revoked_sessions: number }> => {
+  const res = await apiFetch('/api/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string })?.detail || '修改密码失败');
+  }
+  return res.json();
+};
+
+/**
+ * 登录态探测：服务端保证 200，用 authenticated 字段表达结果。
+ * 启动时的这次探测走 verify_auth 必然 401，浏览器会把每个 4xx 资源响应记成
+ * console error——每个未登录用户一打开页面就有一条噪音。
+ */
+export const fetchSession = async (): Promise<SessionProbe> => {
+  const res = await apiFetch('/api/session');
+  if (!res.ok) return { authenticated: false };
+  return res.json();
+};
+
 export const login = async (username: string, password: string) => {
   const res = await apiFetch('/api/login', {
     method: 'POST',
