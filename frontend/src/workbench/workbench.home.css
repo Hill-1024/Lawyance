@@ -198,8 +198,10 @@
   text-wrap: pretty;
 }
 .wb-home-suggest {
-  max-width: 640px;
-  margin: 0 auto 14px;
+  /* 与 composer、最近会话共用同一条左基线。此前是 640px 居中块：在 936px 的内容栏里
+     整块右移 148px，右端的「换一批」还飘在离 chips 三百多像素的空处，和下方
+     「最近会话 / 查看全部」的左标签＋右轨关系对不上，看起来就是整体错位。 */
+  margin: 0 0 14px;
 }
 .wb-home-suggest-head {
   display: flex;
