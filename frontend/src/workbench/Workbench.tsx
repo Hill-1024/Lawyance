@@ -1067,6 +1067,7 @@ export default function Workbench({ username }: { username: string }) {
           onClose={closeTab}
           onReorder={(next) => setTabBook((book) => withTabs(book, space, next))}
           onCreate={() => quick(projectId)}
+          onCreateCourt={() => navigate("/court/new")}
           onNav={() => setSidebar(true)}
           chrome={
             <>

@@ -120,6 +120,11 @@
   opacity: 1;
   background: var(--bg-inset);
 }
+.wb-tab-new-wrap {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+}
 .wb-tab-new,
 .wb-tabstrip-action {
   width: var(--wb-control-size);
@@ -142,6 +147,15 @@
 }
 .wb-tabstrip-action:disabled {
   opacity: 0.35;
+}
+.wb-tab-new-wrap {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+}
+/* 「+」的浮现菜单：沿用标签右键菜单的观感，只是窄一些、贴在新标签按钮下方。 */
+.wb-tab-new-menu {
+  width: min(200px, calc(100vw - 16px));
 }
 .wb-tab-menu {
   position: fixed;
