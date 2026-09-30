@@ -6,6 +6,7 @@ import { useSettingsEdit } from "../components/settings/SettingsEditContext";
 import { api, Item } from "./client";
 import { fileDB } from "../lib/db";
 import { downloadApiFile } from "../lib/download";
+import { useT } from "../i18n";
 export function ManageDialog({
   tab,
   embedded = false,
@@ -30,6 +31,7 @@ export function ManageDialog({
   onError: (s: string) => void;
 }) {
   const { showConfirm } = useAppDialog();
+  const { t } = useT();
   const sectionId = useId();
   const reportEdit = useSettingsEdit();
   const [section, setSection] = useState(tab),
@@ -64,7 +66,7 @@ export function ManageDialog({
   }, [tab]);
   async function switchSection(next: string) {
     if (next === section) return;
-    if (editing && !await showConfirm({title: "放弃未保存的配置？", message: "切换列表会丢弃当前编辑内容。", confirmLabel: "放弃并切换", cancelLabel: "继续编辑", tone: "warning"})) return;
+    if (editing && !await showConfirm({title: t("workbench.manage.discardTitle"), message: t("workbench.manage.discardMessage"), confirmLabel: t("workbench.manage.discardConfirm"), cancelLabel: t("workbench.manage.discardCancel"), tone: "warning"})) return;
     setSection(next);
     setEditing(undefined);
   }
@@ -149,7 +151,7 @@ export function ManageDialog({
         "migration-" + hash,
       );
       setProgress(
-        `已迁移 ${chosen.length} 个会话、${courts.length} 个庭审档案。正在上传附件…`,
+        t("workbench.manage.migrated", { sessions: chosen.length, courts: courts.length }),
       );
       for (const f of files.filter((f) => selected.includes(f.convId))) {
         if (!f.blob) continue;
@@ -159,12 +161,10 @@ export function ManageDialog({
         body.append("original_path", f.path);
         await api("/migrations/" + result.id + "/files", "POST", body);
       }
-      setProgress(
-        "会话与可读取附件已复制到云端。原始资料完整保留；缺失附件请在旧资料中核对。",
-      );
+      setProgress(t("workbench.manage.migratedDone"));
       onReload();
     } catch (e) {
-      setProgress("迁移中断，原始资料未删除。");
+      setProgress(t("workbench.manage.migratedInterrupted"));
       onError(e.message);
     } finally {
       setBusy(false);
@@ -181,23 +181,23 @@ export function ManageDialog({
         className="wb-modal"
         role={embedded ? undefined : "dialog"}
         aria-modal={embedded ? undefined : true}
-        aria-label="工作台管理"
+        aria-label={t("workbench.manage.workbenchLabel")}
       >
         {!embedded && <header>
           <h2>
             {tab === "migration"
-              ? "本地旧资料"
+              ? t("workbench.shell.localArchive")
               : tab === "trash"
-                ? "归档与回收站"
-                : "技能与插件"}
+                ? t("workbench.sidebar.archive")
+                : t("workbench.shell.skillsAndPlugins")}
           </h2>
-          <button aria-label="关闭" onClick={onClose}>
+          <button aria-label={t("common.close")} onClick={onClose}>
             <X size={20} />
           </button>
         </header>}
         {["skills", "connectors"].includes(tab) && (
           <>
-            <nav className="wb-manager-tabs" role="tablist" aria-label="技能与插件分类">
+            <nav className="wb-manager-tabs" role="tablist" aria-label={t("workbench.manage.sectionLabel")}>
               {(["skills", "connectors"] as const).map((value) => (
                 <button
                   key={value}
@@ -217,7 +217,7 @@ export function ManageDialog({
                   }}
                 >
                   {value === "skills" ? <Sparkles size={18} /> : <Plug size={18} />}
-                  {value === "skills" ? "技能" : "插件"}
+                  {value === "skills" ? t("workbench.manage.skills") : t("workbench.manage.plugins")}
                 </button>
               ))}
             </nav>
@@ -225,7 +225,7 @@ export function ManageDialog({
             {editing ? (
               <>
                 <label>
-                  名称
+                  {t("workbench.manage.name")}
                   <input
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
@@ -233,7 +233,7 @@ export function ManageDialog({
                 </label>
                 {section === "skills" ? (
                   <label>
-                    技能说明与指令
+                    {t("workbench.manage.skillInstruction")}
                     <textarea
                       value={instructions}
                       onChange={(e) => setInstructions(e.target.value)}
@@ -242,7 +242,7 @@ export function ManageDialog({
                 ) : (
                   <>
                     <label>
-                      HTTPS MCP 地址
+                      {t("workbench.manage.mcpUrl")}
                       <input
                         value={url}
                         disabled={!!editing.id}
@@ -251,7 +251,7 @@ export function ManageDialog({
                       />
                     </label>
                     <label>
-                      API 密钥
+                      {t("workbench.manage.apiKey")}
                       <input
                         type="password"
                         autoComplete="new-password"
@@ -259,15 +259,12 @@ export function ManageDialog({
                         onChange={(e) => setSecret(e.target.value)}
                         placeholder={
                           editing.data.has_secret
-                            ? "已配置；输入新密钥以更新"
-                            : "可留空"
+                            ? t("workbench.manage.keyConfigured")
+                            : t("workbench.manage.keyOptional")
                         }
                       />
                     </label>
-                    <p>
-                      仅支持远程 HTTPS Streamable
-                      HTTP。密钥加密存储；插件默认为停用。
-                    </p>
+                    <p>{t("workbench.manage.connectorHint")}</p>
                   </>
                 )}
                 <button
@@ -275,9 +272,9 @@ export function ManageDialog({
                   className="wb-primary"
                   onClick={save}
                 >
-                  保存{section === "skills" ? "草稿" : ""}
+                  {section === "skills" ? t("workbench.manage.saveDraft") : t("common.save")}
                 </button>
-                <button onClick={() => setEditing(undefined)}>取消</button>
+                <button onClick={() => setEditing(undefined)}>{t("common.cancel")}</button>
               </>
             ) : (
               <>
@@ -293,18 +290,18 @@ export function ManageDialog({
                   }
                 >
                   <Plus size={16} />
-                  {section === "skills" ? "创建技能" : "添加插件"}
+                  {section === "skills" ? t("workbench.manage.createSkill") : t("workbench.manage.addConnector")}
                 </button>
-                {section === "connectors" && connectors.length === 0 && <p className="wb-empty">尚未添加插件。连接远程 MCP 服务后，可在任务中选择使用。</p>}
+                {section === "connectors" && connectors.length === 0 && <p className="wb-empty">{t("workbench.manage.emptyPlugins")}</p>}
                 {(section === "skills" ? skills : connectors).map((item) => (
                   <div className="wb-row" key={item.id}>
                     <span>
                       {item.title}
                       <small>
                         {item.data.builtin
-                          ? "内置技能"
+                          ? t("workbench.manage.builtinSkill")
                           : item.data.url ||
-                            `版本 ${item.revision} · ${item.data.published ? "已发布" : "草稿"}`}
+                            t("workbench.manage.versionLine", { revision: item.revision, state: item.data.published ? t("workbench.manage.published") : t("workbench.manage.draft") })}
                       </small>
                       {item.data.last_error && (
                         <small>{item.data.last_error}</small>
@@ -329,12 +326,12 @@ export function ManageDialog({
                             }
                           }}
                         >
-                          测试连接
+                          {t("workbench.manage.testConnection")}
                         </button>
                       )}
                       {!item.data.builtin && (
                         <>
-                          <button onClick={() => edit(item)}>编辑</button>
+                          <button onClick={() => edit(item)}>{t("workbench.manage.edit")}</button>
                           {item.kind === "skill" && (
                             <button
                               onClick={() =>
@@ -343,7 +340,7 @@ export function ManageDialog({
                                 })
                               }
                             >
-                              {item.data.published ? "撤下" : "发布"}
+                              {item.data.published ? t("workbench.manage.unpublish") : t("workbench.manage.publish")}
                             </button>
                           )}
                           <button
@@ -351,7 +348,7 @@ export function ManageDialog({
                               toggle(item, { enabled: !item.data.enabled })
                             }
                           >
-                            {item.data.enabled ? "停用" : "启用"}
+                            {item.data.enabled ? t("workbench.manage.disable") : t("workbench.manage.enable")}
                           </button>
                         </>
                       )}
@@ -360,12 +357,12 @@ export function ManageDialog({
                           edit({
                             ...item,
                             id: "",
-                            title: item.title + " · 副本",
+                            title: item.title + t("workbench.manage.copySuffix"),
                             data: { ...item.data, builtin: false },
                           });
                         }}
                       >
-                        复制
+                        {t("workbench.manage.duplicate")}
                       </button>
                     </div>
                   </div>
@@ -377,7 +374,7 @@ export function ManageDialog({
         )}
         {tab === "trash" && (
           <>
-            <h3>已归档</h3>
+            <h3>{t("workbench.manage.archived")}</h3>
             {[...projects, ...conversations, ...documents]
               .filter((i) => i.data.archived)
               .map((item) => (
@@ -393,11 +390,11 @@ export function ManageDialog({
                       onReload();
                     }}
                   >
-                    取消归档
+                    {t("workbench.manage.unarchive")}
                   </button>
                 </div>
               ))}
-            <h3>回收站 · 30 天</h3>
+            <h3>{t("workbench.manage.trashGroup")}</h3>
             {trash.map((item) => (
               <div className="wb-row" key={item.id}>
                 {item.title}
@@ -412,7 +409,7 @@ export function ManageDialog({
                     }
                   }}
                 >
-                  恢复
+                  {t("workbench.manage.restore")}
                 </button>
               </div>
             ))}
@@ -429,10 +426,10 @@ export function ManageDialog({
                   ).catch((e) => onError(e.message))
                 }
               >
-                导出云端备份
+                {t("workbench.manage.exportBackup")}
               </button>
               <label className="wb-file-button">
-                恢复 v5 备份
+                {t("workbench.manage.restoreV5")}
                 <input
                   type="file"
                   hidden
@@ -462,13 +459,12 @@ export function ManageDialog({
               </label>
             </div>
             <p>
-              发现 {locals.length} 个会话、{courts.length} 个庭审记录和{" "}
-              {files.length}{" "}
-              份本地附件。选择需要迁移的会话；请一起选择同一分支树，以保留完整关系。庭审记录作为原始档案保存。
+              {t("workbench.manage.migrationIntro", { sessions: locals.length, courts: courts.length, attachments: files.length })}
+              {t("workbench.manage.migrationSelectHint")}
             </p>
-            <a href="/legacy">打开本地旧资料（阅读、导出、旧备份导入）</a>
+            <a href="/legacy">{t("workbench.manage.legacyLink")}</a>
             <CheckBox
-              label="选择所有会话"
+              label={t("workbench.manage.selectAll")}
               checked={selected.length === locals.length && !!locals.length}
               onCheckedChange={(next) =>
                 setSelected(next ? locals.map((c) => c.id) : [])
@@ -487,7 +483,7 @@ export function ManageDialog({
                     )
                   }
                 />
-                {c.title} · {c.messages.length} 条消息
+                {t("workbench.manage.sessionMeta", { title: c.title, count: c.messages.length })}
               </label>
             ))}
             <p>{progress}</p>
@@ -496,9 +492,9 @@ export function ManageDialog({
               className="wb-primary"
               onClick={migrate}
             >
-              {busy ? "正在迁移…" : "复制所选资料到云端"}
+              {busy ? t("workbench.manage.migrating") : t("workbench.manage.copyToCloud")}
             </button>
-            <p>不会删除本地原始内容；迁移期间请保持页面打开。</p>
+            <p>{t("workbench.manage.migrationKeepOpen")}</p>
           </>
         )}
       </section>

@@ -20,6 +20,7 @@ import { BrandLockup } from './components/Brand';
 import { UpdateGate } from './components/UpdateGate';
 import { GuidedTour } from './components/GuidedTour';
 import { AnnouncementBanner } from './components/AnnouncementBanner';
+import { useT } from './i18n';
 
 const Workbench = React.lazy(() => import('./workbench/Workbench'));
 const AdminDashboard = React.lazy(() => import('./components/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
@@ -77,6 +78,7 @@ const AnimatedRouteSurface: React.FC<{ children: React.ReactNode }> = ({ childre
 };
 
 function App() {
+  const { t } = useT();
   const [workbenchStatus, setWorkbenchStatus] = useState<{enabled:boolean;username:string}>();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -214,14 +216,14 @@ function App() {
       <div className="lg-notice-body">
         <ShieldAlert size={18} strokeWidth={2} aria-hidden="true" />
         <div>
-          <div className="lg-notice-strong">当前正在通过 IP 访问。</div>
+          <div className="lg-notice-strong">{t("app.ipNoticeStrong")}</div>
           <div>
-            建议改用 <span className="lg-notice-strong">https://{SECURE_DOMAIN}</span> 访问，避免证书与登录状态问题。
+            {t("app.ipNoticeLead")}<span className="lg-notice-strong">https://{SECURE_DOMAIN}</span>{t("app.ipNoticeTail")}
           </div>
         </div>
       </div>
       <a href={secureAccessUrl} className="lg-notice-action">
-        前往安全地址
+        {t("app.goSecure")}
         <ExternalLink size={15} strokeWidth={2} aria-hidden="true" />
       </a>
     </div>
@@ -284,7 +286,7 @@ function App() {
         </React.Fragment>
       </AnimatePresence>
       </div>
-      <AnimatePresence>{settingsOpen && <React.Suspense key="settings" fallback={<div className="fixed inset-0 z-[var(--z-route-modal)] bg-[var(--bg-overlay)]" role="status" aria-label="正在打开设置" />}><SettingsPage onClose={() => navigate(backgroundLocation.current.pathname + backgroundLocation.current.search, { replace: true })} /></React.Suspense>}</AnimatePresence>
+      <AnimatePresence>{settingsOpen && <React.Suspense key="settings" fallback={<div className="fixed inset-0 z-[var(--z-route-modal)] bg-[var(--bg-overlay)]" role="status" aria-label={t("app.openingSettings")} />}><SettingsPage onClose={() => navigate(backgroundLocation.current.pathname + backgroundLocation.current.search, { replace: true })} /></React.Suspense>}</AnimatePresence>
       {/*
        * 指引是首次启动的模态层，只在工作台里有锚点。
        * 等 workbenchStatus 落地再挂载，避免先渲染再整套换掉。
@@ -298,27 +300,28 @@ function App() {
 
 /** 未启用工作台时的落点：服务端没配数据库就进不去，给明确出口而不是白屏。 */
 function WorkbenchUnavailable({ onLogout }: { onLogout: () => void }) {
+  const { t } = useT();
   return (
     <div className="lg-page">
       <section className="lg-sheet" aria-labelledby="wb-unavailable-title">
         <header className="lg-head">
           <BrandLockup />
           <h1 className="lg-title" id="wb-unavailable-title">
-            工作台尚未就绪
+            {t("app.unavailableTitle")}
           </h1>
           <p className="lg-sub">
-            服务端还没有配置云端数据库，账号与资料暂时无法读取。请联系管理员完成配置后重试。
+            {t("app.unavailableLead")}
           </p>
         </header>
         <div className="lg-form">
           <button type="button" className="lg-submit" onClick={() => window.location.reload()}>
-            重试
+            {t("common.retry")}
           </button>
         </div>
         <footer className="lg-foot">
-          <span>需要帮助请联系管理员</span>
+          <span>{t("app.contactAdmin")}</span>
           <button type="button" className="lg-link" onClick={onLogout}>
-            退出登录
+            {t("app.logout")}
           </button>
         </footer>
       </section>

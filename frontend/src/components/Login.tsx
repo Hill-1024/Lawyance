@@ -9,6 +9,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import { ArrowLeft, ShieldAlert } from 'lucide-react';
 import { login, type LoginResult } from '../services/api';
 import { BrandLockup } from './Brand';
+import { useT } from '../i18n';
 import './login.css';
 
 interface LoginProps {
@@ -20,6 +21,7 @@ interface LoginProps {
 const ENTER_EASE = [0.16, 1, 0.3, 1] as const;
 
 export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
+  const { t } = useT();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -37,7 +39,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
 
   const submit = async () => {
     if (!username.trim() || !password.trim()) {
-      setError('请输入账号和密码');
+      setError(t('login.missingCredentials'));
       return;
     }
 
@@ -48,7 +50,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
       const result = await login(username, password);
       onLoginSuccess(result);
     } catch (err: any) {
-      setError(err.message || '登录失败，请检查账号密码');
+      setError(err.message || t('login.failed'));
       // 重新输入比重新点一遍表单快：标记回焦，交给上面的 effect 在提交后执行。
       refocusPassword.current = true;
     } finally {
@@ -76,7 +78,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
         <header className="lg-head">
           <BrandLockup />
           <h1 className="lg-title" id="login-title">
-            登录工作台
+            {t("login.title")}
           </h1>
         </header>
 
@@ -100,7 +102,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
 
           <div className="lg-field">
             <label className="lg-label" htmlFor="username">
-              账号
+              {t("login.username")}
             </label>
             <input
               id="username"
@@ -114,7 +116,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
               spellCheck={false}
               enterKeyHint="next"
               className="lg-input"
-              placeholder="请输入账号"
+              placeholder={t("login.usernamePlaceholder")}
               value={username}
               disabled={isLoading}
               onChange={(e) => setUsername(e.target.value)}
@@ -129,7 +131,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
 
           <div className="lg-field">
             <label className="lg-label" htmlFor="password">
-              密码
+              {t("login.password")}
             </label>
             <input
               id="password"
@@ -140,7 +142,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
               autoComplete="current-password"
               enterKeyHint="go"
               className="lg-input"
-              placeholder="请输入密码"
+              placeholder={t("login.passwordPlaceholder")}
               value={password}
               disabled={isLoading}
               onChange={(e) => setPassword(e.target.value)}
@@ -152,10 +154,10 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
             {isLoading ? (
               <>
                 <span className="lg-spin" aria-hidden="true" />
-                正在验证
+                {t("login.loggingIn")}
               </>
             ) : (
-              '登录'
+              t('login.submit')
             )}
           </button>
         </form>
@@ -163,7 +165,7 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess, notice }) => {
         <footer className="lg-foot">
           <RouterLink to="/" className="lg-link">
             <ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
-            返回首页
+            {t("login.backHome")}
           </RouterLink>
         </footer>
       </motion.section>

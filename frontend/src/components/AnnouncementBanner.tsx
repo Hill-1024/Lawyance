@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Info, X } from 'lucide-react';
 import { fetchAnnouncements, type Announcement } from '../services/api';
+import { useT } from '../i18n';
 import '../workbench/workbench.admin.css';
 
 const DISMISS_PREFIX = 'lawver.announcement.dismissed.';
@@ -27,6 +28,7 @@ const rememberDismissed = (id: string) => {
 };
 
 export const AnnouncementBanner: React.FC = () => {
+  const { t } = useT();
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [hidden, setHidden] = useState(false);
 
@@ -62,7 +64,7 @@ export const AnnouncementBanner: React.FC = () => {
         {announcement.body && <p className="wb-announcement-text">{announcement.body}</p>}
       </div>
       <button
-        aria-label="关闭公告"
+        aria-label={t("announcement.dismiss")}
         onClick={() => {
           rememberDismissed(announcement.id);
           setHidden(true);

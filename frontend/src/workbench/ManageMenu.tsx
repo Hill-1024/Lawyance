@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { SelectField } from "./SelectField";
+import { useT } from "../i18n";
 import { Item } from "./client";
 
 /** 内容管理弹窗：会话/文档/项目的重命名、收藏、归档、跨空间移动与回收站。 */
@@ -24,41 +25,42 @@ export function ManageMenu({
   onMove,
   onDelete,
 }: ManageMenuProps) {
+  const { t } = useT();
   return (
     <div className="wb-modal-backdrop" onClick={onClose}>
       <section
         className="wb-modal wb-small-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="管理内容"
+        aria-label={t("workbench.manage.dialogLabel")}
         onClick={(event) => event.stopPropagation()}
       >
         <header>
           <h2>{item.title}</h2>
-          <button aria-label="关闭" onClick={onClose}>
+          <button aria-label={t("common.close")} onClick={onClose}>
             <X size={18} />
           </button>
         </header>
-        <button onClick={() => onRename(item)}>重命名</button>
+        <button onClick={() => onRename(item)}>{t("workbench.manage.rename")}</button>
         <button onClick={() => onFavorite(item)}>
-          {item.data.favorite ? "取消收藏" : "收藏"}
+          {item.data.favorite ? t("workbench.manage.unfavorite") : t("workbench.manage.favorite")}
         </button>
         <button onClick={() => onArchive(item)}>
-          {item.data.archived ? "取消归档" : "归档"}
+          {item.data.archived ? t("workbench.manage.unarchive") : t("workbench.manage.archive")}
         </button>
         {item.kind !== "project" && (
           <SelectField
-            label="移动到项目"
+            label={t("workbench.manage.moveToProject")}
             value={item.project_id || ""}
             onChange={(value) => onMove(item, value || undefined)}
             options={[
-              { value: "", label: "个人工作区" },
+              { value: "", label: t("workbench.sidebar.personalWorkspace") },
               ...projects.map((project) => ({ value: project.id, label: project.title })),
             ]}
           />
         )}
         <button className="wb-danger" onClick={() => onDelete(item)}>
-          移入回收站（保留 30 天）
+          {t("workbench.manage.trash")}
         </button>
       </section>
     </div>

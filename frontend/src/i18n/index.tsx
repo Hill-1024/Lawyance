@@ -62,7 +62,10 @@ const interpolate = (template: string, params?: Record<string, string | number>)
 };
 
 /** 取词条：缺键回退源语言；再缺就回退键名本身（便于开发时一眼看出漏翻）。 */
-export const translate = (key: MessageKey, params?: Record<string, string | number>): string => {
+/** 翻译函数签名：需要把 t 当参数传出去（模块级表格、兜底数据）时用它做类型。 */
+export type Translator = (key: MessageKey, params?: Record<string, string | number>) => string;
+
+export const translate: Translator = (key, params) => {
   const template =
     pick(LOCALES[activeLocale].messages, key) ?? pick(zhCN, key) ?? String(key);
   return interpolate(template, params);

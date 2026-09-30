@@ -3,6 +3,7 @@ import React, { useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Item } from "./client";
 import { usePortalMenuDismiss } from "./usePortalMenu";
+import { useT } from "../i18n";
 
 // 菜单 portal 到 body，必须把菜单自身类名也列进来，否则按下菜单项时菜单已被卸载。
 const KEEP_OPEN_SELECTORS = [".wb-thread-menu", ".wb-thread-history"] as const;
@@ -35,6 +36,7 @@ export function HistoryMenu({
   onNewSession,
   onNewCourt,
 }: HistoryMenuProps) {
+  const { t } = useT();
   const [pos, setPos] = useState<{ top: number; left: number }>();
   useLayoutEffect(() => {
     if (!open || !buttonRef.current) return;
@@ -53,7 +55,7 @@ export function HistoryMenu({
     <div className="wb-thread-history">
       <button
         ref={buttonRef}
-        aria-label="会话历史"
+        aria-label={t("workbench.tabs.history")}
         aria-expanded={open}
         onClick={() => onToggle(!open)}
       >
@@ -65,7 +67,7 @@ export function HistoryMenu({
           <div
             className="wb-thread-menu"
             role="menu"
-            aria-label="会话历史"
+            aria-label={t("workbench.tabs.history")}
             style={{ position: "fixed", top: pos?.top, left: pos?.left }}
           >
             {conversations.map((item) => (
@@ -82,12 +84,12 @@ export function HistoryMenu({
                 <span>{item.title}</span>
                 <small>
                   {new Date(item.updated_at).toDateString() === new Date().toDateString()
-                    ? "今天"
+                    ? t("workbench.home.today")
                     : new Date(item.updated_at).toLocaleDateString()}
                 </small>
               </button>
             ))}
-            {!!courts.length && <small className="wb-thread-group">模拟庭审</small>}
+            {!!courts.length && <small className="wb-thread-group">{t("workbench.history.groupCourt")}</small>}
             {courts.map((item) => (
               <button
                 key={item.id}
@@ -103,7 +105,7 @@ export function HistoryMenu({
               </button>
             ))}
             {!conversations.length && !courts.length && (
-              <p className="wb-space-hint">还没有会话，发送第一条消息即开始。</p>
+              <p className="wb-space-hint">{t("workbench.history.empty")}</p>
             )}
             <button
               role="menuitem"
@@ -113,7 +115,7 @@ export function HistoryMenu({
               }}
             >
               <Plus size={14} />
-              新会话
+              {t("workbench.history.newSession")}
             </button>
             {/* 此前全应用没有发起新建庭审的入口：/court/new 只能靠手输地址，而那条路径
                 又会被标签清理 effect 弹回 /home（同一张卡的另一半）。 */}
@@ -125,7 +127,7 @@ export function HistoryMenu({
               }}
             >
               <Gavel size={14} />
-              新建庭审
+              {t("workbench.history.newCourt")}
             </button>
           </div>,
           document.body,

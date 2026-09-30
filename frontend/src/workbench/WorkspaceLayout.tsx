@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { SelectField } from "./SelectField";
+import { useT } from "../i18n";
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { Columns2, Rows2, LayoutTemplate, GripVertical, RotateCcw } from "lucide-react";
 
@@ -9,6 +10,7 @@ type Layout = { agent: Edge; navigation: "left" | "right"; split: number };
 const defaults: Layout = { agent: "right", navigation: "left", split: 35 };
 const opposite: Record<Edge, Edge> = { left: "right", right: "left", top: "bottom", bottom: "top" };
 export function useWorkspaceLayout(user: string) {
+  const { t } = useT();
   const key = "lawver:layout:" + user;
   const [layout, setLayout] = useState<Layout>(() => {
     try {
@@ -52,7 +54,7 @@ export function useWorkspaceLayout(user: string) {
     setActiveEdge(undefined);
   }
   function handle(pane: Pane, label: string) {
-    return <span className="wb-dock-handle wb-desktop-only" draggable title={`拖动${label}，放到高亮区域`} aria-label={`拖动${label}`}
+    return <span className="wb-dock-handle wb-desktop-only" draggable title={t("workbench.layout.dragHint", { label })} aria-label={t("workbench.layout.dragLabel", { label })}
       onDragStart={e => { e.dataTransfer.setData("application/x-lawver-pane", pane); e.dataTransfer.effectAllowed = "move"; const root = e.currentTarget.closest('.wb-app');
         const surface = pane === 'navigation' ? root : root?.querySelector('.wb-body');
         if (root && surface) { const r=root.getBoundingClientRect(), b=surface.getBoundingClientRect(); setBounds({left:b.left-r.left,top:b.top-r.top,width:b.width,height:b.height,right:'auto',bottom:'auto'}); }
@@ -73,7 +75,7 @@ export function useWorkspaceLayout(user: string) {
   }
   /** 文档列基准宽度（百分比）：会话面板占比的反面，钳在 25%-75%。 */
   const docPercent = Math.max(25, Math.min(75, 100 - layout.split));
-  const targets = <AnimatePresence>{dragging && <motion.div key="dock-targets" className="wb-dock-targets" style={bounds} aria-label="面板停靠区域"
+  const targets = <AnimatePresence>{dragging && <motion.div key="dock-targets" className="wb-dock-targets" style={bounds} aria-label={t("workbench.layout.dockTargets")}
     initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:reduceMotion ? 0 : .16}}>
     <AnimatePresence>{activeEdge && <motion.div key={activeEdge} className={`wb-dock-preview ${activeEdge}`}
       initial={{opacity:0,scale:.98}} animate={{opacity:1,scale:1}} exit={{opacity:0}} transition={{duration:reduceMotion ? 0 : .16}}/>}</AnimatePresence>
@@ -82,28 +84,29 @@ export function useWorkspaceLayout(user: string) {
       onDragLeave={e => {if (!e.currentTarget.contains(e.relatedTarget as Node)) setActiveEdge(undefined);}}
       onDragOver={e => {e.preventDefault();e.dataTransfer.dropEffect="move";setActiveEdge(edge);}}
       onDrop={e => {e.preventDefault();dock(edge);}}>
-      <span>{edge === "top" || edge === "bottom" ? <Rows2 size={16}/> : <Columns2 size={16}/>}{activeEdge === edge ? "松开放置到" : "移到"}{{left:"左侧",right:"右侧",top:"上方",bottom:"下方"}[edge]}</span>
+      <span>{edge === "top" || edge === "bottom" ? <Rows2 size={16}/> : <Columns2 size={16}/>}{activeEdge === edge ? t("workbench.layout.dropTo") : t("workbench.layout.moveTo")}{({left:t("workbench.layout.left"),right:t("workbench.layout.right"),top:t("workbench.layout.top"),bottom:t("workbench.layout.bottom")} as Record<Edge,string>)[edge]}</span>
     </div>)}
   </motion.div>}</AnimatePresence>;
   return { layout, update, handle, splitStyle, docPercent, targets, reset: () => update(defaults) };
 }
 
 export function LayoutToolbar({ workspace }: { workspace: ReturnType<typeof useWorkspaceLayout> }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const reduceMotion = useReducedMotion();
   const presets = [
-    { name: "文档优先", edge: "right" as Edge, Icon: Columns2 },
-    { name: "Agent 在左", edge: "left" as Edge, Icon: Columns2 },
-    { name: "上下审阅", edge: "bottom" as Edge, Icon: Rows2 },
+    { name: t("workbench.layout.presetDocumentFirst"), edge: "right" as Edge, Icon: Columns2 },
+    { name: t("workbench.layout.presetAgentLeft"), edge: "left" as Edge, Icon: Columns2 },
+    { name: t("workbench.layout.presetStacked"), edge: "bottom" as Edge, Icon: Rows2 },
   ];
   return <div className="wb-layout-picker wb-desktop-only" onBlur={e => {if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false);}}>
-    <button aria-expanded={open} aria-controls="workspace-layout-options" onClick={() => setOpen(!open)}><LayoutTemplate size={16}/>布局</button>
+    <button aria-expanded={open} aria-controls="workspace-layout-options" onClick={() => setOpen(!open)}><LayoutTemplate size={16}/>{t("workbench.shell.workspaceLayout")}</button>
     <AnimatePresence>{open && <motion.div initial={{opacity:0,y:-4}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-4}} transition={{duration:reduceMotion ? 0 : .14}} className="wb-layout-options" id="workspace-layout-options" onKeyDown={e => {if(e.key === "Escape") {e.stopPropagation();setOpen(false);}}}>
-      <strong>工作区排列</strong><p>打开文档后生效。拖动面板把手可自由停靠。</p>
+      <strong>{t("workbench.layout.title")}</strong><p>{t("workbench.layout.hint")}</p>
       {presets.map(({name,edge,Icon}) => <button key={name} aria-pressed={workspace.layout.agent === edge} onClick={() => {workspace.update({agent:edge,split:edge === "bottom" ? 45 : 35}); setOpen(false);}}><Icon size={18}/>{name}</button>)}
-      <SelectField label="Agent 位置" value={workspace.layout.agent} onChange={value=>workspace.update({agent:value as Edge})} options={Object.entries({left:"左侧",right:"右侧",top:"上方",bottom:"下方"}).map(([value,label])=>({value,label}))} />
-      <SelectField label="项目导航" value={workspace.layout.navigation} onChange={value=>workspace.update({navigation:value as "left"|"right"})} options={[{value:"left",label:"左侧"},{value:"right",label:"右侧"}]} />
-      <button onClick={() => {workspace.reset();setOpen(false);}}><RotateCcw size={16}/>恢复默认排列</button>
+      <SelectField label={t("workbench.layout.agentPosition")} value={workspace.layout.agent} onChange={value=>workspace.update({agent:value as Edge})} options={Object.entries({left:t("workbench.layout.left"),right:t("workbench.layout.right"),top:t("workbench.layout.top"),bottom:t("workbench.layout.bottom")}).map(([value,label])=>({value,label}))} />
+      <SelectField label={t("workbench.layout.navigation")} value={workspace.layout.navigation} onChange={value=>workspace.update({navigation:value as "left"|"right"})} options={[{value:"left",label:t("workbench.layout.left")},{value:"right",label:t("workbench.layout.right")}]} />
+      <button onClick={() => {workspace.reset();setOpen(false);}}><RotateCcw size={16}/>{t("workbench.layout.reset")}</button>
     </motion.div>}</AnimatePresence>
   </div>;
 }

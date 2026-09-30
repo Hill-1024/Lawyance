@@ -7,6 +7,7 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { AlertTriangle, Download, RefreshCw, ShieldCheck } from 'lucide-react';
 import { apiUrl } from '../services/api';
 import { isNativeAndroid } from '../lib/platform';
+import { useT } from '../i18n';
 import {
   LawverUpdater,
   type AndroidReleaseManifest,
@@ -40,6 +41,7 @@ const errorMessage = (error: unknown) => {
 };
 
 export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { t } = useT();
   const [gateState, setGateState] = useState<GateState>(() => (isNativeAndroid() ? 'checking' : 'ready'));
   const [manifest, setManifest] = useState<AndroidReleaseManifest | null>(null);
   const [localVersion, setLocalVersion] = useState({ versionName: '', versionCode: 0 });
@@ -177,7 +179,7 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
                 {isChecking ? '正在检查版本' : '需要更新 Lawver'}
               </h1>
               <p className="mt-1 text-[13px] leading-5 text-[var(--fg-3)]">
-                {isChecking ? '正在确认 Android 客户端是否为最新版本。' : '当前版本无法继续使用，请安装最新版本。'}
+                {isChecking ? '正在确认 Android 客户端是否为{t("update.latestVersion")}。' : '{t("update.currentVersion")}无法继续使用，请安装{t("update.latestVersion")}。'}
               </p>
             </div>
           </div>
@@ -187,13 +189,13 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
           {!isChecking && manifest && (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-3">
-                <div className="text-xs text-[var(--fg-3)]">当前版本</div>
+                <div className="text-xs text-[var(--fg-3)]">{t("update.currentVersion")}</div>
                 <div className="mt-1 break-words font-medium text-[var(--fg-1)]">
-                  {localVersion.versionName || '未知'} ({localVersion.versionCode || 0})
+                  {localVersion.versionName || t('update.unknown')} ({localVersion.versionCode || 0})
                 </div>
               </div>
               <div className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-3">
-                <div className="text-xs text-[var(--fg-3)]">最新版本</div>
+                <div className="text-xs text-[var(--fg-3)]">{t("update.latestVersion")}</div>
                 <div className="mt-1 break-words font-medium text-[var(--fg-1)]">{latestLabel}</div>
               </div>
             </div>
