@@ -16,31 +16,15 @@
 
 ## 进程与入口
 
-同一台机器上跑三件东西，由分流核心统一入口：
-
-| 端口 | 进程 | 起法 | 负责 |
-|---|---|---|---|
-| 8080 | 分流核心 | `deploy/router/systemd/lawver-router.service`（`Restart=always`） | 唯一入口：路径分派、探活、维护页与维护跳转 |
-| 8081 | 功能页 | 本仓库 `.venv` 起 FastAPI（`appConfig.port`） | `/home`、`/login`、`/settings/*`、`/admin`、`/business`、`/court/*`、`/api/*`… |
-| 8082 | 介绍页 | `Lawyance_Intro` 仓的 `server/serve.py` + `deploy/lawver-intro.service` | `/`、`/design`、`/download`、`/pricing`、`/intro-assets/*` |
-
-隧道入口指向 **8080**，此后功能页与介绍页怎么重启换代都不用改入口配置。两台机器（`lawver.dev` 国内、`global.lawver.dev` 海外）跑同一套布局。
-
-日常维护：
+同机三件套（分流核心 8080 / 功能页 8081 / 介绍页 8082）的安装、配置、systemd 化、上线自检、更新与回滚，全部写在 **[README 的「部署运行手册（远端机器）」](../../README.md#部署运行手册远端机器)** 里，这里不再重复。与本文件相关的只有两件运维动作：
 
 ```
 # 只读维护窗口：功能页照常读取，写操作被拒
-LAWVER_WORKBENCH_READ_ONLY=1   # 重启功能页生效
+LAWVER_WORKBENCH_READ_ONLY=1   # 写入 .env 后重启 lawver-app
 
-# 整侧维护（不杀进程）：核心把页面导航 302 到 /under_maintenance，接口回 503 JSON
-touch deploy/router/state/app.maintenance     # 或 intro.maintenance
-rm    deploy/router/state/app.maintenance     # 恢复
-
-# 看两侧状态
+# 两侧状态（挂监控也用它）
 curl -s 127.0.0.1:8080/__core/status
 ```
-
-介绍页换版是零停机的：`tools/build.sh` 把产物放进 `releases/<时间戳>/` 后原子翻转 `current` 符号链接，`serve.py` 每请求解析一次，不需要重启进程。
 
 **整机或隧道全挂时没有维护页**：核心自己也在这台机器上，此时只剩 Cloudflare 的错误页——这是把入口收在本机的代价，缓解手段是核心保持 `Restart=always` 且体积极小。
 

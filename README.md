@@ -369,6 +369,253 @@ global.lawver.dev   → 隧道 → 海外机器：分流核心 8080 ─┴─ �
 - **`<base>` 与资源路径**：功能页仍由 `backend/routes/spa.py` 注入 `<base href="/">`，深链接（`/court/xxx`、`/settings/profile`）才会解析出正确资源；介绍页构建用绝对路径（`base: '/'`），产物落在 `/intro-assets/*`，与功能页的 `/assets/*` 不撞——同域下两个构建不能共用 `/assets`。
 - **探活**：功能页提供 `/api/health`（免鉴权、不碰数据库、不写访问日志），介绍页提供 `/healthz`；核心每 5s 探一次，页面导航遇到某一侧下线时立刻给维护页。
 
+## 部署运行手册（远端机器）
+
+给在部署机上工作的执行者（人或 agent）：从零到上线照这个顺序做，每一步都给了验收方式。本文按 Debian 12 / Ubuntu 22.04 写，其他发行版把包管理命令换掉即可。
+
+### 0. 名词与端口
+
+| 名称 | 目录 | 端口 | 对外 |
+|---|---|---|---|
+| 分流核心 | `/srv/lawver/deploy/router` | 8080 | **隧道唯一入口** |
+| 功能页 | `/srv/lawver`（本仓库） | 8081 | 只监听回环 |
+| 介绍页 | `/srv/lawver-intro`（`Hill-1024/Lawyance_Intro` 的 `dev`） | 8082 | 只监听回环 |
+
+三件套都只监听 `127.0.0.1`，公网流量一律经隧道落到 8080。`lawver.dev` 与 `global.lawver.dev` 各是一台机器，两台跑同一套布局。
+
+### 1. 前置条件
+
+- 系统用户与目录（非 root 运行）：
+
+```bash
+sudo useradd --system --create-home --shell /usr/sbin/nologin lawver
+sudo mkdir -p /srv /var/lib/lawver/{workbench-blobs,backups,router-state}
+sudo chown -R lawver:lawver /srv /var/lib/lawver
+```
+
+- 软件：`git`、**Python ≥ 3.13**、**Node ≥ 20 + pnpm 10.33.2**（介绍页要构建）、**PostgreSQL 17**，可选 Redis（多 worker 时必需）、可选 Docker（用来跑 `deploy/workbench/compose.yml`）。
+
+```bash
+# Node 与 pnpm（Debian/Ubuntu：先装 Node 20+）
+corepack enable && corepack prepare pnpm@10.33.2 --activate
+```
+
+### 2. 拉代码（两个仓库各自独立）
+
+```bash
+sudo -u lawver git clone --branch dev https://github.com/Hill-1024/Lawyance.git       /srv/lawver
+sudo -u lawver git clone --branch dev https://github.com/Hill-1024/Lawyance_Intro.git /srv/lawver-intro
+```
+
+两个仓库互不依赖：功能页更新不影响介绍页，反之亦然——这正是分开拉取的目的。之后所有 `git pull` 都在各自目录里做。
+
+### 3. Python 依赖
+
+```bash
+sudo -u lawver python3 -m venv /srv/lawver/.venv
+sudo -u lawver /srv/lawver/.venv/bin/pip install -U pip
+sudo -u lawver /srv/lawver/.venv/bin/pip install -r /srv/lawver/requirements.txt
+```
+
+### 4. 数据库
+
+```bash
+# 方式 A：Docker（deploy/workbench/compose.yml）
+cd /srv/lawver/deploy/workbench
+LAWVER_POSTGRES_PASSWORD='<强密码>' docker compose up -d
+
+# 方式 B：本机 PostgreSQL 17
+sudo -u postgres createuser --pwprompt lawver
+sudo -u postgres createdb --owner=lawver lawver
+```
+
+跑迁移（**必须在 `backend/` 下执行**，`alembic.ini` 在那里）：
+
+```bash
+cd /srv/lawver/backend
+sudo -u lawver env LAWVER_DATABASE_URL='postgresql+psycopg://lawver:<密码>@127.0.0.1:5432/lawver' \
+  /srv/lawver/.venv/bin/alembic -c alembic.ini upgrade head
+```
+
+账号与会话表（`accounts` / `account_sessions`）就在这个库里：**没配 `LAWVER_DATABASE_URL` 就没人能登录**，服务照常起、界面会提示「工作台尚未就绪」。首次启动若账号表为空，会依次尝试导入遗留的 `data/account.json`、`data/auth.sqlite3`，都没有才用 `INITIAL_ADMIN_PASSWORD` 引导出 `admin`。
+
+### 5. 功能页配置 `/srv/lawver/.env`
+
+应用自己用 python-dotenv 读**工作目录下的 `.env`**，所以文件放 `/srv/lawver/.env`、属主 `lawver`、权限 `600`。systemd 单元刻意不用 `EnvironmentFile`（systemd 的环境文件解析与 dotenv 不同——引号与 `*` 的语义不一样，双份来源只会让问题更难查）。
+
+必填：
+
+| 键 | 说明 |
+|---|---|
+| `SECRET_KEY` | ≥32 位随机串 |
+| `INITIAL_ADMIN_PASSWORD` | 只在首次引导账号表时生效，**引导完就删掉这一行** |
+| `LAWVER_DATABASE_URL` | 同第 4 步，`postgresql+psycopg://…` |
+| `LAWVER_BLOB_DIR` | 建议 `/var/lib/lawver/workbench-blobs` |
+| `LAWVER_WORKBENCH_USERS` | 灰度名单，如 `admin`；验收通过后再改 `*` |
+| `LAWVER_CONNECTOR_KEY` | 插件凭据加密密钥（Fernet），**与数据库分开保管，丢了就解不开插件凭据** |
+
+按需：模型与检索凭据（`API_KEY` / `BASE_URL` / `LLM_MODEL` / `DELI_*` / `PKU_ACCESS_TOKEN` / `QCC_ACCESS_TOKEN` 等），可选 `LAWVER_REDIS_URL`、`LAWVER_PUBLIC_BASE_URL=https://lawver.dev`、`UVICORN_WORKERS`。完整键名见 `.env_example` 与 `deploy/workbench/environment.example`。
+
+两个坑：
+
+- **不要在 `.env` 里设 `PORT`。** 端口以 `package.json` 的 `appConfig.port`（8081）为准；写成 8080 会和核心抢端口，症状是核心起不来。
+- **`UVICORN_WORKERS>1` 时必须配 `LAWVER_REDIS_URL`**，否则限流与布隆过滤器变成每 worker 一份，真实上限被放大到 worker 数倍。
+
+### 6. 介绍页构建与换版
+
+```bash
+sudo -u lawver bash -c 'cd /srv/lawver-intro && tools/build.sh'
+```
+
+产物进 `releases/<时间戳>/`，然后原子翻转 `current` 符号链接；`server/serve.py` 每个请求解析一次链接，所以**换版零停机、不用重启进程**。构建失败时 `current` 不动，线上继续跑上一版。保留最近 3 个版本（`LAWVER_INTRO_KEEP` 可调）。
+
+### 7. 分流核心配置
+
+```bash
+sudo -u lawver cp /srv/lawver/deploy/router/config.example.json /srv/lawver/deploy/router/config.json
+```
+
+改这几项，其余保持默认：
+
+| 字段 | 值 |
+|---|---|
+| `state_dir` | `/var/lib/lawver/router-state` |
+| `port` | `8080`（隧道入口，不要改） |
+| `app_upstream` / `intro_upstream` | `http://127.0.0.1:8081` / `http://127.0.0.1:8082` |
+| `intro_exact` / `intro_prefixes` | 与介绍页仓 README 的路径表保持一致，改一边就要改另一边 |
+
+自检（探活一次并打印状态后退出）：
+
+```bash
+/srv/lawver/.venv/bin/python /srv/lawver/deploy/router/router.py \
+  --config /srv/lawver/deploy/router/config.json --check
+```
+
+### 8. 三个 systemd 服务
+
+单元文件都在仓库里，复制到 `/etc/systemd/system/` 后按部署机实际路径与用户改一遍：
+
+```bash
+sudo cp /srv/lawver/deploy/router/systemd/lawver-router.service /etc/systemd/system/
+sudo cp /srv/lawver/deploy/systemd/lawver-app.service          /etc/systemd/system/
+sudo cp /srv/lawver-intro/deploy/lawver-intro.service          /etc/systemd/system/
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now lawver-router lawver-app lawver-intro
+systemctl status lawver-router lawver-app lawver-intro --no-pager
+```
+
+- `lawver-router`：**`Restart=always`**。它是整站入口，它挂了整站只剩 Cloudflare 的错误页。
+- `lawver-app`：工作目录是仓库根（`.env` 与 `data/` 都在这里解析），崩溃自动重启。
+- `lawver-intro`：只在改了 `server/serve.py` 时才需要重启，换版走符号链接。
+
+期望日志（`journalctl -u lawver-router -f`）：`分流核心监听 127.0.0.1:8080 → 功能页 http://127.0.0.1:8081、介绍页 http://127.0.0.1:8082`。
+
+### 9. 隧道与 DNS
+
+隧道 ingress（在跑 cloudflared 的那台机器上，或 Cloudflare 面板里）把这些主机名指向本机回环：
+
+| 主机名 | 目标 |
+|---|---|
+| `cn-origin.lawver.dev` | `http://127.0.0.1:8080`（**保持现状**：它已经指向本机 8080，切换前先用它自检；已安装的 Android 客户端也仍在直连它） |
+| `lawver.dev` | `http://127.0.0.1:8080`（从 Cloudflare Pages 切过来） |
+| `global.lawver.dev`（海外机） | `http://127.0.0.1:8080` |
+
+执行顺序：先把三件套起好、用 `cn-origin.lawver.dev` 验完（第 10 步），再把 `lawver.dev` 指过来并**移除该主机名上原有的 Worker 路由**（老方案的 `/home → home.lawver.dev` 308 会随之消失）。先切隧道再删 Worker 会有一小段 502，先删 Worker 则会有一小段指向旧站的空窗——按你能接受的顺序做，别两边同时改。
+
+### 10. 上线自检
+
+```bash
+# 切换前用 cn-origin 自检（它已经指向本机 8080）；切到 lawver.dev 后把 BASE 换掉再跑一遍
+BASE=https://cn-origin.lawver.dev
+
+# 1) 两侧状态（期望 status: ok，sides.app.up 与 sides.intro.up 都是 true）
+curl -s 127.0.0.1:8080/__core/status | python3 -m json.tool
+
+# 2) 三条路径走一遍（期望：状态码 200/200/200，归属依次是 intro / app / app）
+for p in / /home /api/plans; do
+  printf '%-12s %s  %s\n' "$p" \
+    "$(curl -s -o /dev/null -w '%{http_code}' $BASE$p)" \
+    "$(curl -s -o /dev/null -D - $BASE$p | awk 'tolower($1)=="x-core-upstream:"{print $2}' | tr -d '\r')"
+done
+
+# 3) 全链路彩排：自起隔离实例，不动线上（期望「通过 35，失败 0」）
+INTRO_REPO=/srv/lawver-intro bash /srv/lawver/deploy/router/rehearsal.sh
+```
+
+第 3 步会自己起功能页（18081）、介绍页（18082）与一个独立核心（18080），逐项验路径分派、大文件逐字节、杀一侧不影响另一侧、维护跳转、自动恢复与计划维护开关，跑完自动清理——**这是上线前唯一需要的端到端验收**。
+
+### 11. 日常维护
+
+**更新功能页**（会短暂中断服务，几秒到十几秒）：
+
+```bash
+sudo -u lawver bash -c 'cd /srv/lawver && git pull'
+sudo -u lawver /srv/lawver/.venv/bin/pip install -r /srv/lawver/requirements.txt   # 依赖有变时
+cd /srv/lawver/backend && sudo -u lawver env LAWVER_DATABASE_URL='<同第 4 步>' \
+  /srv/lawver/.venv/bin/alembic -c alembic.ini upgrade head                        # 有迁移时
+sudo systemctl restart lawver-app
+```
+
+**更新介绍页**（零停机，不重启进程）：
+
+```bash
+sudo -u lawver bash -c 'cd /srv/lawver-intro && git pull && tools/build.sh'
+```
+
+**更新核心**（只有核心代码变了才需要，重启只占几十毫秒）：
+
+```bash
+sudo -u lawver bash -c 'cd /srv/lawver && git pull'
+sudo systemctl restart lawver-router
+```
+
+**维护窗口**：
+
+| 目的 | 做法 |
+|---|---|
+| 只读维护（功能页仍可读、写操作被拒） | 在 `.env` 里 `LAWVER_WORKBENCH_READ_ONLY=1` 并重启 `lawver-app` |
+| 整侧维护（不动进程，用户看到维护页） | `sudo -u lawver touch /srv/lawver/deploy/router/state/app.maintenance`（介绍页同理换 `intro.maintenance`），撤销就删文件 |
+| 通知用户 | 管理面板发「开屏公告」 |
+
+**备份与恢复**：见 [docs/workbench/operations.md](docs/workbench/operations.md)。要点是每日先切只读、再 `python -m workbench.maintenance backup /var/lib/lawver/backups/$(date +%F)` 并用 `verify` 校验，保留 30 天；`LAWVER_CONNECTOR_KEY` 与备份分开保管。
+
+**日志与观测**：
+
+```bash
+journalctl -u lawver-router -u lawver-app -u lawver-intro -f
+curl -s 127.0.0.1:8080/__core/status | python3 -m json.tool   # 适合直接挂监控
+```
+
+**回滚**：
+
+| 对象 | 做法 |
+|---|---|
+| 介绍页 | `current` 指回上一个 `releases/<时间戳>`；或 `git pull` 到上一个提交后重跑 `tools/build.sh` |
+| 功能页 | `git checkout <上一个 tag>` + 重跑依赖与迁移（迁移是增量新增，**不支持破坏性 downgrade**）+ 重启 |
+| 介绍页整站 | 把 `lawver.dev` 在隧道/DNS 层指回 `lawver-intro.pages.dev`（Astro 站与 `main` 分支一直保持在线） |
+
+### 12. 故障排查
+
+| 症状 | 判断 | 处置 |
+|---|---|---|
+| `/home` 打不开但 `/` 正常 | 功能页下线，核心已自动给维护页 | `systemctl status lawver-app`、`journalctl -u lawver-app -n 100` |
+| `/` 显示维护页但 `/home` 正常 | 介绍页下线 | `systemctl status lawver-intro` |
+| 两侧都进维护 | 看 `/__core/status` 的 `reason`：`probe failed: ConnectError` = 进程没起或端口不通；`planned` = 开关文件还在 | 按 reason 处置；忘了撤开关就删 `state/*.maintenance` |
+| 页面能开但白屏 / 变成下载文件 | Content-Type 或产物缺失 | `curl -sI 127.0.0.1:8082/` 应为 `text/html`；`/intro-assets/<真实文件名>` 应为 `text/javascript` |
+| 登录后一直「工作台尚未就绪」 | `LAWVER_DATABASE_URL` 没配或 PG 不可达 | 核对 `.env`、`systemctl restart lawver-app` |
+| 所有人都登不进 | 迁移没跑，或账号表为空 | 跑第 4 步迁移；确认 `INITIAL_ADMIN_PASSWORD` 引导过 |
+| 全站 502 / 超时 | 核心没起，或别的进程占着 8080 | `ss -ltnp \| grep 8080`、`journalctl -u lawver-router` |
+| 想确认某请求落到哪一侧 | 响应头 `X-Core-Upstream: app\|intro` | 不用猜 |
+
+### 13. 禁止事项
+
+- 不要把隧道指向 8081 / 8082——它们是回环上的内部端口，且没有核心的维护兜底。
+- 不要在 `.env` 里设 `PORT`，也不要用 8080 起功能页（会和核心抢端口）。
+- 不要 `pkill -f agent.py`：机器上可能同时跑着别的实例，统一用 `systemctl`。
+- 不要删除 `releases/` 里正被 `current` 指向的目录。
+- 不要为了「省事」把 `LAWVER_CONNECTOR_KEY` 存进备份目录。
+
 ## 安全注意
 
 - `.env`、真实合同、客户材料、生成结果和日志都可能包含敏感信息，不应随意提交。
