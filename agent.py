@@ -29,4 +29,7 @@ app = create_app()
 if __name__ == "__main__":
     port = int(os.getenv("PORT", str(PORT)))
     workers = max(int(os.getenv("UVICORN_WORKERS", "1")), 1)
-    uvicorn.run("agent:app", host="0.0.0.0", port=port, workers=workers)
+    # 部署拓扑约定功能页只监听回环（对外只暴露分流核心 8080），所以部署机应设
+    # LAWVER_HOST=127.0.0.1；本地开发默认 0.0.0.0，方便手机/模拟器直连。
+    host = os.getenv("LAWVER_HOST", "0.0.0.0")
+    uvicorn.run("agent:app", host=host, port=port, workers=workers)
