@@ -1,0 +1,30 @@
+[Unit]
+Description=Lawver 功能页（FastAPI：账号、工作台、计费与庭审后端，8081）
+Documentation=https://github.com/Hill-1024/Lawyance/blob/dev/README.md
+After=network-online.target
+Wants=network-online.target
+# 数据库不在本机（或由别的 unit 管理）时不要加这行；本机 PG 则按发行版命名加上
+# After=postgresql.service
+# Wants=postgresql.service
+
+[Service]
+Type=simple
+# 路径与用户按部署机实际情况调整
+User=lawver
+Group=lawver
+WorkingDirectory=/srv/lawver
+ExecStart=/srv/lawver/.venv/bin/python agent.py
+# 刻意不用 EnvironmentFile：配置由应用自己用 python-dotenv 读 <工作目录>/.env，
+# 而 systemd 的环境文件解析与 dotenv 不同（引号、通配符 `*` 的语义不一样），
+# 双份来源只会让「本地跑得通、systemd 下读不到」这种问题更难查。
+# 端口不在这里设：以 package.json 的 appConfig.port（8081）为准。
+Restart=always
+RestartSec=2
+# 模型调用是分钟级长连接，日志按行 flush 到 journal 即可
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
