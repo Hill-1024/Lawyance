@@ -59,7 +59,10 @@ export default function CourtConversation({project,selection,onSelect,onCancel,d
   const hasError=Object.values(session.agent_states).some(agent=>agent.status==='error');
   const status=state.trial_over?'庭审已结束':isRunning?court.status || '正在准备发言':hasError?court.status || '本轮执行遇到问题，请重试':!started?'案卷已就绪，等待开始':state.awaiting_user?`等待${session.user_side}陈述`:'本轮完成，可以继续';
   return <div className="wc-conversation">
-    <header className="wc-heading">{dragHandle}<div><h2>{session.title}</h2></div><button aria-label="查看庭审案卷" aria-pressed={!!dossier} onClick={()=>setDossier(dossier?null:'public')}><BookOpen size={17}/>案卷</button>{onCollapse&&<button className="wc-collapse wb-desktop-only" aria-label="收起模拟庭审" onClick={onCollapse}><X size={16}/></button>}</header>
+    <header className="wc-heading">{dragHandle}<div><h2>{session.title}</h2></div>{/* 可见文字就是可访问名，所以这里**不能**再给 aria-label：全局那条
+        「.wb-app button[aria-label]:has(> .lucide:only-child) 统一 32px」会把带文字的按钮也压成
+        32px，内容居中溢出，图标戳出按钮左缘、文字溢出右缘。补充说明放 title。 */}
+    <button title="查看庭审案卷" aria-pressed={!!dossier} onClick={()=>setDossier(dossier?null:'public')}><BookOpen size={17}/>案卷</button>{onCollapse&&<button className="wc-collapse wb-desktop-only" aria-label="收起模拟庭审" onClick={onCollapse}><X size={16}/></button>}</header>
     <div className="wc-stage"><span><Gavel size={15}/>{phases[state.phase]||state.phase}</span><ChevronRight size={13}/><span>{session.user_side}视角</span><small>{court.syncError?'未同步':court.isSaving?'保存中…':'已保存'}</small></div>
     {(error||court.syncError)&&<div role="alert" className="wc-error">{error||court.syncError}{court.syncError&&<button onClick={()=>{const blob=new Blob([JSON.stringify({court_sessions:[...court.recoverySessions,...court.courtSessions]})],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='court-recovery.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}}><Download size={14}/>导出恢复副本</button>}</div>}
     <div className="wc-flow" ref={scroll} onScroll={e=>{const el=e.currentTarget;stick.current=el.scrollHeight-el.scrollTop-el.clientHeight<140;}}>
