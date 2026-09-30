@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
@@ -24,6 +25,7 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
+    LargeBinary,
     String,
     delete,
     func,
@@ -65,6 +67,11 @@ class Account(Base):
     __tablename__ = "accounts"
 
     username: Mapped[str] = mapped_column(String(200), primary_key=True)
+    # uid 是稳定标识：username 可改、custom_id 可改，对外（头像 URL、未来跨表引用）
+    # 一律用 uid。32 位十六进制，不可枚举。
+    uid: Mapped[str] = mapped_column(String(32), unique=True)
+    # custom_id 是用户自选的对外句柄（介绍页/个人资料展示用），可空可改；唯一。
+    custom_id: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
     password_hash: Mapped[str] = mapped_column(String(400))
     role: Mapped[str] = mapped_column(String(16), default="user")
     owner: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
@@ -78,6 +85,10 @@ class Account(Base):
     credit_quota: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     credit_multiplier: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="active")
+    # 头像字节直接入库（accounts 量级小，省一套对象存储依赖）；version 用于缓存失效。
+    avatar: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    avatar_content_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    avatar_version: Mapped[int] = mapped_column(Integer, default=0)
     last_grant_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -143,9 +154,16 @@ def _stamp(seconds: float) -> datetime:
     return datetime.fromtimestamp(seconds, tz=timezone.utc)
 
 
+def new_uid() -> str:
+    return uuid.uuid4().hex
+
+
 def _account_dict(row: Account) -> dict[str, Any]:
+    # 头像字节不入 dict：它只走 /api/avatars/{uid} 单独取，避免每个账号读取都搬一遍。
     return {
         "username": row.username,
+        "uid": row.uid,
+        "custom_id": row.custom_id,
         "password_hash": row.password_hash,
         "role": row.role,
         "owner": row.owner,
@@ -158,6 +176,7 @@ def _account_dict(row: Account) -> dict[str, Any]:
         "credit_quota": row.credit_quota,
         "credit_multiplier": row.credit_multiplier,
         "status": row.status,
+        "avatar_version": row.avatar_version,
         "last_grant_at": _epoch(row.last_grant_at),
         "grant_expire_at": _epoch(row.grant_expire_at),
         "created_at": _epoch(row.created_at),
@@ -218,6 +237,8 @@ def insert_user_record(record: dict[str, Any]) -> None:
     ensure_tables()
     payload = {
         "username": record["username"],
+        "uid": record.get("uid") or new_uid(),
+        "custom_id": record.get("custom_id"),
         "password_hash": record["password_hash"],
         "role": record.get("role", "user"),
         "owner": record.get("owner"),
@@ -257,6 +278,83 @@ def delete_user_row(username: str) -> bool:
             delete(AccountSession).where(AccountSession.username == username)
         )
         return bool(result.rowcount)
+
+
+# ─── 个人资料（custom_id / 头像）───────────────────────────────────────────
+
+
+def set_custom_id(username: str, custom_id: Optional[str]) -> str:
+    """写入自选句柄；返回 "ok" 或 "conflict"（撞了别人的句柄）。
+
+    先查后写处理最常见的冲突；并发窗口撞唯一约束时 IntegrityError 会抛给调用方，
+    路由层转 409。
+    """
+    ensure_tables()
+    with transaction() as session:
+        if custom_id:
+            owner = session.execute(
+                select(Account.username).where(Account.custom_id == custom_id)
+            ).first()
+            if owner and owner[0] != username:
+                return "conflict"
+        session.execute(
+            update(Account)
+            .where(Account.username == username)
+            .values(custom_id=custom_id, updated_at=utcnow())
+        )
+    return "ok"
+
+
+def get_avatar(username: str) -> Optional[dict[str, Any]]:
+    ensure_tables()
+    with transaction() as session:
+        row = session.execute(
+            select(Account.avatar, Account.avatar_content_type, Account.avatar_version).where(
+                Account.username == username
+            )
+        ).first()
+        if not row or row[0] is None:
+            return None
+        return {"data": row[0], "content_type": row[1], "version": row[2]}
+
+
+def set_avatar(username: str, data: bytes, content_type: str) -> int:
+    ensure_tables()
+    with transaction() as session:
+        row = session.get(Account, username)
+        if not row:
+            return 0
+        row.avatar = data
+        row.avatar_content_type = content_type
+        row.avatar_version = (row.avatar_version or 0) + 1
+        row.updated_at = utcnow()
+        return row.avatar_version
+
+
+def clear_avatar(username: str) -> int:
+    ensure_tables()
+    with transaction() as session:
+        row = session.get(Account, username)
+        if not row:
+            return 0
+        row.avatar = None
+        row.avatar_content_type = None
+        row.avatar_version = (row.avatar_version or 0) + 1
+        row.updated_at = utcnow()
+        return row.avatar_version
+
+
+def get_avatar_by_uid(uid: str) -> Optional[dict[str, Any]]:
+    ensure_tables()
+    with transaction() as session:
+        row = session.execute(
+            select(Account.avatar, Account.avatar_content_type, Account.avatar_version).where(
+                Account.uid == uid
+            )
+        ).first()
+        if not row or row[0] is None:
+            return None
+        return {"data": row[0], "content_type": row[1], "version": row[2]}
 
 
 # ─── sessions ─────────────────────────────────────────────────────────────

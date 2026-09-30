@@ -1,23 +1,31 @@
 """
-模块描述：登录、登出与认证状态 API。
+模块描述：登录、登出、认证状态与个人资料（自定义 ID / 头像）API。
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+import re
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import Response as FastAPIResponse
 from starlette.concurrency import run_in_threadpool
 
 from auth import (
     ROLE_ADMIN,
     authenticate_user,
     change_password,
+    clear_user_avatar,
     count_online,
     create_session,
+    get_account_profile,
+    get_user_avatar_by_uid,
     get_user_limits,
     get_user_role,
     hash_client_identity,
     revoke_token_session,
+    update_avatar,
+    update_custom_id,
     verify_token,
 )
-from schemas import ChangePasswordRequest, LoginRequest
+from schemas import ChangePasswordRequest, LoginRequest, ProfileUpdateRequest
 from services.app_security import (
     client_ip_for_request,
     secure_cookie_for_request,
@@ -126,6 +134,88 @@ async def session_probe(request: Request):
     username = await run_in_threadpool(verify_token, token) if token else None
     if not username:
         return {"authenticated": False}
+    profile = await run_in_threadpool(get_account_profile, username)
+    return {
+        "authenticated": True,
+        "username": username,
+        "role": await run_in_threadpool(get_user_role, username),
+        # 介绍页账户卡片与个人资料设置共用这一份：uid 稳定标识、custom_id 展示句柄、
+        # plan 决定头像旁的订阅徽标、avatar_version 作头像缓存失效。
+        "uid": (profile or {}).get("uid"),
+        "custom_id": (profile or {}).get("custom_id"),
+        "plan": (profile or {}).get("plan", "metered"),
+        "avatar_version": (profile or {}).get("avatar_version", 0),
+    }
+
+
+# ─── 个人资料（自定义 ID / 头像）──────────────────────────────────────────
+
+
+@router.get("/api/profile")
+async def read_profile(current_user: str = Depends(get_current_user)):
+    profile = await run_in_threadpool(get_account_profile, current_user)
+    if not profile:
+        raise HTTPException(status_code=404, detail="账号不存在")
+    return profile
+
+
+@router.patch("/api/profile")
+async def update_profile(
+    req: ProfileUpdateRequest,
+    current_user: str = Depends(get_current_user),
+):
+    if "custom_id" not in req.model_fields_set:
+        raise HTTPException(status_code=422, detail="没有可更新的字段。")
+    ok, error = await run_in_threadpool(
+        update_custom_id, current_user, req.custom_id
+    )
+    if not ok:
+        status = 409 if "已被占用" in error else 422
+        raise HTTPException(status_code=status, detail=error)
+    profile = await run_in_threadpool(get_account_profile, current_user)
+    return {"status": "success", "profile": profile}
+
+
+@router.put("/api/profile/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: str = Depends(get_current_user),
+):
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    data = await file.read()
+    version, error = await run_in_threadpool(update_avatar, current_user, data, content_type)
+    if version is None:
+        raise HTTPException(status_code=422, detail=error)
+    profile = await run_in_threadpool(get_account_profile, current_user)
+    return {"status": "success", "profile": profile}
+
+
+@router.delete("/api/profile/avatar")
+async def remove_avatar(current_user: str = Depends(get_current_user)):
+    await run_in_threadpool(clear_user_avatar, current_user)
+    profile = await run_in_threadpool(get_account_profile, current_user)
+    return {"status": "success", "profile": profile}
+
+
+@router.get("/api/avatars/{uid}")
+async def serve_avatar(uid: str):
+    """公开头像：uid 是 32 位不可枚举标识，作为 URL 已是能力凭证。
+
+    version 走查询参数失效缓存，所以本体可以给一段较长的不可变缓存。
+    """
+    if not re.fullmatch(r"[0-9a-f]{32}", uid):
+        raise HTTPException(status_code=404, detail="头像不存在")
+    avatar = await run_in_threadpool(get_user_avatar_by_uid, uid)
+    if not avatar:
+        raise HTTPException(status_code=404, detail="头像不存在")
+    return FastAPIResponse(
+        content=avatar["data"],
+        media_type=avatar["content_type"] or "image/png",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "Content-Disposition": "inline",
+        },
+    )
     return {
         "authenticated": True,
         "username": username,
