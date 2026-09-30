@@ -36,7 +36,12 @@
 .wb-app * {
   box-sizing: border-box;
 }
-.wb-app button {
+/* 按钮基线：用 :where() 把优先级压到元素级（0,0,1），组件里任何一条类选择器都能盖它。
+   用 `.wb-app button`（0,1,1）写的话，它会反过来盖掉组件的 border-radius / border /
+   padding / font-size——胶囊按钮被压成 10px 方角、描边消失、字号被 inherit 顶回 14px，
+   而受害者只在渲染时才看得出来（2026-09-30 一天内连中两次：庭审「案卷」按钮、
+   首页「工作建议」chips）。基线只该提供默认值，不该赢过明确的组件意图。 */
+:where(.wb-app) button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
