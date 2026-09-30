@@ -116,6 +116,26 @@ class SearxngToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "CONFIG_ERROR")
         self.assertIn("配置不完整", result["error_message"])
 
+    def test_web_search_skips_credentials_when_none_configured(self):
+        """自托管实例没有 Access：凭据全空时不报 CONFIG_ERROR，直接不带凭据发请求。"""
+        from mcp.searxng_client import web_search
+
+        captured = {}
+
+        def fake_get(url, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return _FakeResponse(json.dumps({"results": [{"title": "Self-hosted", "url": "https://example.com/"}]}))
+
+        with mock.patch.dict(os.environ, {"SEARXNG_BASE_URL": "https://searx.internal.example/"}, clear=True):
+            with mock.patch("mcp.searxng_client.requests.get", side_effect=fake_get):
+                result = json.loads(web_search("self-hosted"))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["results"][0]["title"], "Self-hosted")
+        self.assertNotIn("CF-Access-Client-Id", captured["headers"])
+        self.assertNotIn("CF-Access-Client-Secret", captured["headers"])
+
     def test_web_search_allows_local_base_url_without_access_token(self):
         from mcp.searxng_client import web_search
 

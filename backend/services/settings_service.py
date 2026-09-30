@@ -111,7 +111,10 @@ PROVIDER_SPECS = {
             "engines": "",
             "categories": "",
         },
-        "required": ("cf_client_id", "cf_client_secret"),
+        # Cloudflare Access 凭据**可选**：自托管实例（尤其回环/内网）通常没有 Access。
+        # 置空时不该拦下「测试连接」——探测会不带凭据直接发请求；
+        # 只填了一半才属于配置错误（客户端 _access_headers 同一条约定）。
+        "required": (),
     },
     "qcc": {
         "label": "企业信息 (企查查)",
@@ -785,7 +788,7 @@ def _probe_embedding(provider: dict) -> tuple[bool, str]:
 
 
 def _probe_searxng(provider: dict) -> tuple[bool, str]:
-    """GET {base_url}/search?q=ping&format=json，带上 Cloudflare Access Service Token。"""
+    """GET {base_url}/search?q=ping&format=json；凭据可选，配了才带 Cloudflare Access 头。"""
     base_url = str(provider.get("base_url") or "").rstrip("/")
     cf_client_id = str(provider.get("cf_client_id") or "")
     cf_client_secret = str(provider.get("cf_client_secret") or "")
@@ -805,6 +808,13 @@ def _probe_searxng(provider: dict) -> tuple[bool, str]:
         return False, _probe_transport_error_message(exc)
     if response.status_code == 200:
         return True, ""
+    if response.status_code in (401, 403) and not cf_client_id and not cf_client_secret:
+        # 凭据本来就没配：被拒说明实例真的启用了 Access（或没开 JSON 输出），
+        # 把两种可能都讲清楚，别让用户以为是凭据填错。
+        return False, (
+            "访问被拒绝 (HTTP 403)：实例启用了 Cloudflare Access 但未配置凭据，"
+            "或 SearXNG 未启用 JSON 输出（settings.yml 的 search.formats 需包含 json）"
+        )
     return False, _probe_status_error_message(
         response.status_code,
         auth_message="访问被拒绝，请检查 Cloudflare Access 凭据",

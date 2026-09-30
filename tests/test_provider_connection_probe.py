@@ -157,6 +157,29 @@ class SearxngProbeTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["message"], "访问被拒绝，请检查 Cloudflare Access 凭据 (HTTP 403)")
 
+    def test_self_hosted_without_credentials_still_probes(self):
+        """自托管实例没有 Access 凭据：不该被「缺少配置」拦下，探测要真的发出去。"""
+        cfg = {"base_url": "http://127.0.0.1:8083"}
+        with mock.patch.object(settings_service, "get_provider_runtime_config", return_value=cfg):
+            with mock.patch.object(settings_service.requests, "get", return_value=_FakeResponse(200)) as get_mock:
+                result = settings_service.test_provider_connection("searxng")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["message"], "网页检索 (SearXNG) 连接正常")
+        self.assertEqual(get_mock.call_args.args[0], "http://127.0.0.1:8083/search")
+        headers = get_mock.call_args.kwargs["headers"]
+        self.assertNotIn("CF-Access-Client-Id", headers)
+        self.assertNotIn("CF-Access-Client-Secret", headers)
+
+    def test_auth_denied_without_credentials_mentions_both_causes(self):
+        """凭据为空还被 403：提示应同时指向「缺 Access 凭据」和「未开 JSON 输出」。"""
+        cfg = {"base_url": "https://searx.example"}
+        with mock.patch.object(settings_service, "get_provider_runtime_config", return_value=cfg):
+            with mock.patch.object(settings_service.requests, "get", return_value=_FakeResponse(403)):
+                result = settings_service.test_provider_connection("searxng")
+        self.assertFalse(result["ok"])
+        self.assertIn("未配置凭据", result["message"])
+        self.assertIn("JSON", result["message"])
+
 
 class DeliProbeTests(unittest.TestCase):
     def test_success_uses_read_only_search(self):
