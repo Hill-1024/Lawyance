@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { SelectField } from "./SelectField";
 import { createPortal } from "react-dom";
 import { Link as RouterLink } from "react-router-dom";
 import { useReducedMotion } from "motion/react";
@@ -482,25 +483,26 @@ export function DocumentPane({
               </button>
             </div>
             <div className="wb-toolbar-group">
-              <select
+              <SelectField
                 className="wb-heading-select"
                 aria-label="段落格式"
                 value={ui?.heading || "p"}
-                onChange={(e) =>
-                  e.target.value === "p"
+                onChange={(value) =>
+                  value === "p"
                     ? editor.chain().focus().setParagraph().run()
                     : editor
                         .chain()
                         .focus()
-                        .toggleHeading({ level: +e.target.value as 1 | 2 | 3 })
+                        .toggleHeading({ level: +value as 1 | 2 | 3 })
                         .run()
                 }
-              >
-                <option value="p">正文</option>
-                <option value="1">一级标题</option>
-                <option value="2">二级标题</option>
-                <option value="3">三级标题</option>
-              </select>
+                options={[
+                  { value: "p", label: "正文" },
+                  { value: "1", label: "一级标题" },
+                  { value: "2", label: "二级标题" },
+                  { value: "3", label: "三级标题" },
+                ]}
+              />
               <button
                 title="加粗"
                 aria-label="加粗"
@@ -688,18 +690,12 @@ export function DocumentPane({
                     <History size={15} />
                     版本记录
                   </button>
-                  <label>
-                    字号
-                    <select
-                      aria-label="文档字号"
-                      value={font}
-                      onChange={(e) => setFont(+e.target.value)}
-                    >
-                      {[15, 17, 19, 22].map((n) => (
-                        <option key={n}>{n}</option>
-                      ))}
-                    </select>
-                  </label>
+                  <SelectField
+                    label="字号"
+                    value={String(font)}
+                    onChange={(value) => setFont(+value)}
+                    options={[15, 17, 19, 22].map((n) => ({ value: String(n), label: String(n) }))}
+                  />
                 </div>,
                 document.body,
               )}

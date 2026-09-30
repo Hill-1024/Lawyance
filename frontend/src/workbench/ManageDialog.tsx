@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useState } from "react";
+import { CheckBox } from "../components/CheckBox";
 import { X, Plus, Plug, Sparkles } from "lucide-react";
 import { useAppDialog } from "../contexts/DialogContext";
 import { useSettingsEdit } from "../components/settings/SettingsEditContext";
@@ -466,24 +467,21 @@ export function ManageDialog({
               份本地附件。选择需要迁移的会话；请一起选择同一分支树，以保留完整关系。庭审记录作为原始档案保存。
             </p>
             <a href="/legacy">打开本地旧资料（阅读、导出、旧备份导入）</a>
-            <label>
-              <input
-                type="checkbox"
-                checked={selected.length === locals.length && !!locals.length}
-                onChange={(e) =>
-                  setSelected(e.target.checked ? locals.map((c) => c.id) : [])
-                }
-              />
-              选择所有会话
-            </label>
+            <CheckBox
+              label="选择所有会话"
+              checked={selected.length === locals.length && !!locals.length}
+              onCheckedChange={(next) =>
+                setSelected(next ? locals.map((c) => c.id) : [])
+              }
+            />
             {locals.map((c) => (
               <label key={c.id}>
-                <input
-                  type="checkbox"
+                <CheckBox
+                  ariaLabel={c.title}
                   checked={selected.includes(c.id)}
-                  onChange={(e) =>
+                  onCheckedChange={(next) =>
                     setSelected(
-                      e.target.checked
+                      next
                         ? [...selected, c.id]
                         : selected.filter((id) => id !== c.id),
                     )

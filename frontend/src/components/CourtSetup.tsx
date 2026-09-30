@@ -3,6 +3,7 @@
  */
 
 import { useAppDialog } from '../contexts/DialogContext';
+import { SelectField } from "../workbench/SelectField";
 import { CourtMaterials, CourtSource } from '../workbench/CourtMaterials';
 import React, { useState } from 'react';
 import { Gavel, Landmark, Lock, Scale, ShieldCheck, Sparkles } from 'lucide-react';
@@ -148,8 +149,8 @@ export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel, init
     <div className="court-setup-content">
       <header className="court-welcome"><span><Gavel size={22}/></span><div><h1>在这里，准备你的下一次出庭。</h1><p>整理案卷，选择立场，与法官和对方律师展开一场模拟对话。</p></div></header>
       <div className="court-role-config">
-        <label>案件类型<select aria-label="案件类型" value={form.case_type} onChange={e=>selectCaseType(e.target.value as CourtCaseType)}>{CASE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
-        <label>我的立场<select aria-label="我的立场" value={form.user_side} onChange={e=>setField('user_side',e.target.value)}>{sideOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+        <SelectField label="案件类型" value={form.case_type} options={CASE_OPTIONS} onChange={v=>selectCaseType(v as CourtCaseType)} />
+        <SelectField label="我的立场" value={form.user_side} options={sideOptions} onChange={v=>setField('user_side',v)} />
       </div>
       <nav className="court-preparation-tabs" aria-label="庭审准备">
         <button aria-pressed={tab==='public'} onClick={()=>setTab('public')}><Landmark size={16}/>公开案卷</button>

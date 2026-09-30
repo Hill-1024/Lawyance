@@ -1,4 +1,5 @@
 import { Gavel, MessageSquare, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
+import { useT } from "../i18n";
 import React from "react";
 import { Item } from "./client";
 import { TabRef, tabKey } from "./tabs";
@@ -45,6 +46,7 @@ export function HomeView({
   onOpenProject,
   onNewProject,
 }: HomeViewProps) {
+  const { t } = useT();
   const visibleProjects = projectFilter === "最近"
     ? projects
         .filter((item) => !item.data.archived)
@@ -67,15 +69,15 @@ export function HomeView({
       )}
       <div className="wb-home-suggest">
         <div className="wb-home-suggest-head">
-          <span>工作建议</span>
+          <span>{t("workbench.home.suggestions")}</span>
           <button
             className="wb-home-refresh"
             onClick={onRefreshSuggestions}
             disabled={suggestionsLoading}
-            title="按当前材料重新生成建议"
+            title={t("workbench.home.refreshSuggestionsHint")}
           >
             <RefreshCw size={13} />
-            换一批
+            {t("workbench.home.refreshSuggestions")}
           </button>
         </div>
         <div className="wb-home-chips" aria-busy={suggestionsLoading}>
@@ -98,10 +100,10 @@ export function HomeView({
       {composer}
       <section className="wb-home-recent">
         <header>
-          <h2>最近会话</h2>
+          <h2>{t("workbench.home.recentSessions")}</h2>
           {!!recentSessions.length && (
             <button className="wb-mini-action" onClick={onOpenHistory}>
-              查看全部
+              {t("workbench.home.openHistory")}
             </button>
           )}
         </header>
@@ -113,7 +115,7 @@ export function HomeView({
                 {item.title}
                 <small>
                   {new Date(item.updated_at).toDateString() === new Date().toDateString()
-                    ? "今天"
+                    ? t("workbench.home.today")
                     : new Date(item.updated_at).toLocaleDateString()}
                 </small>
               </span>
@@ -121,20 +123,20 @@ export function HomeView({
             {/* 悬停才露面，与侧栏文件行、标签关闭键同一档；此前这一行只有打开、没有管理入口。 */}
             <button
               className="wb-file-row-manage"
-              aria-label={"管理 " + item.title}
+              aria-label={t("workbench.home.manage", { title: item.title })}
               onClick={() => onManageItem(item)}
             >
               <MoreHorizontal size={14} />
             </button>
           </div>
         ))}
-        {!recentSessions.length && <p className="wb-empty-hint">发送第一条消息，开启会话。</p>}
+        {!recentSessions.length && <p className="wb-empty-hint">{t("workbench.home.emptySessions")}</p>}
       </section>
       {!project && (
         <section className="wb-home-projects">
           <header className="wb-projects-head">
             <div className="wb-projects-title-row">
-              <h2 className="wb-projects-title">项目</h2>
+              <h2 className="wb-projects-title">{t("workbench.home.projects")}</h2>
               <div className="wb-projects-filter">
                 <button
                   className={projectFilter === "全部" ? "active" : ""}
@@ -156,7 +158,7 @@ export function HomeView({
               onClick={onNewProject}
             >
               <Plus size={15} />
-              新建项目
+              {t("workbench.home.newProject")}
             </button>
           </header>
           <div className="wb-project-cards">

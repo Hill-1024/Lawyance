@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import { Item, Reference, templates } from "./client";
 import { SelectField } from "./SelectField";
+import { useT } from "../i18n";
 import { AnimatedSwitch } from "../components/AnimatedSwitch";
+import { CheckBox } from "../components/CheckBox";
 import { formatKeys, getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
 export type Draft = { text: string; references: Reference[] };
 export function Composer({
@@ -56,6 +58,7 @@ export function Composer({
     [query, setQuery] = useState(""),
     [index, setIndex] = useState(0),
     [advanced, setAdvanced] = useState(false);
+  const { t } = useT();
   const reduceMotion = useReducedMotion();
   // 候选列表按 fixed 定位：它开在输入框正上方，而 .wb-home 是 overflow:auto 的滚动容器，
   // 留在文档流里会被上方内容区裁掉大半。坐标仿照工作台其它菜单（space/thread/overflow）由 JS 算。
@@ -195,7 +198,7 @@ export function Composer({
           ref={popup}
           className="wb-candidates"
           role="listbox"
-          aria-label="引用候选"
+          aria-label={t("workbench.composer.candidates")}
           style={{
             left: popupPos.left,
             width: popupPos.width,
@@ -209,7 +212,7 @@ export function Composer({
               : menu === "$"
                 ? "选择已发布技能"
                 : "选择本次使用的资料或插件"}
-            <button aria-label="关闭候选" onClick={() => setMenu("")}>
+            <button aria-label={t("workbench.composer.closeCandidates")} onClick={() => setMenu("")}>
               <X size={14} />
             </button>
           </div>
@@ -251,34 +254,30 @@ export function Composer({
                   connectors
                     .find((x) => x.id === ref.id)
                     ?.data.tools?.map((t: any) => (
-                      <label key={t.name}>
-                        <input
-                          type="checkbox"
-                          checked={ref.tools?.includes(t.name) || false}
-                          onChange={(e) =>
-                            onChange({
-                              ...draft,
-                              references: draft.references.map((r, j) =>
-                                j === i
-                                  ? {
-                                      ...r,
-                                      tools: e.target.checked
-                                        ? [...(r.tools || []), t.name]
-                                        : (r.tools || []).filter(
-                                            (n) => n !== t.name,
-                                          ),
-                                    }
-                                  : r,
-                              ),
-                            })
-                          }
-                        />
-                        {t.name}
-                      </label>
+                      <CheckBox
+                        key={t.name}
+                        label={t.name}
+                        checked={ref.tools?.includes(t.name) || false}
+                        onCheckedChange={(next) =>
+                          onChange({
+                            ...draft,
+                            references: draft.references.map((r, j) =>
+                              j === i
+                                ? {
+                                    ...r,
+                                    tools: next
+                                      ? [...(r.tools || []), t.name]
+                                      : (r.tools || []).filter((n) => n !== t.name),
+                                  }
+                                : r,
+                            ),
+                          })
+                        }
+                      />
                     ))}
               </details>
               <button
-                aria-label={`移除 ${ref.title}`}
+                aria-label={t("workbench.composer.removeReference", { title: ref.title })}
                 onClick={() =>
                   onChange({
                     ...draft,
@@ -296,7 +295,7 @@ export function Composer({
         ref={input}
         value={draft.text}
         aria-label="输入任务"
-        placeholder="描述你的法律问题，或用 @ 引用材料…"
+        placeholder={t("workbench.composer.placeholder")}
         disabled={disabled}
         onChange={(e) => update(e.target.value, e.target.selectionStart)}
         onCompositionStart={() => (composing.current = true)}
@@ -367,14 +366,14 @@ export function Composer({
         />
         <button
           title="上传文件"
-          aria-label="上传文件"
+          aria-label={t("workbench.composer.upload")}
           onClick={() => file.current?.click()}
         >
           <Paperclip size={17} />
         </button>
         <button
           aria-label="引用"
-          title="引用材料（@）"
+          title={t("workbench.composer.referenceHint")}
           onClick={() => open("@")}
         >
           <AtSign size={16} />
@@ -382,7 +381,7 @@ export function Composer({
         </button>
         <button
           aria-label="技能"
-          title="选择技能（$）"
+          title={t("workbench.composer.skillHint")}
           onClick={() => open("$")}
         >
           <Sparkles size={16} />
@@ -390,14 +389,14 @@ export function Composer({
         </button>
         <button
           aria-label="任务"
-          title="任务模板（/）"
+          title={t("workbench.composer.taskHint")}
           onClick={() => open("/")}
         >
           <Slash size={16} />
           <span>任务</span>
         </button>
         <button
-          aria-label="任务设置"
+          aria-label={t("workbench.composer.taskSettings")}
           aria-expanded={advanced}
           onClick={() => setAdvanced(!advanced)}
         >
@@ -405,13 +404,13 @@ export function Composer({
         </button>
         <span className="wb-spacer" />
         {running ? (
-          <button className="wb-send" aria-label="停止生成" onClick={onStop}>
+          <button className="wb-send" aria-label={t("workbench.composer.stop")} onClick={onStop}>
             <Square size={16} />
           </button>
         ) : (
           <button
             className="wb-send"
-            aria-label="发送任务"
+            aria-label={t("workbench.composer.send")}
             disabled={!draft.text.trim() || disabled}
             onClick={onSend}
           >
@@ -434,12 +433,12 @@ export function Composer({
           >
             <div className="wb-advanced-inner">
               <SelectField
-                label="任务模式"
+                label={t("workbench.composer.taskMode")}
                 value={mode}
                 onChange={setMode}
                 options={[
-                  { value: "default", label: "标准" },
-                  { value: "plan_and_solve", label: "规划与执行" },
+                  { value: "default", label: t("workbench.composer.taskModeStandard") },
+                  { value: "plan_and_solve", label: t("workbench.composer.taskModePlan") },
                 ]}
               />
               {/* 复选框换成应用里既有的开关（设置页同款），原生方框与这套 UI 不同源。 */}
@@ -447,8 +446,8 @@ export function Composer({
                 size="sm"
                 checked={ocp}
                 onCheckedChange={setOcp}
-                label="高级输出审查"
-                ariaLabel="高级输出审查"
+                label={t("workbench.composer.ocp")}
+                ariaLabel={t("workbench.composer.ocp")}
               />
             </div>
           </motion.div>

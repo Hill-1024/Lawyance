@@ -559,45 +559,4 @@
   flex-wrap: wrap;
   font-size: 11px;
 }
-/* 下拉：胶囊按钮 + portal 菜单，替代原生 select。 */
-.wb-select {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.wb-select-label {
-  color: var(--wb-muted);
-}
-.wb-select-button {
-  min-height: 26px;
-  padding: 2px 8px 2px 10px;
-  gap: 4px;
-  border: 1px solid var(--wb-line);
-  border-radius: var(--radius-pill);
-  background: var(--wb-surface);
-  color: var(--wb-ink);
-  font-size: 11px;
-}
-.wb-select-button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--wb-line));
-  color: var(--accent);
-}
-.wb-select-button[aria-expanded="true"] {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.wb-select-menu {
-  width: min(200px, calc(100vw - 16px));
-}
-.wb-select-option.is-selected {
-  color: var(--accent);
-  font-weight: 500;
-}
-.wb-select-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  min-width: 14px;
-  color: var(--accent);
-}
+

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TabRef, tabKey } from "./tabs";
 import { usePortalMenuDismiss } from "./usePortalMenu";
+import { useT } from "../i18n";
 
 // 右键菜单是 portal 到 body 的：豁免列表里要有菜单自身的类名。
 const TAB_MENU_SELECTORS = [".wb-tab-menu"] as const;
@@ -54,6 +55,7 @@ export function TabStrip({
   onCreateCourt,
   onNav,
 }: Props) {
+  const { t } = useT();
   const reduceMotion = useReducedMotion();
   const [menu, setMenu] = useState<{ x: number; y: number; tab: TabRef }>();
   const [newMenu, setNewMenu] = useState<{ top: number; left: number } | null>(null);
@@ -190,19 +192,19 @@ export function TabStrip({
                   )}
                   <span>{titleOf(tab)}</span>
                   {isRunning && (
-                    <span className="wb-tab-running" role="status" aria-label="任务运行中">
+                    <span className="wb-tab-running" role="status" aria-label={t("workbench.tabs.running")}>
                       <Loader size={12} className="wb-spin" />
                     </span>
                   )}
                   {!isRunning && state?.unseen && (
-                    <span className="wb-tab-unseen" role="status" aria-label="已有新结果" />
+                    <span className="wb-tab-unseen" role="status" aria-label={t("workbench.tabs.unseen")} />
                   )}
                 </button>
                 {/* 空间仅剩这一个空白标签时不给关闭键：关掉它也会立刻补一个新的，等于点了没反应 */}
                 {!(tab.kind === "new" && tabs.length === 1) && (
                   <button
                     className="wb-tab-close"
-                    aria-label={"关闭 " + titleOf(tab)}
+                    aria-label={t("workbench.tabs.close", { title: titleOf(tab) })}
                     onClick={() => {
                       const index = tabs.findIndex((item) => tabKey(item) === key);
                       const neighbour = tabs[index + 1] || tabs[index - 1];
@@ -231,10 +233,10 @@ export function TabStrip({
       >
         <button
           className="wb-tab-new"
-          aria-label="新建会话标签页"
+          aria-label={t("workbench.tabs.newTab")}
           aria-haspopup="menu"
           aria-expanded={newMenu !== null}
-          title="新建会话标签页（悬停或按 ↓ 可选择模拟庭审）"
+          title={t("workbench.tabs.newTabHint")}
           ref={newTabButton}
           onClick={() => {
             setNewMenu(null);
@@ -261,7 +263,7 @@ export function TabStrip({
           <div
             className="wb-tab-menu wb-tab-new-menu"
             role="menu"
-            aria-label="新建"
+            aria-label={t("workbench.tabs.newTabMenuLabel")}
             style={{ position: "fixed", top: newMenu.top, left: newMenu.left }}
             onMouseEnter={cancelNewMenuClose}
             onMouseLeave={scheduleNewMenuClose}
@@ -277,7 +279,7 @@ export function TabStrip({
               }}
             >
               <MessageSquare size={14} />
-              会话
+              {t("workbench.tabs.newSession")}
             </button>
             <button
               role="menuitem"
@@ -290,7 +292,7 @@ export function TabStrip({
               }}
             >
               <Gavel size={14} />
-              模拟庭审
+              {t("workbench.tabs.newCourt")}
             </button>
           </div>,
           document.body,
@@ -302,7 +304,7 @@ export function TabStrip({
       <button
         className="wb-mobile-only wb-tabstrip-nav"
         data-tour="wb-nav-toggle"
-        aria-label="打开导航"
+        aria-label={t("workbench.shell.openNav")}
         onClick={onNav}
       >
         <Menu size={19} />

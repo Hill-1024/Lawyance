@@ -38,7 +38,8 @@
     "test:app-back": "tsx scripts/test-app-back.ts",
     "test:attachment-prompt": "tsx scripts/test-attachment-prompt.ts",
     "test:composer-autosize": "tsx scripts/test-composer-autosize.ts",
-    "start": "python agent.py"
+    "start": "python agent.py",
+    "test:i18n": "tsx scripts/test-i18n.ts"
   },
   "dependencies": {
     "@capacitor/android": "8.3.4",

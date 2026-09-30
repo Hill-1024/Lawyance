@@ -4,6 +4,9 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SelectField } from "../workbench/SelectField";
+import { AnimatedSwitch } from "./AnimatedSwitch";
+import { CheckBox } from "./CheckBox";
 import {
   Activity,
   ArrowLeft,
@@ -1052,18 +1055,16 @@ const AccessLogsPanel: React.FC = () => {
             aria-label="按 IP 地址过滤日志"
             style={{ width: 180 }}
           />
-          <label className="wb-admin-inline" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-            <input
-              type="checkbox"
-              checked={ignoreHeartbeat}
-              onChange={(event) => {
-                const next = { ipFilter, ignoreHeartbeat: event.target.checked };
-                setIgnoreHeartbeat(event.target.checked);
-                void load(next);
-              }}
-            />
-            隐藏心跳
-          </label>
+          <CheckBox
+            className="wb-admin-inline text-[12px]"
+            label="隐藏心跳"
+            checked={ignoreHeartbeat}
+            onCheckedChange={(checked) => {
+              const next = { ipFilter, ignoreHeartbeat: checked };
+              setIgnoreHeartbeat(checked);
+              void load(next);
+            }}
+          />
           <button onClick={() => void load({ ipFilter, ignoreHeartbeat })} disabled={loading} className="wb-quiet">
             {loading ? <Loader2 size={15} className="wb-spin" /> : <Search size={15} />} 查询
           </button>
@@ -1370,18 +1371,21 @@ const AnnouncementDialog: React.FC<{
           <textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={5000} />
         </label>
         <div className="wb-admin-form-grid">
-          <label>
-            级别
-            <select value={level} onChange={(event) => setLevel(event.target.value as AnnouncementLevel)}>
-              {(['info', 'warning', 'danger'] as AnnouncementLevel[]).map((value) => (
-                <option key={value} value={value}>{LEVEL_LABEL[value]}（{value}）</option>
-              ))}
-            </select>
-          </label>
-          <label className="wb-admin-inline">
-            <input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} />
-            启用（停用后不展示给任何账号）
-          </label>
+          <SelectField
+            label="级别"
+            value={level}
+            onChange={(value) => setLevel(value as AnnouncementLevel)}
+            options={(['info', 'warning', 'danger'] as AnnouncementLevel[]).map((value) => ({
+              value,
+              label: `${LEVEL_LABEL[value]}（${value}）`,
+            }))}
+          />
+          <AnimatedSwitch
+            size="sm"
+            label="启用（停用后不展示给任何账号）"
+            checked={active}
+            onCheckedChange={setActive}
+          />
         </div>
 
         <label>

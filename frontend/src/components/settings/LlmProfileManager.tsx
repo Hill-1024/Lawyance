@@ -3,6 +3,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckBox } from '../CheckBox';
 import {
   Check,
   ChevronDown,
@@ -607,15 +608,12 @@ export const LlmProfileManager: React.FC = () => {
             )}
 
             {!draft.id && (
-              <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-[var(--fg-2)]">
-                <input
-                  type="checkbox"
-                  checked={draft.activate}
-                  onChange={event => setDraft(prev => (prev ? { ...prev, activate: event.target.checked } : prev))}
-                  className="h-4 w-4 accent-[var(--accent)]"
-                />
-                保存后立即切换使用
-              </label>
+              <CheckBox
+                className="min-h-11 gap-2.5 text-[13px] text-[var(--fg-2)]"
+                label="保存后立即切换使用"
+                checked={draft.activate}
+                onCheckedChange={checked => setDraft(prev => (prev ? { ...prev, activate: checked } : prev))}
+              />
             )}
 
             <div className="flex min-w-0 flex-wrap justify-end gap-2">
