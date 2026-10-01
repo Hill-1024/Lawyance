@@ -34,6 +34,8 @@ export type SidebarProps = {
   username: string;
   /** 账户资料（uid/自定义 ID/订阅徽标）；未取到时回退显示用户名。 */
   profile: AccountProfile | null;
+  /** credits 余额与运维豁免：由 Workbench 抓取（耗尽弹窗与这里共用一份数据）。 */
+  credits: { balance: number | null; exempt: boolean } | null;
   sidebarOpen: boolean;
   project?: Item;
   projects: Item[];
@@ -63,6 +65,7 @@ export type SidebarProps = {
 export function Sidebar({
   username,
   profile,
+  credits,
   sidebarOpen,
   project,
   projects,
@@ -92,30 +95,6 @@ export function Sidebar({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>();
   // 余额显示在侧栏底部：计费是后台行为，用户至少要有地方看到自己还剩多少。
   // 同一份响应里的套餐决定是否出现 Business 控制台入口。
-  const [credits, setCredits] = useState<number | null>(null);
-  const [exempt, setExempt] = useState(false);
-  const [plan, setPlan] = useState("");
-  useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      fetchMyCredits()
-        .then((data) => {
-          if (cancelled || !data) return;
-          setCredits(typeof data.credits === "number" ? data.credits : null);
-          setExempt(Boolean(data.exempt));
-          setPlan(data.plan || "");
-        })
-        .catch(() => undefined);
-    load();
-    // 余额会被后台任务扣减，切标签或完成任务后刷新一次即可，不必轮询。
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") load();
-    }, 120000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
   usePortalMenuDismiss(menuOpen, () => setMenuOpen(false), { selectors: SPACE_MENU_SELECTORS });
   return (
     <aside data-tour="wb-sidebar" className={"wb-sidebar " + (sidebarOpen ? "is-open" : "")}>
@@ -312,7 +291,7 @@ export function Sidebar({
         {offline && <small>{t("workbench.shell.offline")}</small>}
       </div>
       <footer className="wb-nav-footer">
-        {plan === "business" && (
+        {profile?.plan === "business" && (
           <button onClick={() => onOpen("/business")}>
             <Building2 size={17} />
             {t("workbench.shell.businessConsole")}
@@ -339,12 +318,12 @@ export function Sidebar({
             <Settings size={16} />
           </button>
           <SidebarAccount profile={profile} username={username} onOpen={onOpen} />
-          {credits !== null && (
+          {credits?.balance != null && (
             <span
               className="wb-credits"
-              title={t("workbench.sidebar.creditsBalance", { amount: credits.toFixed(2) }) + (exempt ? t("workbench.sidebar.creditsExempt") : "")}
+              title={t("workbench.sidebar.creditsBalance", { amount: credits.balance.toFixed(2) }) + (credits.exempt ? t("workbench.sidebar.creditsExempt") : "")}
             >
-              {exempt ? t("workbench.shell.unlimited") : credits.toFixed(2)}
+              {credits.exempt ? t("workbench.shell.unlimited") : credits.balance.toFixed(2)}
             </span>
           )}
         </div>

@@ -10,3 +10,97 @@
 @import "./workbench.responsive.css";
 @import "./workbench.admin.css";
 @import "./workbench.business.css";
+
+/* ── credits 耗尽升级提示卡 ────────────────────────────────────────────────
+   与 wb-modal/wb-small-modal 同族：遮罩 + 圆角卡；左侧「下次再说 + 不再提醒」，
+   右侧品牌色「升级订阅」跳定价页。 */
+
+.wb-nudge {
+  width: min(420px, calc(100vw - 32px));
+  padding: 22px 24px 20px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-lg);
+  background: var(--wb-surface);
+  box-shadow: var(--shadow-3);
+}
+
+.wb-nudge__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  background: var(--accent-quiet);
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.wb-nudge h2 {
+  margin: 0 0 8px;
+  color: var(--wb-ink);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.wb-nudge__body {
+  margin: 0;
+  color: var(--wb-muted);
+  font-size: 13px;
+  line-height: 21px;
+}
+
+.wb-nudge__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.wb-nudge__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wb-nudge__quiet {
+  border: 0;
+  background: transparent;
+  color: var(--wb-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 550;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: color 140ms var(--ease-standard);
+}
+
+.wb-nudge__quiet:hover {
+  color: var(--wb-ink);
+}
+
+.wb-app a.wb-nudge__upgrade {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 7px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-on);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: filter 200ms var(--ease-standard), transform 200ms var(--ease-emphasized);
+}
+
+.wb-nudge__upgrade:hover {
+  filter: brightness(0.94);
+}
+
+.wb-nudge__upgrade:active {
+  transform: scale(0.97);
+}

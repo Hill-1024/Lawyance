@@ -181,6 +181,35 @@ export const fetchAccountProfile = async (): Promise<AccountProfile | null> => {
   return res.json();
 };
 
+// ─── 自助用量控制台 ───────────────────────────────────────────────────────
+
+export interface UsageDay {
+  day: string;
+  tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  tool_calls: number;
+  documents: number;
+  turns: number;
+  credits: number;
+}
+
+export interface UsageSummary {
+  days: number;
+  plan: string;
+  balance: number;
+  quota: number | null;
+  totals: { tokens: number; prompt_tokens: number; completion_tokens: number; tool_calls: number; documents: number; turns: number; credits: number };
+  series: UsageDay[];
+}
+
+export const fetchUsageSummary = async (days: number): Promise<UsageSummary> => {
+  const res = await apiFetch(`/api/usage/summary?days=${days}`);
+  if (!res.ok) throw new Error('读取用量失败');
+  return res.json();
+};
+
+
 export const updateCustomId = async (customId: string | null): Promise<AccountProfile> => {
   const res = await apiFetch('/api/profile', {
     method: 'PATCH',

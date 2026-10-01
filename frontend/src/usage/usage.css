@@ -1,0 +1,144 @@
+/*
+ * 模块描述：自助用量控制台（/usage）的图表与跨度选择样式。
+ * 壳复用 Business 控制台的 wb-business-* 岛式布局，这里只新增 wb-usage-* 部分：
+ * 跨度药丸、图表卡、折线坐标轴文字、环图与图例。
+ */
+
+.wb-usage-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.wb-usage-range {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 14px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-pill);
+  background: var(--wb-surface);
+  color: var(--wb-muted);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+  transition:
+    border-color 160ms var(--ease-standard),
+    color 160ms var(--ease-standard),
+    background 160ms var(--ease-standard);
+}
+
+.wb-usage-range:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--wb-line));
+  color: var(--accent);
+}
+
+.wb-usage-range.is-active {
+  border-color: var(--accent);
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+.wb-usage-charts {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 16px;
+}
+
+@media (min-width: 900px) {
+  .wb-usage-charts {
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  }
+}
+
+.wb-usage-card {
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--wb-line);
+  border-radius: var(--radius-md);
+  background: var(--wb-surface);
+}
+
+.wb-usage-card h2 {
+  margin: 0 0 10px;
+  color: var(--wb-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.wb-usage-line {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.wb-usage-axis {
+  fill: var(--wb-muted);
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+}
+
+.wb-usage-donut-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.wb-usage-donut {
+  width: min(168px, 60vw);
+  height: auto;
+}
+
+.wb-usage-donut-number {
+  fill: var(--wb-ink);
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.wb-usage-donut-label {
+  fill: var(--wb-muted);
+  font-size: 10.5px;
+}
+
+.wb-usage-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  width: 100%;
+}
+
+.wb-usage-legend > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wb-usage-legend dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--wb-muted);
+  font-size: 12px;
+}
+
+.wb-usage-legend dd {
+  margin: 0;
+  color: var(--wb-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.wb-usage-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
