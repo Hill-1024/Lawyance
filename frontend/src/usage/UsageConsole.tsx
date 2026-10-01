@@ -29,8 +29,9 @@ const formatCredits = (value: number) =>
 const formatTokens = (value: number) =>
   value >= 10000 ? `${(value / 10000).toFixed(1)} 万` : value.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
 
-/** 每日 credits 折线 + 渐变面积。series 升序、已补零。 */
+/** 每日 credits 折线 + 渐变面积；悬停显示当日细项。series 升序、已补零。 */
 const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series }) => {
+  const [hover, setHover] = useState<number | null>(null);
   const width = 640;
   const height = 190;
   const padX = 8;
@@ -48,12 +49,44 @@ const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series
   const last = series[series.length - 1];
   const lastPoint = points[points.length - 1];
 
+  const onMove = (event: React.MouseEvent<SVGSVGElement>) => {
+    if (!series.length) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    // viewBox 到像素的换算：光标 x → 最近一天的序号
+    const vx = ((event.clientX - rect.left) / rect.width) * width;
+    const index = Math.max(0, Math.min(series.length - 1, Math.round((vx - padX) / (stepX || 1))));
+    setHover(index);
+  };
+
+  const hoverEntry = hover != null ? series[hover] : null;
+  const hoverPoint = hover != null ? points[hover] : null;
+
   return (
+    <div className="wb-usage-line-wrap">
+    {hoverEntry && hoverPoint && (
+      <div
+        className="wb-usage-tip"
+        style={{
+          left: `${(hoverPoint.x / width) * 100}%`,
+          top: 0,
+          transform:
+            hoverPoint.x > width * 0.7
+              ? "translateX(calc(-100% - 10px))"
+              : "translateX(10px)",
+        }}
+      >
+        <strong>{hoverEntry.day.slice(5)}</strong>
+        <span>{formatCredits(hoverEntry.credits)} credits</span>
+        <span>{formatTokens(hoverEntry.tokens)} tokens · {hoverEntry.tool_calls} 次工具</span>
+      </div>
+    )}
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className="wb-usage-line"
       role="img"
       aria-label="每日 credits 消耗折线图"
+      onMouseMove={onMove}
+      onMouseLeave={() => setHover(null)}
     >
       <defs>
         <linearGradient id="wb-usage-area" x1="0" y1="0" x2="0" y2="1">
@@ -74,7 +107,21 @@ const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series
       ))}
       <path d={area} fill="url(#wb-usage-area)" />
       <path d={line} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-      {lastPoint && (
+      {hoverPoint && (
+        <>
+          <line
+            x1={hoverPoint.x}
+            x2={hoverPoint.x}
+            y1={padTop}
+            y2={height - padBottom}
+            stroke="var(--accent)"
+            strokeOpacity="0.35"
+            strokeDasharray="3 4"
+          />
+          <circle cx={hoverPoint.x} cy={hoverPoint.y} r="4.5" fill="var(--accent)" stroke="var(--wb-surface)" strokeWidth="2" />
+        </>
+      )}
+      {lastPoint && !hoverPoint && (
         <circle cx={lastPoint.x} cy={lastPoint.y} r="3.5" fill="var(--accent)" />
       )}
       <text x={padX} y={height - 6} className="wb-usage-axis">
@@ -87,49 +134,65 @@ const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series
         峰值 {formatCredits(max)}
       </text>
     </svg>
+    </div>
   );
 };
 
-/** Token 构成环图：输入 vs 输出（同单位，占比才有意义）。 */
-const TokenDonut: React.FC<{ prompt: number; completion: number }> = ({ prompt, completion }) => {
-  const total = Math.max(1, prompt + completion);
+/** credits 去向环图：窗口内消耗 vs 当前余额（同一单位 credits，占比才有意义）。 */
+const CreditsDonut: React.FC<{ spent: number; balance: number }> = ({ spent, balance }) => {
+  const { t } = useT();
+  const [hover, setHover] = useState<"spent" | "left" | null>(null);
+  // 余额可为负（透支）：环图占比按非负余额算，负值只在图例/数字卡里如实显示。
+  const safeBalance = Math.max(0, balance);
+  const total = Math.max(1, spent + safeBalance);
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
-  const promptShare = prompt / total;
+  const spentShare = spent / total;
+  const centerText =
+    hover === "left" ? formatCredits(Math.max(0, balance)) : formatCredits(spent);
+  const centerLabel =
+    hover === "left" ? t("usage.donutLeft") : t("usage.donutSpent");
   return (
     <div className="wb-usage-donut-wrap">
-      <svg viewBox="0 0 140 140" className="wb-usage-donut" role="img" aria-label="Token 输入输出构成环图">
-        <circle cx="70" cy="70" r={radius} fill="none" stroke="var(--brand-primary-100)" strokeWidth="16" />
+      <svg viewBox="0 0 140 140" className="wb-usage-donut" role="img" aria-label="credits 消耗与余额构成环图">
         <circle
-          cx="70"
-          cy="70"
-          r={radius}
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth="16"
-          strokeDasharray={`${(promptShare * circumference).toFixed(1)} ${circumference.toFixed(1)}`}
+          cx="70" cy="70" r={radius} fill="none"
+          stroke="var(--brand-primary-100)" strokeWidth="16"
+          onMouseEnter={() => setHover("left")} onMouseLeave={() => setHover(null)}
+          style={{ cursor: "default" }}
+        >
+          <title>{t("usage.legendBalance")}: {formatCredits(balance)}</title>
+        </circle>
+        <circle
+          cx="70" cy="70" r={radius} fill="none"
+          stroke="var(--accent)" strokeWidth="16"
+          strokeDasharray={`${(spentShare * circumference).toFixed(1)} ${circumference.toFixed(1)}`}
           strokeLinecap="butt"
           transform="rotate(-90 70 70)"
-        />
+          onMouseEnter={() => setHover("spent")} onMouseLeave={() => setHover(null)}
+          style={{ cursor: "default" }}
+        >
+          <title>{t("usage.legendSpent")}: {formatCredits(spent)}</title>
+        </circle>
         <text x="70" y="66" textAnchor="middle" className="wb-usage-donut-number">
-          {Math.round(promptShare * 100)}%
+          {centerText}
         </text>
         <text x="70" y="84" textAnchor="middle" className="wb-usage-donut-label">
-          输入占比
+          {centerLabel}
         </text>
       </svg>
       <dl className="wb-usage-legend">
         <div>
           <dt>
-            <span className="wb-usage-dot" style={{ background: 'var(--accent)' }} /> 输入 tokens
+            <span className="wb-usage-dot" style={{ background: 'var(--accent)' }} /> {t('usage.legendSpent')}
           </dt>
-          <dd>{formatTokens(prompt)}</dd>
+          <dd>{formatCredits(spent)}</dd>
         </div>
         <div>
           <dt>
-            <span className="wb-usage-dot" style={{ background: 'var(--brand-primary-100)' }} /> 输出 tokens
+            <span className="wb-usage-dot" style={{ background: 'var(--brand-primary-100)' }} /> {t('usage.legendBalance')}
           </dt>
-          <dd>{formatTokens(completion)}</dd>
+          <dd>{formatCredits(balance)}</dd>
         </div>
       </dl>
     </div>
@@ -331,9 +394,9 @@ export default function UsageConsole() {
           <small>credits</small>
         </div>
         <div className="wb-business-stat">
-          <span>{t('usage.tokensLabel')}</span>
-          <strong>{formatTokens(tokens)}</strong>
-          <small>tokens</small>
+          <span>{t('usage.turnsLabel')}</span>
+          <strong>{(totals?.turns ?? 0).toLocaleString('zh-CN')}</strong>
+          <small>{t('usage.turnsUnit')}</small>
         </div>
         <div className="wb-business-stat">
           <span>{t('usage.toolsLabel')}</span>
@@ -349,10 +412,7 @@ export default function UsageConsole() {
         </section>
         <section className="wb-usage-card" aria-label={t('usage.donutTitle')}>
           <h2>{t('usage.donutTitle')}</h2>
-          <TokenDonut
-            prompt={totals?.prompt_tokens ?? 0}
-            completion={totals?.completion_tokens ?? 0}
-          />
+          <CreditsDonut spent={totals?.credits ?? 0} balance={summary?.balance ?? 0} />
         </section>
       </div>
     </>,
