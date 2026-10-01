@@ -377,3 +377,25 @@
     transition: none;
   }
 }
+
+/* 升级订阅：品牌蓝→青的渐变文字，菜单里最亮的一行；hover 加底色提对比 */
+.wb-account__item--upgrade .wb-account__upgrade-text,
+.wb-account__item--upgrade {
+  background: linear-gradient(92deg, var(--brand-primary-500), var(--brand-tertiary-500));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.wb-account__item--upgrade {
+  color: transparent;
+  font-weight: 650;
+}
+
+.wb-account__item--upgrade svg {
+  color: var(--brand-primary-500);
+}
+
+.wb-account__item--upgrade:hover {
+  background: var(--accent-quiet);
+  filter: saturate(1.25);
+}

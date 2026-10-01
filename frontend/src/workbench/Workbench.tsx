@@ -38,7 +38,12 @@ import { Composer, Draft } from "./Composer";
 import { DocumentPane } from "./DocumentPane";
 import { Sidebar } from "./Sidebar";
 import { useSuggestions } from "./useSuggestions";
-import { fetchAccountProfile, type AccountProfile } from "../services/api";
+import { UpgradeNudgeGate } from "./UpgradeNudgeGate";
+import {
+  fetchAccountProfile,
+  fetchMyCredits,
+  type AccountProfile,
+} from "../services/api";
 import { useWorkbenchIndex } from "./useWorkbenchIndex";
 import { HistoryMenu } from "./HistoryMenu";
 import { HomeView } from "./HomeView";
@@ -96,6 +101,9 @@ export default function Workbench({ username }: { username: string }) {
   } = useWorkbenchIndex(username, setError);
   const { t } = useT();
   const suggestions = useSuggestions();
+  // credits 耗尽时的升级提示：仅非 max/business、非运维豁免账号；localStorage 冷却门
+  // ——勾选「不再提醒」永久关闭，否则 14 天只提醒一次，不高频打扰。
+  const [nudgeOpen, setNudgeOpen] = useState(false);
   const navigate = useNavigate(),
     location = useLocation(),
     routeUuid = useParams().uuid,
@@ -103,11 +111,24 @@ export default function Workbench({ username }: { username: string }) {
   // 账户资料（侧栏底部头像/徽标）：挂载时取一次；路径变化（含从设置页回来）时刷新，
   // 这样改完自定义 ID/头像不需要刷新整页。
   const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null);
+  // credits 余额：侧栏显示与耗尽弹窗共用一份数据；余额会被后台任务扣减，
+  // 挂载与路径变化时刷新一次即可，不必轮询。
+  const [credits, setCredits] = useState<{ balance: number | null; exempt: boolean } | null>(null);
   useEffect(() => {
     let cancelled = false;
     void fetchAccountProfile().then((data) => {
       if (!cancelled) setAccountProfile(data);
     });
+    void fetchMyCredits()
+      .then((data) => {
+        if (!cancelled) {
+          setCredits({
+            balance: typeof data.credits === "number" ? data.credits : null,
+            exempt: Boolean(data.exempt),
+          });
+        }
+      })
+      .catch(() => undefined);
     const onProfileUpdated = (event: Event) => {
       const detail = (event as CustomEvent<AccountProfile>).detail;
       if (detail) setAccountProfile(detail);
@@ -1044,6 +1065,7 @@ export default function Workbench({ username }: { username: string }) {
       <Sidebar
         username={username}
         profile={accountProfile}
+        credits={credits}
         sidebarOpen={sidebar}
         project={project}
         projects={projects}
@@ -1257,6 +1279,14 @@ export default function Workbench({ username }: { username: string }) {
         </div>
       )}
       {workspace.targets}
+      <UpgradeNudgeGate
+        plan={accountProfile?.plan}
+        balance={credits?.balance ?? null}
+        exempt={Boolean(credits?.exempt)}
+        open={nudgeOpen}
+        onOpen={() => setNudgeOpen(true)}
+        onClose={(options) => setNudgeOpen(false)}
+      />
       {menu && (
         <ManageMenu
           item={menu}

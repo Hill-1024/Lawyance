@@ -25,6 +25,7 @@ import { useT } from './i18n';
 const Workbench = React.lazy(() => import('./workbench/Workbench'));
 const AdminDashboard = React.lazy(() => import('./components/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
 const BusinessConsole = React.lazy(() => import('./business/BusinessConsole'));
+const UsageConsole = React.lazy(() => import('./usage/UsageConsole'));
 const SettingsPage = React.lazy(() => import('./components/SettingsPage').then(module => ({ default: module.SettingsPage })));
 
 const SECURE_DOMAIN = APP_CONFIG.domain;
@@ -279,6 +280,7 @@ function App() {
             <Route path="/settings/*" element={requireAuth(<AnimatedRouteSurface><React.Suspense fallback={<RouteLoadingFallback />}><SettingsPage /></React.Suspense></AnimatedRouteSurface>)} />
             {/* Business 母账号的控制台：后端按套餐判权，非 business 账号由页面渲染说明页。 */}
             <Route path="/business" element={requireAuth(<AnimatedRouteSurface><React.Suspense fallback={<RouteLoadingFallback />}><BusinessConsole /></React.Suspense></AnimatedRouteSurface>)} />
+            <Route path="/usage" element={requireAuth(<AnimatedRouteSurface><React.Suspense fallback={<RouteLoadingFallback />}><UsageConsole /></React.Suspense></AnimatedRouteSurface>)} />
             <Route path="/admin" element={requireAuth(<AnimatedRouteSurface>{userRole === 'sudo' || userRole === 'admin' ? <React.Suspense fallback={<RouteLoadingFallback />}><AdminDashboard role={userRole} onLogout={handleLogout} /></React.Suspense> : <div className="flex min-h-[100dvh] w-full items-center justify-center bg-[var(--bg-app)] px-6 text-center text-lg font-medium text-[var(--color-danger-500)]">403 Forbidden: Access Denied</div>}</AnimatedRouteSurface>)} />
             {/* 旧路径（/legacy、迁移走的介绍页路径及任何已经消失的深链）一律回工作台，不留白屏。 */}
             <Route path="*" element={<Navigate to="/home" replace />} />

@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { LogOut, UserRound } from "lucide-react";
+import { ChartColumn, LogOut, Sparkles, UserRound } from "lucide-react";
 import { AccountAvatar, PLAN_BADGES, PLAN_LABEL_KEYS } from "../components/AccountIdentity";
 import { logout, type AccountProfile } from "../services/api";
 import { useT, type MessageKey } from "../i18n";
@@ -64,6 +64,9 @@ export function SidebarAccount({
 
   const handle = profile?.custom_id || username;
   const badge = profile ? PLAN_BADGES[profile.plan] : undefined;
+  // 非 max/business 用户给出升级入口；max/business 已是顶配，不打扰。
+  const plan = profile?.plan ?? "metered";
+  const showUpgrade = plan !== "max" && plan !== "business";
   const planLabel = t(
     ((profile && PLAN_LABEL_KEYS[profile.plan]) || "settings.profile.planMetered") as MessageKey,
   );
@@ -148,6 +151,29 @@ export function SidebarAccount({
               </span>
             </div>
             <div className="wb-account__divider" aria-hidden="true" />
+            {showUpgrade && (
+              <a
+                className="wb-account__item wb-account__item--upgrade"
+                role="menuitem"
+                href="/pricing"
+                onClick={() => setOpen(false)}
+              >
+                <Sparkles size={15} strokeWidth={2} aria-hidden="true" />
+                <span className="wb-account__upgrade-text">{t("workbench.sidebar.upgrade")}</span>
+              </a>
+            )}
+            <button
+              type="button"
+              className="wb-account__item"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onOpen("/usage");
+              }}
+            >
+              <ChartColumn size={15} strokeWidth={2} aria-hidden="true" />
+              {t("workbench.sidebar.usageConsole")}
+            </button>
             <button
               type="button"
               className="wb-account__item"

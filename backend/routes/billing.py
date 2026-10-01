@@ -1,10 +1,12 @@
 """
-模块描述：credits 与套餐的 API——用户查自己的余额与用量，管理员充值，Business 母账号分配预算。
+模块描述：credits 与套餐的 API——用户查自己的余额、用量与自助用量控制台，管理员充值，Business 母账号分配预算。
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import get_user_record
@@ -66,6 +68,70 @@ def my_credits(user: str = Depends(get_current_user)):
         "exempt": user in ("admin",) or record.get("role") == "sudo",
         "ledger": ledger.recent_ledger(user, limit=30),
         "usage": ledger.usage_rows(user, days=30),
+    }
+
+
+@router.get("/api/usage/summary")
+def my_usage_summary(
+    days: int = Query(default=30, ge=1, le=90),
+    user: str = Depends(get_current_user),
+):
+    """自助用量控制台：窗口内按天序列 + 合计，供折线图与数字卡消费。
+
+    缺数据的日期补零，前端拿到的序列天然连续，不用自己补；窗口上限 90 天。
+    """
+    record = get_user_record(user) or {}
+    rows = ledger.usage_rows(user, days=days)
+    by_day = {row["day"]: row for row in rows}
+    # 以 UTC 日期对齐写入端（ledger._today 同源）；序列升序、缺天补零。
+    today = datetime.now(timezone.utc).date()
+    series = []
+    totals = {"tokens": 0, "prompt_tokens": 0, "completion_tokens": 0, "tool_calls": 0, "documents": 0, "turns": 0, "credits": 0.0}
+    for offset in range(days - 1, -1, -1):
+        day = (today - timedelta(days=offset)).isoformat()
+        row = by_day.get(day)
+        if row:
+            tokens = (row.get("prompt_tokens") or 0) + (row.get("completion_tokens") or 0)
+            entry = {
+                "day": day,
+                "tokens": tokens,
+                "prompt_tokens": row.get("prompt_tokens") or 0,
+                "completion_tokens": row.get("completion_tokens") or 0,
+                "tool_calls": row.get("tool_calls") or 0,
+                "documents": row.get("documents") or 0,
+                "turns": row.get("turns") or 0,
+                "credits": row.get("credits") or 0,
+            }
+        else:
+            entry = {
+                "day": day,
+                "tokens": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "tool_calls": 0,
+                "documents": 0,
+                "turns": 0,
+                "credits": 0,
+            }
+        totals["tokens"] += entry["tokens"]
+        totals["prompt_tokens"] += entry["prompt_tokens"]
+        totals["completion_tokens"] += entry["completion_tokens"]
+        totals["tool_calls"] += entry["tool_calls"]
+        totals["documents"] += entry["documents"]
+        totals["turns"] += entry["turns"]
+        totals["credits"] += entry["credits"]
+        series.append(entry)
+    return {
+        "days": days,
+        "plan": record.get("plan", "metered"),
+        "balance": pricing.as_credits(record.get("credits_balance", 0) or 0),
+        "quota": (
+            pricing.as_credits(record["credit_quota"])
+            if record.get("credit_quota") is not None
+            else None
+        ),
+        "totals": totals,
+        "series": series,
     }
 
 
