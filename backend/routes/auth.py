@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from auth import (
     ROLE_ADMIN,
     authenticate_user,
+    cancel_pending_plan,
     change_password,
     clear_user_avatar,
     count_online,
@@ -21,11 +22,17 @@ from auth import (
     get_user_role,
     hash_client_identity,
     revoke_token_session,
+    schedule_plan_change,
     update_avatar,
     update_custom_id,
     verify_token,
 )
-from schemas import ChangePasswordRequest, LoginRequest, ProfileUpdateRequest
+from schemas import (
+    ChangePasswordRequest,
+    LoginRequest,
+    ProfileUpdateRequest,
+    SubscriptionChangeRequest,
+)
 from services.app_security import (
     client_ip_for_request,
     secure_cookie_for_request,
@@ -172,6 +179,31 @@ async def update_profile(
     if not ok:
         status = 409 if "已被占用" in error else 422
         raise HTTPException(status_code=status, detail=error)
+    profile = await run_in_threadpool(get_account_profile, current_user)
+    return {"status": "success", "profile": profile}
+
+
+@router.post("/api/subscription/change")
+async def change_subscription(
+    req: SubscriptionChangeRequest,
+    current_user: str = Depends(get_current_user),
+):
+    """预约降级/切回按量：下一结算周期生效，生效前保留当前权益，可随时取消。"""
+    ok, message, effective = await run_in_threadpool(
+        schedule_plan_change, current_user, req.target_plan
+    )
+    if not ok:
+        raise HTTPException(status_code=422, detail=message)
+    profile = await run_in_threadpool(get_account_profile, current_user)
+    return {"status": "success", "profile": profile, "effective_at": effective}
+
+
+@router.post("/api/subscription/cancel-change")
+async def cancel_subscription_change(current_user: str = Depends(get_current_user)):
+    """取消预约中的变更：当前套餐与权益原样保留。"""
+    ok = await run_in_threadpool(cancel_pending_plan, current_user)
+    if not ok:
+        raise HTTPException(status_code=404, detail="账号不存在")
     profile = await run_in_threadpool(get_account_profile, current_user)
     return {"status": "success", "profile": profile}
 

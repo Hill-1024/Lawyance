@@ -212,6 +212,12 @@ class ProfileUpdateRequest(RequestModel):
     custom_id: Optional[str] = Field(default=None, max_length=32)
 
 
+class SubscriptionChangeRequest(RequestModel):
+    """预约套餐变更：仅接受降级/切回按量的目标档位，升级走客服通道。"""
+
+    target_plan: str = Field(min_length=1, max_length=16)
+
+
 class ChangePasswordRequest(RequestModel):
     """自助改密：旧密码是本人证明，新密码长度交给 auth.change_password 统一校验。"""
 

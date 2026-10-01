@@ -22,6 +22,7 @@ import logging
 import re
 import secrets
 import threading
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from typing import Optional
 
@@ -503,7 +504,11 @@ AVATAR_CONTENT_TYPES = {
 
 
 def get_account_profile(username: str) -> Optional[dict]:
-    """会话/个人资料共用的对外形状；不含任何凭据字节。"""
+    """会话/个人资料共用的对外形状；不含任何凭据字节。
+
+    读取前先懒应用到期的预约变更，plan/pending 字段才不会停在旧值。
+    """
+    apply_pending_plan_if_due(username)
     record = get_user_record(username)
     if not record:
         return None
@@ -514,6 +519,8 @@ def get_account_profile(username: str) -> Optional[dict]:
         "role": record.get("role", ROLE_USER),
         "plan": record.get("plan", "metered"),
         "avatar_version": record.get("avatar_version", 0),
+        "pending_plan": record.get("pending_plan"),
+        "pending_effective_at": record.get("pending_effective_at"),
     }
 
 
@@ -538,8 +545,54 @@ def update_custom_id(username: str, custom_id: Optional[str]) -> tuple[bool, str
     if outcome == "conflict":
         return False, "该自定义 ID 已被占用，请换一个。"
     if outcome != "ok":
-        return False, "保存失败，请稍后重试。"
+        return False, "保存失败，请稍后重试。", None
     return True, ""
+
+
+# 套餐自服务只放行降级与切回按量；升级走客服/支付（pricing 页的口径一致）。
+PLAN_RANK = {"metered": 0, "go": 1, "pro": 2, "max": 3}
+
+
+def apply_pending_plan_if_due(username: str) -> Optional[str]:
+    """读取路径懒应用：到结算日的预约变更在这里落地，落完返回新 plan。"""
+    return auth_store.apply_pending_plan_if_due(username)
+
+
+def schedule_plan_change(username: str, target_plan: str) -> tuple[bool, str, Optional[object]]:
+    """预约降级/切回按量到下一结算周期。
+
+    返回 (是否成功, 消息, 生效时间)。升级（更高档位）与 business 不在此通道——
+    升级涉及支付/客服，business 由组织管理，都在定价页口径里写明。
+    """
+    record = get_user_record(username)
+    if not record:
+        return False, "账号不存在。", None
+    current = record.get("plan", ROLE_USER)
+    if current == "business" or target_plan == "business":
+        return False, "Business 套餐由组织管理，请编辑子账号与配额而不是变更自身套餐。", None
+    if target_plan not in PLAN_RANK or current not in PLAN_RANK:
+        return False, "未知的目标套餐。", None
+    if PLAN_RANK[target_plan] > PLAN_RANK[current]:
+        return False, "升级请通过定价页联系客服开通，这里只支持降级与切回按量。", None
+    if target_plan == current:
+        return False, "已经是当前套餐。", None
+    # 结算日：有周期到期日按它；没有（老数据/纯按量期）按下个自然月边界。
+    # 账本 dict 里的时间是 epoch 秒，写库前转回 datetime。
+    effective = record.get("grant_expire_at")
+    if isinstance(effective, (int, float)):
+        effective = datetime.fromtimestamp(effective, tz=timezone.utc)
+    if effective is None:
+        now = datetime.now(timezone.utc)
+        nxt = (now.replace(day=1) + timedelta(days=45)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        effective = nxt
+    if not auth_store.set_pending_plan(username, target_plan, effective):
+        return False, "保存失败，请稍后重试。", None
+    return True, "", effective
+
+
+def cancel_pending_plan(username: str) -> bool:
+    """取消预约中的变更（随时可取消，当前权益不变）。"""
+    return auth_store.set_pending_plan(username, None, None)
 
 
 def update_avatar(username: str, data: bytes, content_type: str) -> tuple[Optional[int], str]:
