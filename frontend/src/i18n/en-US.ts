@@ -661,7 +661,6 @@ export const enUS = {
     statsLabel: "Usage overview",
     balanceLabel: "credits balance",
     spentLabel: "Spent in {days} days",
-    tokensLabel: "Tokens used",
     toolsLabel: "Tool calls",
     callsUnit: "calls",
     subLabel: "Current plan",
@@ -685,7 +684,7 @@ export const enUS = {
     legendSpent: "Spent in window",
     legendBalance: "Current balance",
     lineTitle: "Daily credits spent",
-    donutTitle: "Token mix",
+    donutTitle: "Where your credits went",
   },
   settings: {
     title: "Settings",
