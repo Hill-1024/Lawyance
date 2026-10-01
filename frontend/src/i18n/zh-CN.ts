@@ -664,7 +664,6 @@ export const zhCN = {
     statsLabel: "用量概览",
     balanceLabel: "credits 余额",
     spentLabel: "近 {days} 天消耗",
-    tokensLabel: "tokens 消耗",
     toolsLabel: "工具调用",
     callsUnit: "次",
     subLabel: "当前订阅",
@@ -688,7 +687,7 @@ export const zhCN = {
     legendSpent: "窗口内消耗",
     legendBalance: "当前余额",
     lineTitle: "每日 credits 消耗",
-    donutTitle: "Token 构成",
+    donutTitle: "credits 去向",
   },
   settings: {
     title: "设置",
