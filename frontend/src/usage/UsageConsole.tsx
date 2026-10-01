@@ -11,8 +11,13 @@ import { BrandMark } from '../components/Brand';
 import { HoverInfo } from '../components/HoverInfo';
 import { Banner } from '../components/settings/SettingsUI';
 import { useAppBack } from '../hooks/useAppBack';
-import { useT } from '../i18n';
-import { fetchUsageSummary, type UsageSummary } from '../services/api';
+import { useT, type MessageKey } from '../i18n';
+import {
+  cancelScheduledPlanChange,
+  fetchUsageSummary,
+  schedulePlanChange,
+  type UsageSummary,
+} from '../services/api';
 import '../workbench/workbench.css';
 import './usage.css';
 
@@ -41,6 +46,7 @@ const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series
   const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
   const area = `${line} L${points[points.length - 1]?.x.toFixed(1) ?? padX},${height - padBottom} L${padX},${height - padBottom} Z`;
   const last = series[series.length - 1];
+  const lastPoint = points[points.length - 1];
 
   return (
     <svg
@@ -68,13 +74,8 @@ const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series
       ))}
       <path d={area} fill="url(#wb-usage-area)" />
       <path d={line} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-      {points.length > 0 && (
-        <circle
-          cx={points[points.length - 1].x}
-          cy={points[points.length - 1].y}
-          r="3.5"
-          fill="var(--accent)"
-        />
+      {lastPoint && (
+        <circle cx={lastPoint.x} cy={lastPoint.y} r="3.5" fill="var(--accent)" />
       )}
       <text x={padX} y={height - 6} className="wb-usage-axis">
         {series[0]?.day.slice(5)}
@@ -142,6 +143,9 @@ export default function UsageConsole() {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [subBusy, setSubBusy] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogError, setDialogError] = useState('');
 
   const load = useCallback(
     async (windowDays: number) => {
@@ -203,9 +207,102 @@ export default function UsageConsole() {
     );
   }
 
+  const applySummary = (next: UsageSummary) => setSummary(next);
+
+  const cancelChange = async () => {
+    setSubBusy(true);
+    try {
+      await cancelScheduledPlanChange();
+      applySummary(await fetchUsageSummary(days));
+    } catch (e) {
+      setError((e as Error).message || t('usage.loadFailed'));
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const scheduleMetered = async () => {
+    setSubBusy(true);
+    try {
+      await schedulePlanChange('metered');
+      setDialogOpen(false);
+      applySummary(await fetchUsageSummary(days)); // 预约状态回填到当前订阅卡
+    } catch (e) {
+      setDialogError((e as Error).message || t('usage.loadFailed'));
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const planName = (plan: string) => {
+    const keys: Record<string, MessageKey> = {
+      metered: 'usage.planMetered',
+      go: 'usage.planGo',
+      pro: 'usage.planPro',
+      max: 'usage.planMax',
+      business: 'usage.planBusiness',
+    };
+    return t(keys[plan] ?? 'usage.planMetered');
+  };
+
   return shell(
     <>
       {error && <Banner tone="danger">{error}</Banner>}
+
+      {/* 当前订阅：档位、预约中的变更与取消入口 */}
+      <section className="wb-usage-sub" aria-label={t('usage.subLabel')}>
+        <div className="wb-usage-sub-main">
+          <span className="wb-usage-sub-label">{t('usage.subLabel')}</span>
+          <span className="wb-usage-sub-plan">
+            {summary ? planName(summary.plan) : '…'}
+            {summary?.pending_plan && (
+              <span className="wb-usage-sub-pending" role="status">
+                {t('usage.pendingTo', {
+                  plan: planName(summary.pending_plan),
+                  date: (summary.pending_effective_at || '').slice(0, 10),
+                })}
+              </span>
+            )}
+          </span>
+        </div>
+        <div className="wb-usage-sub-actions">
+          {summary?.pending_plan ? (
+            <button type="button" className="wb-quiet" disabled={subBusy} onClick={() => void cancelChange()}>
+              {t('usage.cancelChange')}
+            </button>
+          ) : summary && summary.plan !== 'metered' && summary.plan !== 'business' ? (
+            <button type="button" className="wb-quiet" disabled={subBusy} onClick={() => { setDialogOpen(true); setDialogError(''); }}>
+              {t('usage.cancelSub')}
+            </button>
+          ) : null}
+        </div>
+      </section>
+
+      {/* 取消订阅确认弹窗（= 预约切回按量，权益保留到本周期结束） */}
+      {dialogOpen && (
+        <div
+          className="wb-modal-backdrop"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setDialogOpen(false); }}
+        >
+          <section className="wb-nudge" role="dialog" aria-modal="true" aria-labelledby="wb-cancel-title">
+            <h2 id="wb-cancel-title">{t('usage.cancelDialogTitle')}</h2>
+            <p className="wb-nudge__body">
+              {t('usage.cancelDialogBody', {
+                date: (summary?.pending_effective_at || summary && '').slice(0, 10) || t('usage.pendingSoon'),
+              })}
+            </p>
+            {dialogError && <p className="wb-usage-dialog-error" role="alert">{dialogError}</p>}
+            <div className="wb-nudge__actions">
+              <button type="button" className="wb-nudge__quiet" onClick={() => setDialogOpen(false)}>
+                {t('usage.cancelDialogCancel')}
+              </button>
+              <button type="button" className="wb-nudge__upgrade" disabled={subBusy} onClick={() => void scheduleMetered()}>
+                {t('usage.cancelDialogConfirm')}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* 跨度选择：7 / 14 / 30 / 90 天 */}
       <div className="wb-usage-ranges" role="group" aria-label={t('usage.rangeLabel')}>

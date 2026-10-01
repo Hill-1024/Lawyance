@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from auth import get_user_record
+from auth import apply_pending_plan_if_due, get_user_record
 from billing import ledger, pricing
 from infra import account_store
 from services.auth_dependencies import get_current_user, require_staff
@@ -49,6 +49,7 @@ def plans():
 @router.get("/api/credits")
 def my_credits(user: str = Depends(get_current_user)):
     """当前账号的额度总览：余额、计费倍率、最近流水与近期用量。"""
+    apply_pending_plan_if_due(user)  # 到结算日的预约变更先落地再算余额
     record = get_user_record(user) or {}
     return {
         "username": user,
@@ -80,6 +81,7 @@ def my_usage_summary(
 
     缺数据的日期补零，前端拿到的序列天然连续，不用自己补；窗口上限 90 天。
     """
+    apply_pending_plan_if_due(user)  # 到结算日的预约变更先落地再出报表
     record = get_user_record(user) or {}
     rows = ledger.usage_rows(user, days=days)
     by_day = {row["day"]: row for row in rows}
@@ -124,6 +126,13 @@ def my_usage_summary(
     return {
         "days": days,
         "plan": record.get("plan", "metered"),
+        "pending_plan": record.get("pending_plan"),
+        # get_user_record 里的时间是 epoch 秒，转回 ISO 日期串给前端展示
+        "pending_effective_at": (
+            datetime.fromtimestamp(record["pending_effective_at"], tz=timezone.utc).isoformat()
+            if record.get("pending_effective_at")
+            else None
+        ),
         "balance": pricing.as_credits(record.get("credits_balance", 0) or 0),
         "quota": (
             pricing.as_credits(record["credit_quota"])

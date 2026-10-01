@@ -197,6 +197,8 @@ export interface UsageDay {
 export interface UsageSummary {
   days: number;
   plan: string;
+  pending_plan: string | null;
+  pending_effective_at: string | null;
   balance: number;
   quota: number | null;
   totals: { tokens: number; prompt_tokens: number; completion_tokens: number; tool_calls: number; documents: number; turns: number; credits: number };
@@ -207,6 +209,28 @@ export const fetchUsageSummary = async (days: number): Promise<UsageSummary> => 
   const res = await apiFetch(`/api/usage/summary?days=${days}`);
   if (!res.ok) throw new Error('读取用量失败');
   return res.json();
+};
+
+/** 预约降级/切回按量：下一结算周期生效，可随时取消。返回端点确认（非 summary）。 */
+export const schedulePlanChange = async (targetPlan: string): Promise<void> => {
+  const res = await apiFetch('/api/subscription/change', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target_plan: targetPlan }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string })?.detail || '操作失败');
+  }
+};
+
+/** 取消预约中的变更：当前套餐与权益原样保留。 */
+export const cancelScheduledPlanChange = async (): Promise<void> => {
+  const res = await apiFetch('/api/subscription/cancel-change', { method: 'POST' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { detail?: string })?.detail || '操作失败');
+  }
 };
 
 

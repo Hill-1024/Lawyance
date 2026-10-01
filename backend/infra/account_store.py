@@ -89,6 +89,11 @@ class Account(Base):
     avatar: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     avatar_content_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
     avatar_version: Mapped[int] = mapped_column(Integer, default=0)
+    # 预约中的套餐变更（降级/切回按量）：到 pending_effective_at 由读取路径懒应用。
+    pending_plan: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    pending_effective_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     last_grant_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -177,6 +182,8 @@ def _account_dict(row: Account) -> dict[str, Any]:
         "credit_multiplier": row.credit_multiplier,
         "status": row.status,
         "avatar_version": row.avatar_version,
+        "pending_plan": row.pending_plan,
+        "pending_effective_at": _epoch(row.pending_effective_at),
         "last_grant_at": _epoch(row.last_grant_at),
         "grant_expire_at": _epoch(row.grant_expire_at),
         "created_at": _epoch(row.created_at),
@@ -342,6 +349,47 @@ def clear_avatar(username: str) -> int:
         row.avatar_version = (row.avatar_version or 0) + 1
         row.updated_at = utcnow()
         return row.avatar_version
+
+
+def set_pending_plan(
+    username: str, target: Optional[str], effective_at: Optional[datetime]
+) -> bool:
+    """预约/清除套餐变更。清除传 (None, None)。"""
+    ensure_tables()
+    with transaction() as session:
+        result = session.execute(
+            update(Account)
+            .where(Account.username == username)
+            .values(
+                pending_plan=target,
+                pending_effective_at=effective_at,
+                updated_at=utcnow(),
+            )
+        )
+        return bool(result.rowcount)
+
+
+def apply_pending_plan_if_due(username: str, *, now: Optional[datetime] = None) -> Optional[str]:
+    """到点的预约变更在这里落地：plan=pending、清预约。返回（可能的）新 plan。"""
+    ensure_tables()
+    moment = now or datetime.now(timezone.utc)
+    with transaction() as session:
+        row = session.execute(
+            select(Account.plan, Account.pending_plan, Account.pending_effective_at).where(
+                Account.username == username
+            )
+        ).first()
+        if not row or not row[1] or not row[2]:
+            return None
+        effective = row[2] if row[2].tzinfo else row[2].replace(tzinfo=timezone.utc)
+        if moment < effective:
+            return None
+        session.execute(
+            update(Account)
+            .where(Account.username == username)
+            .values(plan=row[1], pending_plan=None, pending_effective_at=None, updated_at=utcnow())
+        )
+        return row[1]
 
 
 def get_avatar_by_uid(uid: str) -> Optional[dict[str, Any]]:
