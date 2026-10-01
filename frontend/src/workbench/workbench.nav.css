@@ -271,12 +271,9 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neutral-0) 16%, transparent);
 }
 
-/* 浮层：向上开、右对齐（贴着触发器伸进侧栏内侧），主题跟随 wb 表面。 */
+/* 浮层：portal 到 body，position/left/top/zIndex 由组件按触发器矩形实测定（夹取在
+   视窗内）；这里只管外观。min-width 会参与定位计算，别动。 */
 .wb-account__flyout {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  right: 0;
-  z-index: var(--z-popover);
   min-width: 208px;
   padding: 6px;
   border: 1px solid var(--wb-line);
@@ -338,6 +335,7 @@
 .wb-account__item {
   display: flex;
   align-items: center;
+  justify-content: flex-start; /* 全局按钮基线是居中胶囊，菜单项必须左对齐 */
   gap: 9px;
   width: 100%;
   min-height: 34px;
