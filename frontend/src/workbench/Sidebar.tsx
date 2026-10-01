@@ -23,6 +23,8 @@ import { Item } from "./client";
 import { LayoutToolbar, useWorkspaceLayout } from "./WorkspaceLayout";
 import { usePortalMenuDismiss } from "./usePortalMenu";
 import { useT } from "../i18n";
+import { SidebarAccount } from "./SidebarAccount";
+import type { AccountProfile } from "../services/api";
 
 // 空间菜单 portal 到 body：豁免列表里要有菜单自身的类名。
 const SPACE_MENU_SELECTORS = [".wb-space-menu", ".wb-space-pill"] as const;
@@ -30,6 +32,8 @@ const SPACE_MENU_SELECTORS = [".wb-space-menu", ".wb-space-pill"] as const;
 /** 侧栏：只负责当前工作区的文件、空间切换与底部工具入口。 */
 export type SidebarProps = {
   username: string;
+  /** 账户资料（uid/自定义 ID/订阅徽标）；未取到时回退显示用户名。 */
+  profile: AccountProfile | null;
   sidebarOpen: boolean;
   project?: Item;
   projects: Item[];
@@ -58,6 +62,7 @@ export type SidebarProps = {
 
 export function Sidebar({
   username,
+  profile,
   sidebarOpen,
   project,
   projects,
@@ -325,11 +330,15 @@ export function Sidebar({
           <button aria-label={t("workbench.sidebar.archive")} onClick={() => onOpen("trash")}>
             <Trash2 size={16} />
           </button>
-          <button onClick={() => onOpen("/settings")}>
+          {/* 图标档（与归档键同款 32px）：底部行要装下 归档+设置+账户 chip，文字档放不下 */}
+          <button
+            aria-label={t("workbench.shell.settings")}
+            title={t("workbench.shell.settings")}
+            onClick={() => onOpen("/settings")}
+          >
             <Settings size={16} />
-            {t("workbench.shell.settings")}
           </button>
-          <span>{username}</span>
+          <SidebarAccount profile={profile} username={username} onOpen={onOpen} />
           {credits !== null && (
             <span
               className="wb-credits"

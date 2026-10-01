@@ -38,6 +38,7 @@ import { Composer, Draft } from "./Composer";
 import { DocumentPane } from "./DocumentPane";
 import { Sidebar } from "./Sidebar";
 import { useSuggestions } from "./useSuggestions";
+import { fetchAccountProfile, type AccountProfile } from "../services/api";
 import { useWorkbenchIndex } from "./useWorkbenchIndex";
 import { HistoryMenu } from "./HistoryMenu";
 import { HomeView } from "./HomeView";
@@ -99,6 +100,26 @@ export default function Workbench({ username }: { username: string }) {
     location = useLocation(),
     routeUuid = useParams().uuid,
     [params] = useSearchParams();
+  // 账户资料（侧栏底部头像/徽标）：挂载时取一次；路径变化（含从设置页回来）时刷新，
+  // 这样改完自定义 ID/头像不需要刷新整页。
+  const [accountProfile, setAccountProfile] = useState<AccountProfile | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAccountProfile().then((data) => {
+      if (!cancelled) setAccountProfile(data);
+    });
+    const onProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<AccountProfile>).detail;
+      if (detail) setAccountProfile(detail);
+    };
+    // 设置弹窗开着时背景路径不变（/home），pathname effect 不会重跑；
+    // 设置页保存成功后会广播新资料，这里直接吃。
+    window.addEventListener("lawver:profile-updated", onProfileUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("lawver:profile-updated", onProfileUpdated);
+    };
+  }, [location.pathname]);
   // 路径即状态：/home、/project/:uuid、/conversation/:uuid、/court/:uuid。
   const isCourtPath = location.pathname.startsWith("/court/");
   const isConversationPath = location.pathname.startsWith("/conversation/");
@@ -1022,6 +1043,7 @@ export default function Workbench({ username }: { username: string }) {
     >
       <Sidebar
         username={username}
+        profile={accountProfile}
         sidebarOpen={sidebar}
         project={project}
         projects={projects}

@@ -55,6 +55,11 @@ import { useBackButton } from '../hooks/useBackButton';
 import { SettingsEditContext, useSettingsEdit } from './settings/SettingsEditContext';
 import './settings/settings-modal.css';
 import { SettingsExtensions } from './settings/SettingsExtensions';
+import {
+  PLAN_BADGES as SharedPLAN_BADGES,
+  PLAN_LABEL_KEYS as SharedPLAN_LABEL_KEYS,
+  AccountAvatar,
+} from './AccountIdentity';
 import { SettingsShortcuts, ShortcutCheatSheet } from './settings/SettingsShortcuts';
 import {
   avatarUrl,
@@ -93,47 +98,10 @@ import { describeError } from '../lib/errors';
  * 管理员的「无校验重置」因此成了唯一改密通道，反过来说也是个社会工程面。
  * 改密语义：保留当前设备，其他设备的登录立即失效。
  */
-const PLAN_BADGES: Record<string, { label: string; className: string }> = {
-  go: { label: 'Go', className: 'bg-[var(--brand-primary-50)] text-[var(--brand-primary-700)]' },
-  pro: { label: 'Pro', className: 'bg-[var(--brand-tertiary-50)] text-[var(--brand-tertiary-700)]' },
-  max: { label: 'Max', className: 'bg-[#faf3e0] text-[#8a6116]' },
-  business: { label: 'Business', className: 'bg-[var(--brand-secondary-800)] text-white' },
-};
+/** 头像与订阅徽标的共享实现移到 components/AccountIdentity（工作台侧栏同用）。 */
+const PLAN_BADGES = SharedPLAN_BADGES;
+const PLAN_LABELS_I18N = SharedPLAN_LABEL_KEYS as Record<string, MessageKey>;
 
-/** 头像：有图用图，没图用用户名首字母落在品牌蓝上。 */
-export const AccountAvatar: React.FC<{
-  profile: AccountProfile | null;
-  size: number;
-  className?: string;
-}> = ({ profile, size, className = '' }) => {
-  const version = profile?.avatar_version ?? 0;
-  const src = profile && version > 0 ? avatarUrl(profile.uid, version) : null;
-  const initial = (profile?.username || '?').slice(0, 1).toUpperCase();
-  return (
-    <span
-      className={
-        'inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full bg-[var(--accent)] text-[var(--accent-on)] ' +
-        className
-      }
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }}
-      aria-hidden="true"
-    >
-      {src ? (
-        <img src={src} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <span className="font-semibold leading-none">{initial}</span>
-      )}
-    </span>
-  );
-};
-
-const PLAN_LABELS_I18N: Record<string, MessageKey> = {
-  metered: 'settings.profile.planMetered',
-  go: 'settings.profile.planGo',
-  pro: 'settings.profile.planPro',
-  max: 'settings.profile.planMax',
-  business: 'settings.profile.planBusiness',
-};
 
 /** 个人资料卡：头像 + 自定义 ID（对外句柄）+ 只读 UID（稳定标识）。 */
 const ProfileCard: React.FC = () => {
@@ -161,6 +129,9 @@ const ProfileCard: React.FC = () => {
     setProfile(next);
     setHandle(next.custom_id ?? '');
     setError('');
+    // 侧栏底部的账户 chip 借此即时同步：设置弹窗开着时 URL 停在背景路径，
+    // Workbench 感知不到「刚从设置回来」，所以用事件把新资料推过去。
+    window.dispatchEvent(new CustomEvent("lawver:profile-updated", { detail: next }));
   };
 
   const saveHandle = async () => {
