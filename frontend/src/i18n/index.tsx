@@ -42,8 +42,27 @@ const STORAGE_KEY = 'lawver.locale';
 const isLocale = (value: unknown): value is Locale =>
   typeof value === 'string' && Object.prototype.hasOwnProperty.call(LOCALES, value);
 
-/** 当前语言快照：模块级文案（translate）用它，provider 负责写入。 */
-let activeLocale: Locale = DEFAULT_LOCALE;
+const detectLocale = (): Locale => {
+  if (typeof window === 'undefined') return DEFAULT_LOCALE;
+  let stored: string | null = null;
+  try {
+    stored = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // 存储被禁用（隐私模式、WebView 策略）：退回浏览器语言，不能让模块加载期直接抛错。
+  }
+  if (isLocale(stored)) return stored;
+  const preferred = window.navigator.languages || [window.navigator.language];
+  const matched = preferred.find((tag) => isLocale(tag) || isLocale(tag?.split('-')[0]));
+  if (matched) return isLocale(matched) ? matched : (matched.split('-')[0] as Locale);
+  return DEFAULT_LOCALE;
+};
+
+/**
+ * 当前语言快照：只给组件之外的模块级文案（translate）用。
+ * 启动时按存储/浏览器语言初始化；切换语言时由 setLocale 在触发重渲染之前同步写入，
+ * 于是这次重渲染里的 translate() 读到的就已经是新语言。组件内请用 useT() 的 t。
+ */
+let activeLocale: Locale = detectLocale();
 
 const pick = (messages: unknown, key: string): string | undefined => {
   let node: unknown = messages;
@@ -65,16 +84,23 @@ const interpolate = (template: string, params?: Record<string, string | number>)
 /** 翻译函数签名：需要把 t 当参数传出去（模块级表格、兜底数据）时用它做类型。 */
 export type Translator = (key: MessageKey, params?: Record<string, string | number>) => string;
 
-export const translate: Translator = (key, params) => {
-  const template =
-    pick(LOCALES[activeLocale].messages, key) ?? pick(zhCN, key) ?? String(key);
+/** 按指定语言取词条，不读快照：组件内的 t 就是它绑定到 provider 当前语言后的结果。 */
+export const translateIn = (
+  locale: Locale,
+  key: MessageKey,
+  params?: Record<string, string | number>,
+): string => {
+  const template = pick(LOCALES[locale].messages, key) ?? pick(zhCN, key) ?? String(key);
   return interpolate(template, params);
 };
+
+/** 组件之外（模块级状态表、工具函数）用：读当前语言快照。 */
+export const translate: Translator = (key, params) => translateIn(activeLocale, key, params);
 
 interface I18nValue {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: (key: MessageKey, params?: Record<string, string | number>) => string;
+  t: Translator;
 }
 
 const I18nContext = createContext<I18nValue>({
@@ -83,21 +109,10 @@ const I18nContext = createContext<I18nValue>({
   t: translate,
 });
 
-const detectLocale = (): Locale => {
-  if (typeof window === 'undefined') return DEFAULT_LOCALE;
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (isLocale(stored)) return stored;
-  const preferred = window.navigator.languages || [window.navigator.language];
-  const matched = preferred.find((tag) => isLocale(tag) || isLocale(tag?.split('-')[0]));
-  if (matched) return isLocale(matched) ? matched : (matched.split('-')[0] as Locale);
-  return DEFAULT_LOCALE;
-};
-
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [locale, setLocaleState] = useState<Locale>(detectLocale);
+  const [locale, setLocaleState] = useState<Locale>(() => activeLocale);
 
   useEffect(() => {
-    activeLocale = locale;
     if (typeof document !== 'undefined') document.documentElement.lang = locale;
     try {
       window.localStorage.setItem(STORAGE_KEY, locale);
@@ -106,13 +121,17 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [locale]);
 
-  const setLocale = useCallback((next: Locale) => setLocaleState(next), []);
-  const value = useMemo<I18nValue>(
-    () => ({ locale, setLocale, t: translate }),
-    [locale, setLocale],
-  );
+  const setLocale = useCallback((next: Locale) => {
+    // 先写快照再触发重渲染：此前快照在 effect 里才更新，切换后这一轮渲染读到的仍是旧语言。
+    activeLocale = next;
+    setLocaleState(next);
+  }, []);
+  // t 绑定当前语言：切换语言时它换一个引用，把 t 列进依赖的 effect / memo 会随之重算，
+  // 而不是停在旧语言的文案上。
+  const t = useCallback<Translator>((key, params) => translateIn(locale, key, params), [locale]);
+  const value = useMemo<I18nValue>(() => ({ locale, setLocale, t }), [locale, setLocale, t]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 };
 
-/** 组件内取 t；语言变化会触发重渲染（translate 本身读的是快照，不订阅）。 */
+/** 组件内取 t：t 随语言切换而变，可以（也应当）列进 hooks 的依赖数组。 */
 export const useT = () => useContext(I18nContext);
