@@ -1,7 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, cached, Item, remember } from "./client";
 
-/** 工作台索引：项目、会话、文档、技能、插件与庭审目录，带离线缓存回退。 */
+/**
+ * 工作台索引：项目、会话、文档、技能、插件与庭审目录，带离线缓存回退。
+ *
+ * onError 需要是稳定引用（state setter 或 useCallback 包过的函数）：reload 依赖它，
+ * reload 又驱动下面的订阅 effect，传一个每次渲染都新建的函数会让索引每次渲染都重新拉取。
+ */
 export function useWorkbenchIndex(username: string, onError: (message: string) => void) {
   const [projects, setProjects] = useState<Item[]>([]);
   const [conversations, setConversations] = useState<Item[]>([]);
@@ -10,7 +15,7 @@ export function useWorkbenchIndex(username: string, onError: (message: string) =
   const [connectors, setConnectors] = useState<Item[]>([]);
   const [courtItems, setCourtItems] = useState<Item[]>([]);
   const [offline, setOffline] = useState(!navigator.onLine);
-  async function reload() {
+  const reload = useCallback(async () => {
     try {
       const [p, c, d, s, k, courts] = await Promise.all([
         api<Item[]>("/projects"),
@@ -40,7 +45,7 @@ export function useWorkbenchIndex(username: string, onError: (message: string) =
         setOffline(true);
       } else onError(e.message);
     }
-  }
+  }, [username, onError]);
   useEffect(() => {
     void reload();
     const online = () => {
@@ -68,7 +73,7 @@ export function useWorkbenchIndex(username: string, onError: (message: string) =
       window.removeEventListener("lawver:extensions-updated", extensions);
       window.removeEventListener("lawver:courts-updated", courtsUpdated);
     };
-  }, [username]);
+  }, [username, reload]);
   return {
     projects,
     conversations,

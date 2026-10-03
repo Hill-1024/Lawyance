@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { SelectField } from "./SelectField";
 import { useT } from "../i18n";
 import { createPortal } from "react-dom";
@@ -238,7 +238,12 @@ export function DocumentPane({
   });
   editorRef.current = editor;
   const native = doc.data.format === "native";
-  const pending = proposals.filter((p) => p.data.status === "pending");
+  const pending = useMemo(
+    () => proposals.filter((p) => p.data.status === "pending"),
+    [proposals],
+  );
+  // effect 里的异步回调报错走这里：总是调用最新的 onError，又不让它成为 effect 的依赖。
+  const reportError = useEffectEvent((message: string) => onError(message));
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -249,49 +254,56 @@ export function DocumentPane({
       if (selTick.current) cancelAnimationFrame(selTick.current);
     };
   }, []);
+  // 父组件推来新版本：记为最新已知版本，并拉取它的修改建议。
+  // 比已知版本还旧的 props（保存回执先到、旧数据后到）直接忽略。
   useEffect(() => {
     if (doc.revision < latest.current.revision) return;
     latest.current = doc;
-    if (
-      editor &&
-      !dirty.current &&
-      JSON.stringify(editor.getJSON()) !== JSON.stringify(doc.data.content) &&
-      doc.data.format === "native"
-    )
-      editor.commands.setContent(doc.data.content, { emitUpdate: false });
     api<Item[]>(`/change-proposals?document_id=${doc.id}`)
       .then(setProposals)
-      .catch((e) => onError(e.message));
+      .catch((e) => reportError(e.message));
   }, [doc]);
+  // 编辑器内容跟随最新版本；本地有未保存改动时不覆盖。
+  // 依赖上一个 effect 先更新 latest（同一组件的 effect 按声明顺序执行），所以必须放在它后面。
+  useEffect(() => {
+    if (!editor || dirty.current || doc.data.format !== "native") return;
+    if (doc.revision < latest.current.revision) return;
+    if (JSON.stringify(editor.getJSON()) !== JSON.stringify(doc.data.content))
+      editor.commands.setContent(doc.data.content, { emitUpdate: false });
+  }, [doc, editor]);
   useEffect(() => {
     if (!editor) return;
     const items = native ? pending : [];
     editor.view.dispatch(editor.state.tr.setMeta(inlineKey, { items }));
-  }, [editor, proposals, native]);
+  }, [editor, pending, native]);
   usePortalMenuDismiss(overflow, () => setOverflow(false), { selectors: OVERFLOW_MENU_SELECTORS });
   useEffect(() => {
     cached<number>(user, "doc-position:" + doc.id).then((p) => {
       if (reading.current) reading.current.scrollTop = p || 0;
     });
-  }, [doc.id]);
-  useEffect(() => {
-    cached<any>(user, "doc-draft:" + doc.id).then((d) => {
-      if (
-        d?.content &&
-        JSON.stringify(d.content) !== JSON.stringify(doc.data.content)
-      ) {
-        markDirty(true);
-        editorRef.current?.commands.setContent(d.content, {
-          emitUpdate: false,
-        });
-        setStatus("restoredDraft");
-        if (d.revision !== doc.revision) {
-          blocked.current = true;
-          setConflict(doc);
-        } else schedule(d.content);
-      }
+  }, [doc.id, user]);
+  // 本地草稿与云端不一致时恢复草稿。比较用的是读到草稿那一刻的最新 doc，
+  // 打开后云端若已前进，会按冲突处理，而不是拿旧版本号去覆盖保存。
+  const restoreDraft = useEffectEvent((draft: any) => {
+    if (
+      !draft?.content ||
+      JSON.stringify(draft.content) === JSON.stringify(doc.data.content)
+    )
+      return;
+    markDirty(true);
+    editorRef.current?.commands.setContent(draft.content, {
+      emitUpdate: false,
     });
-  }, [doc.id]);
+    setStatus("restoredDraft");
+    if (draft.revision !== doc.revision) {
+      blocked.current = true;
+      setConflict(doc);
+    } else schedule(draft.content);
+  });
+  // 组件按 doc.id 挂载（父组件 key={doc.id}），所以这里每份文档只跑一次。
+  useEffect(() => {
+    cached<any>(user, "doc-draft:" + doc.id).then((d) => restoreDraft(d));
+  }, [doc.id, user]);
   function schedule(content: any) {
     markDirty(true);
     setStatus(navigator.onLine ? "unsaved" : "offlineDraft");
@@ -329,10 +341,14 @@ export function DocumentPane({
       });
     }, 800);
   }
+  // 网络恢复后补存。走 effect event 才能用到最新的 schedule（及其中的 onSaved 等 props），
+  // 监听器本身只需注册一次。
+  const resumeSave = useEffectEvent(() => {
+    const ed = editorRef.current;
+    if (dirty.current && ed) schedule(ed.getJSON());
+  });
   useEffect(() => {
-    const online = () => {
-      if (dirty.current) schedule(editorRef.current.getJSON());
-    };
+    const online = () => resumeSave();
     window.addEventListener("online", online);
     return () => window.removeEventListener("online", online);
   }, []);
@@ -1004,6 +1020,11 @@ function OriginalPreview({
     [box, setBox] = useState<number[]>(),
     [search, setSearch] = useState("");
   const origin = useRef<number[]>(undefined);
+  const format = doc.data.format;
+  const reportError = useEffectEvent((message: string) => onError(message));
+  const reportRenderFailure = useEffectEvent(() =>
+    onError(t("workbench.doc.pdfRenderFailed")),
+  );
   useEffect(() => {
     let cleanup = () => {},
       cancelled = false;
@@ -1025,7 +1046,7 @@ function OriginalPreview({
           return;
         }
         setUrl(u);
-        if (doc.data.format === "pdf") {
+        if (format === "pdf") {
           const lib = await import("pdfjs-dist");
           lib.GlobalWorkerOptions.workerSrc = new URL(
             "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -1043,7 +1064,7 @@ function OriginalPreview({
             prior();
             task.destroy();
           };
-        } else if (doc.data.format === "docx") {
+        } else if (format === "docx") {
           const { renderAsync } = await import("docx-preview");
           if (container.current)
             await renderAsync(blob, container.current, undefined, {
@@ -1053,12 +1074,12 @@ function OriginalPreview({
             });
         }
       })
-      .catch((e) => onError(e.message));
+      .catch((e) => reportError(e.message));
     return () => {
       cancelled = true;
       cleanup();
     };
-  }, [doc.id]);
+  }, [doc.id, format, user]);
   useEffect(() => {
     if (!pdf || !canvas.current) return;
     let task: any,
@@ -1101,7 +1122,7 @@ function OriginalPreview({
       await layer.render();
     })().catch((e) => {
       if (e.name !== "RenderingCancelledException" && !cancelled)
-        onError(t("workbench.doc.pdfRenderFailed"));
+        reportRenderFailure();
     });
     return () => {
       cancelled = true;
