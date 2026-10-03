@@ -351,7 +351,7 @@ export default function UsageConsole() {
             <h2 id="wb-cancel-title">{t('usage.cancelDialogTitle')}</h2>
             <p className="wb-nudge__body">
               {t('usage.cancelDialogBody', {
-                date: (summary?.pending_effective_at || summary && '').slice(0, 10) || t('usage.pendingSoon'),
+                date: summary?.pending_effective_at?.slice(0, 10) || t('usage.pendingSoon'),
               })}
             </p>
             {dialogError && <p className="wb-usage-dialog-error" role="alert">{dialogError}</p>}
