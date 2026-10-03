@@ -114,8 +114,8 @@ def ensure_tables() -> None:
     url = database_url()
     if _READY_URL == url:
         return
-    engine = engine_for(url)
-    Base.metadata.create_all(engine, checkfirst=True)
+    # 走共享的串行建表入口：这里建的是全部表，正好与账号引导等线程里的单表建表撞车。
+    shared.create_tables(engine_for(url), metadata=Base.metadata)
     _READY_URL = url
 
 
