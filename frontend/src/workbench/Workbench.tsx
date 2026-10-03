@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Plus,
@@ -191,10 +191,8 @@ export default function Workbench({ username }: { username: string }) {
   // 于是会话状态与标签一起丢掉。
   draftValue.current = draft;
   // 活动标签由路由决定：/conversation/:id、/court/:id，其余路径都是该空间的「新会话」标签。
-  const tabBookRef = useRef(tabBook),
-    documentCache = useRef<Record<string, Item>>({}),
+  const documentCache = useRef<Record<string, Item>>({}),
     activeKeyRef = useRef("");
-  tabBookRef.current = tabBook;
   const space = spaceKey(projectId),
     spaceTabs = tabsOf(tabBook, space),
     activeTabKey =
@@ -291,7 +289,13 @@ export default function Workbench({ username }: { username: string }) {
     return () => clearTimeout(timer);
   }, [notice]);
   // 路由是空间/会话/庭审的唯一事实源：路径变化时同步内部状态并加载会话。
-  const routeSpaceKey = location.pathname + "|" + (routeUuid || "") + "|" + (isCourtPath ? params.get("project") || "" : "");
+  // 只有庭审路径才读 ?project=，其余路径上它变化不触发同步。
+  const pathname = location.pathname;
+  const courtProject = isCourtPath ? params.get("project") || "" : "";
+  // 加载会话要读此刻的 conv / run / offline 等状态，但只应由路由变化触发。
+  const loadRouteConversation = useEffectEvent((id: string) => {
+    void loadConversation(id);
+  });
   useEffect(() => {
     if (isProjectPath && routeUuid) {
       setProjectId(routeUuid);
@@ -301,31 +305,36 @@ export default function Workbench({ username }: { username: string }) {
       setSidebar(false);
       setMobile("会话");
       setAgentVisible(true);
-      const contextProject = params.get("project");
-      if (contextProject) setProjectId(contextProject);
-    } else if (location.pathname === "/home") {
+      if (courtProject) setProjectId(courtProject);
+    } else if (pathname === "/home") {
       setProjectId(undefined);
       setTabBook((book) => ensureTab(book, PERSONAL, { kind: "new", id: "" }));
     }
-    if (isConversationPath && routeUuid) {
-      void loadConversation(routeUuid);
-    }
-  }, [routeSpaceKey]);
-  // 浏览器返回离开会话路径时清掉会话态，让空间首页正常显示（进行中的任务保留）。
+    if (isConversationPath && routeUuid) loadRouteConversation(routeUuid);
+  }, [pathname, routeUuid, courtProject, isProjectPath, isCourtPath, isConversationPath]);
+  // 浏览器返回离开会话路径时清掉会话态，让空间首页正常显示。
+  // 进行中的任务保留会话态（完成时轮询会刷新它）：这是导航那一刻的判断，任务结束本身不触发清理。
+  const releaseConversation = useEffectEvent(() => {
+    if (!running) setConv(undefined);
+  });
+  // pathname 是触发条件：每次导航都重新判断一次。
   useEffect(() => {
-    if (!isConversationPath && !courtSelection && !running) setConv(undefined);
-  }, [location.pathname]);
+    if (!isConversationPath && !courtSelection) releaseConversation();
+  }, [pathname, isConversationPath, courtSelection]);
+  // 草稿按 draftKey 读取；key 已经变了（或组件卸载）时丢弃这次读取结果。
   useEffect(() => {
+    let canceled = false;
     draftReady.current = "";
     setDraft({ text: "", references: [] });
-    const key = draftKey;
-    cached<Draft>(username, "draft:" + key).then((d) => {
-      if (key === (active.current || "new:" + String(projectId))) {
-        setDraft(d || { text: "", references: [] });
-        draftReady.current = key;
-      }
+    cached<Draft>(username, "draft:" + draftKey).then((d) => {
+      if (canceled) return;
+      setDraft(d || { text: "", references: [] });
+      draftReady.current = draftKey;
     });
-  }, [draftKey]);
+    return () => {
+      canceled = true;
+    };
+  }, [draftKey, username]);
   function updateDraft(d: Draft) {
     setDraft(d);
     if (draftReady.current === draftKey)
@@ -351,7 +360,7 @@ export default function Workbench({ username }: { username: string }) {
       180,
     );
     return () => clearTimeout(timer);
-  }, [query, projectId]);
+  }, [query, projectId, reportError]);
   // 运行状态只有这一个写入口：终止状态且该标签不是当前标签时留下未读标记。
   function recordRun(key: string, id: string, status: string) {
     const terminal = !["queued", "running", "waiting_confirmation"].includes(status);
@@ -364,42 +373,55 @@ export default function Workbench({ username }: { username: string }) {
       },
     }));
   }
+  // 轮询的生命周期只跟「哪个运行、是否还在跑」走：运行对象每轮都会换新，状态也会在活跃态之间切换
+  // （running ⇄ waiting_confirmation），这些都不该重启轮询、清空已收到的事件。
+  const runId = run?.id;
+  // 运行挂在会话上而不是视图上：换标签只暂停轮询，标签徽标由后台轮询跟进。
+  const runConversation = run?.parent_id;
+  // 下面几个 effect event 在轮询回调里按「此刻」读取状态：
+  // 运行途中切换文档、切换语言都不重启轮询，也不会用到轮询开始时的旧值。
+  const trackRunStart = useEffectEvent(() => {
+    if (run) recordRun("conversation:" + run.parent_id, run.id, run.data.status);
+  });
+  const applyRunEvent = useEffectEvent((event: any) => {
+    if (!["document", "proposal"].includes(event.type)) return;
+    reload();
+    // 只刷新此刻打开的那篇文档。请求回来时用户若已换了文档，只更新缓存，不把窗格切回去。
+    if (event.type === "proposal" && doc?.id === event.content.document_id)
+      api<Item>("/documents/" + doc.id)
+        .then((d) => {
+          documentCache.current[d.id] = d;
+          setDoc((current) => (current?.id === d.id ? d : current));
+        })
+        .catch(() => {});
+  });
+  const notifyPollInterrupted = useEffectEvent(() =>
+    setNotice(t("workbench.session.connectInterrupted")),
+  );
   useEffect(() => {
-    if (!run || !running) return;
+    if (!runId || !running) return;
     let canceled = false,
       last = 0;
-    const id = run.id;
-    // 运行挂在会话上而不是视图上：换标签只暂停轮询，标签徽标由后台轮询跟进。
-    const owner = "conversation:" + run.parent_id;
+    const owner = "conversation:" + runConversation;
     let output = "";
     setLive("");
     setEvents([]);
-    recordRun(owner, id, run.data.status);
+    trackRunStart();
     async function poll() {
       try {
-        const data = await api(`/runs/${id}/events?after=${last}`);
+        const data = await api(`/runs/${runId}/events?after=${last}`);
         if (canceled) return;
         for (const event of data.events) {
           last = event.seq;
           if (event.type === "content") output += event.content;
           if (event.type === "content_replace") output = event.content;
-          if (["document", "proposal"].includes(event.type)) {
-            reload();
-            if (
-              event.type === "proposal" &&
-              doc?.id === event.content.document_id
-            )
-              api<Item>("/documents/" + doc.id).then((d) => {
-                documentCache.current[d.id] = d;
-                setDoc(d);
-              });
-          }
+          applyRunEvent(event);
         }
         setLive(output);
         setEvents((e) => [...e, ...data.events].slice(-500));
         if (!data.has_more) {
           setRun(data.run);
-          recordRun(owner, id, data.run.data.status);
+          recordRun(owner, runId, data.run.data.status);
         }
         if (
           !data.has_more &&
@@ -409,17 +431,20 @@ export default function Workbench({ username }: { username: string }) {
         ) {
           if (active.current === data.run.parent_id) {
             const c = await api<Item>("/conversations/" + data.run.parent_id);
-            setConv(c);
             remember(username, "conversation:" + c.id, c);
-            setLive("");
+            // 等待期间用户可能已切到别的会话：只在它仍是当前会话时替换视图。
+            if (active.current === c.id) {
+              setConv(c);
+              setLive("");
+            }
           }
           reload();
           return;
         }
         setTimeout(poll, data.has_more ? 50 : 1500);
-      } catch (e) {
+      } catch {
         if (!canceled) {
-          setNotice(t("workbench.session.connectInterrupted"));
+          notifyPollInterrupted();
           setTimeout(poll, 2500);
         }
       }
@@ -428,12 +453,13 @@ export default function Workbench({ username }: { username: string }) {
     return () => {
       canceled = true;
     };
-  }, [run?.id, running]);
+  }, [runId, runConversation, running, reload, username]);
   // 终态任务补拉一次事件：让「查看执行过程」在重新进入会话后仍能展开，不触发额外刷新。
+  const hasEvents = events.length > 0;
   useEffect(() => {
-    if (!run || running || events.length) return;
+    if (!runId || running || hasEvents) return;
     let canceled = false;
-    api<{ events: any[] }>(`/runs/${run.id}/events?after=0`)
+    api<{ events: any[] }>(`/runs/${runId}/events?after=0`)
       .then((data) => {
         if (!canceled && data.events?.length)
           setEvents((prev) => (prev.length ? prev : data.events.slice(-500)));
@@ -442,7 +468,7 @@ export default function Workbench({ username }: { username: string }) {
     return () => {
       canceled = true;
     };
-  }, [run?.id, running]);
+  }, [runId, running, hasEvents]);
   // 后台标签的运行跟进：低频拉状态，完成或失败时在该标签上留一个未读标记。
   const activeRunKey = run ? "conversation:" + run.parent_id : "";
   const backgroundRuns = Object.entries(tabRuns).filter(
@@ -451,19 +477,19 @@ export default function Workbench({ username }: { username: string }) {
       key !== activeRunKey &&
       ["queued", "running", "waiting_confirmation"].includes(entry.status),
   );
-  const backgroundSignature = backgroundRuns
-    .map(([key, entry]) => key + entry.status)
-    .join("|");
+  const hasBackgroundRuns = backgroundRuns.length > 0;
+  // 每次 tick 读此刻的后台运行列表：列表内容变化（含换了运行 id）不必重置计时器，也不会拉到旧 id。
+  const pollBackgroundRuns = useEffectEvent(() => {
+    for (const [key, entry] of backgroundRuns)
+      api<Item>("/runs/" + entry.id)
+        .then((attached) => recordRun(key, entry.id, attached.data.status))
+        .catch(() => {});
+  });
   useEffect(() => {
-    if (!backgroundSignature) return;
-    const timer = setInterval(() => {
-      for (const [key, entry] of backgroundRuns)
-        api<Item>("/runs/" + entry.id)
-          .then((attached) => recordRun(key, entry.id, attached.data.status))
-          .catch(() => {});
-    }, 5000);
+    if (!hasBackgroundRuns) return;
+    const timer = setInterval(() => pollBackgroundRuns(), 5000);
     return () => clearInterval(timer);
-  }, [backgroundSignature]);
+  }, [hasBackgroundRuns]);
   useEffect(() => {
     // 回到该标签即视为已读。
     setTabRuns((prev) =>
@@ -557,14 +583,21 @@ export default function Workbench({ username }: { username: string }) {
     reload();
   }
   // 进入某个空间的首页时取一次工作建议；缓存按空间隔离，换台不重复请求。
+  // 是否已缓存是读取时的判断，缓存本身变化不触发加载。
+  const loadSuggestions = useEffectEvent((target: string) => {
+    if (!suggestions.loaded(target)) void suggestions.load(target, false);
+  });
   useEffect(() => {
     if (isConversationPath || isCourtPath) return;
-    if (suggestions.loaded(space)) return;
-    void suggestions.load(space, false);
+    loadSuggestions(space);
   }, [space, isConversationPath, isCourtPath]);
   // 标签切换即换文档：目标标签有文档就取回（内存命中优先），没有就清空文档窗格。
+  // 标签簿按读取时的最新值查；它的其他变化（排序、新开标签、挂文档）不触发换文档。
+  const documentOfTab = useEffectEvent(
+    (targetSpace: string, key: string) => findTab(tabBook, targetSpace, key)?.doc,
+  );
   useEffect(() => {
-    const wanted = findTab(tabBookRef.current, space, activeTabKey)?.doc;
+    const wanted = documentOfTab(space, activeTabKey);
     if (!wanted) {
       setDoc(undefined);
       return;
@@ -594,7 +627,14 @@ export default function Workbench({ username }: { username: string }) {
     return () => {
       canceled = true;
     };
-  }, [space, activeTabKey]);
+  }, [space, activeTabKey, username]);
+  // 当前路由指向的会话是否已被删除，只在索引列表刷新后判断，路由变化本身不触发：
+  // 刚新建的会话在索引刷新前还不在列表里，不能当成已删除。
+  const leaveDeletedSession = useEffectEvent((alive: (tab: TabRef) => boolean) => {
+    if ((!isConversationPath && !isCourtPath) || !routeUuid || routeUuid === "new") return;
+    if (!alive({ kind: isCourtPath ? "court" : "conversation", id: routeUuid }))
+      navigate(projectId ? "/project/" + encodeURIComponent(projectId) : "/home");
+  });
   // 会话/庭审被删除后剔除残留标签；当前标签被清掉时把路由带回空间首页。
   useEffect(() => {
     if (!conversations.length && !courtItems.length) return;
@@ -607,9 +647,7 @@ export default function Workbench({ username }: { username: string }) {
       for (const name of Object.keys(book)) next = purgeTabs(next, name, alive);
       return next;
     });
-    if ((!isConversationPath && !isCourtPath) || !routeUuid || routeUuid === "new") return;
-    if (!alive({ kind: isCourtPath ? "court" : "conversation", id: routeUuid }))
-      navigate(projectId ? "/project/" + encodeURIComponent(projectId) : "/home");
+    leaveDeletedSession(alive);
   }, [conversations, courtItems]);
   useEffect(() => {
     saveTabs(username, tabBook);
@@ -646,7 +684,7 @@ export default function Workbench({ username }: { username: string }) {
   }
   function closeTab(tab: TabRef) {
     const key = tabKey(tab);
-    const list = tabsOf(tabBookRef.current, space);
+    const list = tabsOf(tabBook, space);
     const index = list.findIndex((item) => tabKey(item) === key);
     const neighbour = list[index + 1] || list[index - 1];
     setTabBook((book) => removeTab(book, space, key));
@@ -790,16 +828,18 @@ export default function Workbench({ username }: { username: string }) {
       });
     return items;
   }
+  // 快捷键监听只注册一次；按下时用此刻的空间新建会话。
+  const newSessionFromShortcut = useEffectEvent(() => quick(projectId));
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (matchKeys(e, getBinding(SHORTCUT_IDS.sessionNew))) {
         e.preventDefault();
-        quick(projectId);
+        newSessionFromShortcut();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [projectId]);
+  }, []);
   // 新建会话 = 打开该空间的「新会话」标签，不关闭当前标签。
   function quick(pid?: string) {
     active.current = undefined;
@@ -1008,7 +1048,9 @@ export default function Workbench({ username }: { username: string }) {
       setOcp={setOcp}
     />
   );
-  const messages = conv?.data.messages || [];
+  // 没有消息时的兜底空数组也要保持引用稳定，否则下面的钉底 effect 每次渲染都会重跑。
+  const convMessages = conv?.data.messages;
+  const messages = React.useMemo(() => convMessages || [], [convMessages]);
   const activityBlocks = React.useMemo(() => aggregateActivity(events), [events]);
   // 距底 140px 内算「在底部」（与庭审会话同一阈值）：发送即视为在底部，上翻即脱钩。
   const trackStick = React.useCallback(() => {
