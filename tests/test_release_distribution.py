@@ -42,18 +42,22 @@ class FakeResponse:
 
 class ReleaseDistributionTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        # Windows 上访问日志的 RotatingFileHandler 仍持有 usage.log，删目录会撞 WinError 32。
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.old_env = {
             "SECRET_KEY": os.environ.get("SECRET_KEY"),
             "INITIAL_ADMIN_PASSWORD": os.environ.get("INITIAL_ADMIN_PASSWORD"),
             "LAWVER_DATA_DIR": os.environ.get("LAWVER_DATA_DIR"),
             "LAWVER_RELEASE_DIR": os.environ.get("LAWVER_RELEASE_DIR"),
             "LAWVER_APK_DOWNLOAD_RPM": os.environ.get("LAWVER_APK_DOWNLOAD_RPM"),
+            "LAWVER_PUBLIC_BASE_URL": os.environ.get("LAWVER_PUBLIC_BASE_URL"),
         }
         os.environ["SECRET_KEY"] = "r" * 32
         os.environ["INITIAL_ADMIN_PASSWORD"] = "bootstrap-password"
         os.environ["LAWVER_DATA_DIR"] = self.tmp.name
         os.environ.pop("LAWVER_RELEASE_DIR", None)
+        # 无请求上下文时 apkUrl 回落到 app_config.ORIGIN；本机 .env 若配了公开地址会干扰断言。
+        os.environ.pop("LAWVER_PUBLIC_BASE_URL", None)
         self.release_sync = importlib.import_module("services.release_sync")
         self.release_sync.reset_download_rate_limits()
 
@@ -110,7 +114,10 @@ class ReleaseDistributionTests(unittest.TestCase):
         self.assertEqual(status["status"], "synced")
         cached = self.release_sync.cached_manifest()
         self.assertEqual(cached["versionCode"], 1001)
-        self.assertEqual(cached["apkUrl"], "https://cn.lawver.dev/api/releases/android/apk")
+        # 域名统一取自 package.json 的 appConfig（app_config.ORIGIN），不在测试里写死。
+        from app_config import ORIGIN
+
+        self.assertEqual(cached["apkUrl"], f"{ORIGIN}/api/releases/android/apk")
         with open(self.release_sync.cached_apk_path(), "rb") as f:
             self.assertEqual(f.read(), apk)
 

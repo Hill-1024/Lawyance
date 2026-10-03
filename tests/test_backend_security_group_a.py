@@ -204,6 +204,7 @@ class LockoutUnlockTests(IsolatedBackendTest):
         self.assertGreater(throttle.locked_map(["someone-else"])["someone-else"], 0)
 
 
+@unittest.skipIf(os.name == "nt", "POSIX 权限位在 Windows 上不可用：os.chmod 只能切换只读位")
 class PrivateStoragePermissionTests(IsolatedBackendTest):
     def test_existing_auth_and_secret_files_are_hardened_before_read(self):
         # 账号在云端库、登录节流也在云端库，本机已经没有 auth.sqlite3 与
