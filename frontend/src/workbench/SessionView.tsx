@@ -1,8 +1,7 @@
 import { ChevronDown, CircleAlert, FileText, Pause, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import React from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Markdown } from "./markdown";
 import { BrandMark } from "../components/Brand";
 import { WorkflowStatusIcon } from "../components/WorkflowStatusIcon";
 import { currentActivityLabel, ThoughtBlock } from "./activity";
@@ -27,6 +26,8 @@ export type SessionViewProps = {
   offline: boolean;
   composer: React.ReactNode;
   scrollRef: React.RefObject<HTMLDivElement>;
+  /** 消息区滚动回调：宿主用它维护「贴底跟随」判定。 */
+  onMessagesScroll?: React.UIEventHandler<HTMLDivElement>;
   /** 停靠把手：只有并排显示文档时才需要。 */
   dragHandle?: React.ReactNode;
   /** 仅文档模式：庭审视窗也要跟着收起。 */
@@ -56,6 +57,7 @@ export function SessionView({
   offline,
   composer,
   scrollRef,
+  onMessagesScroll,
   dragHandle,
   courtChatHidden,
   courtReference,
@@ -179,7 +181,7 @@ export function SessionView({
             <div key={block.key} className={"wb-thought-block is-" + block.kind}>
               <small>{block.label}</small>
               <div className="wb-thought-copy">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
+                <Markdown>{block.content}</Markdown>
               </div>
             </div>
           ))}
@@ -219,7 +221,7 @@ export function SessionView({
           )}
         </div>
       </header>
-      <div className="wb-messages" ref={scrollRef}>
+      <div className="wb-messages" ref={scrollRef} onScroll={onMessagesScroll}>
         {!messages.length && !running && (
           <div className="wb-chat-empty">
             <BrandMark className="wb-empty-brand" />
@@ -235,12 +237,17 @@ export function SessionView({
           <article key={message.id} className={"wb-message " + message.role}>
             <div className="wb-message-label">
               <span className="wb-role">{message.role === "user" ? t("workbench.session.you") : t("workbench.session.assistant")}</span>
-              {runBadge && message.role === "assistant" && message.id === lastAssistantId && runBadge}
+              {/*
+                徽标与时间线是「当前 run」的附属品：运行期间挂在下方的 live/待响应文章上，
+                落到消息上只发生在 run 终态之后（含历史回看）。不挡 running 的话，
+                旧回复与流式文章会各挂一份同状态徽标。
+              */}
+              {runBadge && !running && message.role === "assistant" && message.id === lastAssistantId && runBadge}
               <button className="wb-branch" title={t("workbench.session.branch")} onClick={() => onBranch(message.id)}>
                 {t("workbench.session.branchShort")}
               </button>
             </div>
-            {timeline && message.role === "assistant" && message.id === lastAssistantId && timeline}
+            {timeline && !running && message.role === "assistant" && message.id === lastAssistantId && timeline}
             {message.references?.length > 0 && (
               <div className="wb-message-refs">
                 {message.references.map((reference: any, index: number) => (
@@ -251,17 +258,21 @@ export function SessionView({
                 ))}
               </div>
             )}
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+            <Markdown>{message.content}</Markdown>
           </article>
         ))}
-        {live && (
-          <article className="wb-message assistant">
+        {/*
+          运行期文章：live 有正文就流式渲染；还没流出正文时也不能整块缺席——
+          否则发出消息到首 token 之间会话区一片空白，徽标与时间线也无处安放。
+        */}
+        {(live || running) && (
+          <article className={"wb-message assistant" + (live ? "" : " is-pending")}>
             <div className="wb-message-label">
               <span className="wb-role">Lawver</span>
               {runBadge}
             </div>
             {timeline}
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{live}</ReactMarkdown>
+            {live && <Markdown>{live}</Markdown>}
           </article>
         )}
         {run?.data.status === "waiting_confirmation" && (

@@ -181,6 +181,10 @@ export default function Workbench({ username }: { username: string }) {
     draftKey = conv?.id || "new:" + String(projectId),
     draftReady = useRef(""),
     draftValue = useRef(draft),
+    // 贴底跟随：true 时流式输出会把消息区钉在底部；用户上翻即脱钩。
+    stick = useRef(true),
+    // 刚发送的运行落在哪个会话：路由同步触发 loadConversation 时据此贴底而不是恢复存档位置。
+    followRun = useRef<string>(undefined),
     scroll = useRef<HTMLDivElement>(null);
   // 只在这里维护 active.current：它标记「当前会话身份」，用于丢弃过期的会话加载。
   // 曾经在渲染期写 active.current = conv?.id，任何一次无关重渲染都会把正在加载的会话判成过期，
@@ -508,7 +512,12 @@ export default function Workbench({ username }: { username: string }) {
           .catch(() => {});
       const position = await cached<number>(username, "scroll:" + id);
       requestAnimationFrame(() => {
-        if (scroll.current) scroll.current.scrollTop = position || 0;
+        if (!scroll.current) return;
+        // 首页发起新会话会立刻换路径、触发这次加载：贴底看运行，不恢复（不存在的）存档位置。
+        if (followRun.current === id) {
+          followRun.current = undefined;
+          scroll.current.scrollTop = scroll.current.scrollHeight;
+        } else scroll.current.scrollTop = position || 0;
       });
     } catch (e) {
       reportError(e);
@@ -875,6 +884,13 @@ export default function Workbench({ username }: { username: string }) {
       setRun(r);
       recordRun("conversation:" + c.id, r.id, r.data.status);
       setAgentVisible(true);
+      // 用户刚发的消息和运行都长在消息流末尾：立即贴底，否则长会话里发起的运行根本看不见。
+      stick.current = true;
+      followRun.current = c.id;
+      requestAnimationFrame(() => {
+        const el = scroll.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
       // 会话已落地，把地址换成可分享的会话路径（replace，避免返回键绕回首页草稿）。
       navigate("/conversation/" + encodeURIComponent(c.id), { replace: true });
       reload();
@@ -994,6 +1010,18 @@ export default function Workbench({ username }: { username: string }) {
   );
   const messages = conv?.data.messages || [];
   const activityBlocks = React.useMemo(() => aggregateActivity(events), [events]);
+  // 距底 140px 内算「在底部」（与庭审会话同一阈值）：发送即视为在底部，上翻即脱钩。
+  const trackStick = React.useCallback(() => {
+    const el = scroll.current;
+    if (!el) return;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+  }, []);
+  // 流式钉底：只在运行中且用户本就在底部附近时跟随，回看历史不被打扰。
+  React.useEffect(() => {
+    if (!running || !stick.current) return;
+    const el = scroll.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [running, live, activityBlocks, messages]);
   const chat = (
     <SessionView
       courtSelection={courtSelection}
@@ -1010,6 +1038,7 @@ export default function Workbench({ username }: { username: string }) {
       offline={offline}
       composer={composer}
       scrollRef={scroll}
+      onMessagesScroll={trackStick}
       dragHandle={workspace.handle("agent", courtSelection ? t("workbench.history.groupCourt") : t("workbench.shell.agent"))}
       courtReference={courtReference}
       onBranch={(messageId) =>

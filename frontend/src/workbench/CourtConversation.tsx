@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Gavel, Scale, UserRound, BookOpen, ChevronRight, X, Play, Send, Paperclip, SlidersHorizontal, GitBranch, Undo2, CircleAlert, Lock, FileText, Download } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { Markdown } from './markdown';
 import { useCourtSession } from '../hooks/useCourtSession';
 import { useWorkspace } from '../hooks/useWorkspace';
 import { useAutoGrowTextarea } from '../hooks/useAutoGrowTextarea';
@@ -74,7 +73,7 @@ export default function CourtConversation({project,selection,onSelect,onCancel,d
       {!started && <div className="wc-empty"><h3>{t('workbench.court.emptyTitle')}</h3><p>{t('workbench.court.emptyLead')}</p><button className="wc-primary" disabled={isRunning} onClick={court.runNextTurn}><Play size={15}/>{t('workbench.court.start')}</button></div>}
       {events.filter(e=>e.speaker!=='system').map((event,index,visible)=>{const role=roles[event.speaker]||roles.system;const Icon=role.Icon;return <article className={'wc-message '+(event.speaker==='user'?'is-user':'')} key={event.id}>
         <header><Icon size={17}/><strong>{event.speaker==='user'?session.user_side:role.label}</strong><span>{phases[event.phase]||event.phase}</span></header>
-        <div className="wc-message-content"><Markdown remarkPlugins={[remarkGfm]}>{stripWorkspacePaths(stripAttachmentPrompt(event.content||''))}</Markdown></div>
+        <div className="wc-message-content"><Markdown>{stripWorkspacePaths(stripAttachmentPrompt(event.content||''))}</Markdown></div>
         {!isRunning&&<footer><button aria-label={t('workbench.court.branchFrom')} onClick={()=>{const id=court.branchFromEvent(session.id,event.id);if(id)onSelect(id,session.project_id);}}><GitBranch size={14}/></button>{index<visible.length-1&&<button aria-label={t('workbench.court.rewindTo')} onClick={async()=>{if(await showConfirm({title:t('workbench.court.rewindConfirm'),message:t('workbench.court.rewindMessage'),confirmLabel:t('workbench.court.rewindAction'),tone:'danger'}))court.rewindToEvent(session.id,event.id);}}><Undo2 size={14}/></button>}</footer>}
       </article>})}
       <div className="wc-status" role="status">{hasError && !isRunning ? <CircleAlert size={14}/> : <WorkflowStatusIcon key={isRunning?'running':'done'} status={isRunning?'running':'done'}/ >}{status}</div>
