@@ -99,7 +99,8 @@ class SecurityBootstrapTests(unittest.TestCase):
 
 class AuthStateConcurrencyTests(unittest.TestCase):
     def test_parallel_failed_logins_preserve_lockout_state(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        # 进程级缓存的 SQLAlchemy 引擎仍握着 cloud.sqlite3；Windows 不允许删除被占用的文件。
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             old_env = {key: os.environ.get(key) for key in ("SECRET_KEY", "INITIAL_ADMIN_PASSWORD", "LAWVER_DATA_DIR")}
             os.environ["SECRET_KEY"] = TEST_SECRET
             os.environ["INITIAL_ADMIN_PASSWORD"] = "bootstrap-password"

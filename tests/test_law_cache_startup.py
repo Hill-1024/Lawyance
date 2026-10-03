@@ -23,7 +23,8 @@ def purge_runtime_modules():
 
 class LawCacheStartupTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        # 进程级缓存的 SQLAlchemy 引擎仍握着 cloud.sqlite3；Windows 不允许删除被占用的文件。
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         os.environ["SECRET_KEY"] = TEST_SECRET
         os.environ["INITIAL_ADMIN_PASSWORD"] = "bootstrap-password"
         os.environ["LAWVER_DATA_DIR"] = self.tmp.name
