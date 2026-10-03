@@ -65,15 +65,17 @@ const normalizeAlertOptions = (options: string | DialogOptions): DialogOptions =
   typeof options === 'string' ? { message: options } : options
 );
 
+// 语气标题也走词条：对话框有默认标题时（未显式传 title）语言切换要跟着变。
+// 只是键名映射，不依赖组件状态，放在模块级（放进组件里每次渲染都是新对象，回调无法稳定依赖它）。
+const TONE_TITLE: Record<DialogTone, MessageKey> = {
+  info: 'dialog.info',
+  success: 'dialog.success',
+  warning: 'dialog.warning',
+  danger: 'dialog.danger',
+};
+
 export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { t } = useT();
-  // 语气标题也走词条：对话框有默认标题时（未显式传 title）语言切换要跟着变。
-  const toneTitle: Record<string, MessageKey> = {
-    info: 'dialog.info',
-    success: 'dialog.success',
-    warning: 'dialog.warning',
-    danger: 'dialog.danger',
-  };
   const [activeDialog, setActiveDialog] = useState<DialogRequest | null>(null);
   const activeDialogRef = useRef<DialogRequest | null>(null);
   const queueRef = useRef<DialogRequest[]>([]);
@@ -116,32 +118,32 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await enqueueDialog({
       kind: 'alert',
       tone,
-      title: normalized.title || t(toneTitle[tone]),
+      title: normalized.title || t(TONE_TITLE[tone]),
       message: normalized.message,
       confirmLabel: normalized.confirmLabel || t('common.gotIt'),
       cancelLabel: normalized.cancelLabel || t('common.cancel'),
     });
-  }, [enqueueDialog]);
+  }, [enqueueDialog, t]);
 
   const showConfirm = useCallback(async (options: DialogOptions) => {
     const tone = options.tone || 'warning';
     const result = await enqueueDialog({
       kind: 'confirm',
       tone,
-      title: options.title || t(toneTitle[tone]),
+      title: options.title || t(TONE_TITLE[tone]),
       message: options.message,
       confirmLabel: options.confirmLabel || t('common.confirm'),
       cancelLabel: options.cancelLabel || t('common.cancel'),
     });
     return result === true;
-  }, [enqueueDialog]);
+  }, [enqueueDialog, t]);
 
   const showChoice = useCallback(async (options: DialogOptions & { secondaryLabel: string }) => {
     const tone = options.tone || 'warning';
     const result = await enqueueDialog({
       kind: 'choice',
       tone,
-      title: options.title || t(toneTitle[tone]),
+      title: options.title || t(TONE_TITLE[tone]),
       message: options.message,
       confirmLabel: options.confirmLabel || t('common.confirm'),
       cancelLabel: options.cancelLabel || t('common.cancel'),
@@ -150,7 +152,7 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (result === true) return 'confirm';
     if (result === 'secondary') return 'secondary';
     return 'cancel';
-  }, [enqueueDialog]);
+  }, [enqueueDialog, t]);
 
   useEffect(() => {
     if (!activeDialog) return;

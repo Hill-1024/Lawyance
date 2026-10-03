@@ -36,7 +36,8 @@ export function useStorage() {
     }
   }, []);
 
-  const requestPersistence = async () => {
+  // 只用到 state setter，引用可以恒定：调用方把它列进依赖数组也不会引起重跑。
+  const requestPersistence = useCallback(async () => {
     if (!window.isSecureContext) {
       setError('持久化存储申请失败：必须在 HTTPS 安全环境（或 localhost）下才能申请此权限。');
       return false;
@@ -56,7 +57,7 @@ export function useStorage() {
       }
     }
     return false;
-  };
+  }, []);
 
   useEffect(() => {
     updateEstimate();

@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {useEffect,useEffectEvent,useState} from 'react';
 import { CheckBox } from "../components/CheckBox";
 import { SelectField } from "./SelectField";
 import {Folder, MessageSquare, FileText, RefreshCw, Lock} from 'lucide-react';
@@ -9,9 +9,14 @@ export function CourtMaterials({project,onProject,onAuto,onSelect,onReady}:{proj
  const { t } = useT();
  const [enabled,setEnabled]=useState(false),[projects,setProjects]=useState<Item[]>([]),[docs,setDocs]=useState<Item[]>([]),[sources,setSources]=useState<CourtSource[]>([]),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[loading,setLoading]=useState(false),[refresh,setRefresh]=useState(0),[omitted,setOmitted]=useState(0);
  useEffect(()=>{let live=true;api('/status').then(async s=>{if(s.enabled){const p=await api<Item[]>('/projects');if(live){setProjects(p);setEnabled(true)}}}).catch(e=>{if(live)setError(e.message)});return()=>{live=false}},[]);
- useEffect(()=>{let live=true;setSelected([]);setSources([]);setDocs([]);setError('');onAuto('',[]);onReady(!project);if(!project)return;
+ // 重新拉取只跟「项目」与「刷新」两件事走。父组件传进来的回调与词条每次渲染都可能换引用，
+ // 它们属于「拉到数据之后要做的事」，放进 effect event：读到的永远是最新值，又不会触发重新拉取。
+ const publishAuto=useEffectEvent((text:string,sources:CourtSource[])=>onAuto(text,sources));
+ const publishReady=useEffectEvent((ready:boolean)=>onReady(ready));
+ const composeAutoText=useEffectEvent((context:{project:{desc?:string};sources:CourtSource[]})=>[context.project.desc ? `${t('workbench.court.projectNote')}\n${context.project.desc}` : '',...context.sources.map((s:CourtSource)=>`${t('workbench.court.sessionSource',{title:s.title,revision:s.revision})}${s.truncated?t('workbench.court.sourceSelected'):''}]\n${s.text}`)].filter(Boolean).join('\n\n'));
+ useEffect(()=>{let live=true;setSelected([]);setSources([]);setDocs([]);setError('');publishAuto('',[]);publishReady(!project);if(!project)return;
  setLoading(true);
- Promise.all([api('/projects/'+encodeURIComponent(project)+'/court-context'),api<Item[]>('/documents?project_id='+encodeURIComponent(project))]).then(([context,documents])=>{if(!live)return;setDocs(documents);setSources(context.sources);setOmitted(context.omitted);const text=[context.project.desc ? `${t('workbench.court.projectNote')}\n${context.project.desc}` : '',...context.sources.map((s:CourtSource)=>`${t('workbench.court.sessionSource',{title:s.title,revision:s.revision})}${s.truncated?t('workbench.court.sourceSelected'):''}]\n${s.text}`)].filter(Boolean).join('\n\n');onAuto(text,context.sources);onReady(true)}).catch(e=>{if(live)setError(e.message)}).finally(()=>{if(live)setLoading(false)});
+ Promise.all([api('/projects/'+encodeURIComponent(project)+'/court-context'),api<Item[]>('/documents?project_id='+encodeURIComponent(project))]).then(([context,documents])=>{if(!live)return;setDocs(documents);setSources(context.sources);setOmitted(context.omitted);publishAuto(composeAutoText(context),context.sources);publishReady(true)}).catch(e=>{if(live)setError(e.message)}).finally(()=>{if(live)setLoading(false)});
  return()=>{live=false};},[project,refresh]);
  async function collectPublic(){setLoading(true);setError('');try{const values=await Promise.all(selected.filter(id=>docs.some(d=>d.id===id)).map(id=>api<Item>('/documents/'+id)));const nativeText=(node:any):string=>node?.type==='text'?node.text:(node?.content||[]).map(nativeText).join('\n');const pieces=[...sources.filter(s=>selected.includes(s.id)).map(s=>`${t('workbench.court.sessionSourceUnverified',{title:s.title,revision:s.revision})}\n${s.text}`),...values.map(d=>{const text=d.data.text||nativeText(d.data.content);if(!text.trim())throw new Error(t('workbench.court.noExtractableText',{title:d.title}));return `${t('workbench.court.fileSource',{title:d.title,revision:d.revision})}\n${text}`})];const text=pieces.join('\n\n');if(text.length>50000)throw new Error(t('workbench.court.tooLong'));onSelect(text);setSelected([])}catch(e){setError(e.message)}finally{setLoading(false)}}
  if(!enabled && !error)return null;
