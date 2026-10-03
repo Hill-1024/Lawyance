@@ -10,6 +10,7 @@ dependencies = [
     "dateparser>=1.4.0",
     "docxtpl>=0.18.0",
     "fastapi>=0.139.0",
+    "httpx>=0.28,<1",
     "mcp>=1.20,<2",
     "openai>=2.29.0",
     "psycopg[binary]>=3.2,<4",
@@ -20,6 +21,7 @@ dependencies = [
     "python-multipart>=0.0.31",
     "redis>=5.0.0",
     "requests>=2.34.2",
+    "socksio>=1.0.0",
     "sqlalchemy>=2.0,<3",
     "tldextract>=5.3.1",
     "trafilatura>=2.0.0",
@@ -29,6 +31,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "fakeredis>=2.20.0",
+    "pytest>=8.0",
 ]
 
 [tool.pyright]
