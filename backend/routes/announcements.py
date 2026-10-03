@@ -30,12 +30,22 @@ _BODY_MAX = 5_000
 _ID_PATTERN = r"^[A-Za-z0-9_-]{1,100}$"
 
 
-def ensure_table() -> None:
-    """建表（缺才建）。生产走 alembic，这里保证冷启动与测试不会因为少表而 500。"""
-    from infra.database import database_url, engine_for
+_READY_URL: Optional[str] = None
 
-    engine = engine_for(database_url())
-    Announcement.__table__.create(engine, checkfirst=True)
+
+def ensure_table() -> None:
+    """建表（缺才建）。生产走 alembic，这里保证冷启动与测试不会因为少表而 500。
+
+    同一连接串在本进程只检查一次；建表统一走 create_tables（与其他模块并发建表时串行）。
+    """
+    global _READY_URL
+    from infra.database import create_tables, database_url, engine_for
+
+    url = database_url()
+    if _READY_URL == url:
+        return
+    create_tables(engine_for(url), [Announcement.__table__], metadata=Announcement.metadata)
+    _READY_URL = url
 
 
 def _aware(value: Optional[datetime]) -> Optional[datetime]:

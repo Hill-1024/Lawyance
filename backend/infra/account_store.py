@@ -137,14 +137,14 @@ _READY_URL: Optional[str] = None
 def ensure_tables() -> None:
     """建表（缺才建）。同一连接串在本进程只检查一次。"""
     global _READY_URL
-    from infra.database import database_url, engine_for
+    from infra.database import create_tables, database_url, engine_for
 
     url = database_url()
     if _READY_URL == url:
         return
-    engine = engine_for(url)
-    for model in (Account, AccountSession):
-        model.__table__.create(engine, checkfirst=True)
+    create_tables(
+        engine_for(url), [Account.__table__, AccountSession.__table__], metadata=Account.metadata
+    )
     _READY_URL = url
 
 

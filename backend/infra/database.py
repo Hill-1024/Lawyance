@@ -11,6 +11,7 @@ docs/workbench/operations.md：计费要求「扣费 + 记账」落在同一个�
 from __future__ import annotations
 
 import os
+import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from functools import lru_cache
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
@@ -86,6 +88,29 @@ def engine_for(url: str):
             else {}
         ),
     )
+
+
+_SCHEMA_LOCK = threading.Lock()
+
+
+def create_tables(engine, tables=None, *, metadata=None) -> None:
+    """自愈建表（缺才建）的唯一入口。生产走 alembic，这里只兜「忘了迁移」与测试库。
+
+    各模块的 ensure_tables 会在不同线程里同时触发（启动时账号引导在线程池里跑，工作台
+    worker 认领任务又在另一个线程里建全部表）。checkfirst 是「先查后建」：并发时两边都
+    查到没有、再一起 CREATE，输的一方报 table already exists——SQLite 抛 OperationalError，
+    PostgreSQL 抛 ProgrammingError，后者账号引导接不住，会让启动直接失败。
+
+    进程内用一把锁串行；跨进程（多 worker）撞上时再按 checkfirst 走一遍，对方已经建好的
+    表会被跳过，真正的错误（连不上、没权限）第二遍照样抛出。
+    """
+    target = metadata if metadata is not None else Base.metadata
+    selected = list(tables) if tables is not None else None
+    with _SCHEMA_LOCK:
+        try:
+            target.create_all(engine, tables=selected, checkfirst=True)
+        except DBAPIError:
+            target.create_all(engine, tables=selected, checkfirst=True)
 
 
 @contextmanager

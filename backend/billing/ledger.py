@@ -40,13 +40,27 @@ def enforcement_enabled() -> bool:
     return os.getenv(ENFORCE_ENV, "0").strip() == "1"
 
 
-def ensure_tables() -> None:
-    """建表（缺才建）。生产走 alembic，这里保证冷启动与测试不会因为少表而 500。"""
-    from infra.database import database_url, engine_for
+_READY_URL: Optional[str] = None
 
-    engine = engine_for(database_url())
-    for model in (CreditLedger, UsageDaily, TopUp):
-        model.__table__.create(engine, checkfirst=True)
+
+def ensure_tables() -> None:
+    """建表（缺才建）。生产走 alembic，这里保证冷启动与测试不会因为少表而 500。
+
+    几乎每个账本操作都会先调这里：同一连接串在本进程只检查一次（与账号、节流、工作台
+    的 ensure_tables 同一手法），否则每次读余额都要多跑三条查表语句。
+    """
+    global _READY_URL
+    from infra.database import create_tables, database_url, engine_for
+
+    url = database_url()
+    if _READY_URL == url:
+        return
+    create_tables(
+        engine_for(url),
+        [model.__table__ for model in (CreditLedger, UsageDaily, TopUp)],
+        metadata=CreditLedger.metadata,
+    )
+    _READY_URL = url
 
 
 def _today() -> date:

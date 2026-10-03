@@ -10,6 +10,7 @@ import threading
 
 import pytest
 
+from workbench import store as workbench_store
 from workbench import worker
 
 
@@ -166,3 +167,34 @@ def test_supervise_cancels_the_run_when_the_heartbeat_fails(monkeypatch):
     assert cancelled == [True]
     assert writes[0][0] == "state" and writes[0][1]["status"] == "failed"
     assert writes[1][0] == "emit" and writes[1][1]["type"] == "error"
+
+
+def test_startup_self_healing_table_creation_does_not_race(tmp_path, monkeypatch):
+    """冷启动时 worker 认领任务（建全部表）与账号引导（建账号表）在不同线程里同时建表。
+
+    checkfirst 是先查后建：两边都查到没有、一起 CREATE，输的一方报 table already exists。
+    SQLite 下 worker 会记一条「数据库不可用」再等 5 秒；PostgreSQL 下账号引导接不住
+    ProgrammingError，启动直接失败。建表统一走 infra.database.create_tables 串行。
+    """
+    from infra import account_store, throttle
+
+    monkeypatch.setenv("LAWVER_WORKBENCH_TESTING", "1")
+    creators = (workbench_store.ensure_tables, account_store.ensure_tables, throttle.ensure_tables)
+    for round_index in range(8):
+        monkeypatch.setenv("LAWVER_DATABASE_URL", "sqlite:///" + str(tmp_path / f"cold-{round_index}.db"))
+        barrier = threading.Barrier(len(creators))
+        errors = []
+
+        def create(fn):
+            barrier.wait()
+            try:
+                fn()
+            except Exception as exc:  # 修复前：OperationalError: table ... already exists
+                errors.append(repr(exc)[:200])
+
+        threads = [threading.Thread(target=create, args=(fn,)) for fn in creators]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == [], errors

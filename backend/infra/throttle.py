@@ -74,12 +74,12 @@ _READY_URL: Optional[str] = None
 
 def ensure_tables() -> None:
     global _READY_URL
-    from infra.database import database_url, engine_for
+    from infra.database import create_tables, database_url, engine_for
 
     url = database_url()
     if _READY_URL == url:
         return
-    LoginThrottle.__table__.create(engine_for(url), checkfirst=True)
+    create_tables(engine_for(url), [LoginThrottle.__table__], metadata=LoginThrottle.metadata)
     _READY_URL = url
 
 
