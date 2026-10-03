@@ -392,3 +392,34 @@ class AuthRouteScopeTests(AuthTestCase):
             self.assertEqual(info["user_max_online"], 2)
         finally:
             admin_client.close()
+
+    def test_unlock_endpoint_is_scoped_to_owned_accounts(self):
+        """解锁端点：sudo 不限；admin 只能解锁自己名下的账号，越权回 403。"""
+        self.assertEqual(
+            self._create(self.sudo_client, "alice", "alice-password", role="admin", max_users=2).status_code,
+            200,
+        )
+        self.assertEqual(self._create(self.sudo_client, "outsider", "outsider-password").status_code, 200)
+        admin_client = TestClient(self.agent.app, base_url="http://localhost")
+        try:
+            self._login(admin_client, "alice", "alice-password")
+            self.assertEqual(self._create(admin_client, "bob", "bob-password").status_code, 200)
+
+            # 与应用同一份 auth 模块（setUp 里导入 agent 时重新加载过）。
+            auth = importlib.import_module("auth")
+            # 锁住 bob：同一来源连续输错到硬上限，来源桶即触发锁定。
+            for _ in range(auth.LOCKOUT_FAIL_LIMIT):
+                auth.authenticate_user("bob", "wrong-password", "198.51.100.77")
+            self.assertTrue(auth.check_lockout("bob", "198.51.100.77"))
+
+            own = admin_client.post("/api/admin/accounts/bob/unlock", headers={"origin": LOCAL_ORIGIN})
+            self.assertEqual(own.status_code, 200, own.text)
+            self.assertIsNone(auth.check_lockout("bob", "198.51.100.77"))
+
+            foreign = admin_client.post("/api/admin/accounts/outsider/unlock", headers={"origin": LOCAL_ORIGIN})
+            self.assertEqual(foreign.status_code, 403)
+        finally:
+            admin_client.close()
+
+        anyone = self.sudo_client.post("/api/admin/accounts/outsider/unlock", headers={"origin": LOCAL_ORIGIN})
+        self.assertEqual(anyone.status_code, 200, anyone.text)

@@ -40,9 +40,17 @@ def _clear_memory_scopes(scopes: list[str]) -> list[str]:
 
 @router.post("/api/court/turn")
 async def court_turn_endpoint(request: CourtTurnRequest, current_user: str = Depends(get_current_user)):
-    allowed, refusal = billing.can_spend(current_user)
+    # 读库一律进线程池：这是 async 端点，同步查库会卡住同一事件循环上的全部 SSE 流。
+    allowed, refusal = await run_in_threadpool(billing.can_spend, current_user)
     if not allowed:
         raise HTTPException(status_code=402, detail=refusal)
+    # 计费倍率在开轮时快照（与工作台 worker 同口径）；账号只读一次，不再为三个字段各查一遍。
+    account = (await run_in_threadpool(account_store.get_user, current_user)) or {}
+    multiplier = pricing.multiplier_for(
+        account.get("plan", "metered"),
+        account.get("billing_cycle", "prepaid"),
+        account.get("credit_multiplier"),
+    )
     try:
         prepared = await prepare_court_turn(request, current_user)
     except MemoryRevisionConflict as exc:
@@ -51,11 +59,7 @@ async def court_turn_endpoint(request: CourtTurnRequest, current_user: str = Dep
     async def generate():
         turn = metering.begin_turn(
             current_user,
-            multiplier=pricing.multiplier_for(
-                (account_store.get_user(current_user) or {}).get("plan", "metered"),
-                (account_store.get_user(current_user) or {}).get("billing_cycle", "prepaid"),
-                (account_store.get_user(current_user) or {}).get("credit_multiplier"),
-            ),
+            multiplier=multiplier,
             ref_id=request.court_session_id,
             reason="庭审推演",
         )
