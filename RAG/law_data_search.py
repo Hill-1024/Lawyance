@@ -13,7 +13,7 @@ import time
 from contextlib import closing, contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 try:
     import fcntl
