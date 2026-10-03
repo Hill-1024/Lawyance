@@ -6,7 +6,7 @@
  */
 
 import { motion, useReducedMotion } from 'motion/react';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   X,
   Search,
@@ -526,6 +526,12 @@ export const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey
   const [busy, setBusy] = useState('');
   const [userRole, setUserRole] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
+  // 失败提示要用当前语言的兜底文案，但语言变化不应该让整页配置重新拉取（会冲掉未保存的编辑）：
+  // 这段读 t 的逻辑放进 effect event，effect 本身只随 providerKey 重跑。
+  const reportLoadFailure = useEffectEvent((error: unknown) => {
+    setUserRole('user');
+    setLoadError(describeError(error, t('settings.loadFailed')));
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -547,10 +553,7 @@ export const ProviderSubPage: React.FC<{ providerKey: string }> = ({ providerKey
         setSavedProvider(JSON.stringify(nextSettings?.providers?.[providerKey] || {}));
         setStatuses(nextStatuses);
       } catch (error) {
-        if (!cancelled) {
-          setUserRole('user');
-          setLoadError(describeError(error, t('settings.loadFailed')));
-        }
+        if (!cancelled) reportLoadFailure(error);
       }
     };
 
@@ -1106,7 +1109,7 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
     {id:'shortcuts', label:t('settings.categories.shortcuts'), icon:Keyboard, hint:t('settings.categories.shortcutsHint')},
     {id:'help', label:t('settings.categories.help'), icon:BookOpen, hint:t('settings.categories.helpHint')},
     {id:'about', label:t('settings.categories.about'), icon:Info, hint:t('settings.categories.aboutHint')},
-  ], []);
+  ], [t]);
   // 旧分类（模型 / 服务连接 / 数据同步）已迁到后台控制台：深链一并落到外观，
   // 不做「未找到」的空面板，避免用户停在空白页。
   const LEGACY_PANES: Record<string, string> = {models:'appearance', providers:'appearance', data:'appearance', sync:'appearance', webdav:'appearance'};
@@ -1137,7 +1140,7 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
       if(onClose) onClose(); else navigate('/', {replace:true});
       return true;
     } finally {closing.current = false;}
-  }, [onClose, navigate, showConfirm]);
+  }, [onClose, navigate, showConfirm, t]);
   const closeRef = useRef(close); closeRef.current = close;
   useBackButton(() => {void closeRef.current(); return true;});
   useEffect(() => {

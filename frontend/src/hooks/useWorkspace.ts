@@ -245,7 +245,7 @@ export function useWorkspace(currentId: string, enabled = true) {
         tone: 'danger',
       });
     }
-  }, [currentId, showAlert, syncFiles]);
+  }, [currentId, releasePreviewUrl, showAlert, syncFiles, t]);
 
   const handleGeneratedFile = useCallback(async (name: string, path: string) => {
     const generatedConversationId = currentId;
@@ -359,7 +359,7 @@ export function useWorkspace(currentId: string, enabled = true) {
       deletionTombstonesRef.current.delete(tombstoneKey);
       console.error('Failed to delete file:', error);
     }
-  }, [currentId, deletionKey, showAlert, syncFiles, workspaceFiles]);
+  }, [currentId, deletionKey, showAlert, syncFiles, t, workspaceFiles]);
 
   const visibleWorkspaceFiles = useMemo(() => {
     const uploadingKeys = new Set(uploadingFiles.map(file => file.path || file.tempId || file.name));

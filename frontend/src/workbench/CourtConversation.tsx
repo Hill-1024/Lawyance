@@ -33,12 +33,15 @@ export default function CourtConversation({project,selection,onSelect,onCancel,d
   const phases: Record<string,string> = {opening:t('workbench.court.phaseOpening'),claim_statement:t('workbench.court.phaseClaim'),prosecution_statement:t('workbench.court.phaseProsecution'),defense_response:t('workbench.court.phaseDefense'),agency_response:t('workbench.court.phaseAgency'),court_inquiry:t('workbench.court.phaseInquiry'),legality_review:t('workbench.court.phaseLegality'),evidence_cross:t('workbench.court.phaseEvidence'),court_debate:t('workbench.court.phaseDebate'),final_statement:t('workbench.court.phaseFinal'),judge_summary:t('workbench.court.phaseSummary'),review:t('workbench.court.phaseReview')};
   const roles = {judge:{label:t('workbench.court.roleJudge'),Icon:Gavel},opponent:{label:t('workbench.court.roleOpponent'),Icon:Scale},reviewer:{label:t('workbench.court.roleReviewer'),Icon:BookOpen},user:{label:t('workbench.court.roleUser'),Icon:UserRound},system:{label:t('workbench.court.roleSystem'),Icon:FileText}};
   const dossierPanel=useRef<HTMLElement>(null);
-  useEffect(()=>{if(!dossier)return;const previous=document.activeElement as HTMLElement|null;dossierPanel.current?.querySelector<HTMLButtonElement>('button')?.focus();return()=>{if(previous?.isConnected)previous.focus();};},[Boolean(dossier)]);
+  // 只在卷宗面板「打开/关闭」时管理焦点；在公开/私密两页之间切换不算重新打开。
+  const dossierOpen=dossier!==null;
+  useEffect(()=>{if(!dossierOpen)return;const previous=document.activeElement as HTMLElement|null;dossierPanel.current?.querySelector<HTMLButtonElement>('button')?.focus();return()=>{if(previous?.isConnected)previous.focus();};},[dossierOpen]);
   const input=useRef<HTMLInputElement>(null),scroll=useRef<HTMLDivElement>(null),stick=useRef(true);
   const {ref:textarea}=useAutoGrowTextarea(court.composerText);
+  const {courtSessions,setCurrentCourtId}=court;
   useEffect(()=>{
-    if(isInitialized && selection!=='new' && court.courtSessions.some(s=>s.id===selection && (!project || s.project_id===project))) court.setCurrentCourtId(selection);
-  },[isInitialized,selection,project,court.courtSessions,court.setCurrentCourtId]);
+    if(isInitialized && selection!=='new' && courtSessions.some(s=>s.id===selection && (!project || s.project_id===project))) setCurrentCourtId(selection);
+  },[isInitialized,selection,project,courtSessions,setCurrentCourtId]);
   useEffect(()=>{if(stick.current && scroll.current)scroll.current.scrollTop=scroll.current.scrollHeight;},[session?.public_events,isRunning]);
   const creating=selection==='new';
   async function upload(list:FileList|null) {

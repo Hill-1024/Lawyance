@@ -110,7 +110,7 @@ export const SettingsShortcuts: React.FC = () => {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [recording]);
+  }, [recording, t]);
 
   return (
     <>

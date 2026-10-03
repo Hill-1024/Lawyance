@@ -232,9 +232,10 @@ export const GuidedTour: React.FC = () => {
     back: () => undefined,
   });
 
+  const stepCount = steps.length;
   const currentStep = steps[stepIndex] || steps[0];
   const isFirstStep = stepIndex === 0;
-  const isLastStep = stepIndex === steps.length - 1;
+  const isLastStep = stepIndex === stepCount - 1;
   const StepIcon = currentStep.icon;
 
   const closeTour = useCallback(() => {
@@ -252,8 +253,8 @@ export const GuidedTour: React.FC = () => {
       return;
     }
     setDirection(1);
-    setStepIndex(index => Math.min(index + 1, steps.length - 1));
-  }, [closeTour, isLastStep]);
+    setStepIndex(index => Math.min(index + 1, stepCount - 1));
+  }, [closeTour, isLastStep, stepCount]);
 
   const goBack = useCallback(() => {
     setDirection(-1);

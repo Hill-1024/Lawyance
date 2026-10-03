@@ -162,10 +162,14 @@ function App() {
       }
     };
     checkAuth();
+  }, []);
+
+  // 浏览器端申请持久化存储，与登录态探测是两件事，各用各的 effect；requestPersistence 引用稳定，只跑一次。
+  useEffect(() => {
     if (!isNative()) {
       requestPersistence().catch(console.error);
     }
-  }, []);
+  }, [requestPersistence]);
 
   useEffect(() => {
     if (!isNative()) return;

@@ -79,7 +79,8 @@ export function SidebarAccount({
   }, []);
 
   // 打开后按触发器与菜单实测矩形定位：优先上方，放不下翻下方，最后夹取在视窗内。
-  // 依赖里的 pos===null 只负责「从无到有」跑一次；重算由 open 翻转触发。
+  // positioned 是触发器：菜单首次拿到位置后才真正挂载，此时再量一次真实尺寸；重算由 open 翻转触发。
+  const positioned = pos !== null;
   useLayoutEffect(() => {
     if (!open) {
       setPos(null);
@@ -98,7 +99,7 @@ export function SidebarAccount({
       if (old && old.left === left && old.top === top && old.above === above) return old;
       return { left, top, above };
     });
-  }, [open, pos === null]);
+  }, [open, positioned]);
 
   return (
     <div

@@ -971,15 +971,22 @@ export function useCourtSession(enabled = true) {
   }, [drainInterjections, getCurrentSession, patchSession, processCourtStream, setStatusForSession]);
 
   // 自动模式：监听结构变化触发下一轮。
+  // 只取判定要用的原始值：整个会话对象每次流式更新都会换引用，直接依赖它会让计时器被反复重置。
+  const autoSessionId = currentCourtSession?.id;
+  const autoMode = Boolean(currentCourtSession?.auto_mode);
+  const trialOver = Boolean(currentCourtSession?.court_state.trial_over);
+  const awaitingUser = Boolean(currentCourtSession?.court_state.awaiting_user);
+  const forcedAdvance = Boolean(currentCourtSession?.court_state.forced_advance_requested);
+  const userAgentEnabled = Boolean(currentCourtSession?.court_state.user_agent_enabled);
+  // 下面两个值不参与判定，只作为「重新计时」的触发器：每推进一轮（total_turns 变化）
+  // 或有插话入队，都要重新排下一轮。
+  const totalTurns = currentCourtSession?.court_state.total_turns;
+  const pendingInterjectionCount = currentCourtSession?.pending_interjections.length ?? 0;
   useEffect(() => {
-    if (!currentCourtSession || !currentCourtSession.auto_mode || isRunning || currentCourtSession.court_state.trial_over) {
+    if (!autoSessionId || !autoMode || isRunning || trialOver) {
       return;
     }
-    if (
-      currentCourtSession.court_state.awaiting_user
-      && !currentCourtSession.court_state.forced_advance_requested
-      && !currentCourtSession.court_state.user_agent_enabled
-    ) {
+    if (awaitingUser && !forcedAdvance && !userAgentEnabled) {
       return;
     }
 
@@ -988,14 +995,14 @@ export function useCourtSession(enabled = true) {
     }, 450);
     return () => clearTimeout(timer);
   }, [
-    currentCourtSession?.id,
-    currentCourtSession?.auto_mode,
-    currentCourtSession?.court_state.awaiting_user,
-    currentCourtSession?.court_state.forced_advance_requested,
-    currentCourtSession?.court_state.total_turns,
-    currentCourtSession?.court_state.trial_over,
-    currentCourtSession?.court_state.user_agent_enabled,
-    currentCourtSession?.pending_interjections.length,
+    autoSessionId,
+    autoMode,
+    awaitingUser,
+    forcedAdvance,
+    totalTurns,
+    trialOver,
+    userAgentEnabled,
+    pendingInterjectionCount,
     isRunning,
     runNextTurn
   ]);

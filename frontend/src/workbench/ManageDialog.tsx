@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useState } from "react";
+import React, { useEffect, useEffectEvent, useId, useState } from "react";
 import { CheckBox } from "../components/CheckBox";
 import { X, Plus, Plug, Sparkles } from "lucide-react";
 import { useAppDialog } from "../contexts/DialogContext";
@@ -48,11 +48,13 @@ export function ManageDialog({
     [selected, setSelected] = useState<string[]>([]),
     [progress, setProgress] = useState("");
   useEffect(() => {if(embedded) reportEdit("extensions", Boolean(editing));}, [editing, embedded, reportEdit]);
+  // 报错是「拉取之后要做的事」，不是重新拉取的理由：onError 放进 effect event，切页签才重拉。
+  const reportLoadError = useEffectEvent((message: string) => onError(message));
   useEffect(() => {
     if (tab === "trash")
       api<Item[]>("/trash")
         .then(setTrash)
-        .catch((e) => onError(e.message));
+        .catch((e) => reportLoadError(e.message));
     if (tab === "migration")
       Promise.all([
         fileDB.getConversations(),
