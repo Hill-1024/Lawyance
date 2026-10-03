@@ -56,10 +56,12 @@ def _today() -> date:
 # ─── 读取 ─────────────────────────────────────────────────────────────────
 
 
-def balance_micro(session, username: str) -> int:
-    value = session.scalar(
-        select(Account.credits_balance).where(Account.username == username)
-    )
+def balance_micro(session, username: str, *, for_update: bool = False) -> int:
+    query = select(Account.credits_balance).where(Account.username == username)
+    if for_update:
+        # 先判余额再扣减的写路径必须锁行（SQLite 方言会忽略该子句，测试不受影响）。
+        query = query.with_for_update()
+    value = session.scalar(query)
     return int(value or 0)
 
 
@@ -343,7 +345,8 @@ def transfer_to_child(
     if delta <= 0:
         return False, "分配额度必须大于 0"
     with transaction() as session:
-        if balance_micro(session, parent) < delta:
+        # 锁住母账号行再判余额：否则两次并发划转会读到同一个旧余额、双双通过，把池子透支成负数。
+        if balance_micro(session, parent, for_update=True) < delta:
             return False, "母账号余额不足"
         _write_ledger(
             session,

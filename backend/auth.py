@@ -545,7 +545,8 @@ def update_custom_id(username: str, custom_id: Optional[str]) -> tuple[bool, str
     if outcome == "conflict":
         return False, "该自定义 ID 已被占用，请换一个。"
     if outcome != "ok":
-        return False, "保存失败，请稍后重试。", None
+        # 与其余分支同为二元组：路由按 (ok, error) 解包，多一个元素会直接 500。
+        return False, "保存失败，请稍后重试。"
     return True, ""
 
 
@@ -567,7 +568,7 @@ def schedule_plan_change(username: str, target_plan: str) -> tuple[bool, str, Op
     record = get_user_record(username)
     if not record:
         return False, "账号不存在。", None
-    current = record.get("plan", ROLE_USER)
+    current = record.get("plan") or "metered"
     if current == "business" or target_plan == "business":
         return False, "Business 套餐由组织管理，请编辑子账号与配额而不是变更自身套餐。", None
     if target_plan not in PLAN_RANK or current not in PLAN_RANK:
@@ -783,6 +784,9 @@ def upsert_account(
 
         actor_record = auth_store.get_user(actor) or {}
         inherited_online: Optional[int] = None
+        # admin 与 Business 母账号都属于「代建」：新账号的在线上限继承创建者的 m，
+        # 不接受调用方自带的配额。
+        delegated_creator = False
         # Business 母账号建子账号：规则与 admin 建用户一致——只能建普通用户、
         # 只能管自己名下的、受自己的 max_users 约束。
         if actor_role not in (ROLE_SUDO, ROLE_ADMIN) and actor_record.get("plan") == "business":
@@ -797,6 +801,7 @@ def upsert_account(
             owner = existing.get("owner") if existing else actor
             effective_role = ROLE_USER
             inherited_online = actor_record.get("user_max_online")
+            delegated_creator = True
         elif actor_role == ROLE_ADMIN:
             if requested_role not in (None, ROLE_USER):
                 return False, "管理员只能创建普通用户"
@@ -814,6 +819,7 @@ def upsert_account(
             effective_role = ROLE_USER
             # admin 创建的 user 继承该 admin 的 m（user_max_online），且不可自行修改。
             inherited_online = actor_record.get("user_max_online")
+            delegated_creator = True
         else:
             if (
                 username == BUILTIN_SUDO_USERNAME
@@ -836,7 +842,7 @@ def upsert_account(
         created = existing is None
         try:
             if created:
-                if actor_role == ROLE_ADMIN:
+                if delegated_creator:
                     new_max_online = inherited_online
                     new_max_users = None
                     new_user_max_online = None

@@ -205,6 +205,43 @@ class LedgerTests(BillingTestCase):
         self.assertTrue(allowed, reason)
         self.assertAlmostEqual(self.pricing.as_credits(self.ledger.balance("bob")), 0.0, places=2)
 
+    def test_allocation_reads_the_parent_balance_under_a_row_lock(self):
+        """先判余额再扣减必须锁住母账号行，否则两次并发划转会读到同一旧余额、一起透支。
+
+        测试库是 SQLite（方言会省略 FOR UPDATE），这里按 PostgreSQL 方言编译实际语句来确认加锁。
+        """
+        from unittest import mock
+
+        from sqlalchemy.dialects import postgresql
+
+        self.store.update_user("bob", plan="business")
+        self.store.insert_user_record(
+            {
+                "username": "kid",
+                "password_hash": self.auth.hash_password("kid-password"),
+                "role": "user",
+                "owner": "bob",
+            }
+        )
+        compiled = []
+        original = self.ledger.balance_micro
+
+        def spy(session, username, **kwargs):
+            real_scalar = session.scalar
+
+            def capture(statement, *args, **kw):
+                compiled.append(str(statement.compile(dialect=postgresql.dialect())))
+                return real_scalar(statement, *args, **kw)
+
+            with mock.patch.object(session, "scalar", capture):
+                return original(session, username, **kwargs)
+
+        with mock.patch.object(self.ledger, "balance_micro", spy):
+            ok, message = self.ledger.transfer_to_child("bob", "kid", 1, actor="bob")
+        self.assertTrue(ok, message)
+        self.assertEqual(len(compiled), 1)
+        self.assertIn("FOR UPDATE", compiled[0])
+
     def test_allocation_refuses_when_parent_is_short(self):
         self.store.update_user("bob", plan="business")
         self.store.insert_user_record(
@@ -267,6 +304,19 @@ class SubaccountStatusTests(BillingTestCase):
         ok, message = self.auth.set_account_status("outsider", "kid", "suspended")
         self.assertFalse(ok)
         self.assertIn("权限不足", message)
+
+    def test_business_subaccount_inherits_the_parent_online_limit(self):
+        """与 admin 代建的 user 同一规则：子账号的在线上限继承母账号的 user_max_online。"""
+        self.store.update_user("biz", user_max_online=2)
+        ok, message = self.auth.upsert_account("biz", "kid2", "kid2-password-1", role="user")
+        self.assertTrue(ok, message)
+        record = self.auth.get_user_record("kid2")
+        self.assertEqual(record["owner"], "biz")
+        self.assertEqual(record["role"], "user")
+        self.assertEqual(record["max_online"], 2)
+        # 母账号不能借建号给子账号开子配额。
+        self.assertIsNone(record["max_users"])
+        self.assertIsNone(record["user_max_online"])
 
 
 if __name__ == "__main__":

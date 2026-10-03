@@ -9,6 +9,7 @@ from fastapi.responses import Response as FastAPIResponse
 from starlette.concurrency import run_in_threadpool
 
 from auth import (
+    AVATAR_MAX_BYTES,
     ROLE_ADMIN,
     authenticate_user,
     cancel_pending_plan,
@@ -214,7 +215,9 @@ async def upload_avatar(
     current_user: str = Depends(get_current_user),
 ):
     content_type = (file.content_type or "").split(";")[0].strip().lower()
-    data = await file.read()
+    # 只多读 1 字节用于判超限：整文件 read() 会把任意大小的上传全部搬进内存
+    # （JSON 体限长管不到 multipart），与 workspace 上传的 read_limited_upload 同一手法。
+    data = await file.read(AVATAR_MAX_BYTES + 1)
     version, error = await run_in_threadpool(update_avatar, current_user, data, content_type)
     if version is None:
         raise HTTPException(status_code=422, detail=error)
@@ -248,11 +251,6 @@ async def serve_avatar(uid: str):
             "Content-Disposition": "inline",
         },
     )
-    return {
-        "authenticated": True,
-        "username": username,
-        "role": await run_in_threadpool(get_user_role, username),
-    }
 
 
 @router.post("/api/password")

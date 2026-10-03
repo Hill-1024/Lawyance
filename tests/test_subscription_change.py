@@ -95,6 +95,41 @@ class SubscriptionChangeTests(unittest.TestCase):
         self.assertEqual(cancelled.status_code, 200)
         self.assertIsNone(cancelled.json()["profile"]["pending_plan"])
 
+    def test_switch_to_metered_drops_the_subscription_discount_when_applied(self):
+        """切回按量落地后计费方式必须回到 prepaid：倍率由 billing_cycle 决定，
+        只改 plan 的话用户会一直按月付 0.8 的折扣扣费。"""
+        self.store.update_user("pro-user", billing_cycle="monthly")
+        self._login("pro-user")
+        self.assertEqual(self.client.get("/api/credits").json()["multiplier"], 0.8)
+        self.assertEqual(
+            self.client.post("/api/subscription/change", json={"target_plan": "metered"}).status_code,
+            200,
+        )
+        self.store.set_pending_plan("pro-user", "metered", datetime.now(timezone.utc) - timedelta(days=1))
+
+        credits = self.client.get("/api/credits").json()
+        self.assertEqual(credits["plan"], "metered")
+        self.assertEqual(credits["billing_cycle"], "prepaid")
+        self.assertEqual(credits["multiplier"], 1.0)
+
+    def test_downgrade_between_paid_tiers_keeps_the_billing_cycle(self):
+        self.store.update_user("pro-user", billing_cycle="monthly")
+        self.store.set_pending_plan("pro-user", "go", datetime.now(timezone.utc) - timedelta(days=1))
+        self._login("pro-user")
+        credits = self.client.get("/api/credits").json()
+        self.assertEqual(credits["plan"], "go")
+        self.assertEqual(credits["billing_cycle"], "monthly")
+        self.assertEqual(credits["multiplier"], 0.8)
+
+    def test_missing_plan_is_treated_as_metered(self):
+        """plan 缺省按 metered 理解：此前误取角色常量 "user"，任何变更都报「未知的目标套餐」。"""
+        from unittest import mock
+
+        with mock.patch.object(self.auth, "get_user_record", return_value={"username": "x", "plan": None}):
+            ok, message, _ = self.auth.schedule_plan_change("x", "go")
+        self.assertFalse(ok)
+        self.assertIn("升级", message)
+
     def test_upgrade_is_rejected_here(self):
         self._login("go-user")
         for target in ("pro", "max", "business"):
