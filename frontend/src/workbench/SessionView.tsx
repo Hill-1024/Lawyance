@@ -70,8 +70,16 @@ export function SessionView({
   onClearCourtReference,
   onError,
 }: SessionViewProps) {
-  // 放在早退之前：庭审分支也要用词条，且无条件调用 hook 顺序才稳定。
+  // 全部 hook 都放在庭审早退之前、无条件调用：Workbench 在庭审与普通会话之间切换时
+  // 复用的是同一个 SessionView 实例，早退后再调 hook 会让两种渲染的 hook 数量不一致。
+  // 生产构建里 React 不会报错，表现为从庭审切回会话时下面这些状态被悄悄重置。
   const { t } = useT();
+  // 执行过程挂在「Lawver」标签行右侧：状态本身就是开关标签，展开后时间线出现在标签行下方。
+  const [timelineOpen, setTimelineOpen] = React.useState(false);
+  const reduceMotion = useReducedMotion();
+  React.useEffect(() => {
+    if (running) setTimelineOpen(true);
+  }, [running]);
   if (courtSelection)
     return (
       <section
@@ -100,12 +108,6 @@ export function SessionView({
         </React.Suspense>
       </section>
     );
-  // 执行过程挂在「Lawver」标签行右侧：状态本身就是开关标签，展开后时间线出现在标签行下方。
-  const [timelineOpen, setTimelineOpen] = React.useState(false);
-  const reduceMotion = useReducedMotion();
-  React.useEffect(() => {
-    if (running) setTimelineOpen(true);
-  }, [running]);
   const RUN_TEXT: Record<string, string> = {
     queued: t("workbench.session.runQueued"),
     running: t("workbench.session.runRunning"),
