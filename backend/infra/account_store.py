@@ -32,6 +32,7 @@ from sqlalchemy import (
     select,
     update,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
 from infra.database import Base, now as utcnow, transaction
@@ -293,22 +294,25 @@ def delete_user_row(username: str) -> bool:
 def set_custom_id(username: str, custom_id: Optional[str]) -> str:
     """写入自选句柄；返回 "ok" 或 "conflict"（撞了别人的句柄）。
 
-    先查后写处理最常见的冲突；并发窗口撞唯一约束时 IntegrityError 会抛给调用方，
-    路由层转 409。
+    先查后写处理最常见的冲突；先查后写之间被人抢注时由唯一约束兜底，
+    同样按 "conflict" 返回（路由层转 409），而不是把 IntegrityError 抛成 500。
     """
     ensure_tables()
-    with transaction() as session:
-        if custom_id:
-            owner = session.execute(
-                select(Account.username).where(Account.custom_id == custom_id)
-            ).first()
-            if owner and owner[0] != username:
-                return "conflict"
-        session.execute(
-            update(Account)
-            .where(Account.username == username)
-            .values(custom_id=custom_id, updated_at=utcnow())
-        )
+    try:
+        with transaction() as session:
+            if custom_id:
+                owner = session.execute(
+                    select(Account.username).where(Account.custom_id == custom_id)
+                ).first()
+                if owner and owner[0] != username:
+                    return "conflict"
+            session.execute(
+                update(Account)
+                .where(Account.username == username)
+                .values(custom_id=custom_id, updated_at=utcnow())
+            )
+    except IntegrityError:
+        return "conflict"
     return "ok"
 
 
@@ -384,10 +388,18 @@ def apply_pending_plan_if_due(username: str, *, now: Optional[datetime] = None) 
         effective = row[2] if row[2].tzinfo else row[2].replace(tzinfo=timezone.utc)
         if moment < effective:
             return None
+        values: dict[str, Any] = {
+            "plan": row[1],
+            "pending_plan": None,
+            "pending_effective_at": None,
+            "updated_at": utcnow(),
+        }
+        if row[1] == "metered":
+            # 切回按量 = 退出订阅：计费方式一并回到 prepaid（与管理台开按量户的口径一致），
+            # 否则 multiplier_for 仍按 monthly/yearly 给订阅折扣。
+            values["billing_cycle"] = "prepaid"
         session.execute(
-            update(Account)
-            .where(Account.username == username)
-            .values(plan=row[1], pending_plan=None, pending_effective_at=None, updated_at=utcnow())
+            update(Account).where(Account.username == username).values(**values)
         )
         return row[1]
 

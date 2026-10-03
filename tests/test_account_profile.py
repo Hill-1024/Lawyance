@@ -121,6 +121,67 @@ class AccountProfileTests(unittest.TestCase):
         gone = self.client.get(f"/api/avatars/{uid}")
         self.assertEqual(gone.status_code, 404)
 
+    def test_custom_id_unique_constraint_race_is_a_conflict_not_a_500(self):
+        """先查后写之间被人抢注时，唯一约束兜底也要回 409，而不是 IntegrityError 冒成 500。"""
+        import contextlib
+        from unittest import mock
+
+        from sqlalchemy.exc import IntegrityError
+
+        store = importlib.import_module("infra.account_store")
+
+        @contextlib.contextmanager
+        def racing_transaction(*_args, **_kwargs):
+            session = mock.Mock()
+            session.execute.return_value.first.return_value = None  # 预检查没看到占用者
+            yield session
+            raise IntegrityError("UPDATE accounts", {}, Exception("UNIQUE constraint failed"))
+
+        real_set_custom_id = store.set_custom_id
+
+        def racing_set_custom_id(username, custom_id):
+            # 只在这一次写入里换掉事务：鉴权、读资料等其余查库照常走真实库。
+            with mock.patch.object(store, "transaction", racing_transaction):
+                return real_set_custom_id(username, custom_id)
+
+        with mock.patch.object(store, "set_custom_id", racing_set_custom_id):
+            response = self.client.patch("/api/profile", json={"custom_id": "taken-handle"})
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("已被占用", response.json()["detail"])
+
+    def test_custom_id_save_failure_is_reported_not_a_500(self):
+        """存储层返回未知结果时 update_custom_id 也必须是 (ok, error) 二元组。"""
+        from unittest import mock
+
+        with mock.patch.object(self.auth.auth_store, "set_custom_id", return_value="error"):
+            response = self.client.patch("/api/profile", json={"custom_id": "some-handle"})
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("保存失败", response.json()["detail"])
+
+    def test_oversized_avatar_is_rejected_with_a_bounded_read(self):
+        """超限头像要拒绝，且读取必须限长：整文件 read() 会把任意大小的上传搬进内存。"""
+        from unittest import mock
+
+        from starlette.datastructures import UploadFile
+
+        original_read = UploadFile.read
+        sizes = []
+
+        async def spy_read(upload, size=-1):
+            sizes.append(size)
+            return await original_read(upload, size)
+
+        oversized = PNG_1PX + b"\0" * (self.auth.AVATAR_MAX_BYTES + 16)
+        with mock.patch.object(UploadFile, "read", spy_read):
+            response = self.client.put(
+                "/api/profile/avatar",
+                files={"file": ("big.png", oversized, "image/png")},
+            )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("1 MB", response.json()["detail"])
+        self.assertTrue(sizes)
+        self.assertTrue(all(0 < size <= self.auth.AVATAR_MAX_BYTES + 1 for size in sizes), sizes)
+
     def test_avatar_requires_auth(self):
         self.client.post("/api/logout")
         response = self.client.put(
