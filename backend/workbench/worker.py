@@ -27,6 +27,24 @@ log = logging.getLogger("lawver.workbench")
 worker_id = new_id()
 
 
+async def _offload(fn, *args, **kwargs):
+    """把同步的数据库事务 / 阻塞 IO 放进线程执行，不占用事件循环。
+
+    worker 与 API、SSE 共用同一个事件循环：在协程里直接开事务，每次都让其他请求陪着
+    等一个数据库往返（流式输出时每秒好几次）。
+
+    取消语义与原来的同步调用保持一致：任务被取消时，已经开始的事务先提交完，再把取消
+    抛出去。否则「停止」之后补写的 stopped/done 事件可能排到一条仍在提交的旧事件前面，
+    同一 run 的事件顺序就乱了。
+    """
+    future = asyncio.ensure_future(asyncio.to_thread(fn, *args, **kwargs))
+    try:
+        return await asyncio.shield(future)
+    except asyncio.CancelledError:
+        await asyncio.gather(future, return_exceptions=True)
+        raise
+
+
 def emit(run_id, payload):
     with transaction() as s:
         run = s.scalar(select(Item).where(Item.id == run_id).with_for_update())
@@ -47,6 +65,17 @@ def change_state(identifier, **values):
         run = s.scalar(select(Item).where(Item.id == identifier).with_for_update())
         run.data = {**run.data, **values}
         run.updated_at = now()
+
+
+def heartbeat(identifier, user):
+    """续租并读取停止请求；返回用户是否已请求停止。"""
+    with transaction() as s:
+        run = get_item(s, user, identifier, "run", lock=True)
+        run.data = {
+            **run.data,
+            "lease_until": (now() + timedelta(seconds=90)).isoformat(),
+        }
+        return bool(run.data.get("stop_requested"))
 
 
 def claim():
@@ -102,11 +131,6 @@ def schema(name, description, properties, required):
 
 
 async def execute(identifier, user):
-    from workbench.api import create_document
-    from schemas import ChatRequest
-    from services.chat_pipeline import prepare_chat_turn, run_agent_stream
-    from services.agent_builder import build_tool_executor
-    from services.workspace_service import get_workspace_scope, get_workspace_dirs
     from billing import ledger as billing_ledger, metering, pricing as billing_pricing
     from infra import account_store
 
@@ -122,15 +146,44 @@ async def execute(identifier, user):
         ref_id=identifier,
         reason="工作台任务",
     )
-    await asyncio.to_thread(billing_ledger.ensure_tables)
+    summary = {}
+    try:
+        await asyncio.to_thread(billing_ledger.ensure_tables)
+        await _execute_turn(identifier, user)
+    finally:
+        # 结算必须放在 finally：用户点「停止」时 supervise 会取消本任务，流程抛错时异常也会
+        # 直接冒泡——两条路径都走不到函数末尾，但此前的模型/工具调用已经真实发生，照样要落账。
+        # settle 自身吞掉所有异常，不会盖住正在传播的取消或错误；_offload 保证再次取消时
+        # 也等扣费提交完成。
+        summary = await _offload(billing_ledger.settle, turn)
+        metering.end_turn()
+    if summary:
+        await _offload(emit, identifier, {"type": "usage", "content": summary})
 
-    with transaction() as s:
-        run = get_item(s, user, identifier, "run")
-        data = copy.deepcopy(run.data)
-        project_id = run.project_id
-        conv_id = run.parent_id
-        conv = get_item(s, user, conv_id, "conversation")
-        messages = copy.deepcopy(conv.data.get("messages", []))
+
+async def _execute_turn(identifier, user):
+    """一轮工作台任务的主体：组装引用与工具、跑智能体流、落最终回复与产物。
+
+    计量轮次由 execute 开启并在其 finally 里结算；这里只管干活。
+    """
+    from workbench.api import create_document
+    from schemas import ChatRequest
+    from services.chat_pipeline import prepare_chat_turn, run_agent_stream
+    from services.agent_builder import build_tool_executor
+    from services.workspace_service import get_workspace_scope, get_workspace_dirs
+
+    def load_run():
+        with transaction() as s:
+            run = get_item(s, user, identifier, "run")
+            conv = get_item(s, user, run.parent_id, "conversation")
+            return (
+                copy.deepcopy(run.data),
+                run.project_id,
+                run.parent_id,
+                copy.deepcopy(conv.data.get("messages", [])),
+            )
+
+    data, project_id, conv_id, messages = await _offload(load_run)
     refs = data["references"]
     allowed_docs = {
         x["id"] for x in refs if x["kind"] in ("document", "selection", "region")
@@ -139,50 +192,56 @@ async def execute(identifier, user):
     temp_dir, result_dir = get_workspace_dirs(user, identifier)
     Path(temp_dir).mkdir(parents=True, exist_ok=True)
     Path(result_dir).mkdir(parents=True, exist_ok=True)
+
+    def materialize(ref):
+        """把引用的文件版本落到本轮临时目录（区域引用顺带裁图）。
+
+        读库、拷贝 blob、渲染 PDF 页面都是阻塞操作，整体放进线程执行。
+        """
+        with transaction() as s:
+            version = s.scalar(
+                select(Version).where(
+                    Version.document_id == ref["id"],
+                    Version.owner == user,
+                    Version.revision == ref["revision"],
+                )
+            )
+            if not version:
+                raise ValueError("Missing version")
+            d = copy.deepcopy(version.data)
+        path = None
+        if d.get("blob_key"):
+            suffix = Path(ref["title"]).suffix
+            path = Path(temp_dir) / (ref["id"] + suffix)
+            path.write_bytes(BlobStore().path(d["blob_key"]).read_bytes())
+        if ref["kind"] == "region":
+            import fitz
+
+            with fitz.open(path) as source:
+                page = source[ref["page"] - 1]
+                # Coordinates are stored in unrotated page space by the client.
+                page.set_rotation(0)
+                box = page.rect
+                a, b, c, e = ref["rect"]
+                clip = fitz.Rect(
+                    a * box.width, b * box.height, c * box.width, e * box.height
+                )
+                pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), clip=clip)
+                path = Path(temp_dir) / (ref["id"] + "-region.png")
+                pix.save(path)
+        return {
+            "id": ref["id"],
+            "title": ref["title"],
+            "revision": ref["revision"],
+            "kind": ref["kind"],
+            "text": ref.get("text", ""),
+            "file_path": str(path) if path else None,
+        }
+
     context = []
     for ref in refs:
         if ref["kind"] in ("document", "selection", "region"):
-            with transaction() as s:
-                version = s.scalar(
-                    select(Version).where(
-                        Version.document_id == ref["id"],
-                        Version.owner == user,
-                        Version.revision == ref["revision"],
-                    )
-                )
-                if not version:
-                    raise ValueError("Missing version")
-                d = copy.deepcopy(version.data)
-            path = None
-            if d.get("blob_key"):
-                suffix = Path(ref["title"]).suffix
-                path = Path(temp_dir) / (ref["id"] + suffix)
-                path.write_bytes(BlobStore().path(d["blob_key"]).read_bytes())
-            if ref["kind"] == "region":
-                import fitz
-
-                with fitz.open(path) as source:
-                    page = source[ref["page"] - 1]
-                    # Coordinates are stored in unrotated page space by the client.
-                    page.set_rotation(0)
-                    box = page.rect
-                    a, b, c, e = ref["rect"]
-                    clip = fitz.Rect(
-                        a * box.width, b * box.height, c * box.width, e * box.height
-                    )
-                    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), clip=clip)
-                    path = Path(temp_dir) / (ref["id"] + "-region.png")
-                    pix.save(path)
-            context.append(
-                {
-                    "id": ref["id"],
-                    "title": ref["title"],
-                    "revision": ref["revision"],
-                    "kind": ref["kind"],
-                    "text": ref.get("text", ""),
-                    "file_path": str(path) if path else None,
-                }
-            )
+            context.append(await _offload(materialize, ref))
         elif ref["kind"] == "skill":
             context.append(
                 {
@@ -268,65 +327,83 @@ async def execute(identifier, user):
     async def dispatch(name, args):
         try:
             if name == "create_document":
-                with transaction() as s:
-                    item = create_document(
-                        s,
-                        user,
-                        project_id,
-                        str(args["title"])[:300],
-                        native(str(args["text"])[:2000000]),
-                    )
-                    allowed_docs.add(item.id)
-                    result = {
-                        "document_id": item.id,
-                        "title": item.title,
-                        "revision": item.revision,
-                    }
-                emit(identifier, {"type": "document", "content": result})
+
+                def create():
+                    with transaction() as s:
+                        item = create_document(
+                            s,
+                            user,
+                            project_id,
+                            str(args["title"])[:300],
+                            native(str(args["text"])[:2000000]),
+                        )
+                        return {
+                            "document_id": item.id,
+                            "title": item.title,
+                            "revision": item.revision,
+                        }
+
+                result = await _offload(create)
+                # 提交成功之后才放行引用：事务失败时不能留下一个不存在的「已允许」文档。
+                allowed_docs.add(result["document_id"])
+                await _offload(emit, identifier, {"type": "document", "content": result})
                 return json.dumps(result, ensure_ascii=False)
             if name == "propose_document_change":
                 if args["document_id"] not in allowed_docs:
                     raise HTTPException(403, "文档未被引用")
-                with transaction() as s:
-                    doc = get_item(s, user, args["document_id"], "document")
-                    if doc.data.get("format") != "native":
-                        raise HTTPException(
-                            409,
-                            "原始 PDF/Word 不可直接修改，请让用户创建编辑副本后引用",
-                        )
-                    from workbench.documents import replace_text
 
-                    replace_text(doc.data["content"], args["before"], args["after"])
-                    p = Item(
-                        id=new_id(),
-                        owner=user,
-                        kind="proposal",
-                        project_id=project_id,
-                        parent_id=doc.id,
-                        title=str(args["reason"])[:300],
-                        data={
-                            "before": args["before"],
-                            "after": args["after"],
-                            "reason": args["reason"],
-                            "base_revision": doc.revision,
-                            "source_revision": doc.revision,
-                            "status": "pending",
-                            "run_id": identifier,
-                            "conversation_id": conv_id,
-                        },
-                    )
-                    s.add(p)
-                    s.flush()
-                    result = {"proposal_id": p.id, "document_id": doc.id}
-                emit(identifier, {"type": "proposal", "content": result})
+                def propose():
+                    with transaction() as s:
+                        doc = get_item(s, user, args["document_id"], "document")
+                        if doc.data.get("format") != "native":
+                            raise HTTPException(
+                                409,
+                                "原始 PDF/Word 不可直接修改，请让用户创建编辑副本后引用",
+                            )
+                        from workbench.documents import replace_text
+
+                        replace_text(doc.data["content"], args["before"], args["after"])
+                        p = Item(
+                            id=new_id(),
+                            owner=user,
+                            kind="proposal",
+                            project_id=project_id,
+                            parent_id=doc.id,
+                            title=str(args["reason"])[:300],
+                            data={
+                                "before": args["before"],
+                                "after": args["after"],
+                                "reason": args["reason"],
+                                "base_revision": doc.revision,
+                                "source_revision": doc.revision,
+                                "status": "pending",
+                                "run_id": identifier,
+                                "conversation_id": conv_id,
+                            },
+                        )
+                        s.add(p)
+                        s.flush()
+                        return {"proposal_id": p.id, "document_id": doc.id}
+
+                result = await _offload(propose)
+                await _offload(emit, identifier, {"type": "proposal", "content": result})
                 return json.dumps(result)
             if name in remote:
                 connector_id, tool = remote[name]
-                with transaction() as s:
-                    item = get_item(s, user, connector_id, "connector")
-                    config = copy.deepcopy(item.data)
-                    if not config.get("enabled"):
-                        raise HTTPException(403, "插件已停用")
+
+                def load_connector():
+                    with transaction() as s:
+                        item = get_item(s, user, connector_id, "connector")
+                        config = copy.deepcopy(item.data)
+                        if not config.get("enabled"):
+                            raise HTTPException(403, "插件已停用")
+                        return config
+
+                def read_approval():
+                    with transaction() as s:
+                        return get_item(s, user, identifier, "run").data.get("approval")
+
+                config = await _offload(load_connector)
                 # Read-only annotations are external hints, not trusted authority. Confirm all remote calls.
                 call_id = new_id()
                 confirmation = {
@@ -335,23 +412,24 @@ async def execute(identifier, user):
                     "tool": tool["name"],
                     "arguments": args,
                 }
-                change_state(
+                await _offload(
+                    change_state,
                     identifier,
                     status="waiting_confirmation",
                     confirmation=confirmation,
                     approval=None,
                 )
-                emit(identifier, {"type": "confirmation", "content": confirmation})
+                await _offload(
+                    emit, identifier, {"type": "confirmation", "content": confirmation}
+                )
                 for _ in range(600):
                     await asyncio.sleep(1)
-                    with transaction() as s:
-                        r = get_item(s, user, identifier, "run")
-                        approval = r.data.get("approval")
+                    approval = await _offload(read_approval)
                     if approval and approval.get("call_id") == call_id:
                         break
                 else:
                     raise HTTPException(408, "等待确认超时")
-                change_state(identifier, status="running", confirmation=None)
+                await _offload(change_state, identifier, status="running", confirmation=None)
                 if not approval["allow"]:
                     return "用户拒绝本次调用。"
                 result = await connectors.invoke(config, tool["name"], args)
@@ -375,6 +453,32 @@ async def execute(identifier, user):
     prepared.agent._allowed_tool_names = prepared.agent._tool_names(
         prepared.agent.tools
     )
+
+    def save_reply(answer, trace):
+        """把本轮回复（含中断时的部分回复）追加到会话消息末尾。"""
+        with transaction() as s:
+            conv = get_item(s, user, conv_id, "conversation", lock=True)
+            final = {
+                "id": new_id(),
+                "role": "assistant",
+                "content": answer,
+                "run_id": identifier,
+                "trace": trace,
+                "created_at": now().isoformat(),
+            }
+            # A normal final answer is outside history_trace in default mode.
+            if (
+                not trace
+                or trace[-1].get("role") != "assistant"
+                or trace[-1].get("content") != answer
+            ):
+                final["trace"] = [*trace, {"role": "assistant", "content": answer}]
+            conv.data = {
+                **conv.data,
+                "messages": [*conv.data.get("messages", []), final],
+            }
+            conv.updated_at = now()
+
     answer = ""
     trace = []
     failure = False
@@ -399,75 +503,67 @@ async def execute(identifier, user):
                 pending += event.get("content", "")
                 if time.monotonic() - last_flush < 0.15 and len(pending) < 1000:
                     continue
-                emit(identifier, {"type": "content", "content": pending})
-                pending = ""
+                # 先清空缓冲再等落库：等待期间被取消时，finally 不会把同一段正文再补发一遍。
+                chunk, pending = pending, ""
+                await _offload(emit, identifier, {"type": "content", "content": chunk})
                 last_flush = time.monotonic()
             else:
                 if pending:
-                    emit(identifier, {"type": "content", "content": pending})
-                    pending = ""
-                emit(identifier, event)
+                    chunk, pending = pending, ""
+                    await _offload(emit, identifier, {"type": "content", "content": chunk})
+                await _offload(emit, identifier, event)
     finally:
         if pending:
-            emit(identifier, {"type": "content", "content": pending})
+            chunk, pending = pending, ""
+            await _offload(emit, identifier, {"type": "content", "content": chunk})
         if answer or trace:
-            with transaction() as s:
-                conv = get_item(s, user, conv_id, "conversation", lock=True)
-                final = {
-                    "id": new_id(),
-                    "role": "assistant",
-                    "content": answer,
-                    "run_id": identifier,
-                    "trace": trace,
-                    "created_at": now().isoformat(),
-                }
-                # A normal final answer is outside history_trace in default mode.
-                if (
-                    not trace
-                    or trace[-1].get("role") != "assistant"
-                    or trace[-1].get("content") != answer
-                ):
-                    final["trace"] = [*trace, {"role": "assistant", "content": answer}]
-                conv.data = {
-                    **conv.data,
-                    "messages": [*conv.data.get("messages", []), final],
-                }
-                conv.updated_at = now()
-    # Preserve legacy tool artifacts as durable project documents.
-    for path in Path(result_dir).rglob("*"):
-        if not path.is_file() or path.stat().st_size > 32 * 1024 * 1024:
-            continue
-        try:
-            raw = path.read_bytes()
-            d = extract(raw, path.name)
-            d.update(
-                blob_key=BlobStore().put(raw), size=len(raw), source_run=identifier
+            await _offload(save_reply, answer, trace)
+
+    def list_artifacts():
+        return [
+            path
+            for path in Path(result_dir).rglob("*")
+            if path.is_file() and path.stat().st_size <= 32 * 1024 * 1024
+        ]
+
+    def archive(path):
+        """把一份旧工具产物归档成项目文档。读盘、解析（PDF/Word 可达 32MB）、落 blob、
+        建条目都是阻塞操作，整体在线程里完成（上传接口同样这么做）。"""
+        raw = path.read_bytes()
+        d = extract(raw, path.name)
+        d.update(blob_key=BlobStore().put(raw), size=len(raw), source_run=identifier)
+        with transaction() as s:
+            item = Item(
+                id=new_id(),
+                owner=user,
+                kind="document",
+                project_id=project_id,
+                title=path.name,
+                revision=1,
+                data=d,
+                searchable=d.get("text", ""),
             )
-            with transaction() as s:
-                item = Item(
-                    id=new_id(),
-                    owner=user,
-                    kind="document",
-                    project_id=project_id,
-                    title=path.name,
-                    revision=1,
-                    data=d,
-                    searchable=d.get("text", ""),
-                )
-                s.add(item)
-                s.flush()
-                save_version(s, item)
-                result = {"document_id": item.id, "title": item.title}
-            emit(identifier, {"type": "document", "content": result})
+            s.add(item)
+            s.flush()
+            save_version(s, item)
+            return {"document_id": item.id, "title": item.title}
+
+    # Preserve legacy tool artifacts as durable project documents.
+    for path in await _offload(list_artifacts):
+        try:
+            result = await _offload(archive, path)
+            await _offload(emit, identifier, {"type": "document", "content": result})
         except Exception:
-            emit(
+            await _offload(
+                emit,
                 identifier,
                 {
                     "type": "artifact_error",
                     "content": "一份工具产物无法归档，请检查任务结果。",
                 },
             )
-    change_state(
+    await _offload(
+        change_state,
         identifier,
         status="failed" if failure else "completed",
         **(
@@ -476,12 +572,7 @@ async def execute(identifier, user):
             else {}
         ),
     )
-    emit(identifier, {"type": "done"})
-    # 结算放在最后：无论成功、失败还是中断，已经花掉的用量都要落账。
-    summary = await asyncio.to_thread(billing_ledger.settle, turn)
-    metering.end_turn()
-    if summary:
-        emit(identifier, {"type": "usage", "content": summary})
+    await _offload(emit, identifier, {"type": "done"})
 
 
 async def supervise(identifier, user):
@@ -489,31 +580,34 @@ async def supervise(identifier, user):
     try:
         while not task.done():
             await asyncio.sleep(1)
-            with transaction() as s:
-                run = get_item(s, user, identifier, "run", lock=True)
-                stop = run.data.get("stop_requested")
-                run.data = {
-                    **run.data,
-                    "lease_until": (now() + timedelta(seconds=90)).isoformat(),
-                }
-            if stop:
+            if await _offload(heartbeat, identifier, user):
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
-                change_state(identifier, status="stopped")
-                emit(identifier, {"type": "done"})
+                await _offload(change_state, identifier, status="stopped")
+                await _offload(emit, identifier, {"type": "done"})
                 return
         await task
     except asyncio.CancelledError:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
-        change_state(identifier, status="interrupted")
+        await _offload(change_state, identifier, status="interrupted")
         raise
     except Exception:
         log.error("Workbench run failed id=%s", identifier)
-        change_state(
-            identifier, status="failed", error="任务执行失败；过程和已完成产物已保留。"
+        # 心跳失败（库抖动、run 被删）也会走到这里：此时任务本体还在跑，必须一并取消。
+        # 否则它脱离监管继续执行，结束时把这里写下的 failed 覆盖成 completed，
+        # 与此同时 worker 已经去认领下一个任务了。
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        await _offload(
+            change_state,
+            identifier,
+            status="failed",
+            error="任务执行失败；过程和已完成产物已保留。",
         )
-        emit(
+        await _offload(
+            emit,
             identifier,
             {"type": "error", "content": "任务执行失败，请检查模型服务配置后重试。"},
         )
@@ -529,8 +623,14 @@ async def loop():
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            log.error("Workbench database unavailable; worker will retry")
+        except Exception as exc:
+            # 带上异常摘要（不带整段堆栈，避免库长时间不可用时每 5 秒刷一屏）：只写「不可用」的话，
+            # 冷启动建表竞态、连接串错误、权限不足在日志里长得一模一样，无从排查。
+            log.error(
+                "Workbench database unavailable; worker will retry: %s: %s",
+                type(exc).__name__,
+                str(exc)[:200],
+            )
             await asyncio.sleep(5)
 
 
