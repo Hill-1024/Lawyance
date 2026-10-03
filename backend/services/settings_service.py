@@ -11,6 +11,8 @@ from pathlib import Path
 
 import requests
 
+from infra.net import requests_proxies
+
 DATA_DIR = os.environ.get("LAWVER_DATA_DIR") or os.path.join(os.getcwd(), "data")
 SETTINGS_FILE = Path(DATA_DIR) / "settings.json"
 SECRETS_FILE = Path(DATA_DIR) / "secrets.json"
@@ -754,6 +756,9 @@ def _probe_llm(provider: dict) -> tuple[bool, str]:
             f"{base_url}/models",
             headers=headers,
             timeout=_PROBE_TIMEOUT_SECONDS,
+            # 探测与运行时（llm.client）同一代理口径：本机/内网端点直连，否则会出现
+            # 「测试连接通过、真正对话却被代理拦成 502」。
+            proxies=requests_proxies(base_url),
         )
     except requests.exceptions.RequestException as exc:
         return False, _probe_transport_error_message(exc)
@@ -775,6 +780,7 @@ def _probe_embedding(provider: dict) -> tuple[bool, str]:
             headers=headers,
             json=payload,
             timeout=_PROBE_TIMEOUT_SECONDS,
+            proxies=requests_proxies(base_url),
         )
     except requests.exceptions.RequestException as exc:
         return False, _probe_transport_error_message(exc)
@@ -803,6 +809,7 @@ def _probe_searxng(provider: dict) -> tuple[bool, str]:
             params=params,
             headers=headers,
             timeout=_PROBE_TIMEOUT_SECONDS,
+            proxies=requests_proxies(base_url),
         )
     except requests.exceptions.RequestException as exc:
         return False, _probe_transport_error_message(exc)
@@ -1044,6 +1051,7 @@ def fetch_llm_models() -> list[dict]:
             f"{base_url}/models",
             headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
             timeout=10,
+            proxies=requests_proxies(base_url),
         )
         if response.status_code == 200:
             data = response.json()

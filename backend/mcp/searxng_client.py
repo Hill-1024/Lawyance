@@ -30,6 +30,7 @@ import trafilatura
 from dotenv import load_dotenv
 
 from app_config import ORIGIN
+from infra.net import requests_proxies
 
 
 load_dotenv(".env")
@@ -536,13 +537,16 @@ def web_search(
     if time_range:
         params["time_range"] = str(time_range).strip()
 
+    search_url = urljoin(_configured_base_url(), "search")
     try:
         response = requests.get(
-            urljoin(_configured_base_url(), "search"),
+            search_url,
             params=params,
             headers=headers,
             timeout=timeout,
             stream=True,
+            # 自托管实例常跑在本机/内网：直连，不经环境或系统代理；公网实例照常走代理。
+            proxies=requests_proxies(search_url),
         )
         body = _read_limited_response(response, max_response_bytes)
     except requests.Timeout:

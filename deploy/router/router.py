@@ -188,6 +188,10 @@ class Core:
             ),
             transport=transport,
             follow_redirects=False,
+            # 上游只有本机/内网的功能页与介绍页，永远直连。httpx 默认会读系统代理（Windows 注册表、
+            # macOS 网络设置）却不读绕过列表：本机开着代理工具时，转发到 127.0.0.1 的请求会被代理
+            # 拦成 502，本地 vite 经核心转发的每个 /api 都会失败。
+            trust_env=False,
         )
         self.page_template = Path(config.maintenance_page).read_text(encoding="utf-8")
 

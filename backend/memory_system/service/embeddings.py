@@ -17,6 +17,8 @@ try:
 except ImportError:  # pragma: no cover - certifi is provided by the normal dependency graph.
     certifi = None
 
+from infra.net import urlopen as _proxy_aware_urlopen
+
 from .state import *
 from .utils import *
 
@@ -183,7 +185,8 @@ def _request_embedding_batch(config: dict[str, Any], texts: list[str]) -> list[l
         },
         method="POST",
     )
-    with urllib.request.urlopen(
+    # 本机/内网的嵌入服务直连（不经环境或系统代理），公网端点与原来一样走 urllib.request.urlopen。
+    with _proxy_aware_urlopen(
         request,
         timeout=float(config.get("timeout", 8)),
         context=_embedding_ssl_context(),
