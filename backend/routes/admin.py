@@ -114,7 +114,7 @@ async def set_admin_accounts(req: AccountRequest, admin_user: str = Depends(requ
 
 
 @router.post("/api/admin/accounts/{username}/unlock")
-async def unlock_admin_account(
+def unlock_admin_account(
     username: str = Path(min_length=1, max_length=128),
     admin_user: str = Depends(require_staff),
 ):
@@ -122,6 +122,8 @@ async def unlock_admin_account(
 
     用户自己连着输错密码被锁两小时是常见误操作，线上不该只能干等。
     管理员只能解锁自己有权限管理的账号。
+
+    同步端点：权限判定与解锁都要查库，交给 FastAPI 的线程池执行，不阻塞事件循环。
     """
     from infra import throttle
 
@@ -130,7 +132,7 @@ async def unlock_admin_account(
         target = get_user_record(username)
         if not target or target.get("owner") != admin_user:
             raise HTTPException(403, "只能管理自己创建的账号")
-    cleared = await run_in_threadpool(throttle.unlock, username)
+    cleared = throttle.unlock(username)
     return {"status": "success", "message": f"已解除锁定（清理 {cleared} 个节流桶）"}
 
 

@@ -114,7 +114,9 @@ async def logout(response: Response, request: Request):
 
 
 @router.get("/api/verify_auth")
-async def verify_auth_endpoint(current_user: str = Depends(get_current_user)):
+def verify_auth_endpoint(current_user: str = Depends(get_current_user)):
+    # 同步端点：下面三次都是查库调用，FastAPI 会把整个处理函数放进线程池，
+    # 而不是在事件循环里阻塞其他 SSE 流。
     role = get_user_role(current_user)
     limits = get_user_limits(current_user)
     payload = {

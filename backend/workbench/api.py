@@ -1,6 +1,7 @@
 """Authenticated v2 workbench API. Stable identities, optimistic writes, immutable context."""
 
 from __future__ import annotations
+import asyncio
 import copy
 import hashlib
 import json
@@ -306,8 +307,13 @@ def search(
 async def suggestions(body: Suggest, user=Depends(gate)):
     """首页建议只读素材标题；模型失败或维护期都不影响其它接口。"""
     if body.project_id:
-        with transaction() as s:
-            get_item(s, user, body.project_id, "project")
+
+        def check_project():
+            with transaction() as s:
+                get_item(s, user, body.project_id, "project")
+
+        # async 端点里的事务一律进线程：同步查库会卡住同一事件循环上的 SSE 与 worker。
+        await asyncio.to_thread(check_project)
     from workbench.suggestions import generate
 
     return await generate(user, body.project_id, body.refresh)
@@ -406,38 +412,38 @@ async def upload(
     project_id: str | None = Form(None),
     user=Depends(gate),
 ):
-    import asyncio
-
     raw = await file.read(MAX_UPLOAD + 1)
     if len(raw) > MAX_UPLOAD:
         raise HTTPException(413, "文件不能超过 32 MB")
     title = Path(file.filename or "附件").name[:300]
     data = await asyncio.to_thread(extract, raw, title)
-    with transaction() as s:
-        if project_id:
-            get_item(s, user, project_id, "project")
-        # 同名文件自动加序号：此前两次上传同名文件会产生两条标题完全相同的记录，
-        # 引用、搜索和清理时都分不出彼此。
-        title = _unique_document_title(s, user, project_id, title)
-        data.update(
-            blob_key=BlobStore().put(raw),
-            size=len(raw),
-            mime=file.content_type or "application/octet-stream",
-        )
-        item = Item(
-            id=new_id(),
-            owner=user,
-            kind="document",
-            project_id=project_id,
-            title=title,
-            revision=1,
-            data=data,
-            searchable=data.get("text", ""),
-        )
-        s.add(item)
-        s.flush()
-        save_version(s, item)
-        return public(item)
+    mime = file.content_type or "application/octet-stream"
+
+    def store():
+        # 落 blob（最大 32 MB）与建条目同样是阻塞操作，和解析一起放进线程。
+        with transaction() as s:
+            if project_id:
+                get_item(s, user, project_id, "project")
+            # 同名文件自动加序号：此前两次上传同名文件会产生两条标题完全相同的记录，
+            # 引用、搜索和清理时都分不出彼此。
+            unique_title = _unique_document_title(s, user, project_id, title)
+            data.update(blob_key=BlobStore().put(raw), size=len(raw), mime=mime)
+            item = Item(
+                id=new_id(),
+                owner=user,
+                kind="document",
+                project_id=project_id,
+                title=unique_title,
+                revision=1,
+                data=data,
+                searchable=data.get("text", ""),
+            )
+            s.add(item)
+            s.flush()
+            save_version(s, item)
+            return public(item)
+
+    return await asyncio.to_thread(store)
 
 
 @router.get("/documents/{identifier}/blob")
@@ -600,27 +606,28 @@ def branch(identifier: str, body: Branch, user=Depends(gate)):
 
 @router.post("/connectors/{identifier}/test")
 async def test_connector(identifier: str, user=Depends(gate)):
-    with transaction() as s:
-        data = copy.deepcopy(get_item(s, user, identifier, "connector").data)
+    # 三段事务都进线程执行；中间的远程调用本身是 async 的，不占线程。
+    def load():
+        with transaction() as s:
+            return copy.deepcopy(get_item(s, user, identifier, "connector").data)
+
+    def record(**values):
+        with transaction() as s:
+            item = get_item(s, user, identifier, "connector", lock=True)
+            item.data = {**item.data, **values}
+            return public(item)
+
+    data = await asyncio.to_thread(load)
     try:
         catalog = await connectors.invoke(data)
     except Exception:
-        with transaction() as s:
-            item = get_item(s, user, identifier, "connector", lock=True)
-            item.data = {
-                **item.data,
-                "last_error": "连接失败，请检查公网 HTTPS 地址、密钥和服务状态。",
-            }
+        await asyncio.to_thread(
+            record, last_error="连接失败，请检查公网 HTTPS 地址、密钥和服务状态。"
+        )
         raise HTTPException(502, "插件连接失败：检查地址、密钥或服务状态")
-    with transaction() as s:
-        item = get_item(s, user, identifier, "connector", lock=True)
-        item.data = {
-            **item.data,
-            "tools": catalog,
-            "last_error": None,
-            "tested_at": now().isoformat(),
-        }
-        return public(item)
+    return await asyncio.to_thread(
+        record, tools=catalog, last_error=None, tested_at=now().isoformat()
+    )
 
 
 def freeze_refs(s, user, project_id, refs):

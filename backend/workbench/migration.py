@@ -154,6 +154,17 @@ async def migrate_file(
         (identifier + conversation_id + original_path).encode()
     ).hexdigest()
     converted = await asyncio.to_thread(extract, raw, file.filename or "附件.txt")
+    # 事务里还要落 blob（最大 32 MB）：整段放进线程，别在 async 端点里阻塞事件循环。
+    return await asyncio.to_thread(
+        _store_migrated_file, user, identifier, conversation_id, original_path,
+        file.filename, file.content_type, raw, digest, key, converted,
+    )
+
+
+def _store_migrated_file(
+    user, identifier, conversation_id, original_path,
+    filename, content_type, raw, digest, key, converted,
+):
     with transaction() as s:
 
         def apply():
@@ -165,7 +176,7 @@ async def migrate_file(
                 **converted,
                 "blob_key": BlobStore().put(raw),
                 "size": len(raw),
-                "mime": file.content_type,
+                "mime": content_type,
                 "legacy_path": original_path,
             }
             item = Item(
@@ -173,7 +184,7 @@ async def migrate_file(
                 owner=user,
                 kind="document",
                 project_id=mapping["project_id"],
-                title=(file.filename or "迁移附件")[:300],
+                title=(filename or "迁移附件")[:300],
                 revision=1,
                 data=data,
                 searchable=data.get("text", ""),

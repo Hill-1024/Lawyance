@@ -1,5 +1,6 @@
 """Portable account backup v5, excluding connector credentials."""
 
+import asyncio
 import copy
 import io
 import json
@@ -79,6 +80,12 @@ async def restore(
     raw = await file.read(256 * 1024 * 1024 + 1)
     if len(raw) > 256 * 1024 * 1024:
         raise HTTPException(413, "备份超过 256 MB，请分批恢复")
+    # 解压校验（最多 512 MB）、逐个附件哈希落盘、整批建条目都是阻塞操作，
+    # 在 async 端点里直接做会把事件循环卡住几十秒：整段放进线程。
+    return await asyncio.to_thread(_restore_backup, raw, idempotency_key, user)
+
+
+def _restore_backup(raw: bytes, idempotency_key: str | None, user: str):
     try:
         archive = zipfile.ZipFile(io.BytesIO(raw))
         if sum(f.file_size for f in archive.infolist()) > 512 * 1024 * 1024:
