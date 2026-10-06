@@ -14,6 +14,9 @@ package-lock.json
 TEMP
 Result
 /data/
+# 功能页运行期产物（访问日志等），后端在 backend/data 下生成
+backend/data/
+nul
 .DS_Store
 RAG/cache/
 RAG/data_doc/
