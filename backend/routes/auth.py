@@ -26,7 +26,7 @@ from auth import (
     schedule_plan_change,
     update_avatar,
     update_custom_id,
-    verify_token,
+    verify_token_for_request,
 )
 from schemas import (
     ChangePasswordRequest,
@@ -141,7 +141,12 @@ async def session_probe(request: Request):
     排障时反而盖住真错误。这里不抛错，也就不产生噪音。
     """
     token = _extract_token(request)
-    username = await run_in_threadpool(verify_token, token) if token else None
+    # 与日志中间件共用请求级验证缓存；本路由没有认证依赖，这里通常是首次验证。
+    username = (
+        await run_in_threadpool(verify_token_for_request, request.scope, token)
+        if token
+        else None
+    )
     if not username:
         return {"authenticated": False}
     profile = await run_in_threadpool(get_account_profile, username)

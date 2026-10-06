@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
-from auth import verify_token
+from auth import verify_token_for_request
 from services import rate_limit
 
 
@@ -351,7 +351,10 @@ async def security_and_logging_middleware(request: Request, call_next):
             token = request.cookies.get("auth_token")
         if token:
             # verify_token 会 chmod/读盘并可能抢账号文件锁；放在事件循环里会阻塞所有 SSE。
-            user = await run_in_threadpool(verify_token, token)
+            # 路由依赖若已验证过同一 token，这里直接复用请求级缓存的结果。
+            user = await run_in_threadpool(
+                verify_token_for_request, request.scope, token
+            )
             if user:
                 username = user
 

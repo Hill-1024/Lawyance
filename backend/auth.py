@@ -1225,7 +1225,12 @@ def verify_token(token: str) -> Optional[str]:
     sid = token
     if not isinstance(sid, str) or not sid:
         return None
-    username = _cached_session_user(sid)
+    cached_user = _cached_session_user(sid)
+    if cached_user:
+        # 缓存只存「已通过完整验证」的会话，TTL 60 秒兜底；登出、吊销、踢下线
+        # 各路径都会显式 _drop_session_cache，所以命中即可免掉主键查询。
+        _touch_session(sid, time.time())
+        return cached_user
 
     maybe_known, needs_warm = _known_session(sid)
     if not maybe_known:
@@ -1240,12 +1245,28 @@ def verify_token(token: str) -> Optional[str]:
         return None
     if float(session.get("expires_at", 0)) < now:
         return None
-    if username and session.get("username") != username:
-        return None
     username = session["username"]
-    if not _cached_session_user(sid):
-        _cache_session(sid, username, float(session.get("expires_at", 0)))
+    _cache_session(sid, username, float(session.get("expires_at", 0)))
     _touch_session(sid, now)
+    return username
+
+
+# 同一请求内对同一 token 复用验证结果：日志中间件与路由依赖会各验证一遍，
+# 每项验证都要走 Redis 与 SQLite。去重落在 ASGI scope 上——contextvar 的写入
+# 无法跨 BaseHTTPMiddleware 的子任务与线程池边界传播，而 scope 字典是
+# 中间件与路由共享的同一个对象。
+_REQUEST_VERIFY_CACHE_KEY = "lawver_verified_tokens"
+
+
+def verify_token_for_request(scope: dict, token: Optional[str]) -> Optional[str]:
+    """请求级去重的 verify_token：同一 scope 内同一 token 只完整验证一次。"""
+    if not isinstance(token, str) or not token:
+        return None
+    cache = scope.setdefault(_REQUEST_VERIFY_CACHE_KEY, {})
+    if token in cache:
+        return cache[token]
+    username = verify_token(token)
+    cache[token] = username
     return username
 
 
