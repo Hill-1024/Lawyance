@@ -11,13 +11,78 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CORE_PORT="${CORE_PORT:-18080}"
-APP_PORT="${APP_PORT:-18081}"
-INTRO_PORT="${INTRO_PORT:-18082}"
-PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
+# WSL bash 跑不了 Windows 检出：python.exe 读不了 /mnt/d/... 路径（报 can't open file
+# 'D:\mnt\d\...'），NAT 模式下 WSL 的 curl 也摸不到 Windows 侧的 127.0.0.1 监听。
+# 检测到这种组合时转交 Git Bash 重跑——所有服务与 curl 都落在 Windows 侧，路径经
+# cygpath 归一，出口码原样返回；找不到 Git Bash 才报错退出。
+if grep -qi microsoft /proc/version 2>/dev/null && [[ ! -x "$ROOT/.venv/bin/python" ]]; then
+  if command -v wslpath >/dev/null 2>&1; then
+    for gitbash in \
+      "/mnt/c/Program Files/Git/bin/bash.exe" \
+      "/mnt/c/Program Files/Git/usr/bin/bash.exe" \
+      "/mnt/c/Program Files (x86)/Git/bin/bash.exe" \
+      /mnt/c/Users/*/AppData/Local/Programs/Git/bin/bash.exe; do
+      [[ -x "$gitbash" ]] || continue
+      # 覆盖变量经 WSLENV 跨界传给 Windows 侧；路径型变量转成 D:/... 形式
+      export WSLENV="${WSLENV:+$WSLENV:}KEEP_RUNNING/u:CORE_PORT/u:APP_PORT/u:INTRO_PORT/u:PROBE_WAIT/u:PYTHON/u:INTRO_REPO/u:INTRO_ROOT/u"
+      for v in PYTHON INTRO_REPO INTRO_ROOT; do
+        [[ -n "${!v:-}" && "${!v:-}" == /* ]] && export "$v=$(wslpath -m "${!v}")"
+      done
+      exec "$gitbash" "$(wslpath -m "$0")" "$@"
+    done
+  fi
+  printf '检测到 WSL bash + Windows 检出（.venv/Scripts/python.exe）：python.exe 无法使用 /mnt/ 路径，且未找到 Git Bash。\n请安装 Git for Windows，或改用 Git Bash 运行：bash deploy/router/rehearsal.sh\n' >&2
+  exit 2
+fi
+port_in_use() {
+  "$PYTHON" -c "import socket,sys; s=socket.socket(); rc=s.connect_ex(('127.0.0.1',int(sys.argv[1]))); s.close(); sys.exit(0 if rc==0 else 1)" "$1"
+}
+pick_free_port() {
+  "$PYTHON" -c "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()"
+}
+# 默认端口被上次未清理干净的实例占用时自动换空闲端口，避免检查打到僵尸服务上；
+# 显式指定的端口不干预。须在 PYTHON 解析之后调用。
+ensure_default_port_free() { # <varname> <default-port>
+  local var="$1" default="$2"
+  [[ -n "${!var:-}" ]] && return 0
+  if port_in_use "$default"; then
+    local free
+    free="$(pick_free_port)"
+    printf '端口 %s 已被占用（可能是上次运行残留），改用空闲端口 %s\n' "$default" "$free" >&2
+    printf -v "$var" '%s' "$free"
+  else
+    printf -v "$var" '%s' "$default"
+  fi
+}
+# Windows 检出的 venv 布局是 .venv/Scripts/python.exe，Linux/macOS 是 .venv/bin/python
+if [[ -n "${PYTHON:-}" ]]; then
+  :
+elif [[ -x "$ROOT/.venv/bin/python" ]]; then
+  PYTHON="$ROOT/.venv/bin/python"
+elif [[ -x "$ROOT/.venv/Scripts/python.exe" ]]; then
+  PYTHON="$ROOT/.venv/Scripts/python.exe"
+else
+  PYTHON="python"
+fi
+# 介绍页仓目录名大小写随检出而定，逐个候选找实际存在者
+if [[ -z "${INTRO_REPO:-}" ]]; then
+  for candidate in "$ROOT/../lawyance-intro" "$ROOT/../Lawyance_Intro"; do
+    if [[ -e "$candidate/server/serve.py" ]]; then
+      INTRO_REPO="$(cd "$candidate" && pwd)"
+      break
+    fi
+  done
+fi
 INTRO_REPO="${INTRO_REPO:-$(cd "$ROOT/.." && pwd)/lawyance-intro}"
+# 还没建过 current 符号链接时退回 vite 产物 dist，新检出也能直接彩排
+if [[ -z "${INTRO_ROOT:-}" && -e "$INTRO_REPO/dist/index.html" ]]; then
+  INTRO_ROOT="$INTRO_REPO/dist"
+fi
 INTRO_ROOT="${INTRO_ROOT:-$INTRO_REPO/current}"
 PROBE_WAIT="${PROBE_WAIT:-12}"
+ensure_default_port_free CORE_PORT 18080
+ensure_default_port_free APP_PORT 18081
+ensure_default_port_free INTRO_PORT 18082
 CORE="http://127.0.0.1:$CORE_PORT"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/lawver-rehearsal.XXXXXX")"
 # Windows Git Bash 下 mktemp 给的是 POSIX 路径（/tmp/...），而核心与功能页是 Windows
@@ -45,6 +110,20 @@ cleanup() {
   [[ -n "$core_pid" ]] && kill "$core_pid" 2>/dev/null
   [[ -n "$app_pid" ]] && kill "$app_pid" 2>/dev/null
   [[ -n "$intro_pid" ]] && kill "$intro_pid" 2>/dev/null
+  # kill 是异步的：等三个端口真正释放再退出，避免下一轮彩排撞上残留实例
+  # （检查打到僵尸服务上，出现「前半全过、第 6 节全挂」的假象）。
+  for _ in $(seq 1 40); do
+    if ! port_in_use "$CORE_PORT" && ! port_in_use "$APP_PORT" && ! port_in_use "$INTRO_PORT"; then
+      break
+    fi
+    sleep 0.25
+  done
+  # 10 秒仍未释放就强杀；再不行由 ensure_default_port_free 换端口兜底
+  if port_in_use "$CORE_PORT" || port_in_use "$APP_PORT" || port_in_use "$INTRO_PORT"; then
+    [[ -n "$core_pid" ]] && kill -9 "$core_pid" 2>/dev/null
+    [[ -n "$app_pid" ]] && kill -9 "$app_pid" 2>/dev/null
+    [[ -n "$intro_pid" ]] && kill -9 "$intro_pid" 2>/dev/null
+  fi
   rm -f "$INTRO_ROOT/intro-assets/rehearsal.bin"
   rm -rf "$WORK"
 }
