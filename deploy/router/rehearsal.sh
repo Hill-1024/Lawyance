@@ -20,6 +20,14 @@ INTRO_ROOT="${INTRO_ROOT:-$INTRO_REPO/current}"
 PROBE_WAIT="${PROBE_WAIT:-12}"
 CORE="http://127.0.0.1:$CORE_PORT"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/lawver-rehearsal.XXXXXX")"
+# Windows Git Bash 下 mktemp 给的是 POSIX 路径（/tmp/...），而核心与功能页是 Windows
+# Python 进程：同一个字符串会被解析成「当前盘符:\tmp\...」，于是 bash touch 的维护开关
+# 落在 MSYS 的 /tmp（C 盘），核心却按 state_dir 去 D 盘找——「计划维护」两项必然失败。
+# 写进 config.json 的 state_dir 与 LAWVER_DATA_DIR 之前统一转成 Windows 混合路径（C:/...），
+# bash 与 Windows 进程都能正确处理。Linux 上没有 cygpath，原样保留。
+if command -v cygpath >/dev/null 2>&1; then
+  WORK="$(cygpath -m "$WORK")"
+fi
 
 pass=0
 fail=0
