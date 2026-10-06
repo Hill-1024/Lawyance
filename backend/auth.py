@@ -1136,9 +1136,27 @@ _last_bloom_warm_attempt = 0.0
 
 
 def session_bloom():
-    """惰性创建会话布隆过滤器：Redis 可用时用共享位图，否则退回进程内位图。"""
+    """惰性创建会话布隆过滤器：Redis 可用时用共享位图，否则退回进程内位图。
+
+    Redis 配置过但首建时正处冷却期，会先落到本地位图；一旦 Redis 恢复就整体
+    换回共享位图（新位图未就绪，读取端回源、后台从库预热）。否则本进程会
+    永久停在降级位图上，与走共享位图的其他 worker 互相看不见对方创建的会话。
+    """
     global _session_bloom
-    if _session_bloom is not None:
+    cached = _session_bloom
+    if cached is not None:
+        if cached.backend != "local" or not redis_backend.is_configured():
+            return cached
+        if redis_backend.get_client() is None:
+            # 仍在冷却期：继续用本地降级位图，读取端会对未知 sid 回源。
+            return cached
+        with _bloom_lock:
+            if _session_bloom is not None and _session_bloom.backend == "local":
+                _session_bloom = bloom.create(
+                    "session",
+                    capacity=BLOOM_SESSION_CAPACITY,
+                    error_rate=BLOOM_ERROR_RATE,
+                )
         return _session_bloom
     with _bloom_lock:
         if _session_bloom is None:
@@ -1186,6 +1204,15 @@ def _known_session(sid: str) -> tuple[bool, bool]:
     """返回 (该 sid 是否可能存在, 位图是否需要预热)。false 表示可以跳过数据库。"""
     filter_ = session_bloom()
     maybe_known = filter_.maybe_contains(sid)
+    if (
+        not maybe_known
+        and filter_.backend == "local"
+        and redis_backend.is_configured()
+    ):
+        # 本地位图是 Redis 冷却期的降级品：其他 worker 在此窗口经共享位图创建的
+        # 会话本进程看不到，「确定不存在」不可信。放行回源，多一次主键查询只是
+        # 浪费，误杀却会把真实用户登出——假阴性绝不会发生的红线优先。
+        return True, filter_.needs_warm()
     return maybe_known, filter_.needs_warm()
 
 
@@ -1270,12 +1297,16 @@ def revoke_token_session(token: str) -> bool:
     sid = token
     if not isinstance(sid, str) or not sid:
         return False
-    try:
-        if not session_bloom().maybe_contains(sid):
-            # 位图确认从未签发：不必开写事务。
-            return False
-    except Exception:
-        _logger.exception("查询会话布隆过滤器失败，按未知会话继续处理")
+    filter_ = session_bloom()
+    trusted = filter_.backend != "local" or not redis_backend.is_configured()
+    if trusted:
+        try:
+            if not filter_.maybe_contains(sid):
+                # 位图确认从未签发：不必开写事务。降级本地位图看不到其他 worker
+                # 创建的会话，此时不走这条捷径（与 _known_session 同一红线）。
+                return False
+        except Exception:
+            _logger.exception("查询会话布隆过滤器失败，按未知会话继续处理")
     _drop_session_cache(sid)
     return auth_store.revoke_session(sid)
 
