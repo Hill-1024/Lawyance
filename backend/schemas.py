@@ -121,7 +121,6 @@ class ChatRequest(RequestModel):
     history: List[dict] = Field(default_factory=list, max_length=MAX_HISTORY_ITEMS)
     conversation_id: str = Field(default="default", min_length=1, max_length=MAX_IDENTIFIER_CHARS)
     stream: bool = True
-    resume_enabled: bool = False
     agent_mode: AgentMode = "default"
     use_ocp: bool = True
     memory_snapshot: Optional[dict] = None
@@ -162,15 +161,6 @@ class MemorySyncRequest(RequestModel):
         if value is not None:
             _validate_json_budget(value, label="memory_snapshot")
         return value
-
-
-class ResumeAckRequest(RequestModel):
-    stream_id: str = Field(min_length=1, max_length=128)
-    acked_seq: int = Field(ge=-1, le=2**63 - 1)
-
-
-class StreamCancelRequest(RequestModel):
-    stream_id: str = Field(min_length=1, max_length=128)
 
 
 class CourtTurnRequest(RequestModel):

@@ -24,7 +24,7 @@ from routes import (
     spa,
     workspace,
 )
-from services import law_cache, release_sync, settings_service, stream_buffer, workspace_cleanup
+from services import law_cache, release_sync, settings_service, workspace_cleanup
 from services.app_security import security_and_logging_middleware
 
 
@@ -59,14 +59,12 @@ async def lifespan(app: FastAPI):
     reload_embedding_config()
     await law_cache.prepare_on_startup(app)
     await release_sync.prepare_on_startup(app)
-    stream_buffer.start(app)
     workspace_cleanup.start(app)
     workbench_worker.start(app)
     # 预热在事件循环外执行：读会话表与 Redis 建位图都不该阻塞首个请求。
     await asyncio.to_thread(_prepare_request_shielding)
     yield
     await workbench_worker.stop(app)
-    await stream_buffer.stop(app)
     await workspace_cleanup.stop(app)
 
 
