@@ -9,7 +9,7 @@ import time
 
 from fastapi import FastAPI
 
-from services.conversation_state import active_conversations
+from services.conversation_state import active_conversations, active_run_scopes
 from services.memory_coordinator import call_memory_tool, prune_memory
 from workspace import is_within_directory
 
@@ -86,7 +86,9 @@ async def cleanup_task():
             await asyncio.to_thread(
                 cleanup_expired_workspace_dirs,
                 one_hour_ago,
-                set(active_conversations),
+                # 活跃 run 的 scope（TEMP/<user>/<run_id>）同样受保护：run 可能
+                # 超过 1 小时中途不写盘，删了会把归档前的产物一起带走。
+                set(active_conversations) | set(active_run_scopes),
             )
 
         except Exception as e:

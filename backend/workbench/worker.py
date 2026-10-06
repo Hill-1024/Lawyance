@@ -590,6 +590,14 @@ async def _execute_turn(identifier, user):
 
 
 async def supervise(identifier, user):
+    from services.conversation_state import active_run_scopes
+    from services.workspace_service import get_workspace_scope
+
+    # run 的工作区按 run_id 建 scope，与会话的活跃标记互不相干；不登记的话，
+    # 超过 1 小时中途不写盘的任务，其目录会在归档前被 workspace_cleanup 当过期
+    # 缓存整目录删除。finally 保证停止/中断/异常各条路径都解除登记。
+    scope = get_workspace_scope(user, identifier)
+    active_run_scopes.add(scope)
     task = asyncio.create_task(execute(identifier, user))
     try:
         while not task.done():
@@ -625,6 +633,8 @@ async def supervise(identifier, user):
             identifier,
             {"type": "error", "content": "任务执行失败，请检查模型服务配置后重试。"},
         )
+    finally:
+        active_run_scopes.discard(scope)
 
 
 def _parallel_tasks_for(user: str) -> int:
