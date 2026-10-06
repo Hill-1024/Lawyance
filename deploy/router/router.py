@@ -434,8 +434,15 @@ class Core:
             return self.unavailable(request, side)
         try:
             return await self.proxy(request, side)
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as exc:
-            # 连接不上：立刻判下线并给出维护页，而不是把 502 丢给用户。
+        except (
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.ReadError,
+            httpx.ReadTimeout,
+            httpx.RemoteProtocolError,
+        ) as exc:
+            # 连接不上、或上游接受连接后在读响应头阶段断开/超时：立刻判下线并给出
+            # 维护页，而不是把 502/500 丢给用户。此时还没向客户端发出任何字节。
             self._set_state(side, up=False, reason=f"proxy: {type(exc).__name__}")
             return self.unavailable(request, side)
 
