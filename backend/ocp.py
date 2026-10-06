@@ -895,7 +895,10 @@ class OCPStream:
                             for tc in delta.tool_calls:
                                 tc_index = tc.index
                                 if tc_index is None:
-                                    tc_index = len(tool_calls) - 1 if tool_calls else 0
+                                    # 与 tool_loop 一致：缺 index 时，携带 id/name 的是新的
+                                    # 并行调用，否则增量并入最后一个调用槽。
+                                    is_new_call = bool(tc.id) or bool(tc.function and tc.function.name)
+                                    tc_index = len(tool_calls) if (not tool_calls or is_new_call) else len(tool_calls) - 1
 
                                 while len(tool_calls) <= tc_index:
                                     tool_calls.append({"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
