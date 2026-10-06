@@ -1,0 +1,4 @@
+# Shell 脚本必须保持 LF：core.autocrlf=true 会在 checkout 时把仓库内 LF 的脚本
+# 转成 CRLF，bash 解析直接报错（set -o pipefail\r、$'\r': command not found），
+# deploy/router/rehearsal.sh 的端到端彩排因此跑不起来。只约束 *.sh，不动其他类型。
+*.sh text eol=lf
