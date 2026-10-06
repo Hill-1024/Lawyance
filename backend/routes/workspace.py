@@ -149,8 +149,10 @@ async def upload_file_get(current_user: str = Depends(get_current_user)):
 
 @router.post("/api/upload")
 async def upload_file(
-    file: UploadFile = File(...),
-    conversation_id: Annotated[str, Form(min_length=1, max_length=MAX_IDENTIFIER_CHARS)] = ...,
+    file: Annotated[UploadFile, File()],
+    # 必填参数用无默认值的 Annotated 写法：`= ...` 会在生成 OpenAPI schema 时
+    # 触发 PydanticJsonSchemaWarning（Ellipsis 不可 JSON 序列化）。
+    conversation_id: Annotated[str, Form(min_length=1, max_length=MAX_IDENTIFIER_CHARS)],
     current_user: str = Depends(get_current_user),
 ):
     safe_filename = validate_workspace_filename(file.filename)
@@ -193,9 +195,9 @@ async def list_workspace_files_api(
 
 @router.post("/api/workspace/restore")
 async def restore_workspace_file(
-    file: UploadFile = File(...),
-    conversation_id: Annotated[str, Form(min_length=1, max_length=MAX_IDENTIFIER_CHARS)] = ...,
-    file_type: Annotated[str, Form(pattern="^(upload|generated)$")] = ...,
+    file: Annotated[UploadFile, File()],
+    conversation_id: Annotated[str, Form(min_length=1, max_length=MAX_IDENTIFIER_CHARS)],
+    file_type: Annotated[str, Form(pattern="^(upload|generated)$")],
     current_user: str = Depends(get_current_user),
 ):
     safe_filename = validate_workspace_filename(file.filename)
