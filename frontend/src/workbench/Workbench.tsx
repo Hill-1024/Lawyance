@@ -190,6 +190,9 @@ export default function Workbench({ username }: { username: string }) {
   // 曾经在渲染期写 active.current = conv?.id，任何一次无关重渲染都会把正在加载的会话判成过期，
   // 于是会话状态与标签一起丢掉。
   draftValue.current = draft;
+  // run 的渲染期镜像：异步回调里判断「此刻的运行」要用最新值，不能用闭包捕获的旧值。
+  const runValue = useRef<Item>(undefined);
+  runValue.current = run;
   // 活动标签由路由决定：/conversation/:id、/court/:id，其余路径都是该空间的「新会话」标签。
   const documentCache = useRef<Record<string, Item>>({}),
     activeKeyRef = useRef("");
@@ -532,7 +535,14 @@ export default function Workbench({ username }: { username: string }) {
       if (runId && !offline)
         api<Item>("/runs/" + runId)
           .then((attached) => {
+            // 慢响应到达时用户可能已切到别的会话，或已在本会话发起新运行：
+            // 过期的补拉不得覆盖当前 run，否则轮询与流式展示被冻结。
+            if (active.current !== id) return;
+            const current = runValue.current;
+            if (current && current.parent_id === id && current.id !== attached.id) return;
             setRun(attached);
+            // 只有真正采纳 attached 时才登记：保住 current 的话，把 tabRuns 覆盖成
+            // 过期 attached.id 会让该标签在后台轮询里跟踪错对象，丢未读标记。
             recordRun("conversation:" + id, attached.id, attached.data.status);
           })
           .catch(() => {});
