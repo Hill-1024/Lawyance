@@ -122,6 +122,41 @@ class RoleHierarchyTests(AuthTestCase):
         self.assertFalse(ok)
         self.assertIn("不能设置最大在线数量", message)
 
+    def test_billing_fields_at_creation_are_sudo_only(self):
+        """admin 建号不能自带 plan/计费方式/倍率/开户额度，否则能铸造 business 子账号或绕开计价。"""
+        self._make_admin()
+        ok, _ = self.auth.upsert_account(
+            "alice",
+            "bob",
+            "bob-password",
+            plan="business",
+            billing_cycle="monthly",
+            credit_multiplier=0.01,
+            initial_credits=1000,
+        )
+        self.assertTrue(ok)
+        record = self.auth.get_user_record("bob")
+        # 存储层会补默认值：admin 传入的计费字段被忽略，落回默认套餐。
+        self.assertEqual(record["plan"], "metered")
+        self.assertEqual(record["billing_cycle"], "prepaid")
+        self.assertIsNone(record["credit_multiplier"])
+        self.assertEqual(record["credits_balance"], 0)  # 开户额度同样只认 sudo
+
+        # sudo 建号仍然可以指定计费字段（与更新路径同一策略）。
+        ok, _ = self.auth.upsert_account(
+            "admin",
+            "carol",
+            "carol-password",
+            plan="business",
+            billing_cycle="monthly",
+            credit_multiplier=0.5,
+        )
+        self.assertTrue(ok)
+        carol = self.auth.get_user_record("carol")
+        self.assertEqual(carol["plan"], "business")
+        self.assertEqual(carol["billing_cycle"], "monthly")
+        self.assertEqual(carol["credit_multiplier"], 0.5)
+
     def test_admin_created_user_inherits_m_and_cannot_change_it(self):
         self._make_admin(max_users=3, user_max_online=2)
         self.create_account(self.auth, "alice", "bob", "bob-password")

@@ -859,12 +859,16 @@ def upsert_account(
                     "max_users": new_max_users,
                     "user_max_online": new_user_max_online,
                 }
-                if plan is not None:
-                    record["plan"] = plan
-                if billing_cycle is not None:
-                    record["billing_cycle"] = billing_cycle
-                if normalized_multiplier is not None:
-                    record["credit_multiplier"] = normalized_multiplier
+                # 计费字段与更新路径同口径（见下面 879 行注释）：只有 sudo 能在开户时
+                # 指定套餐/计费方式/倍率，否则 admin 建号通道可以铸造 business 子账号
+                # 或把倍率打到近 0 绕过计价。
+                if actor_role == ROLE_SUDO:
+                    if plan is not None:
+                        record["plan"] = plan
+                    if billing_cycle is not None:
+                        record["billing_cycle"] = billing_cycle
+                    if normalized_multiplier is not None:
+                        record["credit_multiplier"] = normalized_multiplier
                 auth_store.insert_user_record(record)
             else:
                 updates: dict = {"password_hash": hash_password(password)}
@@ -896,7 +900,8 @@ def upsert_account(
             _logger.exception("清理账号会话失败：%s", username)
 
     # 开户额度只在新建时入账；已有账号的加减额度走充值入口，避免误把重置密码变成充值。
-    if created and normalized_credits:
+    # 入账同样只认 sudo：它等价于直接给账号充值。
+    if created and normalized_credits and actor_role == ROLE_SUDO:
         try:
             billing_ledger.grant(
                 username,
