@@ -25,7 +25,14 @@ class Body(BaseModel):
 class Grant(Body):
     """管理员给账号加/减 credits。负数即扣减，必须写原因。"""
 
-    credits: float = Field(description="正数入账，负数扣减")
+    # NaN/Infinity 与无界大数会在 pricing.credits() 与 BigInteger 入账时炸出 500
+    # （NaN 比较 False 还能绕过 allocate 的 <= 0 检查），这里与 AccountRequest 同口径收口。
+    credits: float = Field(
+        description="正数入账，负数扣减",
+        ge=-100_000_000,
+        le=100_000_000,
+        allow_inf_nan=False,
+    )
     reason: str = Field(default="", max_length=300)
 
 
