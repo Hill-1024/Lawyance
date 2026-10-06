@@ -337,6 +337,10 @@ async def security_and_logging_middleware(request: Request, call_next):
 
     response = await call_next(request)
 
+    # 全站禁止 MIME 嗅探：用户可控字节（如头像）只能按声明的图片类型渲染，
+    # 不给浏览器把响应猜成 HTML/JS 再执行的空间。
+    response.headers["X-Content-Type-Options"] = "nosniff"
+
     if should_record_usage_log(method, path):
         username = "anonymous"
         token = None
