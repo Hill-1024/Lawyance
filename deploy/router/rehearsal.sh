@@ -82,10 +82,12 @@ wait_side() { # wait_side <side> <True|False>
   return 1
 }
 start_app() {
+  # 功能页只监听回环，与部署拓扑一致：应用默认绑 0.0.0.0，会把 18081 暴露到局域网。
   # API_KEY/BASE_URL 显式指向一个不可达端点：仓库根的 .env 里是生产凭据，而应用会
   # load_dotenv(".env")——不覆盖的话，任何一次误发消息都会真的打到生产模型服务上。
   # 本脚本只验路径分派与维护兜底，不需要模型。
   LAWVER_DATA_DIR="$WORK/data" \
+  LAWVER_HOST=127.0.0.1 \
   LAWVER_WORKBENCH_TESTING=1 \
   LAWVER_RELEASE_SYNC_ON_STARTUP=0 \
   SECRET_KEY=rehearsal-secret-rehearsal-secret-32 \

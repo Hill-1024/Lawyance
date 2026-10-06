@@ -13,6 +13,10 @@ Type=simple
 User=lawver
 Group=lawver
 WorkingDirectory=/srv/lawver
+# 功能页只监听回环：对外只暴露分流核心 8080，8081 不该被局域网摸到。
+# 应用默认绑 0.0.0.0（方便本地开发直连），这里用单条 Environment= 钉死；
+# python-dotenv 默认不覆盖已有环境变量，所以 .env 漏配或写错都改不掉它。
+Environment=LAWVER_HOST=127.0.0.1
 ExecStart=/srv/lawver/.venv/bin/python agent.py
 # 刻意不用 EnvironmentFile：配置由应用自己用 python-dotenv 读 <工作目录>/.env，
 # 而 systemd 的环境文件解析与 dotenv 不同（引号、通配符 `*` 的语义不一样），
