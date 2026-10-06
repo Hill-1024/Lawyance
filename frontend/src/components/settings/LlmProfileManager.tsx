@@ -35,6 +35,7 @@ import {
 } from '../../services/api';
 import { useSettingsEdit } from './SettingsEditContext';
 import { useAppDialog } from '../../contexts/DialogContext';
+import { useT } from '../../i18n';
 import {
   Banner,
   CenteredSpinner,
@@ -70,6 +71,7 @@ const emptyDraft = (): DraftState => ({
 });
 
 export const LlmProfileManager: React.FC = () => {
+  const { t } = useT();
   const { showAlert, showConfirm } = useAppDialog();
   const reportEdit = useSettingsEdit();
   const [feedback, setFeedback] = useState('');
@@ -370,8 +372,8 @@ export const LlmProfileManager: React.FC = () => {
           {state.profiles.length === 0 ? (
             <EmptyState
               icon={<Sparkles size={22} strokeWidth={2} />}
-              title="还没有保存的模型配置"
-              description="新增一套配置后即可在多个模型之间一键切换。"
+              title={t("settings.llmProfile.emptyTitle")}
+              description={t("settings.llmProfile.emptyDescription")}
               action={(
                 <button type="button" onClick={openCreate} className="md3-btn-tonal lawver-pressable text-sm">
                   <Plus size={16} strokeWidth={2.4} /> 新增配置
@@ -438,8 +440,8 @@ export const LlmProfileManager: React.FC = () => {
                       onClick={() => openEdit(profile)}
                       disabled={isBusy}
                       className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)] disabled:opacity-50"
-                      aria-label={`编辑 ${profile.name}`}
-                      title="编辑"
+                      aria-label={t("settings.llmProfile.editNamed", { name: profile.name })}
+                      title={t("workbench.manage.edit")}
                     >
                       <Pencil size={16} strokeWidth={2} />
                     </button>
@@ -449,8 +451,8 @@ export const LlmProfileManager: React.FC = () => {
                         onClick={() => void handleClearKey(profile)}
                         disabled={isBusy}
                         className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[var(--accent-quiet)] hover:text-[var(--accent)] disabled:opacity-50"
-                        aria-label={`清除 ${profile.name} 的 API Key`}
-                        title="清除 API Key"
+                        aria-label={t("settings.llmProfile.clearKeyNamed", { name: profile.name })}
+                        title={t("settings.llmProfile.clearKeyTitle")}
                       >
                         {busy === `clear:${profile.id}`
                           ? <Loader2 size={15} className="animate-spin" />
@@ -462,15 +464,15 @@ export const LlmProfileManager: React.FC = () => {
                       onClick={() => void handleDelete(profile)}
                       disabled={isBusy}
                       className="lawver-pressable inline-flex h-11 w-11 items-center justify-center rounded-full text-[var(--fg-3)] transition-colors hover:bg-[rgba(176,70,62,0.1)] hover:text-[var(--color-danger-500)] disabled:opacity-50"
-                      aria-label={`删除 ${profile.name}`}
-                      title="删除"
+                      aria-label={t("settings.llmProfile.deleteNamed", { name: profile.name })}
+                      title={t("settings.llmProfile.deleteTitle")}
                     >
                       {busy === `delete:${profile.id}`
                         ? <Loader2 size={15} className="animate-spin" />
                         : <Trash2 size={16} strokeWidth={2} />}
                     </button>
                   </div>
-                  {rowBusy && <span className="sr-only">处理中</span>}
+                  {rowBusy && <span className="sr-only">{t("settings.llmProfile.processing")}</span>}
                 </div>
               );
             })

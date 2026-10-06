@@ -21,6 +21,7 @@ import {
 import { BrandMark } from '../components/Brand';
 import { HoverInfo } from '../components/HoverInfo';
 import { Banner, EmptyState, StatusChip } from '../components/settings/SettingsUI';
+import { useT } from '../i18n';
 import { useAppDialog } from '../contexts/DialogContext';
 import { useAppBack } from '../hooks/useAppBack';
 import {
@@ -72,6 +73,7 @@ const SubAccountCard: React.FC<{
   onStatusChanged: (username: string, status: string) => void;
   onStatusForbidden: () => void;
 }> = ({ item, canManageStatus, onAllocated, onStatusChanged, onStatusForbidden }) => {
+  const { t } = useT();
   const { showConfirm } = useAppDialog();
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState('');
@@ -194,7 +196,7 @@ const SubAccountCard: React.FC<{
       <div
         className="wb-business-spark"
         role="img"
-        aria-label={`近 30 天每日 credits，单日最高 ${formatCredits(peak)}`}
+        aria-label={t("business.sparkLabel", { peak: formatCredits(peak) })}
       >
         {bars.map(row => (
           <span
@@ -218,7 +220,7 @@ const SubAccountCard: React.FC<{
             value={amount}
             placeholder="0.00"
             onChange={e => setAmount(e.target.value)}
-            aria-label={`给 ${item.username} 分配 credits`}
+            aria-label={t("business.allocateFor", { username: item.username })}
           />
         </label>
         <button type="submit" className="wb-primary" disabled={busy === 'allocate' || !amount.trim()}>
@@ -244,6 +246,7 @@ const SubAccountCard: React.FC<{
 /* ── 页面 ─────────────────────────────────────────────────────────────── */
 
 export const BusinessConsole: React.FC = () => {
+  const { t } = useT();
   const goBack = useAppBack();
   const [overview, setOverview] = useState<BusinessOverview>();
   const [forbidden, setForbidden] = useState(false);
@@ -340,8 +343,8 @@ export const BusinessConsole: React.FC = () => {
       <div className="wb-business-shell">
         <header className="wb-business-head">
           <div className="wb-business-identity">
-            <HoverInfo label="返回工作台" placement="bottom">
-              <button aria-label="返回工作台" onClick={() => goBack('/')}>
+            <HoverInfo label={t("usage.back")} placement="bottom">
+              <button aria-label={t("usage.back")} onClick={() => goBack('/')}>
                 <ArrowLeft size={18} />
               </button>
             </HoverInfo>
@@ -378,11 +381,11 @@ export const BusinessConsole: React.FC = () => {
       <EmptyState
         className="wb-business-refusal"
         icon={<ShieldAlert size={22} strokeWidth={2} />}
-        title="仅 Business 账号可用"
-        description="当前账号不是 Business 套餐，无法管理子账号。如需为多名成员分配预算，请联系管理员开通 Business 套餐。"
+        title={t("business.forbiddenTitle")}
+        description={t("business.forbiddenDescription")}
         action={
           <button type="button" className="wb-primary" onClick={() => goBack('/')}>
-            返回工作台
+            {t("usage.back")}
           </button>
         }
       />,
@@ -407,7 +410,7 @@ export const BusinessConsole: React.FC = () => {
     <>
       {error && <Banner tone="danger">{error}</Banner>}
 
-      <section className="wb-business-stats" aria-label="Business 概览">
+      <section className="wb-business-stats" aria-label={t("business.overviewLabel")}>
         <div className="wb-business-stat">
           <span>母账号余额</span>
           <strong>{formatCredits(overview.parent_credits)}</strong>
@@ -431,14 +434,14 @@ export const BusinessConsole: React.FC = () => {
         <h2 className="wb-business-section-title">子账号</h2>
         <div className="wb-business-create">
           <input
-            aria-label="子账号名"
+            aria-label={t("business.subName")}
             placeholder="子账号名"
             value={newName}
             maxLength={128}
             onChange={(e) => setNewName(e.target.value)}
           />
           <input
-            aria-label="子账号密码"
+            aria-label={t("business.subPassword")}
             placeholder="初始密码（至少 6 位）"
             type="password"
             value={newPassword}
@@ -460,8 +463,8 @@ export const BusinessConsole: React.FC = () => {
         <EmptyState
           className="wb-business-refusal"
           icon={<Users size={22} strokeWidth={2} />}
-          title="还没有子账号"
-          description="用上面的表单创建第一个子账号，然后在这里查看用量并分配预算。"
+          title={t("business.emptyTitle")}
+          description={t("business.emptyDescription")}
         />
       ) : (
         <div className="wb-business-cards">
