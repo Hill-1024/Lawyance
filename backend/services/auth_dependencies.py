@@ -4,16 +4,21 @@
 
 from typing import Optional
 
-from fastapi import Cookie, Depends, Header, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException, Request
 
-from auth import ROLE_ADMIN, ROLE_SUDO, get_user_role, verify_token
+from auth import ROLE_ADMIN, ROLE_SUDO, get_user_role, verify_token_for_request
 
 
 def get_current_user(
+    request: Request,
     auth_token: Optional[str] = Cookie(None),
     authorization: Optional[str] = Header(None),
 ):
-    """认证 token 解析：Authorization Bearer 优先于 cookie。"""
+    """认证 token 解析：Authorization Bearer 优先于 cookie。
+
+    验证结果按请求 scope 去重：日志中间件对同一请求还会再验一次做访问日志，
+    两次共享同一次 Redis/SQLite 查询。
+    """
     token = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
@@ -21,7 +26,7 @@ def get_current_user(
         token = auth_token
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    username = verify_token(token)
+    username = verify_token_for_request(request.scope, token)
     if not username:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     return username
