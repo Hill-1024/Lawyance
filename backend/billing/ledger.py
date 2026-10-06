@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from billing import pricing
 from billing.models import CreditLedger, TopUp, UsageDaily
@@ -252,6 +253,32 @@ def _bump_daily(session, turn: TurnUsage, spent_micro: int) -> None:
     row.updated_at = datetime.now(timezone.utc)
 
 
+def _settle_once(turn: TurnUsage, spent_micro: int, actor: str | None) -> None:
+    """写账本 + 累加当日用量 + 扣余额，单次事务。"""
+    with transaction() as session:
+        _write_ledger(
+            session,
+            username=turn.username,
+            delta=-spent_micro,
+            kind="charge",
+            reason=turn.reason or "任务用量",
+            ref_id=turn.ref_id,
+            meta={
+                "prompt_tokens": turn.prompt_tokens,
+                "completion_tokens": turn.completion_tokens,
+                "tool_calls": turn.tool_calls,
+                "documents": turn.documents,
+                "document_chars": turn.document_chars,
+                "model_calls": turn.model_calls,
+                "multiplier": turn.multiplier,
+                "base_credits": round(turn.base_credits, 4),
+                "calls": turn.calls[:64],
+            },
+            actor=actor,
+        )
+        _bump_daily(session, turn, spent_micro)
+
+
 def settle(turn: TurnUsage | None, *, actor: str | None = None) -> dict[str, Any]:
     """把一轮用量落账：写账本 + 累加当日用量 + 扣余额。返回结算摘要。
 
@@ -262,28 +289,14 @@ def settle(turn: TurnUsage | None, *, actor: str | None = None) -> dict[str, Any
     try:
         ensure_tables()
         spent = turn.charged_micro
-        with transaction() as session:
-            _write_ledger(
-                session,
-                username=turn.username,
-                delta=-spent,
-                kind="charge",
-                reason=turn.reason or "任务用量",
-                ref_id=turn.ref_id,
-                meta={
-                    "prompt_tokens": turn.prompt_tokens,
-                    "completion_tokens": turn.completion_tokens,
-                    "tool_calls": turn.tool_calls,
-                    "documents": turn.documents,
-                    "document_chars": turn.document_chars,
-                    "model_calls": turn.model_calls,
-                    "multiplier": turn.multiplier,
-                    "base_credits": round(turn.base_credits, 4),
-                    "calls": turn.calls[:64],
-                },
-                actor=actor,
-            )
-            _bump_daily(session, turn, spent)
+        try:
+            _settle_once(turn, spent, actor)
+        except IntegrityError:
+            # 当日首笔的并发竞态：_bump_daily 先 SELECT 后 INSERT，两个请求同时判定
+            # 「当日还没有汇总行」，后提交的一方撞 ix_usage_daily_owner_day 唯一索引，
+            # 整个事务（含账本行与扣款）一起回滚。重开事务重试一次即可：此时当日行
+            # 已由先提交的一方写入，_bump_daily 走累加分支，账本不会重复记账。
+            _settle_once(turn, spent, actor)
         return turn.summary()
     except Exception:
         _logger.exception("结算用量失败：%s", turn.username)

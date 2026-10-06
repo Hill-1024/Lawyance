@@ -146,6 +146,46 @@ class LedgerTests(BillingTestCase):
             [row for row in self.ledger.recent_ledger("bob") if row["kind"] == "charge"]
         )
 
+    def test_settle_retries_once_when_the_daily_upsert_hits_the_unique_index(self):
+        """并发首笔竞态：_bump_daily 先 SELECT 后 INSERT，撞唯一索引要整事务重试。
+
+        重试后账本只记一次、余额只扣一次、当日汇总恰好一行。
+        """
+        from unittest import mock
+
+        from sqlalchemy.exc import IntegrityError
+
+        turn = self.metering.begin_turn("bob", multiplier=0.8, reason="工作台任务", ref_id="run-race")
+        self.metering.record_model(10_000, 2_000)
+        self.metering.record_tool("web_search")
+        original_bump = self.ledger._bump_daily
+        calls = {"n": 0}
+
+        def racing_bump(session, turn_usage, spent_micro):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # 模拟并发对手先一步插入了 (username, day) 行。
+                raise IntegrityError(
+                    "INSERT INTO usage_daily", None, Exception("UNIQUE constraint failed")
+                )
+            return original_bump(session, turn_usage, spent_micro)
+
+        with mock.patch.object(self.ledger, "_bump_daily", racing_bump):
+            summary = self.ledger.settle(turn)
+        self.metering.end_turn()
+
+        self.assertEqual(calls["n"], 2)
+        self.assertAlmostEqual(summary["credits"], 2.08, places=2)
+        # 余额与账本各只生效一次（第一次失败的事务整体回滚，不留下重复扣款）。
+        self.assertAlmostEqual(
+            self.pricing.as_credits(self.ledger.balance("bob")), 7.92, places=2
+        )
+        charges = [row for row in self.ledger.recent_ledger("bob") if row["kind"] == "charge"]
+        self.assertEqual(len(charges), 1)
+        rows = self.ledger.usage_rows("bob")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["turns"], 1)
+
     def test_reconcile_rebuilds_balance_from_ledger(self):
         # bob 开户已有 10（见 setUp），再充值 5、修正 -3 → 账本合计 12
         self.ledger.grant("bob", 5, reason="充值", actor="admin")
