@@ -213,6 +213,32 @@ class RouterTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("https://", body)
         self.assertNotIn("http://", body)
 
+    async def test_maintenance_page_escapes_from_for_script_context(self):
+        """from 是不可信输入：</script> 不能提前闭合脚本标签。"""
+        # 以 / 开头（能通过站内路径校验）但内嵌 </script> 的载荷，考验转义层。
+        payload = "%2F%3C%2Fscript%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E"
+        response = await self.client.get(f"/under_maintenance?from={payload}")
+        body = response.text
+        # JSON 字面量里的 < > & 必须以 \\uXXXX 出现，而不是裸字符。
+        self.assertNotIn("<script>alert(1)", body)
+        self.assertIn('var FROM = "/\\u003c/script\\u003e\\u003cscript\\u003e', body)
+        # 站内路径原样保留（JSON 层），恢复后能回跳。
+        ok = await self.client.get("/under_maintenance?from=%2Fcourt%2Fnew")
+        self.assertIn('"/court/new"', ok.text)
+
+    async def test_maintenance_page_only_accepts_site_local_from(self):
+        """from 必须是以单个 / 开头的站内路径，站外地址一律回退到 /。"""
+        for evil in (
+            "https%3A%2F%2Fevil.com",
+            "%2F%2Fevil.com",
+            "%2F%5Cevil.com",
+            "javascript%3Aalert(1)",
+        ):
+            response = await self.client.get(f"/under_maintenance?from={evil}")
+            self.assertIn('var FROM = ""', response.text, evil)
+        ok = await self.client.get("/under_maintenance?from=%2Fcourt%2Fnew%3Fproject%3Dp1")
+        self.assertIn('"/court/new?project=p1"', ok.text)
+
     async def test_planned_maintenance_flag_covers_both_directions(self):
         flag = Path(self.tmp.name) / "app.maintenance"
         flag.write_text("", encoding="utf-8")

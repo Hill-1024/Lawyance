@@ -289,10 +289,43 @@ class Core:
             return "服务"
         return SIDE_LABELS.get(down[0], "服务")
 
+    @staticmethod
+    def safe_from_path(value: str | None) -> str:
+        """校验维护页的回跳地址：只接受以单个 / 开头的站内路径。
+
+        `from` 来自查询参数，是不可信输入。协议相对地址（//host）、反斜杠
+        （浏览器把它当 / 处理，/\\evil.com 等价 //evil.com）与控制字符一律拒绝，
+        防止恢复后 window.location.replace 把用户送出站外。
+        """
+        if not value:
+            return ""
+        if not value.startswith("/") or value.startswith("//") or "\\" in value:
+            return ""
+        if any(ord(char) < 0x20 or char == "\x7f" for char in value):
+            return ""
+        return value
+
+    @staticmethod
+    def _script_safe_json(json_literal: str) -> str:
+        """把 JSON 字面量转成可安全嵌入 <script> 的形式。
+
+        json.dumps 不转义 < > &，"</script>" 会被浏览器提前闭合脚本标签。
+        """
+        return (
+            json_literal.replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("&", "\\u0026")
+            .replace("\u2028", "\\u2028")
+            .replace("\u2029", "\\u2029")
+        )
+
     def maintenance_page(self, *, from_path: str) -> HTMLResponse:
         html = (
             self.page_template.replace("__SIDE_LABEL__", self._side_label())
-            .replace("__FROM__", json.dumps(from_path))
+            .replace(
+                "__FROM__",
+                self._script_safe_json(json.dumps(self.safe_from_path(from_path))),
+            )
             .replace("__RETRY_MS__", str(int(self.config.probe_interval * 1000)))
             .replace("__STATUS_URL__", "/__core/status")
         )
@@ -314,7 +347,7 @@ class Core:
     def unavailable(self, request: Request, side: SideState) -> Response:
         headers = {"Cache-Control": "no-store", "X-Core-Side": side.spec.name}
         if self._wants_html(request):
-            from_path = self._public_path(request)
+            from_path = self.safe_from_path(self._public_path(request))
             location = "/under_maintenance"
             if from_path and from_path != "/":
                 location += "?from=" + quote(from_path, safe="")
