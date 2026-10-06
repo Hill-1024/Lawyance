@@ -38,6 +38,7 @@ from infra.password_hashing import (
     password_needs_rehash,
     verify_password,
 )
+from media import sniff_image_mime
 
 try:
     import fcntl
@@ -603,6 +604,10 @@ def update_avatar(username: str, data: bytes, content_type: str) -> tuple[Option
         return None, "头像图片需小于 1 MB。"
     if not data:
         return None, "头像文件为空。"
+    if sniff_image_mime(data) != content_type:
+        # multipart 的 Content-Type 完全由客户端自声明；与 workspace 上传同一标准，
+        # 落库前按魔数核实，防止任意字节顶着图片类型被内联回显。
+        return None, "头像内容与声明的文件类型不一致。"
     return auth_store.set_avatar(username, data, content_type), ""
 
 
