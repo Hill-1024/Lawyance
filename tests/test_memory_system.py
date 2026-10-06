@@ -164,6 +164,47 @@ class ConversationMemorySystemTests(unittest.TestCase):
         self.assertIn("embedding", embedding_items[0]["routes"])
         self.assertGreater(embedding_items[0]["rag_contributions"]["embedding"], 0)
 
+    def test_embedding_route_survives_angle_bracket_escaping(self):
+        """记忆文本含 < > 时，查询键与建向量键必须同源：两侧都用 _embedding_text(原文截断)。
+
+        item_texts 是原文（ranking.py 只用 _context_memory_text 做过滤），若有人把查询键
+        改成转义文本、或把 item_texts 改成转义文本而只改一边，本测试会立刻失败。
+        """
+        import memory_system.service as memory_service
+
+        original_embedding_vectors = memory_service._embedding_vectors_for_ranking
+
+        def fake_embedding_vectors(query_text, item_texts):
+            vectors = {}
+            for text in item_texts:
+                # 与真实 _embedding_vectors_for_ranking 相同：以传入文本的 _embedding_text 截断为键。
+                vectors[memory_service._embedding_text(text)] = (
+                    [1.0, 0.0] if "委托人" in text else [0.0, 1.0]
+                )
+            return [1.0, 0.0], vectors
+
+        try:
+            memory_service._embedding_vectors_for_ranking = fake_embedding_vectors
+            json.loads(
+                sync_conversation_memory(
+                    self.scope,
+                    snapshot={},
+                    messages=[
+                        {"role": "user", "content": "记住：<委托人> 应在合同签订后支付款项。"},
+                        {"role": "user", "content": "记住：甲公司已经付款。"},
+                    ],
+                )
+            )
+            retrieved = json.loads(retrieve_conversation_memory(self.scope, "委托人什么时候付钱", limit=5))
+        finally:
+            memory_service._embedding_vectors_for_ranking = original_embedding_vectors
+
+        embedding_items = [item for item in retrieved["items"] if "委托人" in item.get("text", "")]
+        self.assertTrue(embedding_items)
+        # 修复前：查询用原文、建向量用转义文本，键对不上，embedding 通路恒为 0。
+        self.assertIn("embedding", embedding_items[0]["routes"])
+        self.assertGreater(embedding_items[0]["rag_contributions"]["embedding"], 0)
+
     def test_embedding_config_uses_generic_env_names(self):
         import os
         import memory_system.service as memory_service
