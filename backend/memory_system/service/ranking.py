@@ -69,6 +69,8 @@ def _rank_items(snapshot: dict[str, Any], query: str, limit: int, scope: str | N
         item_tokens = set(item.get("keywords") or _extract_keywords(text))
         item_entities = set(item.get("entities") or _extract_entities(text))
         item_features = _semantic_features(" ".join(item.get("semantic_tags", [])) + " " + text)
+        # 键两侧必须一致：item_texts 走的是原文（上面仅用 _context_memory_text 做过滤），
+        # embeddings 侧以 _embedding_text(原文截断) 为键，这里查询也用同一原文截断。
         embedding = _cosine_similarity(query_embedding, item_embeddings.get(_embedding_text(text)))
         lexical = _keyword_overlap(query_tokens, item_tokens)
         semantic = _weighted_overlap(query_features, item_features)
