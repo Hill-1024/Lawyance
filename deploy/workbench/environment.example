@@ -7,3 +7,6 @@ LAWVER_WORKBENCH_READ_ONLY=0
 # Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
 # Store independently from database and ordinary exports. Losing this key loses plugin credentials.
 LAWVER_CONNECTOR_KEY=REPLACE_WITH_FERNET_KEY
+# 会话 Cookie 的 Secure 属性默认按转发协议头自动判定（回环分流核心 + 隧道入口即 https）；
+# 想显式固定时打开下面这行。本地明文回环调试才设 COOKIE_SECURE=0。
+# COOKIE_SECURE=1

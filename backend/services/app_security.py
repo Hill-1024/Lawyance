@@ -5,6 +5,7 @@
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import ipaddress
+import json
 import logging
 import os
 
@@ -221,10 +222,40 @@ def client_ip_for_request(request: Request) -> str:
     return direct_host or "unknown"
 
 
+def _forwarded_scheme(request: Request) -> str:
+    """回环可信代理转来的访客协议：X-Forwarded-Proto 优先，Cloudflare 用 cf-visitor。"""
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip().lower()
+    if proto:
+        return proto
+    raw = (request.headers.get("cf-visitor") or "").strip()
+    if raw:
+        # cf-visitor 是外部可控的头：合法 JSON 但不是对象（null/[]/123/"https"）时
+        # 不能让 AttributeError 一路炸到登录接口 500。
+        try:
+            parsed = json.loads(raw)
+        except ValueError:
+            return ""
+        if not isinstance(parsed, dict):
+            return ""
+        return str(parsed.get("scheme") or "").strip().lower()
+    return ""
+
+
 def secure_cookie_for_request(request: Request) -> bool:
     raw = os.getenv("COOKIE_SECURE")
     if raw is not None:
         return raw.strip().lower() in {"1", "true", "yes", "on"}
+    # 文档化生产拓扑（deploy/router 在回环、上游 127.0.0.1:8081 且 Host 按逐跳头丢弃）
+    # 里应用看到的 Host 恒为回环：按 Host 判断会把 auth_token 以无 Secure 属性下发。
+    # 回环来源先读代理转发的访客协议；拿不到就默认加 Secure——现代浏览器对
+    # localhost/127.0.0.1 也接受 Secure Cookie，本地开发不受影响，确需明文调试时
+    # 用 COOKIE_SECURE=0 显式关闭。非回环直连维持原判。
+    direct_host = request.client.host if request.client else None
+    if is_trusted_proxy_host(direct_host):
+        proto = _forwarded_scheme(request)
+        if proto:
+            return proto == "https"
+        return True
     return not is_local_host(request.url.hostname)
 
 

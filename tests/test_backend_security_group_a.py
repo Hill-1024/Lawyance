@@ -346,5 +346,68 @@ class SchemaBudgetTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(response.body)["code"], "json_body_too_large")
 
 
+class SecureCookieDecisionTests(IsolatedBackendTest):
+    """会话 Cookie 的 Secure 判定：回环分流拓扑下不能只看 Host。
+
+    文档化生产部署里分流核心在回环、上游 127.0.0.1:8081 且 Host 按逐跳头丢弃，
+    应用看到的 Host 恒为回环——按 Host 判断会把 auth_token 以无 Secure 属性下发。
+    """
+
+    @staticmethod
+    def _secure(client, headers):
+        from services.app_security import secure_cookie_for_request
+
+        request = Request(
+            {
+                "type": "http",
+                "scheme": "http",
+                "path": "/api/login",
+                "server": ("127.0.0.1", 8081),
+                "client": client,
+                "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+                "query_string": b"",
+            }
+        )
+        return secure_cookie_for_request(request)
+
+    def test_loopback_proxy_infers_secure_from_forwarded_scheme(self):
+        self.assertTrue(self._secure(("127.0.0.1", 50000), {"x-forwarded-proto": "https"}))
+        self.assertTrue(self._secure(("127.0.0.1", 50000), {"cf-visitor": '{"scheme": "https"}'}))
+        # 明文转发要如实反映：反代在私网走 http 时不能强行加 Secure。
+        self.assertFalse(self._secure(("127.0.0.1", 50000), {"x-forwarded-proto": "http"}))
+
+    def test_hostile_cf_visitor_never_breaks_the_cookie_path(self):
+        """cf-visitor 是外部可控头：合法 JSON 但非对象（null/[]/123/"https"）或乱串都按无信号处理。
+
+        这是登录/登出 set-cookie 的必经路径，抛异常就是 POST /api/login 500。
+        """
+        for raw in ("null", "[]", "123", '"https"', "not-json{", '{"scheme": null}'):
+            try:
+                result = self._secure(("127.0.0.1", 50000), {"cf-visitor": raw})
+            except Exception as exc:  # 修复前：AttributeError: 'NoneType' object has no attribute 'get'
+                self.fail(f"cf-visitor={raw!r} raised {type(exc).__name__}")
+            self.assertIsInstance(result, bool, raw)
+
+    def test_loopback_without_forwarded_scheme_defaults_to_secure(self):
+        # 没有转发头时宁可带 Secure；本地明文回环调试用 COOKIE_SECURE=0 显式关闭
+        # （现代浏览器对 localhost 也接受 Secure Cookie）。
+        self.assertTrue(self._secure(("127.0.0.1", 50000), {}))
+        os.environ["COOKIE_SECURE"] = "0"
+        try:
+            self.assertFalse(self._secure(("127.0.0.1", 50000), {"x-forwarded-proto": "https"}))
+        finally:
+            os.environ.pop("COOKIE_SECURE", None)
+
+    def test_explicit_override_and_non_loopback_keep_old_rules(self):
+        os.environ["COOKIE_SECURE"] = "1"
+        try:
+            self.assertTrue(self._secure(("127.0.0.1", 50000), {"x-forwarded-proto": "http"}))
+        finally:
+            os.environ.pop("COOKIE_SECURE", None)
+        # 非回环直连维持原判：公网 Host 加 Secure，明文本地 Host 不加。
+        self.assertTrue(self._secure(("203.0.113.9", 443), {"host": "lawver.dev"}))
+        self.assertFalse(self._secure(("192.168.1.5", 5000), {"host": "localhost:8081"}))
+
+
 if __name__ == "__main__":
     unittest.main()
