@@ -31,6 +31,7 @@ const formatTokens = (value: number) =>
 
 /** 每日 credits 折线 + 渐变面积；悬停显示当日细项。series 升序、已补零。 */
 const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series }) => {
+  const { t } = useT();
   const [hover, setHover] = useState<number | null>(null);
   const width = 640;
   const height = 190;
@@ -84,7 +85,7 @@ const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series
       viewBox={`0 0 ${width} ${height}`}
       className="wb-usage-line"
       role="img"
-      aria-label="每日 credits 消耗折线图"
+      aria-label={t("usage.lineChartLabel")}
       onMouseMove={onMove}
       onMouseLeave={() => setHover(null)}
     >
@@ -154,7 +155,7 @@ const CreditsDonut: React.FC<{ spent: number; balance: number }> = ({ spent, bal
     hover === "left" ? t("usage.donutLeft") : t("usage.donutSpent");
   return (
     <div className="wb-usage-donut-wrap">
-      <svg viewBox="0 0 140 140" className="wb-usage-donut" role="img" aria-label="credits 消耗与余额构成环图">
+      <svg viewBox="0 0 140 140" className="wb-usage-donut" role="img" aria-label={t("usage.donutChartLabel")}>
         <circle
           cx="70" cy="70" r={radius} fill="none"
           stroke="var(--brand-primary-100)" strokeWidth="16"

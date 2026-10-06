@@ -7,7 +7,7 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { AlertTriangle, Download, RefreshCw, ShieldCheck } from 'lucide-react';
 import { apiUrl } from '../services/api';
 import { isNativeAndroid } from '../lib/platform';
-import { useT } from '../i18n';
+import { translate, useT } from '../i18n';
 import {
   LawverUpdater,
   type AndroidReleaseManifest,
@@ -19,8 +19,9 @@ const MANIFEST_PATH = '/api/releases/android/latest';
 type GateState = 'checking' | 'ready' | 'required';
 type UpdatePhase = 'idle' | 'downloading' | 'downloaded' | 'permission' | 'installing';
 
+// 模块级工具拿不到 hooks，用 translate() 读当前语言快照（i18n 模块注释里的既定用法）。
 const formatBytes = (value: number) => {
-  if (!Number.isFinite(value) || value <= 0) return '未知大小';
+  if (!Number.isFinite(value) || value <= 0) return translate("update.unknownSize");
   if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 };
@@ -29,15 +30,15 @@ const errorMessage = (error: unknown) => {
   const raw = error as { code?: string; message?: string };
   const message = raw?.message || String(error || '');
   if (raw?.code === 'RATE_LIMIT' || /429|rate limit|频繁/i.test(message)) {
-    return '下载请求过于频繁，请稍后重试。';
+    return translate("update.rateLimited");
   }
   if (/sha|checksum|hash|校验/i.test(message)) {
-    return '更新包校验失败，请重新下载。';
+    return translate("update.checksumFailed");
   }
   if (/permission|unknown app|install/i.test(message)) {
-    return '需要允许 Lawver 安装未知应用后继续。';
+    return translate("update.needInstallPermission");
   }
-  return message || '更新失败，请稍后重试。';
+  return message || translate("update.updateFailed");
 };
 
 export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -112,7 +113,7 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
       const result = await LawverUpdater.installApk({ filePath });
       if (result.needsPermission) {
         setPhase('permission');
-        setError('请允许 Lawver 安装未知应用，返回后继续安装。');
+        setError(t("update.installPermissionNotice"));
         await LawverUpdater.openInstallPermissionSettings();
         return;
       }
@@ -121,7 +122,7 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
       setPhase('downloaded');
       setError(errorMessage(e));
     }
-  }, []);
+  }, [t]);
 
   const startDownload = useCallback(async () => {
     if (!manifest) return;
@@ -176,10 +177,10 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
             </div>
             <div className="min-w-0">
               <h1 id="lawver-update-title" className="t-title-m truncate">
-                {isChecking ? '正在检查版本' : '需要更新 Lawver'}
+                {isChecking ? t("update.checkingTitle") : t("update.requiredTitle")}
               </h1>
               <p className="mt-1 text-[13px] leading-5 text-[var(--fg-3)]">
-                {isChecking ? '正在确认 Android 客户端是否为{t("update.latestVersion")}。' : '{t("update.currentVersion")}无法继续使用，请安装{t("update.latestVersion")}。'}
+                {isChecking ? t("update.checkingHint") : t("update.requiredHint")}
               </p>
             </div>
           </div>
@@ -191,7 +192,7 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
               <div className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-3">
                 <div className="text-xs text-[var(--fg-3)]">{t("update.currentVersion")}</div>
                 <div className="mt-1 break-words font-medium text-[var(--fg-1)]">
-                  {localVersion.versionName || t('update.unknown')} ({localVersion.versionCode || 0})
+                  {localVersion.versionName || t("update.unknown")} ({localVersion.versionCode || 0})
                 </div>
               </div>
               <div className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-3">
@@ -204,7 +205,7 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
           {!isChecking && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3 text-xs text-[var(--fg-3)]">
-                <span>{phase === 'downloading' ? '正在下载' : '更新包'}</span>
+                <span>{phase === 'downloading' ? t("update.downloading") : t("update.packageLabel")}</span>
                 <span className="font-mono">{progress.percent}%</span>
               </div>
               <div className="h-2 overflow-hidden rounded-[var(--radius-pill)] bg-[var(--bg-inset)]">
@@ -233,7 +234,7 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-on)] shadow-[var(--shadow-2)] transition hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <ShieldCheck className="h-4 w-4" />
-                  授权后继续安装
+                  {t("update.continueAfterGrant")}
                 </button>
               ) : (
                 <button
@@ -245,11 +246,15 @@ export const UpdateGate: React.FC<{ children: React.ReactNode }> = ({ children }
                   {phase === 'downloading' || phase === 'installing'
                     ? <RefreshCw className="h-4 w-4 animate-spin" />
                     : <Download className="h-4 w-4" />}
-                  {phase === 'downloading' ? '正在下载' : phase === 'installing' ? '正在唤起安装' : '下载并安装'}
+                  {phase === 'downloading'
+                    ? t("update.downloading")
+                    : phase === 'installing'
+                      ? t("update.invokingInstall")
+                      : t("update.downloadAndInstall")}
                 </button>
               )}
               <p className="text-center text-xs leading-5 text-[var(--fg-3)]">
-                下载文件将保存到系统默认下载目录。
+                {t("update.savePathNote")}
               </p>
             </div>
           )}

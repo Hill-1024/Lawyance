@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useAppBack } from '../hooks/useAppBack';
 import { useAppDialog } from '../contexts/DialogContext';
+import { useT } from '../i18n';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
 import { describeError } from '../lib/errors';
@@ -206,6 +207,7 @@ const AdminModal: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
 }> = ({ title, subtitle, small = false, onClose, children }) => {
+  const { t } = useT();
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -226,7 +228,7 @@ const AdminModal: React.FC<{
       >
         <header>
           <h2>{title}</h2>
-          <button aria-label="关闭" onClick={onClose}><X size={18} /></button>
+          <button aria-label={t("common.close")} onClick={onClose}><X size={18} /></button>
         </header>
         {subtitle && <p>{subtitle}</p>}
         {children}
@@ -256,6 +258,7 @@ const CreateAccountDialog: React.FC<{
   onClose: () => void;
   onDone: (message: string) => void;
 }> = ({ role, onClose, onDone }) => {
+  const { t } = useT();
   const isSudo = role === 'sudo';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -313,7 +316,7 @@ const CreateAccountDialog: React.FC<{
   };
 
   return (
-    <AdminModal title={`新建${isSudo ? '账号' : '用户'}`} subtitle="创建后可继续调整配额、充值 credits。" onClose={onClose}>
+    <AdminModal title={t(isSudo ? "admin.createSudoTitle" : "admin.createUserTitle")} subtitle="创建后可继续调整配额、充值 credits。" onClose={onClose}>
       <form onSubmit={submit}>
         <div className="wb-admin-form-grid">
           <label>
@@ -340,7 +343,7 @@ const CreateAccountDialog: React.FC<{
         <label>
           角色
           {isSudo ? (
-            <div className="wb-admin-choices" role="group" aria-label="角色">
+            <div className="wb-admin-choices" role="group" aria-label={t("admin.roleGroup")}>
               {(['user', 'admin', 'sudo'] as Role[]).map((option) => (
                 <button
                   key={option}
@@ -361,7 +364,7 @@ const CreateAccountDialog: React.FC<{
 
         <label>
           计费方式
-          <div className="wb-admin-choices" role="group" aria-label="计费方式">
+          <div className="wb-admin-choices" role="group" aria-label={t("admin.billingGroup")}>
             {([
               ['metered', '按量计费'],
               ['monthly', '月付'],
@@ -382,7 +385,7 @@ const CreateAccountDialog: React.FC<{
         {mode !== 'metered' && (
           <label>
             套餐
-            <div className="wb-admin-choices" role="group" aria-label="套餐">
+            <div className="wb-admin-choices" role="group" aria-label={t("admin.planGroup")}>
               {PAID_PLANS.map((value) => (
                 <button
                   key={value}
@@ -468,6 +471,7 @@ const ResetPasswordDialog: React.FC<{
   onClose: () => void;
   onDone: (message: string) => void;
 }> = ({ account, onClose, onDone }) => {
+  const { t } = useT();
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -489,7 +493,7 @@ const ResetPasswordDialog: React.FC<{
 
   return (
     <AdminModal
-      title="重置密码"
+      title={t("admin.resetPasswordTitle")}
       subtitle={`为 ${account.username}（${ROLE_LABEL[account.role]}）设置新的登录密码。`}
       small
       onClose={onClose}
@@ -522,6 +526,7 @@ const LimitsDialog: React.FC<{
   onClose: () => void;
   onDone: (message: string) => void;
 }> = ({ account, onClose, onDone }) => {
+  const { t } = useT();
   const [maxOnline, setMaxOnline] = useState(account.max_online == null ? '' : String(account.max_online));
   const [maxUsers, setMaxUsers] = useState(account.max_users == null ? '' : String(account.max_users));
   const [userMaxOnline, setUserMaxOnline] = useState(account.user_max_online == null ? '' : String(account.user_max_online));
@@ -553,7 +558,7 @@ const LimitsDialog: React.FC<{
   };
 
   return (
-    <AdminModal title="编辑配额" subtitle={`${account.username}（${ROLE_LABEL[account.role]}）`} small onClose={onClose}>
+    <AdminModal title={t("admin.limitsTitle")} subtitle={`${account.username}（${ROLE_LABEL[account.role]}）`} small onClose={onClose}>
       <form onSubmit={submit}>
         {account.role === 'admin' ? (
           <>
@@ -610,6 +615,7 @@ const TopUpDialog: React.FC<{
   onClose: () => void;
   onDone: (message: string) => void;
 }> = ({ account, onClose, onDone }) => {
+  const { t } = useT();
   const [amount, setAmount] = useState('100');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
@@ -635,7 +641,7 @@ const TopUpDialog: React.FC<{
 
   return (
     <AdminModal
-      title="充值"
+      title={t("admin.topUpTitle")}
       subtitle={`${account.username} · 当前余额 ${formatCredits(account.credits ?? 0)} credits`}
       small
       onClose={onClose}
@@ -672,6 +678,7 @@ const TopUpDialog: React.FC<{
 };
 
 const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
+  const { t } = useT();
   const isSudo = role === 'sudo';
   const { showConfirm } = useAppDialog();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -796,7 +803,7 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
             : `已创建 ${accounts.length} 个用户${myQuota.max_users != null ? ` / 上限 ${myQuota.max_users} 个` : '（不限数量）'}。`}
         </p>
         <div className="wb-admin-toolbar-actions">
-          <button onClick={() => void load()} disabled={loading} aria-label="刷新账号列表">
+          <button onClick={() => void load()} disabled={loading} aria-label={t("admin.refreshAccounts")}>
             {loading ? <Loader2 size={16} className="wb-spin" /> : <RefreshCw size={16} />}
           </button>
           <button className="wb-primary" onClick={() => setCreateOpen(true)} disabled={quotaReached}>
@@ -813,7 +820,7 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
         />
       ) : (
         <div className="wb-admin-table-scroll">
-          <div className="wb-admin-table" role="table" aria-label="账号列表">
+          <div className="wb-admin-table" role="table" aria-label={t("admin.accountsTable")}>
             <div className="wb-admin-table-head" role="row">
               {['账号名', '角色', '套餐', '计费方式', 'credits 余额', '在线设备', '状态', '操作'].map((label) => (
                 <span key={label} role="columnheader">{label}</span>
@@ -985,6 +992,7 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
 const LOG_SKELETON_ROWS = 6;
 
 const AccessLogsPanel: React.FC = () => {
+  const { t } = useT();
   const { showConfirm } = useAppDialog();
   const [logs, setLogs] = useState<string[]>([]);
   const [ipFilter, setIpFilter] = useState('');
@@ -1052,7 +1060,7 @@ const AccessLogsPanel: React.FC = () => {
               if (event.key === 'Enter') void load({ ipFilter, ignoreHeartbeat });
             }}
             placeholder="按 IP 过滤…"
-            aria-label="按 IP 地址过滤日志"
+            aria-label={t("admin.logIpFilter")}
             style={{ width: 180 }}
           />
           <CheckBox
@@ -1089,8 +1097,8 @@ const AccessLogsPanel: React.FC = () => {
         ) : parsed.length === 0 ? (
           <EmptyState
             icon={<EyeOff size={22} strokeWidth={2} />}
-            title="暂无日志记录"
-            description="产生 API 访问后，这里会显示时间、来源 IP、用户、方法与响应状态。"
+            title={t("admin.noLogs")}
+            description={t("admin.noLogsDescription")}
           />
         ) : (
           parsed.map((log, index) =>
@@ -1124,6 +1132,7 @@ const AccessLogsPanel: React.FC = () => {
 };
 
 const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
+  const { t } = useT();
   const isSudo = role === 'sudo';
   const [usage, setUsage] = useState<UsageAccount[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1195,7 +1204,7 @@ const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
     <div className="wb-admin-main">
       {error && <Banner tone="danger">{error}</Banner>}
       {buckets.length > 0 && (
-        <section className="wb-admin-throttle" aria-label="登录节流">
+        <section className="wb-admin-throttle" aria-label={t("admin.throttleSection")}>
           <header>
             <strong>登录节流中</strong>
             <span>键为摘要，不显示原始账号与来源</span>
@@ -1259,8 +1268,8 @@ const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Activity size={22} strokeWidth={2} />}
-          title="暂无用量数据"
-          description="账号产生模型调用或工具调用后，这里会按天汇总 tokens、工具次数与 credits 消耗。"
+          title={t("admin.noUsage")}
+          description={t("admin.noUsageDescription")}
         />
       ) : (
         <div className="wb-admin-cards">
@@ -1309,6 +1318,7 @@ const AnnouncementDialog: React.FC<{
   onClose: () => void;
   onDone: (message: string) => void;
 }> = ({ initial, onClose, onDone }) => {
+  const { t } = useT();
   const [title, setTitle] = useState(initial?.title || '');
   const [body, setBody] = useState(initial?.body || '');
   const [level, setLevel] = useState<AnnouncementLevel>(initial?.level || 'info');
@@ -1357,7 +1367,7 @@ const AnnouncementDialog: React.FC<{
 
   return (
     <AdminModal
-      title={initial ? '编辑公告' : '新建公告'}
+      title={initial ? t("admin.editAnnouncementTitle") : t("admin.createAnnouncementTitle")}
       subtitle="留空生效时间表示立即生效；受众为空表示全部账号。"
       onClose={onClose}
     >
@@ -1390,7 +1400,7 @@ const AnnouncementDialog: React.FC<{
 
         <label>
           受众
-          <div className="wb-admin-choices" role="group" aria-label="公告受众">
+          <div className="wb-admin-choices" role="group" aria-label={t("admin.audienceGroup")}>
             <button type="button" aria-pressed={audience.length === 0} onClick={() => setAudience([])}>
               全部账号
             </button>
@@ -1431,6 +1441,7 @@ const AnnouncementDialog: React.FC<{
 };
 
 const AnnouncementsPanel: React.FC = () => {
+  const { t } = useT();
   const { showConfirm } = useAppDialog();
   const [items, setItems] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1505,7 +1516,7 @@ const AnnouncementsPanel: React.FC = () => {
       <div className="wb-admin-toolbar">
         <p className="wb-admin-note">登录后展示第一条未读公告；受众为空表示全部账号。</p>
         <div className="wb-admin-toolbar-actions">
-          <button onClick={() => void load()} disabled={loading} aria-label="刷新公告列表">
+          <button onClick={() => void load()} disabled={loading} aria-label={t("admin.refreshAnnouncements")}>
             {loading ? <Loader2 size={16} className="wb-spin" /> : <RefreshCw size={16} />}
           </button>
           <button className="wb-primary" onClick={() => setCreating(true)}>
@@ -1517,8 +1528,8 @@ const AnnouncementsPanel: React.FC = () => {
       {items.length === 0 ? (
         <EmptyState
           icon={<Megaphone size={22} strokeWidth={2} />}
-          title="还没有公告"
-          description={loading ? '正在读取公告…' : '新建公告后，登录的账号会在工作台上看到横幅。'}
+          title={t("admin.noAnnouncements")}
+          description={loading ? t("admin.noAnnouncementsLoading") : t("admin.noAnnouncementsDescription")}
         />
       ) : (
         <div className="wb-admin-list">
@@ -1583,6 +1594,7 @@ const AnnouncementsPanel: React.FC = () => {
 /* ── 服务配置 ─────────────────────────────────────────────────────────── */
 
 const ConfigPanel: React.FC<{ role: Role }> = ({ role }) => {
+  const { t } = useT();
   const isSudo = role === 'sudo';
   const [section, setSection] = useState<string>('models');
 
@@ -1597,7 +1609,7 @@ const ConfigPanel: React.FC<{ role: Role }> = ({ role }) => {
   return (
     <div className="wb-admin-main">
       <div className="wb-admin-config">
-        <nav className="wb-admin-config-nav" aria-label="服务配置分类">
+        <nav className="wb-admin-config-nav" aria-label={t("admin.configNav")}>
           <button
             className={section === 'models' ? 'selected' : ''}
             onClick={() => setSection('models')}
@@ -1640,6 +1652,7 @@ interface AdminDashboardProps {
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, onLogout }) => {
+  const { t } = useT();
   const goBack = useAppBack();
   const [tab, setTab] = useState<AdminTab>('accounts');
   const isSudo = role === 'sudo';
@@ -1658,8 +1671,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, onLogout }
       <div className="wb-admin-shell">
         <header className="wb-admin-head">
           <div className="wb-admin-identity">
-            <HoverInfo label="返回聊天" placement="bottom">
-              <button aria-label="返回聊天" onClick={() => goBack('/')}>
+            <HoverInfo label={t("admin.backToChat")} placement="bottom">
+              <button aria-label={t("admin.backToChat")} onClick={() => goBack('/')}>
                 <ArrowLeft size={18} />
               </button>
             </HoverInfo>
@@ -1676,7 +1689,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, onLogout }
           </div>
         </header>
 
-        <nav className="wb-manager-tabs" role="tablist" aria-label="后台分区">
+        <nav className="wb-manager-tabs" role="tablist" aria-label={t("admin.tabsNav")}>
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
