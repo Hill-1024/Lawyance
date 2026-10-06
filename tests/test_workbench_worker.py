@@ -169,6 +169,62 @@ def test_supervise_cancels_the_run_when_the_heartbeat_fails(monkeypatch):
     assert writes[1][0] == "emit" and writes[1][1]["type"] == "error"
 
 
+def test_loop_runs_users_concurrently_and_caps_each_account(monkeypatch):
+    """loop 并发监管：一个用户的慢任务不堵其他用户，但单账号按套餐并行度受限。"""
+    started = []
+    cancelled_flags = []
+    seen_exclusions = []
+
+    jobs = iter([("run-a1", "alice"), ("run-b1", "bob"), ("run-a2", "alice"), None])
+
+    def fake_claim(excluded=frozenset()):
+        seen_exclusions.append(set(excluded))
+        while True:
+            try:
+                job = next(jobs)
+            except StopIteration:
+                return None
+            if job and job[1] in excluded:
+                continue  # 并发已满的账号在查询里被过滤
+            return job
+
+    async def fake_supervise(identifier, _user):
+        started.append(identifier)
+        try:
+            while True:
+                await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            cancelled_flags.append(identifier)
+            raise
+
+    def fake_parallel(_user):
+        return 1  # 与真实实现一致：同步函数，由 loop 经 to_thread 调用
+
+    monkeypatch.setattr(worker, "claim", fake_claim)
+    monkeypatch.setattr(worker, "supervise", fake_supervise)
+    monkeypatch.setattr(worker, "_parallel_tasks_for", fake_parallel)
+
+    async def scenario():
+        task = asyncio.create_task(worker.loop())
+        for _ in range(200):
+            await asyncio.sleep(0.01)
+            if len(started) >= 2:
+                break
+        # bob 的任务被认领：alice 的任务不再占住唯一执行槽。
+        assert started == ["run-a1", "run-b1"], started
+        # 第二次认领时 alice 已满（并行度 1），被排除在候选之外。
+        assert "alice" in seen_exclusions[1], seen_exclusions
+        # alice 的第二个排队任务没有被认领。
+        assert "run-a2" not in started
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # 退出时在跑的监管任务要一并取消，不能脱管。
+        assert sorted(cancelled_flags) == ["run-a1", "run-b1"], cancelled_flags
+
+    asyncio.run(scenario())
+
+
 def test_startup_self_healing_table_creation_does_not_race(tmp_path, monkeypatch):
     """冷启动时 worker 认领任务（建全部表）与账号引导（建账号表）在不同线程里同时建表。
 

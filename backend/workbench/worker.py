@@ -26,6 +26,12 @@ from infra import database
 log = logging.getLogger("lawver.workbench")
 worker_id = new_id()
 
+# 并发上限。定价目录对 Max 档承诺「最多 3 个任务并行」，其余档位按串行处理；
+# 全局槽位是兜底：不同账号可并行，但总任务数要有边界，防止把进程拖垮。
+PLAN_PARALLEL_TASKS = {"max": 3}
+DEFAULT_PARALLEL_TASKS = 1
+MAX_PARALLEL_TASKS = 8
+
 
 async def _offload(fn, *args, **kwargs):
     """把同步的数据库事务 / 阻塞 IO 放进线程执行，不占用事件循环。
@@ -78,18 +84,20 @@ def heartbeat(identifier, user):
         return bool(run.data.get("stop_requested"))
 
 
-def claim():
+def claim(exclude_users: frozenset[str] = frozenset()):
+    """认领最早的排队任务；并发已满的账号不进候选，防止队头被他家任务饿死其他用户。"""
     with transaction() as s:
+        query = select(Item).where(
+            Item.kind == "run",
+            Item.deleted_at.is_(None),
+            Item.data["status"]
+            .as_string()
+            .in_(["queued", "running", "waiting_confirmation"]),
+        )
+        if exclude_users:
+            query = query.where(Item.owner.not_in(exclude_users))
         for run in s.scalars(
-            select(Item)
-            .where(
-                Item.kind == "run",
-                Item.deleted_at.is_(None),
-                Item.data["status"]
-                .as_string()
-                .in_(["queued", "running", "waiting_confirmation"]),
-            )
-            .order_by(Item.created_at)
+            query.order_by(Item.created_at)
             .limit(50)
             .with_for_update(skip_locked=True)
         ):
@@ -400,8 +408,14 @@ async def _execute_turn(identifier, user):
                         return config
 
                 def read_approval():
+                    """读取确认并顺手续租：等待可长达 600 秒，租约断了会被并行认领判成中断。"""
                     with transaction() as s:
-                        return get_item(s, user, identifier, "run").data.get("approval")
+                        run = get_item(s, user, identifier, "run", lock=True)
+                        run.data = {
+                            **run.data,
+                            "lease_until": (now() + timedelta(seconds=90)).isoformat(),
+                        }
+                        return run.data.get("approval")
 
                 config = await _offload(load_connector)
                 # Read-only annotations are external hints, not trusted authority. Confirm all remote calls.
@@ -613,25 +627,69 @@ async def supervise(identifier, user):
         )
 
 
+def _parallel_tasks_for(user: str) -> int:
+    """账号的任务并行度：Max 档 3，其余 1。"""
+    from infra import account_store
+
+    account = account_store.get_user(user) or {}
+    return PLAN_PARALLEL_TASKS.get(account.get("plan") or "metered", DEFAULT_PARALLEL_TASKS)
+
+
 async def loop():
-    while True:
-        try:
-            job = await asyncio.to_thread(claim)
-            if job:
-                await supervise(*job)
-            else:
-                await asyncio.sleep(1)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            # 带上异常摘要（不带整段堆栈，避免库长时间不可用时每 5 秒刷一屏）：只写「不可用」的话，
-            # 冷启动建表竞态、连接串错误、权限不足在日志里长得一模一样，无从排查。
-            log.error(
-                "Workbench database unavailable; worker will retry: %s: %s",
-                type(exc).__name__,
-                str(exc)[:200],
-            )
-            await asyncio.sleep(5)
+    """认领排队任务并逐个并发监管：一个用户的慢任务不再堵住其他用户。
+
+    每个被认领的任务一个 supervise 协程；认领前把并发已满的账号排除在候选之外
+    （否则队头永远是他家的任务，认领后退回的循环会饿死所有人）。
+    """
+    running: set[asyncio.Task] = set()
+    owners: dict[asyncio.Task, str] = {}
+    limits: dict[str, int] = {}
+    try:
+        while True:
+            try:
+                for task in [task for task in running if task.done()]:
+                    running.discard(task)
+                    # supervise 自捕所有异常；走到这里说明调度本身出了问题，留个痕迹。
+                    if not task.cancelled() and task.exception():
+                        log.error("Workbench supervise crashed: %r", task.exception())
+                    user = owners.pop(task, "")
+                    if user and not any(owner == user for owner in owners.values()):
+                        limits.pop(user, None)
+                if len(running) >= MAX_PARALLEL_TASKS:
+                    await asyncio.sleep(1)
+                    continue
+                counts: dict[str, int] = {}
+                for user in owners.values():
+                    counts[user] = counts.get(user, 0) + 1
+                saturated = frozenset(
+                    user for user, count in counts.items() if count >= limits.get(user, 1)
+                )
+                job = await asyncio.to_thread(claim, saturated)
+                if not job:
+                    await asyncio.sleep(1)
+                    continue
+                identifier, user = job
+                if user not in limits:
+                    limits[user] = await asyncio.to_thread(_parallel_tasks_for, user)
+                task = asyncio.create_task(supervise(identifier, user))
+                running.add(task)
+                owners[task] = user
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # 带上异常摘要（不带整段堆栈，避免库长时间不可用时每 5 秒刷一屏）：只写「不可用」的话，
+                # 冷启动建表竞态、连接串错误、权限不足在日志里长得一模一样，无从排查。
+                log.error(
+                    "Workbench database unavailable; worker will retry: %s: %s",
+                    type(exc).__name__,
+                    str(exc)[:200],
+                )
+                await asyncio.sleep(5)
+    except asyncio.CancelledError:
+        for task in running:
+            task.cancel()
+        await asyncio.gather(*running, return_exceptions=True)
+        raise
 
 
 def start(app):
