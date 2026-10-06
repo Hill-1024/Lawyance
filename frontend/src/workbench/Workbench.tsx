@@ -749,13 +749,17 @@ export default function Workbench({ username }: { username: string }) {
         ? "projects"
         : item.kind === "document"
           ? "documents"
-          : "conversations";
+          : item.kind === "court"
+            ? "courts"
+            : "conversations";
     return api("/" + family + "/" + item.id, "DELETE")
       .then(() => {
         if (doc?.id === item.id) setDoc(undefined);
         if (conv?.id === item.id) setConv(undefined);
         if (item.kind === "conversation")
           setTabBook((book) => removeTab(book, space, tabKey({ kind: "conversation", id: item.id })));
+        if (item.kind === "court")
+          setTabBook((book) => removeTab(book, space, tabKey({ kind: "court", id: item.id })));
         setMenu(undefined);
         reload();
       })
@@ -1022,9 +1026,11 @@ export default function Workbench({ username }: { username: string }) {
       const family =
         item.kind === "project"
           ? "projects"
-          : item.kind === "conversation"
-            ? "conversations"
-            : "documents";
+          : item.kind === "court"
+            ? "courts"
+            : item.kind === "conversation"
+              ? "conversations"
+              : "documents";
       await api("/" + family + "/" + item.id, "PATCH", {
         expected_revision: item.revision,
         ...patch,
