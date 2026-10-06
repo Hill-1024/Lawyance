@@ -95,6 +95,31 @@ def _fake_static_client(messages):
     )
 
 
+class _MultiRoundOCPCompletions:
+    """每轮 create() 依次返回一组预置 chunks，模拟多轮流式审查。"""
+
+    def __init__(self, rounds):
+        self._rounds = list(rounds)
+
+    async def create(self, **_kwargs):
+        return _FakeOCPStream(self._rounds.pop(0))
+
+
+def _tool_call_chunk(index, tc_id=None, name=None, arguments=None):
+    function = SimpleNamespace(name=name, arguments=arguments)
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content=None,
+                    reasoning_content=None,
+                    tool_calls=[SimpleNamespace(index=index, id=tc_id, function=function)],
+                )
+            )
+        ]
+    )
+
+
 class OCPTests(unittest.TestCase):
     def test_ocp_tool_surface_is_law_source_only(self):
         tool_names = {tool["function"]["name"] for tool in ocp.OCP_TOOLS}
@@ -212,6 +237,45 @@ class OCPTests(unittest.TestCase):
         self.assertLess(
             events.index(replacements[0]),
             next(i for i, event in enumerate(events) if "审查完成" in event.get("content", "")),
+        )
+
+    def test_ocp_stream_parallel_tool_calls_without_index_get_separate_slots(self):
+        # 部分 provider 的流式增量不带 index：带 id/name 的是新的并行调用，
+        # 不能并进上一个调用槽把 name/arguments 拼成非法载荷（对齐 tool_loop 的判定）。
+        recorded = []
+
+        async def fake_tool(name, args, _session_id):
+            recorded.append((name, args))
+            return "工具结果"
+
+        original_run = ocp._run_ocp_tool
+        checker = ocp.OCPStream(session_id="test")
+        checker.client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=_MultiRoundOCPCompletions([
+                    [
+                        _tool_call_chunk(None, tc_id="call_a", name="get_article", arguments='{"artic'),
+                        _tool_call_chunk(None, arguments='le_id": "1"}'),
+                        _tool_call_chunk(None, tc_id="call_b", name="search_article", arguments='{"query"'),
+                        _tool_call_chunk(None, arguments=': "违约"}'),
+                    ],
+                    [_content_chunk("《民法典》第五百七十七条")],
+                ])
+            )
+        )
+
+        async def collect_events():
+            return [event async for event in checker.check_stream("原始正文需要格式修复")]
+
+        try:
+            ocp._run_ocp_tool = fake_tool
+            asyncio.run(collect_events())
+        finally:
+            ocp._run_ocp_tool = original_run
+
+        self.assertEqual(
+            recorded,
+            [("get_article", {"article_id": "1"}), ("search_article", {"query": "违约"})],
         )
 
     def test_ocp_stream_fallback_uses_final_answer_payload(self):
