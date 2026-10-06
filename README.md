@@ -441,7 +441,7 @@ sudo -u lawver env LAWVER_DATABASE_URL='postgresql+psycopg://lawver:<密码>@127
 两个坑：
 
 - **不要在 `.env` 里设 `PORT`。** 端口以 `package.json` 的 `appConfig.port`（8081）为准；写成 8080 会和核心抢端口，症状是核心起不来。
-- **部署机要设 `LAWVER_HOST=127.0.0.1`。** 功能页默认绑 `0.0.0.0`（方便本地开发直连），部署机上必须收回回环——对外只允许分流核心 8080 经隧道暴露，8081/8082/8083 不该被公网摸到。
+- **部署机要设 `LAWVER_HOST=127.0.0.1`。** 功能页默认绑 `0.0.0.0`（方便本地开发直连），部署机上必须收回回环——对外只允许分流核心 8080 经隧道暴露，8081/8082/8083 不该被公网摸到。`deploy/systemd/lawver-app.service` 已用 `Environment=` 预设（优先级高于 `.env`），自己改启动方式时别丢掉这一项。
 - **`UVICORN_WORKERS>1` 时必须配 `LAWVER_REDIS_URL`**，否则限流与布隆过滤器变成每 worker 一份，真实上限被放大到 worker 数倍。
 
 ### 6. 介绍页构建与换版
