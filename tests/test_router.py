@@ -39,6 +39,7 @@ class FakeUpstreams:
         self.intro_port = intro_port
         self.app_down = False
         self.intro_down = False
+        self.app_read_error = False
         self.seen: list[httpx.Request] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -52,6 +53,9 @@ class FakeUpstreams:
         side = self._side(request)
         if (side == "app" and self.app_down) or (side == "intro" and self.intro_down):
             raise httpx.ConnectError(f"{side} is down", request=request)
+        if side == "app" and self.app_read_error:
+            # 上游接受连接后、回完响应头之前被 RST：httpx 抛 ReadError。
+            raise httpx.ReadError(f"{side} reset while reading response headers", request=request)
         if request.url.path == "/api/court/turn":
             chunks = [b'data: {"n": 1}\n\n', b'data: {"n": 2}\n\n', b"data: [DONE]\n\n"]
 
@@ -273,6 +277,17 @@ class RouterTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(302, response.status_code)
         self.assertFalse(self.core.sides["app"].up)
         self.upstreams.app_down = False
+        await self.core.probe_once()
+        self.assertEqual(200, (await self.client.get("/home")).status_code)
+
+    async def test_read_error_while_reading_headers_marks_the_side_down_instead_of_500(self):
+        # 上游接受连接后在读响应头阶段断开（ReadError）：同样要立刻判下线给维护页，
+        # 而不是把异常冒成 500、再等最多一个探活周期才恢复。
+        self.upstreams.app_read_error = True
+        response = await self.client.get("/home", headers={"sec-fetch-mode": "navigate"})
+        self.assertEqual(302, response.status_code)
+        self.assertFalse(self.core.sides["app"].up)
+        self.upstreams.app_read_error = False
         await self.core.probe_once()
         self.assertEqual(200, (await self.client.get("/home")).status_code)
 
