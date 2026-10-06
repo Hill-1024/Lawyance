@@ -365,7 +365,7 @@ global.lawver.dev   → 隧道 → 海外机器：分流核心 8080 ─┴─ �
 - **跨机分流靠主机名**：`lawver.dev` 与 `global.lawver.dev` 各自指向一台机器的隧道入口；两台机器跑同一套布局，差异只有主机名与数据源。原先按 `/cn`、`/asean` 路径前缀分流的方案已退役——前缀会渗进前端路由、SW scope 与资源基准三处，纯属把复杂度搬进应用；主机名分流把这件事留在 DNS 层。
 - **本机分流靠路径**：每台机器上的 [deploy/router](deploy/router/README.md) 是唯一入口，监听稳定端口 8080，把介绍页路径（`/`、`/design`、`/download`、`/pricing`、`/robots.txt`、`/sitemap.xml`、`/intro-assets/*`）交给介绍页进程，其余（`/home`、`/login`、`/settings/*`、`/admin`、`/business`、`/court/*`、`/api/*`…）交给功能页进程。以后任一侧怎么重启换代，隧道配置都不用动。
 - **端口**：核心 8080（`appConfig.routerPort`）、功能页 8081（`appConfig.port`）、介绍页 8082（`appConfig.introPort`）。功能页只监听回环，不直接对外。
-- **维护兜底**：任一侧下线（或 `deploy/router/state/<side>.maintenance` 文件在）时，核心把页面导航 302 到 `/under_maintenance`（「维护中／我们很快就会回来。」，恢复后自动跳回原路径），接口与静态资源返回 503 JSON + `Retry-After`。核心自己回答这个页面，所以两侧都挂时它仍然可用。
+- **维护兜底**：任一侧下线（或 `state_dir` 下的 `<side>.maintenance` 开关文件在，生产为 `/var/lib/lawver/router-state/<side>.maintenance`）时，核心把页面导航 302 到 `/under_maintenance`（「维护中／我们很快就会回来。」，恢复后自动跳回原路径），接口与静态资源返回 503 JSON + `Retry-After`。核心自己回答这个页面，所以两侧都挂时它仍然可用。
 - **`<base>` 与资源路径**：功能页仍由 `backend/routes/spa.py` 注入 `<base href="/">`，深链接（`/court/xxx`、`/settings/profile`）才会解析出正确资源；介绍页构建用绝对路径（`base: '/'`），产物落在 `/intro-assets/*`，与功能页的 `/assets/*` 不撞——同域下两个构建不能共用 `/assets`。
 - **探活**：功能页提供 `/api/health`（免鉴权、不碰数据库、不写访问日志），介绍页提供 `/healthz`；核心每 5s 探一次，页面导航遇到某一侧下线时立刻给维护页。
 
@@ -576,7 +576,7 @@ sudo systemctl restart lawver-router
 | 目的 | 做法 |
 |---|---|
 | 只读维护（功能页仍可读、写操作被拒） | 在 `.env` 里 `LAWVER_WORKBENCH_READ_ONLY=1` 并重启 `lawver-app` |
-| 整侧维护（不动进程，用户看到维护页） | `sudo -u lawver touch /srv/lawver/deploy/router/state/app.maintenance`（介绍页同理换 `intro.maintenance`），撤销就删文件 |
+| 整侧维护（不动进程，用户看到维护页） | `sudo -u lawver touch /var/lib/lawver/router-state/app.maintenance`（介绍页同理换 `intro.maintenance`），撤销就删文件。开关文件在配置的 `state_dir` 下（第 7 步已设为 `/var/lib/lawver/router-state`），不在仓库目录里 |
 | 通知用户 | 管理面板发「开屏公告」 |
 
 **备份与恢复**：见 [docs/workbench/operations.md](docs/workbench/operations.md)。要点是每日先切只读、再 `python -m workbench.maintenance backup /var/lib/lawver/backups/$(date +%F)` 并用 `verify` 校验，保留 30 天；`LAWVER_CONNECTOR_KEY` 与备份分开保管。
