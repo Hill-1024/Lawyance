@@ -3,6 +3,7 @@
 """
 
 import errno
+import logging
 import os
 import shutil
 from typing import Annotated
@@ -29,6 +30,7 @@ from services.workspace_service import (
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 MAX_WORKSPACE_FILES = 2_000
 MAX_FILE_PATH_CHARS = 8_192
 
@@ -242,14 +244,21 @@ async def delete_workspace(
     temp_dir, result_dir = get_workspace_dirs(current_user, conversation_id)
     scope = get_workspace_scope(current_user, conversation_id)
     try:
-        # Validate both paths before mutating either one or clearing memory.
+        # Validate both paths before mutating anything.
         await run_in_threadpool(_delete_workspace_dirs, (temp_dir, result_dir))
-        await run_in_threadpool(call_memory_tool, "clear_conversation_memory", {}, scope)
     except WorkspaceBoundaryError:
         raise HTTPException(status_code=403, detail="Workspace not found or access denied")
     except OSError:
         raise HTTPException(status_code=500, detail="Unable to delete workspace")
-    active_conversations.pop(scope, None)
+    # 文件已删且不可回滚：记忆清理失败若让请求 500，客户端重试会撞上
+    # 「目录已删、active_conversations 未弹出」的不一致状态，记忆也只能等
+    # 清理任务的惰性清理。这里记日志后照常返回成功，并保证弹出活跃标记。
+    try:
+        await run_in_threadpool(call_memory_tool, "clear_conversation_memory", {}, scope)
+    except Exception:
+        logger.warning("会话 %s 工作区已删除，但记忆清理失败", scope, exc_info=True)
+    finally:
+        active_conversations.pop(scope, None)
 
     return {"status": "success"}
 
