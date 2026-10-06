@@ -436,7 +436,7 @@ sudo -u lawver env LAWVER_DATABASE_URL='postgresql+psycopg://lawver:<密码>@127
 | `LAWVER_WORKBENCH_USERS` | 灰度名单，如 `admin`；验收通过后再改 `*` |
 | `LAWVER_CONNECTOR_KEY` | 插件凭据加密密钥（Fernet），**与数据库分开保管，丢了就解不开插件凭据** |
 
-按需：模型与检索凭据（`API_KEY` / `BASE_URL` / `LLM_MODEL` / `DELI_*` / `PKU_ACCESS_TOKEN` / `QCC_ACCESS_TOKEN` 等），可选 `LAWVER_REDIS_URL`、`LAWVER_PUBLIC_BASE_URL=https://lawver.dev`、`UVICORN_WORKERS`。完整键名见 `.env_example` 与 `deploy/workbench/environment.example`。
+按需：模型与检索凭据（`API_KEY` / `BASE_URL` / `LLM_MODEL` / `DELI_*` / `QCC_ACCESS_TOKEN` / `QCC_ENDPOINT` 等），可选 `LAWVER_REDIS_URL`、`LAWVER_PUBLIC_BASE_URL=https://lawver.dev`、`UVICORN_WORKERS`。完整键名见 `.env_example` 与 `deploy/workbench/environment.example`。
 
 两个坑：
 
