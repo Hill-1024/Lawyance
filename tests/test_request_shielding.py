@@ -7,6 +7,7 @@
 """
 
 import importlib
+import json
 import os
 import shutil
 import sys
@@ -325,7 +326,31 @@ class MiddlewareShieldTests(ShieldTestBase, unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(blocked.status_code, 429)
-        self.assertEqual(blocked.body, b"Rate limit exceeded")
+        # 429 必须遵循全站 {"detail": ...} JSON 错误契约（与 routes/releases.py 的 APK
+        # 限流一致）：纯文本体会被前端兜底成「网络请求失败」，掩盖真实原因。
+        self.assertIn("application/json", blocked.headers["content-type"])
+        payload = json.loads(blocked.body)
+        self.assertEqual(payload["detail"], "Rate limit exceeded")
+        self.assertEqual(payload["code"], "rate_limited")
+        self.assertGreaterEqual(int(blocked.headers["retry-after"]), 1)
+
+    async def test_session_probe_throttled_returns_json_429(self):
+        # T1 回归：/api/session 被通用桶限流时返回 429+Retry-After（JSON 契约），
+        # 前端据此把它当瞬态失败保持登录态，而不是判成未登录造成假登出。
+        app_security = importlib.import_module("services.app_security")
+        rate_limit = importlib.import_module("services.rate_limit")
+        rate_limit.reset()
+        app_security.RATE_LIMIT = 1
+
+        self.assertEqual(
+            (await self._call(app_security, self._request("/api/session", method="GET"))).status_code,
+            200,
+        )
+        blocked = await self._call(
+            app_security, self._request("/api/session", method="GET", read_body=False)
+        )
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(json.loads(blocked.body)["code"], "rate_limited")
         self.assertGreaterEqual(int(blocked.headers["retry-after"]), 1)
 
     async def test_login_bucket_is_stricter_than_general_bucket(self):
@@ -341,6 +366,32 @@ class MiddlewareShieldTests(ShieldTestBase, unittest.IsolatedAsyncioTestCase):
 
         # 登录桶被限流不影响同 IP 访问其他接口。
         self.assertEqual((await self._call(app_security, self._request("/api/court/turn"))).status_code, 200)
+
+    async def test_login_is_not_blocked_by_the_general_bucket(self):
+        """登录只走专用桶：通用桶被别的 API 流量打满时，登录必须还能进。
+
+        生产视口扫描的 navFail 即旧行为的症状：同一 IP 连续扫多个视口把通用桶
+        打满后，/api/login 被前置的通用桶 429，浏览器停在 /login 进不了 /home。
+        撞库防护由 LOGIN_RATE_LIMIT 独立兜底，不受此放开影响。
+        """
+        app_security = importlib.import_module("services.app_security")
+        rate_limit = importlib.import_module("services.rate_limit")
+        rate_limit.reset()
+        app_security.RATE_LIMIT = 1
+        app_security.LOGIN_RATE_LIMIT = 1
+
+        # 通用桶（上限 1）被非登录请求打满。
+        self.assertEqual((await self._call(app_security, self._request("/api/court/turn"))).status_code, 200)
+        self.assertEqual(
+            (await self._call(app_security, self._request("/api/court/turn", read_body=False))).status_code,
+            429,
+        )
+        # 登录不被通用桶连带 429，仍由登录桶裁决。
+        self.assertEqual((await self._call(app_security, self._request("/api/login"))).status_code, 200)
+        # 登录桶（上限 3）自己照常拦撞库。
+        blocked = await self._call(app_security, self._request("/api/login", read_body=False))
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(json.loads(blocked.body)["code"], "rate_limited")
 
     async def test_options_and_non_api_paths_are_not_counted(self):
         app_security = importlib.import_module("services.app_security")
@@ -487,6 +538,135 @@ class StartupShieldingTests(ShieldTestBase):
             auth.warm_session_bloom = original
 
         self.assertEqual(calls, [1])
+
+
+@unittest.skipIf(fakeredis is None, "fakeredis not installed")
+class RevocationCacheTests(ShieldTestBase):
+    """T5 回归：upsert_account（sudo 重置密码）与 delete_account 必须逐 sid 清会话缓存。
+
+    verify_token 对缓存命中直接放行（TTL ≤60s 兜底）；这两个路径曾直调
+    auth_store.revoke_user_sessions 绕过带 _drop_session_cache 的包装，
+    被吊销/删号的会话在缓存窗口内继续通过认证。
+    """
+
+    def _enable_fake_redis(self):
+        os.environ["LAWVER_REDIS_URL"] = "redis://fakeredis.test/0"
+        redis_backend = importlib.import_module("infra.redis_backend")
+        fake = fakeredis.FakeStrictRedis(decode_responses=True)
+        original = redis_backend.get_client
+        redis_backend.get_client = lambda: fake
+        self.addCleanup(setattr, redis_backend, "get_client", original)
+        return fake
+
+    def _cached_session_victim(self, auth):
+        ok, _ = auth.upsert_account("admin", "victim", "victim-password-1")
+        self.assertTrue(ok)
+        ok, _, sid, _ = auth.create_session("victim")
+        self.assertTrue(ok)
+        # 先验一次让会话进入 Redis 缓存。
+        self.assertEqual(auth.verify_token(sid), "victim")
+        return sid
+
+    def test_upsert_account_password_reset_rejects_cached_session(self):
+        auth = importlib.import_module("auth")
+        self._enable_fake_redis()
+        sid = self._cached_session_victim(auth)
+
+        ok, message = auth.upsert_account("admin", "victim", "victim-password-2")
+        self.assertTrue(ok, message)
+
+        self.assertIsNone(auth.verify_token(sid), "改密吊销后缓存命中路径必须拒绝")
+
+    def test_delete_account_rejects_cached_session(self):
+        auth = importlib.import_module("auth")
+        self._enable_fake_redis()
+        sid = self._cached_session_victim(auth)
+
+        ok, message = auth.delete_account("victim", actor="admin")
+        self.assertTrue(ok, message)
+
+        self.assertIsNone(auth.verify_token(sid), "删号后缓存命中路径必须拒绝")
+
+
+class MultipartBodyGuardTests(ShieldTestBase, unittest.IsolatedAsyncioTestCase):
+    """T26 回归：multipart 必须在中间件按上限拦截，不能等端点 read(N+1) 时才生效
+    （那时 Starlette 已把整个 body spool 落盘，GB 级 body 可以先写满磁盘）。
+    """
+
+    def _request(self, body: bytes, content_length: bool, declared_length: int | None = None):
+        state = {"sent": False}
+
+        async def receive():
+            if state["sent"]:
+                return {"type": "http.request", "body": b"", "more_body": False}
+            state["sent"] = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        headers = [(b"content-type", b"multipart/form-data; boundary=X")]
+        if declared_length is not None:
+            headers.append((b"content-length", str(declared_length).encode()))
+        elif content_length:
+            headers.append((b"content-length", str(len(body)).encode()))
+        return Request(
+            {
+                "type": "http",
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/api/upload",
+                "raw_path": b"/api/upload",
+                "query_string": b"",
+                "headers": headers,
+                "client": ("198.51.100.30", 1234),
+                "server": ("localhost", 80),
+            },
+            receive,
+        )
+
+    async def _call(self, app_security, request, downstream_bodies=None):
+        async def call_next(downstream_request):
+            if downstream_bodies is not None:
+                downstream_bodies.append(await downstream_request.body())
+            return Response("ok")
+
+        return await app_security.security_and_logging_middleware(request, call_next)
+
+    async def test_content_length_over_limit_rejected_without_reading(self):
+        app_security = importlib.import_module("services.app_security")
+        # 声明超限长度但实际 body 很小：必须只看头就拒绝，一个字节都不读。
+        request = self._request(
+            b"x" * 8,
+            content_length=False,
+            declared_length=app_security.MAX_UPLOAD_BODY_BYTES + 1,
+        )
+        response = await self._call(app_security, request)
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(json.loads(response.body)["code"], "request_body_too_large")
+
+    async def test_chunked_over_limit_rejected_and_body_discarded(self):
+        app_security = importlib.import_module("services.app_security")
+        app_security.MAX_UPLOAD_BODY_BYTES = 8
+        try:
+            response = await self._call(app_security, self._request(b"a" * 9, content_length=False))
+        finally:
+            app_security.MAX_UPLOAD_BODY_BYTES = app_security._configured_multipart_body_limit()
+        self.assertEqual(response.status_code, 413)
+
+    async def test_chunked_within_limit_replays_body_to_endpoint(self):
+        app_security = importlib.import_module("services.app_security")
+        app_security.MAX_UPLOAD_BODY_BYTES = 64
+        downstream_bodies: list[bytes] = []
+        payload = b"--X\r\ncontent-disposition: form-data; name=\"file\"\r\n\r\nok\r\n--X--\r\n"
+        try:
+            response = await self._call(
+                app_security,
+                self._request(payload, content_length=False),
+                downstream_bodies,
+            )
+        finally:
+            app_security.MAX_UPLOAD_BODY_BYTES = app_security._configured_multipart_body_limit()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(downstream_bodies, [payload])
 
 
 if __name__ == "__main__":
