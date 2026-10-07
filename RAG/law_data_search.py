@@ -359,42 +359,70 @@ class LawSearchEngine:
         conn.row_factory = sqlite3.Row
         return conn
 
+    @staticmethod
+    def _law_alias_rank(row: sqlite3.Row) -> tuple[int, int]:
+        """同名别名常被一个法律家族共享：「刑法」同时是刑法典、各部修正案与罪名
+        补充规定的别名，「民法」同时是民法典与时间效力规定的别名。只按施行日定
+        胜负会把别的家族成员（甚至毫不相干的司法解释）当成命中。
+
+        首选「去掉尾部括注后仍以该别名结尾」的法律——别名是它本名的尾巴，
+        而不是借来的简称（中华人民共和国刑法 以 刑法 结尾；刑法修正案(二) 以
+        修正案 结尾）。同分再取更短别名（更精确），最后才是施行日新旧。
+        """
+        core_name = FILE_TITLE_PAREN_RE.sub("", row["law_name"]).strip()
+        return (
+            0 if core_name.endswith(row["alias"] or "") else 1,
+            len(row["alias"] or ""),
+        )
+
     def _find_law_by_name(self, law_name: str) -> Optional[sqlite3.Row]:
         query = normalize_title(law_name)
         if not query:
             return None
 
+        def rank_candidates(rows: list[sqlite3.Row]) -> list[sqlite3.Row]:
+            rows.sort(key=lambda row: row["implement_date"] or "", reverse=True)
+            rows.sort(key=self._law_alias_rank)
+            return rows
+
         with closing(self._connect()) as conn:
-            exact = conn.execute(
+            exact_rows = conn.execute(
                 """
-                SELECT laws.*
+                SELECT laws.*, law_aliases.alias AS alias
                 FROM law_aliases
                 JOIN laws ON laws.id = law_aliases.law_id
                 WHERE law_aliases.normalized_alias = ?
-                ORDER BY LENGTH(law_aliases.alias) ASC, laws.implement_date DESC
-                LIMIT 1
                 """,
                 (query,),
-            ).fetchone()
-            if exact:
-                return exact
+            ).fetchall()
+            if exact_rows:
+                return rank_candidates(exact_rows)[0]
 
             if len(query) < MIN_PARTIAL_TITLE_CHARS:
                 return None
 
-            partial = conn.execute(
+            # 部分匹配收紧：无约束的双向 instr 会让 2 字泛化别名（如「民法」）命中任何
+            # 含「民法」的查询，再任选一部同别名法律，把别的法律的同号法条当精确命中
+            # 返回（success=true、附 URL 与全文）。约束：
+            # 1. ≤2 字别名只允许参与精确别名分支，不参与双向 instr；
+            # 2. 要么查询完整出现在别名里（短名查全称），要么别名覆盖查询的一半以上
+            #    （查询是别名的轻度变体），纯碎片不落匹配；
+            # 3. 命中多个时按 _law_alias_rank 裁决，不再只看施行日期。
+            partial_rows = conn.execute(
                 """
-                SELECT DISTINCT laws.*
+                SELECT DISTINCT laws.*, law_aliases.alias AS alias
                 FROM law_aliases
                 JOIN laws ON laws.id = law_aliases.law_id
-                WHERE instr(law_aliases.normalized_alias, ?) > 0
-                   OR instr(?, law_aliases.normalized_alias) > 0
-                ORDER BY LENGTH(law_aliases.alias) ASC, laws.implement_date DESC
-                LIMIT 1
+                WHERE LENGTH(law_aliases.alias) >= 3
+                  AND (instr(law_aliases.normalized_alias, ?) > 0
+                       OR (instr(?, law_aliases.normalized_alias) > 0
+                           AND LENGTH(law_aliases.alias) * 2 >= LENGTH(?)))
                 """,
-                (query, query),
-            ).fetchone()
-            return partial
+                (query, query, query),
+            ).fetchall()
+            if not partial_rows:
+                return None
+            return rank_candidates(partial_rows)[0]
 
     def _find_law_mentions(self, message: str, limit: int) -> List[Tuple[str, str]]:
         normalized_message = normalize_title(message)
@@ -408,8 +436,7 @@ class LawSearchEngine:
                 SELECT laws.law_name, laws.url, law_aliases.alias, law_aliases.normalized_alias
                 FROM law_aliases
                 JOIN laws ON laws.id = law_aliases.law_id
-                WHERE LENGTH(law_aliases.alias) >= 3
-                ORDER BY LENGTH(law_aliases.alias) DESC
+                WHERE LENGTH(law_aliases.alias) >= 2
                 """
             )
             seen_titles = set()
@@ -421,12 +448,21 @@ class LawSearchEngine:
                 if law_name in seen_titles:
                     continue
                 seen_titles.add(law_name)
-                matches.append((law_name, row["url"], len(alias)))
-                if len(matches) >= limit:
-                    break
+                matches.append((law_name, row["url"], len(alias), row["alias"]))
 
-        matches.sort(key=lambda item: (-item[2], len(item[0])))
-        return [(law_name, url) for law_name, url, _ in matches[:limit]]
+        # 先全表扫完再排序截断：短别名（刑法/民法）被十几部法律共享，游标顺序里
+        # 先到先得会把裸引用解析到毫不相干的罪名补充规定上。排序口径与
+        # _law_alias_rank 一致（本名以别名结尾者优先），再按别名从长到短消歧义。
+        matches.sort(
+            key=lambda item: (
+                self._law_alias_rank(
+                    {"law_name": item[0], "alias": item[3]}
+                ),
+                -item[2],
+                len(item[0]),
+            )
+        )
+        return [(law_name, url) for law_name, url, _, _ in matches[:limit]]
 
     def _extract_unquoted_citations(self, message: str, limit: int) -> List[Tuple[str, str]]:
         citations: List[Tuple[str, str]] = []
