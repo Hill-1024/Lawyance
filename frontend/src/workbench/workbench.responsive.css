@@ -219,7 +219,7 @@
   .wb-tabstrip {
     --wb-strip-pad: 10px;
     padding: 0 10px;
-    gap: 6px;
+    gap: 8px;
     min-height: 52px;
   }
   .wb-tabstrip-viewport {
@@ -229,6 +229,12 @@
   }
   .wb-tab {
     max-width: 150px;
+    /* 桌面右 padding 只有 3px：手机上文字几乎顶到胶囊右缘，这里留出呼吸空间。 */
+    padding: 0 10px 0 11px;
+  }
+  .wb-tab-button {
+    gap: 8px;
+    font-size: 13px;
   }
   .wb-home {
     padding: 26px 20px 20px;
