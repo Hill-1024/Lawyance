@@ -50,6 +50,20 @@ SMALL_CONTROL_JSON_BODY_BYTES = 64 * 1024
 CHAT_JSON_BODY_BYTES = 12 * 1024 * 1024
 
 
+def _configured_multipart_body_limit() -> int:
+    """multipart 的中间件级上限。工作区上传/头像在端点里有更小的逐端点限长，
+    这里只需罩住最大的合法 multipart——工作台备份恢复允许 256 MB（BACKUP_MAX_BYTES），
+    留出编码开销余量。"""
+    try:
+        configured = int(os.getenv("LAWVER_MAX_UPLOAD_BODY_BYTES", str(264 * 1024 * 1024)))
+    except ValueError:
+        configured = 264 * 1024 * 1024
+    return min(max(configured, 1024 * 1024), 1024 * 1024 * 1024)
+
+
+MAX_UPLOAD_BODY_BYTES = _configured_multipart_body_limit()
+
+
 def _json_body_limit_for_path(path: str) -> int:
     if path == "/api/login":
         route_limit = LOGIN_JSON_BODY_BYTES
@@ -262,6 +276,57 @@ def secure_cookie_for_request(request: Request) -> bool:
 def _has_json_content_type(request: Request) -> bool:
     media_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
     return media_type == "application/json" or media_type.endswith("+json")
+
+
+def _has_multipart_content_type(request: Request) -> bool:
+    media_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    return media_type == "multipart/form-data"
+
+
+def _body_too_large_response() -> Response:
+    return JSONResponse(
+        status_code=413,
+        content={"detail": "Request body too large", "code": "request_body_too_large"},
+    )
+
+
+async def _guard_multipart_body(request: Request) -> Response | None:
+    """multipart 不走 JSON 分支：Starlette 会先把整个 body 流式 spool 落盘
+    （UploadFile 超 1MB 即写临时文件），端点里 read(N+1) 的限长生效时磁盘已经
+    被写过了——攻击者反复推 GB 级 body 即可耗尽磁盘。这里提前拦截：
+
+    - 带 Content-Length：超限直接 413，一个字节都不读；
+    - chunked（无 Content-Length）：增量消费计数，超限即 413（消费即丢弃，
+      不落盘）；限内把已读字节回放进 request._body，由 BaseHTTPMiddleware 的
+      wrapped_receive 原样交给下游 multipart 解析器（与 JSON 分支同一回放机制）。
+    """
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            declared_length = int(content_length)
+        except ValueError:
+            declared_length = None
+        if declared_length is not None and declared_length > MAX_UPLOAD_BODY_BYTES:
+            return _body_too_large_response()
+        # 声明了长度且在限内：交给 Starlette 正常流式接收，端点侧另有逐端点上限。
+        return None
+
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > MAX_UPLOAD_BODY_BYTES:
+                return _body_too_large_response()
+            if chunk:
+                chunks.append(chunk)
+    except ClientDisconnect:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "Invalid request body", "code": "invalid_request_body"},
+        )
+    request._body = b"".join(chunks)
+    return None
 
 
 async def _buffer_json_body_with_limit(request: Request, limit: int | None = None) -> Response | None:
