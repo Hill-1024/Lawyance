@@ -52,6 +52,7 @@
 
 .wb-nudge__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -75,6 +76,9 @@
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   transition: color 140ms var(--ease-standard);
+  /* 320px 档弹窗只剩 ~288px：不锁死的话按钮会被压到 30px 宽，四字竖排一字一行。 */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .wb-nudge__quiet:hover {
