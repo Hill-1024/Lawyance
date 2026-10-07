@@ -122,7 +122,9 @@
   --neutral-200: #dee3ec;
   --neutral-300: #c5ccd8;
   --neutral-400: #9aa3b2;
-  --neutral-500: #6b7385;
+  /* --fg-3（次要文字）在浅色面板上要过 WCAG 4.5:1：#6b7385 对 #eef1f6 只有 4.2:1，
+     加深到 #5d6478 后对最深的浅色面板（bg-inset #eef1f6）也有 5.2:1。 */
+  --neutral-500: #5d6478;
   --neutral-600: #4b5160;
   --neutral-700: #353a47;
   --neutral-800: #1e222c;
