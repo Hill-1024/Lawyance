@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { useAppBack } from '../hooks/useAppBack';
 import { useAppDialog } from '../contexts/DialogContext';
-import { useT } from '../i18n';
+import { translate, useT } from '../i18n';
 import { BrandMark } from './Brand';
 import { HoverInfo } from './HoverInfo';
 import { describeError } from '../lib/errors';
@@ -75,11 +75,14 @@ import '../workbench/workbench.css';
 
 /* ── 展示常量与格式化 ─────────────────────────────────────────────────── */
 
-const ROLE_LABEL: Record<Role, string> = {
-  sudo: '超级管理员',
-  admin: '管理员',
-  user: '普通用户',
-};
+// 角色/套餐/计费/告警级别是展示文案：取词放在函数里用 translate()，
+// 模块级常量会停在首次加载的语言（与 CourtSetup phases 同理）。
+const roleLabel = (role: Role): string =>
+  role === 'sudo'
+    ? translate('admin.roleSudo')
+    : role === 'admin'
+      ? translate('admin.roleAdmin')
+      : translate('admin.roleUser');
 
 const ROLE_TONE: Record<Role, ChipTone> = {
   sudo: 'accent',
@@ -87,27 +90,32 @@ const ROLE_TONE: Record<Role, ChipTone> = {
   user: 'muted',
 };
 
-const PLAN_LABEL: Record<string, string> = {
-  metered: '按量',
-  go: 'Go',
-  pro: 'Pro',
-  max: 'Max',
-  business: 'Business',
+const planLabel = (plan: string | undefined): string => {
+  switch (plan) {
+    case 'metered': return translate('admin.planMetered');
+    case 'go': return translate('admin.planGo');
+    case 'pro': return translate('admin.planPro');
+    case 'max': return translate('admin.planMax');
+    case 'business': return translate('admin.planBusiness');
+    default: return plan || '';
+  }
 };
 
-const CYCLE_LABEL: Record<string, string> = {
-  prepaid: '按量计费',
-  monthly: '月付',
-  yearly: '年付',
-};
+const cycleLabel = (cycle: string | undefined): string =>
+  cycle === 'monthly'
+    ? translate('admin.cycleMonthly')
+    : cycle === 'yearly'
+      ? translate('admin.cycleYearly')
+      : translate('admin.cyclePrepaid');
 
 const PAID_PLANS = ['go', 'pro', 'max', 'business'] as const;
 
-const LEVEL_LABEL: Record<AnnouncementLevel, string> = {
-  info: '提示',
-  warning: '注意',
-  danger: '重要',
-};
+const levelLabel = (level: AnnouncementLevel): string =>
+  level === 'warning'
+    ? translate('admin.levelWarning')
+    : level === 'danger'
+      ? translate('admin.levelDanger')
+      : translate('admin.levelInfo');
 
 const LEVEL_TONE: Record<AnnouncementLevel, ChipTone> = {
   info: 'accent',
@@ -275,8 +283,8 @@ const CreateAccountDialog: React.FC<{
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
-    if (!username.trim()) return setError('请填写账号名。');
-    if (password.length < 6) return setError('密码至少 6 位字符。');
+    if (!username.trim()) return setError(t('admin.errUsernameRequired'));
+    if (password.length < 6) return setError(t('admin.errPasswordTooShort'));
 
     const limits: AccountLimits = {};
     if (isSudo && newRole !== 'sudo') {
@@ -286,7 +294,7 @@ const CreateAccountDialog: React.FC<{
         limits.user_max_online = userMaxOnline.trim() === '' ? 0 : Number(userMaxOnline);
       }
       if (Object.values(limits).some((value) => Number.isNaN(value))) {
-        return setError('配额必须是数字，留空表示不限制。');
+        return setError(t('admin.errQuotaNotNumber'));
       }
     }
 
@@ -300,27 +308,27 @@ const CreateAccountDialog: React.FC<{
     }
     if (credits.trim() !== '') {
       const amount = Number(credits);
-      if (!Number.isFinite(amount) || amount < 0) return setError('初始 credits 必须是不小于 0 的数字。');
+      if (!Number.isFinite(amount) || amount < 0) return setError(t('admin.errInitialCredits'));
       provision.initial_credits = amount;
     }
 
     setBusy(true);
     try {
       await setAccount(username.trim(), password, isSudo ? newRole : 'user', limits, provision);
-      onDone(`账号「${username.trim()}」已创建。`);
+      onDone(t('admin.createdNotice', { username: username.trim() }));
     } catch (e: any) {
-      setError(describeError(e, '创建账号失败。'));
+      setError(describeError(e, t('admin.createFailed')));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <AdminModal title={t(isSudo ? "admin.createSudoTitle" : "admin.createUserTitle")} subtitle="创建后可继续调整配额、充值 credits。" onClose={onClose}>
+    <AdminModal title={t(isSudo ? "admin.createSudoTitle" : "admin.createUserTitle")} subtitle={t('admin.createSubtitle')} onClose={onClose}>
       <form onSubmit={submit}>
         <div className="wb-admin-form-grid">
           <label>
-            账号名
+            {t('admin.fieldUsername')}
             <input
               value={username}
               onChange={(event) => setUsername(event.target.value)}
@@ -329,19 +337,19 @@ const CreateAccountDialog: React.FC<{
             />
           </label>
           <label>
-            密码
+            {t('admin.fieldPassword')}
             <input
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="至少 6 位字符"
+              placeholder={t('admin.passwordHint')}
               autoComplete="new-password"
             />
           </label>
         </div>
 
         <label>
-          角色
+          {t('admin.fieldRole')}
           {isSudo ? (
             <div className="wb-admin-choices" role="group" aria-label={t("admin.roleGroup")}>
               {(['user', 'admin', 'sudo'] as Role[]).map((option) => (
@@ -351,32 +359,32 @@ const CreateAccountDialog: React.FC<{
                   aria-pressed={newRole === option}
                   onClick={() => setNewRole(option)}
                 >
-                  {ROLE_LABEL[option]}
+                  {roleLabel(option)}
                 </button>
               ))}
             </div>
           ) : (
             <div className="wb-admin-choices">
-              <button type="button" aria-pressed onClick={() => undefined}>普通用户</button>
+              <button type="button" aria-pressed onClick={() => undefined}>{roleLabel('user')}</button>
             </div>
           )}
         </label>
 
         <label>
-          计费方式
+          {t('admin.fieldBilling')}
           <div className="wb-admin-choices" role="group" aria-label={t("admin.billingGroup")}>
             {([
-              ['metered', '按量计费'],
-              ['monthly', '月付'],
-              ['yearly', '年付'],
-            ] as [BillingMode, string][]).map(([value, label]) => (
+              'metered',
+              'monthly',
+              'yearly',
+            ] as BillingMode[]).map((value) => (
               <button
                 key={value}
                 type="button"
                 aria-pressed={mode === value}
                 onClick={() => setMode(value)}
               >
-                {label}
+                {cycleLabel(value)}
               </button>
             ))}
           </div>
@@ -384,7 +392,7 @@ const CreateAccountDialog: React.FC<{
 
         {mode !== 'metered' && (
           <label>
-            套餐
+            {t('admin.fieldPlan')}
             <div className="wb-admin-choices" role="group" aria-label={t("admin.planGroup")}>
               {PAID_PLANS.map((value) => (
                 <button
@@ -393,7 +401,7 @@ const CreateAccountDialog: React.FC<{
                   aria-pressed={plan === value}
                   onClick={() => setPlan(value)}
                 >
-                  {PLAN_LABEL[value]}
+                  {planLabel(value)}
                 </button>
               ))}
             </div>
@@ -402,26 +410,26 @@ const CreateAccountDialog: React.FC<{
 
         <div className="wb-admin-form-grid">
           <label>
-            初始 credits
+            {t('admin.fieldInitialCredits')}
             <input
               type="number"
               min={0}
               step="0.01"
               value={credits}
               onChange={(event) => setCredits(event.target.value)}
-              placeholder="留空为 0，经账本入账"
+              placeholder={t('admin.initialCreditsHint')}
             />
           </label>
           {isSudo && newRole !== 'sudo' && (
             <label>
-              在线设备数
+              {t('admin.fieldMaxOnline')}
               <input
                 type="number"
                 min={0}
                 max={1000}
                 value={maxOnline}
                 onChange={(event) => setMaxOnline(event.target.value)}
-                placeholder="留空表示不限制"
+                placeholder={t('admin.unlimitedHint')}
               />
             </label>
           )}
@@ -430,25 +438,25 @@ const CreateAccountDialog: React.FC<{
         {isSudo && newRole === 'admin' && (
           <div className="wb-admin-form-grid">
             <label>
-              子账号数
+              {t('admin.fieldMaxUsers')}
               <input
                 type="number"
                 min={0}
                 max={10000}
                 value={maxUsers}
                 onChange={(event) => setMaxUsers(event.target.value)}
-                placeholder="留空表示不限制"
+                placeholder={t('admin.unlimitedHint')}
               />
             </label>
             <label>
-              其用户默认在线数
+              {t('admin.fieldUserMaxOnline')}
               <input
                 type="number"
                 min={0}
                 max={1000}
                 value={userMaxOnline}
                 onChange={(event) => setUserMaxOnline(event.target.value)}
-                placeholder="留空表示不限制"
+                placeholder={t('admin.unlimitedHint')}
               />
             </label>
           </div>
@@ -456,9 +464,9 @@ const CreateAccountDialog: React.FC<{
 
         {error && <Banner tone="danger">{error}</Banner>}
         <div className="wb-admin-modal-actions">
-          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" onClick={onClose} disabled={busy}>{t('common.cancel')}</button>
           <button type="submit" className="wb-primary" disabled={busy}>
-            {busy && <Loader2 size={15} className="wb-spin" />} 创建
+            {busy && <Loader2 size={15} className="wb-spin" />} {t('admin.createAction')}
           </button>
         </div>
       </form>
@@ -478,14 +486,14 @@ const ResetPasswordDialog: React.FC<{
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (password.length < 6) return setError('密码至少 6 位字符。');
+    if (password.length < 6) return setError(t('admin.errPasswordTooShort'));
     setBusy(true);
     setError('');
     try {
       await setAccount(account.username, password, account.role, {});
-      onDone(`账号「${account.username}」的密码已重置，其设备需重新登录。`);
+      onDone(t('admin.resetDoneNotice', { username: account.username }));
     } catch (e: any) {
-      setError(describeError(e, '重置密码失败。'));
+      setError(describeError(e, t('admin.resetFailed')));
     } finally {
       setBusy(false);
     }
@@ -494,26 +502,26 @@ const ResetPasswordDialog: React.FC<{
   return (
     <AdminModal
       title={t("admin.resetPasswordTitle")}
-      subtitle={`为 ${account.username}（${ROLE_LABEL[account.role]}）设置新的登录密码。`}
+      subtitle={t('admin.resetSubtitle', { username: account.username, role: roleLabel(account.role) })}
       small
       onClose={onClose}
     >
       <form onSubmit={submit}>
         <label>
-          新密码
+          {t('admin.fieldNewPassword')}
           <input
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder="至少 6 位字符"
+            placeholder={t('admin.passwordHint')}
             autoComplete="new-password"
           />
         </label>
         {error && <Banner tone="danger">{error}</Banner>}
         <div className="wb-admin-modal-actions">
-          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" onClick={onClose} disabled={busy}>{t('common.cancel')}</button>
           <button type="submit" className="wb-primary" disabled={busy}>
-            {busy && <Loader2 size={15} className="wb-spin" />} 重置
+            {busy && <Loader2 size={15} className="wb-spin" />} {t('admin.resetAction')}
           </button>
         </div>
       </form>
@@ -544,65 +552,65 @@ const LimitsDialog: React.FC<{
           }
         : { max_online: maxOnline.trim() === '' ? 0 : Number(maxOnline) };
     if (Object.values(limits).some((value) => Number.isNaN(value))) {
-      return setError('配额必须是数字，留空表示不限制。');
+      return setError(t('admin.errQuotaNotNumber'));
     }
     setBusy(true);
     try {
       await updateAccountLimits(account.username, limits);
-      onDone(`账号「${account.username}」的配额已更新。`);
+      onDone(t('admin.limitsDoneNotice', { username: account.username }));
     } catch (e: any) {
-      setError(describeError(e, '保存配额失败。'));
+      setError(describeError(e, t('admin.limitsFailed')));
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <AdminModal title={t("admin.limitsTitle")} subtitle={`${account.username}（${ROLE_LABEL[account.role]}）`} small onClose={onClose}>
+    <AdminModal title={t("admin.limitsTitle")} subtitle={t('admin.usernameWithRole', { username: account.username, role: roleLabel(account.role) })} small onClose={onClose}>
       <form onSubmit={submit}>
         {account.role === 'admin' ? (
           <>
             <label>
-              该管理员可创建的账号数上限
+              {t('admin.fieldAdminMaxUsers')}
               <input
                 type="number"
                 min={0}
                 max={10000}
                 value={maxUsers}
                 onChange={(event) => setMaxUsers(event.target.value)}
-                placeholder="留空表示不限制"
+                placeholder={t('admin.unlimitedHint')}
               />
             </label>
             <label>
-              他创建的账号默认最大在线设备数
+              {t('admin.fieldAdminUserMaxOnline')}
               <input
                 type="number"
                 min={0}
                 max={1000}
                 value={userMaxOnline}
                 onChange={(event) => setUserMaxOnline(event.target.value)}
-                placeholder="留空表示不限制"
+                placeholder={t('admin.unlimitedHint')}
               />
             </label>
           </>
         ) : (
           <label>
-            最大在线设备数
+            {t('admin.fieldMaxOnline')}
             <input
               type="number"
               min={0}
               max={1000}
               value={maxOnline}
               onChange={(event) => setMaxOnline(event.target.value)}
-              placeholder="留空表示不限制"
+              placeholder={t('admin.unlimitedHint')}
             />
           </label>
         )}
         {error && <Banner tone="danger">{error}</Banner>}
         <div className="wb-admin-modal-actions">
-          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" onClick={onClose} disabled={busy}>{t('common.cancel')}</button>
           <button type="submit" className="wb-primary" disabled={busy}>
-            {busy && <Loader2 size={15} className="wb-spin" />} 保存
+            {busy && <Loader2 size={15} className="wb-spin" />} {t('admin.saveAction')}
           </button>
         </div>
       </form>
@@ -624,16 +632,21 @@ const TopUpDialog: React.FC<{
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     const yuan = Number(amount);
-    if (!Number.isInteger(yuan) || yuan <= 0) return setError('充值金额必须是大于 0 的整数元。');
+    if (!Number.isInteger(yuan) || yuan <= 0) return setError(t('admin.errTopUpAmount'));
     setBusy(true);
     setError('');
     try {
       const result = await topUpAccount(account.username, yuan, note.trim());
       onDone(
-        `已为「${account.username}」充值 ${yuan} 元：到账 ${formatCredits(result.credited)} credits，当前余额 ${formatCredits(result.balance)} credits。`,
+        t('admin.topUpDoneNotice', {
+          username: account.username,
+          yuan,
+          credited: formatCredits(result.credited),
+          balance: formatCredits(result.balance),
+        }),
       );
     } catch (e: any) {
-      setError(describeError(e, '充值失败。'));
+      setError(describeError(e, t('admin.topUpFailed')));
     } finally {
       setBusy(false);
     }
@@ -642,13 +655,13 @@ const TopUpDialog: React.FC<{
   return (
     <AdminModal
       title={t("admin.topUpTitle")}
-      subtitle={`${account.username} · 当前余额 ${formatCredits(account.credits ?? 0)} credits`}
+      subtitle={t('admin.topUpSubtitle', { username: account.username, balance: formatCredits(account.credits ?? 0) })}
       small
       onClose={onClose}
     >
       <form onSubmit={submit}>
         <label>
-          充值金额（元）
+          {t('admin.fieldTopUpAmount')}
           <input
             type="number"
             min={1}
@@ -658,18 +671,18 @@ const TopUpDialog: React.FC<{
           />
         </label>
         <label>
-          备注
+          {t('admin.fieldNote')}
           <input
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            placeholder="可选，例如：对公转账 2026-09-29"
+            placeholder={t('admin.notePlaceholder')}
           />
         </label>
         {error && <Banner tone="danger">{error}</Banner>}
         <div className="wb-admin-modal-actions">
-          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" onClick={onClose} disabled={busy}>{t('common.cancel')}</button>
           <button type="submit" className="wb-primary" disabled={busy}>
-            {busy && <Loader2 size={15} className="wb-spin" />} 登记充值
+            {busy && <Loader2 size={15} className="wb-spin" />} {t('admin.topUpAction')}
           </button>
         </div>
       </form>
@@ -704,11 +717,11 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
       setAccounts(data.accounts || []);
     } catch (e: any) {
       if (requestId !== requestIdRef.current) return;
-      setError(describeError(e, '读取账号失败。'));
+      setError(describeError(e, t('admin.loadAccountsFailed')));
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -729,22 +742,24 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
   const toggleStatus = async (account: Account) => {
     const suspending = account.status !== 'suspended';
     const confirmed = await showConfirm({
-      title: suspending ? '停用账号？' : '启用账号？',
+      title: suspending ? t('admin.disableConfirmTitle') : t('admin.enableConfirmTitle'),
       message: suspending
-        ? `停用后「${account.username}」将无法登录，在线设备立即下线。`
-        : `启用后「${account.username}」可以重新登录并使用。`,
+        ? t('admin.disableConfirmMessage', { username: account.username })
+        : t('admin.enableConfirmMessage', { username: account.username }),
       tone: suspending ? 'danger' : 'info',
-      confirmLabel: suspending ? '停用' : '启用',
+      confirmLabel: suspending ? t('admin.disableAction') : t('admin.enableAction'),
     });
     if (!confirmed) return;
     setBusyUser(account.username);
     setError('');
     try {
       await setAccountStatus(account.username, suspending ? 'suspended' : 'active');
-      setFeedback(`账号「${account.username}」已${suspending ? '停用' : '启用'}。`);
+      setFeedback(suspending
+        ? t('admin.statusSuspendedNotice', { username: account.username })
+        : t('admin.statusEnabledNotice', { username: account.username }));
       void load();
     } catch (e: any) {
-      setError(describeError(e, '更新账号状态失败。'));
+      setError(describeError(e, t('admin.statusUpdateFailed')));
     } finally {
       setBusyUser('');
     }
@@ -755,11 +770,11 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
     setError('');
     try {
       const result = await unlockAccount(account.username);
-      setFeedback(`账号「${account.username}」已解除登录锁定。`);
+      setFeedback(t('admin.unlockDoneNotice', { username: account.username }));
       void load();
       return result;
     } catch (e: any) {
-      setError(e.message || '解锁失败。');
+      setError(e.message || t('admin.unlockFailed'));
     } finally {
       setBusyUser('');
     }
@@ -767,20 +782,20 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
 
   const remove = async (account: Account) => {
     const confirmed = await showConfirm({
-      title: '删除账号？',
-      message: `确定要删除账号「${account.username}」吗？其在线设备会立即下线，此操作不可撤销。`,
+      title: t('admin.deleteAccountTitle'),
+      message: t('admin.deleteAccountMessage', { username: account.username }),
       tone: 'danger',
-      confirmLabel: '删除',
+      confirmLabel: t('admin.deleteAction'),
     });
     if (!confirmed) return;
     setBusyUser(account.username);
     setError('');
     try {
       await deleteAccount(account.username);
-      setFeedback(`账号「${account.username}」已删除。`);
+      setFeedback(t('admin.deleteDoneNotice', { username: account.username }));
       void load();
     } catch (e: any) {
-      setError(e.message || '删除账号失败。');
+      setError(e.message || t('admin.deleteFailed'));
     } finally {
       setBusyUser('');
     }
@@ -792,22 +807,24 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
       {error && <Banner tone="danger">{error}</Banner>}
       {quotaReached && (
         <Banner tone="warning">
-          已达可创建用户上限（{myQuota.max_users} 个）。如确需更多账号，请联系超级管理员调整配额。
+          {t('admin.quotaReachedNotice', { count: myQuota.max_users ?? 0 })}
         </Banner>
       )}
 
       <div className="wb-admin-toolbar">
         <p className="wb-admin-note">
           {isSudo
-            ? `共 ${accounts.length} 个账号；sudo 可见全部账号，admin 只能管理自己创建的用户。`
-            : `已创建 ${accounts.length} 个用户${myQuota.max_users != null ? ` / 上限 ${myQuota.max_users} 个` : '（不限数量）'}。`}
+            ? t('admin.accountsNoteSudo', { count: accounts.length })
+            : myQuota.max_users != null
+              ? t('admin.accountsNoteSelfLimited', { count: accounts.length, limit: myQuota.max_users })
+              : t('admin.accountsNoteSelfUnlimited', { count: accounts.length })}
         </p>
         <div className="wb-admin-toolbar-actions">
           <button onClick={() => void load()} disabled={loading} aria-label={t("admin.refreshAccounts")}>
             {loading ? <Loader2 size={16} className="wb-spin" /> : <RefreshCw size={16} />}
           </button>
           <button className="wb-primary" onClick={() => setCreateOpen(true)} disabled={quotaReached}>
-            <Plus size={16} /> 新建账号
+            <Plus size={16} /> {t('admin.createAccountAction')}
           </button>
         </div>
       </div>
@@ -815,15 +832,15 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
       {accounts.length === 0 ? (
         <EmptyState
           icon={<Users size={22} strokeWidth={2} />}
-          title={isSudo ? '还没有账号' : '还没有创建用户'}
-          description={loading ? '正在读取账号列表…' : '新建账号后，成员即可登录使用 Lawver。'}
+          title={isSudo ? t('admin.emptyAccountsTitle') : t('admin.emptyUsersTitle')}
+          description={loading ? t('admin.loadingAccounts') : t('admin.emptyAccountsDescription')}
         />
       ) : (
         <div className="wb-admin-table-scroll">
           <div className="wb-admin-table" role="table" aria-label={t("admin.accountsTable")}>
             <div className="wb-admin-table-head" role="row">
-              {['账号名', '角色', '套餐', '计费方式', 'credits 余额', '在线设备', '状态', '操作'].map((label) => (
-                <span key={label} role="columnheader">{label}</span>
+              {(['colUsername', 'colRole', 'colPlan', 'colBilling', 'colCredits', 'colOnline', 'colStatus', 'colActions'] as const).map((key) => (
+                <span key={key} role="columnheader">{t(`admin.${key}`)}</span>
               ))}
             </div>
             {accounts.map((account) => (
@@ -832,43 +849,45 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
                   {account.username}
                   {(account.owner || account.role === 'admin') && (
                     <small className="wb-admin-cell-sub">
-                      {account.owner ? `归属：${account.owner}；` : ''}
+                      {account.owner ? t('admin.ownerCell', { owner: account.owner }) : ''}
                       {account.role === 'admin'
-                        ? `可建用户：${account.owned_count ?? 0}${account.max_users == null ? '（不限）' : ` / ${account.max_users}`}`
+                        ? account.max_users == null
+                          ? t('admin.ownedCellUnlimited', { owned: account.owned_count ?? 0 })
+                          : t('admin.ownedCellLimited', { owned: account.owned_count ?? 0, limit: account.max_users })
                         : ''}
                     </small>
                   )}
                 </span>
                 <span className="wb-admin-cell" role="cell">
-                  <StatusChip tone={ROLE_TONE[account.role]}>{ROLE_LABEL[account.role]}</StatusChip>
+                  <StatusChip tone={ROLE_TONE[account.role]}>{roleLabel(account.role)}</StatusChip>
                 </span>
                 <span className="wb-admin-cell" role="cell">
                   <StatusChip tone={account.plan === 'metered' || !account.plan ? 'muted' : 'accent'}>
-                    {PLAN_LABEL[account.plan || 'metered'] || account.plan}
+                    {planLabel(account.plan || 'metered')}
                   </StatusChip>
                 </span>
                 <span className="wb-admin-cell wb-admin-cell-muted" role="cell">
-                  {CYCLE_LABEL[account.billing_cycle || 'prepaid'] || account.billing_cycle}
+                  {cycleLabel(account.billing_cycle || 'prepaid')}
                 </span>
                 <span className="wb-admin-cell wb-admin-cell-num" role="cell">{formatCredits(account.credits)}</span>
                 <span className="wb-admin-cell wb-admin-cell-num wb-admin-cell-muted" role="cell">
-                  {account.online_count ?? 0} 台
+                  {t('admin.deviceCount', { count: account.online_count ?? 0 })}
                 </span>
                 <span className="wb-admin-cell" role="cell">
                   <StatusChip tone={account.status === 'suspended' ? 'danger' : 'ok'}>
-                    {account.status === 'suspended' ? '已停用' : '正常'}
+                    {account.status === 'suspended' ? t('admin.statusSuspended') : t('admin.statusActive')}
                   </StatusChip>
                   {Boolean(account.locked_seconds) && (
                     <StatusChip tone="warn">
-                      锁定 {Math.ceil((account.locked_seconds || 0) / 60)} 分钟
+                      {t('admin.lockedMinutes', { minutes: Math.ceil((account.locked_seconds || 0) / 60) })}
                     </StatusChip>
                   )}
                 </span>
                 <span className="wb-admin-row-actions" role="cell">
                   {isSudo && (
-                    <HoverInfo label="编辑配额" placement="top">
+                    <HoverInfo label={t('admin.editLimitsLabel')} placement="top">
                       <button
-                        aria-label={`编辑 ${account.username} 的配额`}
+                        aria-label={t('admin.editLimitsAria', { username: account.username })}
                         onClick={() => setLimitsTarget(account)}
                         disabled={busyUser === account.username}
                         className="wb-admin-accent"
@@ -877,18 +896,20 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
                       </button>
                     </HoverInfo>
                   )}
-                  <HoverInfo label="充值" placement="top">
+                  <HoverInfo label={t('admin.topUpHover')} placement="top">
                     <button
-                      aria-label={`为 ${account.username} 充值`}
+                      aria-label={t('admin.topUpAria', { username: account.username })}
                       onClick={() => setTopUpTarget(account)}
                       className="wb-admin-accent"
                     >
                       <Wallet size={16} />
                     </button>
                   </HoverInfo>
-                  <HoverInfo label={account.status === 'suspended' ? '启用' : '停用'} placement="top">
+                  <HoverInfo label={account.status === 'suspended' ? t('admin.enableAction') : t('admin.disableAction')} placement="top">
                     <button
-                      aria-label={`${account.status === 'suspended' ? '启用' : '停用'} ${account.username}`}
+                      aria-label={account.status === 'suspended'
+                        ? t('admin.enableAria', { username: account.username })
+                        : t('admin.disableAria', { username: account.username })}
                       onClick={() => void toggleStatus(account)}
                       disabled={busyUser === account.username || account.username === myUsername}
                     >
@@ -896,9 +917,9 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
                     </button>
                   </HoverInfo>
                   {Boolean(account.locked_seconds) && (
-                    <HoverInfo label="解除登录锁定" placement="top">
+                    <HoverInfo label={t('admin.unlockHover')} placement="top">
                       <button
-                        aria-label={`解除 ${account.username} 的登录锁定`}
+                        aria-label={t('admin.unlockAria', { username: account.username })}
                         onClick={() => void unlock(account)}
                         disabled={busyUser === account.username}
                         className="wb-admin-accent"
@@ -907,9 +928,9 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
                       </button>
                     </HoverInfo>
                   )}
-                  <HoverInfo label="重置密码" placement="top">
+                  <HoverInfo label={t('admin.resetPasswordHover')} placement="top">
                     <button
-                      aria-label={`重置 ${account.username} 的密码`}
+                      aria-label={t('admin.resetAria', { username: account.username })}
                       onClick={() => setResetTarget(account)}
                       className="wb-admin-accent"
                     >
@@ -917,11 +938,11 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
                     </button>
                   </HoverInfo>
                   <HoverInfo
-                    label={account.username === 'admin' ? '系统管理员不可删除' : '删除账号'}
+                    label={account.username === 'admin' ? t('admin.systemAdminNoDelete') : t('admin.deleteHover')}
                     placement="top"
                   >
                     <button
-                      aria-label={`删除账号 ${account.username}`}
+                      aria-label={t('admin.deleteAria', { username: account.username })}
                       onClick={() => void remove(account)}
                       disabled={account.username === 'admin' || account.username === myUsername || busyUser === account.username}
                       className="wb-admin-danger"
@@ -937,7 +958,7 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
       )}
 
       <p className="wb-admin-note">
-        删除或重置密码会立即作废该账号已签发的令牌；系统管理员账号不可删除或停用。
+        {t('admin.accountsFootnote')}
       </p>
 
       {createOpen && (
@@ -1015,11 +1036,11 @@ const AccessLogsPanel: React.FC = () => {
       setLogs(data.logs || []);
     } catch (e: any) {
       if (requestId !== requestIdRef.current) return;
-      setError(e.message || '读取日志失败。');
+      setError(e.message || t('admin.loadLogsFailed'));
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -1028,10 +1049,10 @@ const AccessLogsPanel: React.FC = () => {
 
   const clear = async () => {
     const confirmed = await showConfirm({
-      title: '清理全部日志？',
-      message: '此操作会清空当前使用日志和已轮转的日志文件，清理后无法撤销。',
+      title: t('admin.clearLogsTitle'),
+      message: t('admin.clearLogsMessage'),
       tone: 'danger',
-      confirmLabel: '清理',
+      confirmLabel: t('admin.clearAction'),
     });
     if (!confirmed) return;
     setClearing(true);
@@ -1040,7 +1061,7 @@ const AccessLogsPanel: React.FC = () => {
       await clearLogs();
       setLogs([]);
     } catch (e: any) {
-      setError(e.message || '清理日志失败。');
+      setError(e.message || t('admin.clearLogsFailed'));
     } finally {
       setClearing(false);
     }
@@ -1050,7 +1071,7 @@ const AccessLogsPanel: React.FC = () => {
 
   return (
     <section className="wb-admin-section">
-      <h2 className="wb-admin-section-title">访问日志 · 仅超级管理员</h2>
+      <h2 className="wb-admin-section-title">{t('admin.accessLogsTitle')}</h2>
       <div className="wb-admin-toolbar" style={{ marginTop: 8 }}>
         <div className="wb-admin-toolbar-actions">
           <input
@@ -1059,13 +1080,13 @@ const AccessLogsPanel: React.FC = () => {
             onKeyDown={(event) => {
               if (event.key === 'Enter') void load({ ipFilter, ignoreHeartbeat });
             }}
-            placeholder="按 IP 过滤…"
+            placeholder={t('admin.ipFilterPlaceholder')}
             aria-label={t("admin.logIpFilter")}
             style={{ width: 180 }}
           />
           <CheckBox
             className="wb-admin-inline text-[12px]"
-            label="隐藏心跳"
+            label={t('admin.hideHeartbeat')}
             checked={ignoreHeartbeat}
             onCheckedChange={(checked) => {
               const next = { ipFilter, ignoreHeartbeat: checked };
@@ -1074,15 +1095,15 @@ const AccessLogsPanel: React.FC = () => {
             }}
           />
           <button onClick={() => void load({ ipFilter, ignoreHeartbeat })} disabled={loading} className="wb-quiet">
-            {loading ? <Loader2 size={15} className="wb-spin" /> : <Search size={15} />} 查询
+            {loading ? <Loader2 size={15} className="wb-spin" /> : <Search size={15} />} {t('admin.queryAction')}
           </button>
         </div>
         <div className="wb-admin-toolbar-actions">
           <button onClick={() => void load()} disabled={loading} className="wb-quiet">
-            <RefreshCw size={15} /> 刷新
+            <RefreshCw size={15} /> {t('admin.refreshAction')}
           </button>
           <button onClick={() => void clear()} disabled={clearing || loading} className="wb-quiet wb-danger">
-            {clearing ? <Loader2 size={15} className="wb-spin" /> : <Trash2 size={15} />} 清理日志
+            {clearing ? <Loader2 size={15} className="wb-spin" /> : <Trash2 size={15} />} {t('admin.clearLogsAction')}
           </button>
         </div>
       </div>
@@ -1092,7 +1113,7 @@ const AccessLogsPanel: React.FC = () => {
       <div className="wb-admin-list" style={{ marginTop: 8 }}>
         {loading && parsed.length === 0 ? (
           <div className="wb-admin-item" aria-busy="true">
-            <span className="wb-admin-note">正在读取日志…</span>
+            <span className="wb-admin-note">{t('admin.loadingLogs')}</span>
           </div>
         ) : parsed.length === 0 ? (
           <EmptyState
@@ -1112,7 +1133,7 @@ const AccessLogsPanel: React.FC = () => {
                   </div>
                   <div className="wb-admin-item-meta">
                     <span>{log.ip}</span>
-                    <span>{log.user || '匿名'}</span>
+                    <span>{log.user || t('admin.anonymous')}</span>
                     <span>{log.path}</span>
                   </div>
                 </div>
@@ -1156,11 +1177,11 @@ const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
       setBuckets(throttleData.buckets || []);
     } catch (e: any) {
       if (requestId !== requestIdRef.current) return;
-      setError(e.message || '读取用量失败。');
+      setError(e.message || t('admin.loadUsageFailed'));
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -1206,21 +1227,21 @@ const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
       {buckets.length > 0 && (
         <section className="wb-admin-throttle" aria-label={t("admin.throttleSection")}>
           <header>
-            <strong>登录节流中</strong>
-            <span>键为摘要，不显示原始账号与来源</span>
+            <strong>{t('admin.throttleActive')}</strong>
+            <span>{t('admin.throttleNote')}</span>
           </header>
           <ul>
             {buckets.slice(0, 8).map((bucket) => (
               <li key={`${bucket.scope}-${bucket.key}`}>
                 <span className="wb-admin-throttle__scope">
-                  {bucket.scope === 'account' ? '账号' : '来源'}
+                  {bucket.scope === 'account' ? t('admin.scopeAccount') : t('admin.scopeClient')}
                 </span>
                 <code>{bucket.key}</code>
-                <span>失败 {bucket.fails} 次</span>
+                <span>{t('admin.failCount', { count: bucket.fails })}</span>
                 <span className="wb-admin-throttle__lock">
                   {bucket.locked_seconds > 0
-                    ? `锁定 ${Math.ceil(bucket.locked_seconds / 60)} 分钟`
-                    : '观察中'}
+                    ? t('admin.lockedMinutes', { minutes: Math.ceil(bucket.locked_seconds / 60) })
+                    : t('admin.observing')}
                 </span>
               </li>
             ))}
@@ -1229,10 +1250,10 @@ const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
       )}
       <div className="wb-admin-stats">
         {[
-          { label: '账号数', value: formatNumber(usage.length) },
-          { label: '近 30 天 tokens', value: formatNumber(totals.tokens) },
-          { label: '近 30 天工具次数', value: formatNumber(totals.toolCalls) },
-          { label: '近 30 天 credits', value: formatCredits(totals.credits) },
+          { label: t('admin.statAccounts'), value: formatNumber(usage.length) },
+          { label: t('admin.statTokens'), value: formatNumber(totals.tokens) },
+          { label: t('admin.statToolCalls'), value: formatNumber(totals.toolCalls) },
+          { label: t('admin.statCredits'), value: formatCredits(totals.credits) },
         ].map((stat) => (
           <div className="wb-admin-stat" key={stat.label}>
             <span>{stat.label}</span>
@@ -1243,15 +1264,15 @@ const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
 
       <div className="wb-admin-toolbar">
         <p className="wb-admin-note">
-          {isSudo ? '全部账号的用量与余额，按日汇总。' : '你创建的用户的用量与余额，按日汇总。'}
+          {isSudo ? t('admin.usageNoteSudo') : t('admin.usageNoteSelf')}
         </p>
         <div className="wb-admin-toolbar-actions">
           <button onClick={() => void load()} disabled={loading} className="wb-quiet">
-            {loading ? <Loader2 size={15} className="wb-spin" /> : <RefreshCw size={15} />} 刷新
+            {loading ? <Loader2 size={15} className="wb-spin" /> : <RefreshCw size={15} />} {t('admin.refreshAction')}
           </button>
           {isSudo && (
             <button onClick={() => setLogsOpen((open) => !open)} className="wb-quiet" aria-pressed={logsOpen}>
-              <Activity size={15} /> {logsOpen ? '收起访问日志' : '访问日志'}
+              <Activity size={15} /> {logsOpen ? t('admin.hideAccessLogs') : t('admin.showAccessLogs')}
             </button>
           )}
         </div>
@@ -1261,7 +1282,7 @@ const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
         <div className="wb-admin-cards" aria-busy="true">
           {Array.from({ length: 3 }).map((_, index) => (
             <div className="wb-admin-card" key={index}>
-              <span className="wb-admin-note">正在读取用量…</span>
+              <span className="wb-admin-note">{t('admin.loadingUsage')}</span>
             </div>
           ))}
         </div>
@@ -1279,25 +1300,25 @@ const UsagePanel: React.FC<{ role: Role }> = ({ role }) => {
                 <span className="wb-admin-card-user">
                   {account.username}
                   <StatusChip tone={account.plan === 'metered' || !account.plan ? 'muted' : 'accent'}>
-                    {PLAN_LABEL[account.plan || 'metered'] || account.plan}
+                    {planLabel(account.plan || 'metered')}
                   </StatusChip>
-                  {account.status === 'suspended' && <StatusChip tone="danger">已停用</StatusChip>}
+                  {account.status === 'suspended' && <StatusChip tone="danger">{t('admin.statusSuspended')}</StatusChip>}
                 </span>
                 <span className="wb-admin-cell-muted">
-                  余额 <strong className="wb-admin-cell-num">{formatCredits(account.credits)}</strong> credits
+                  {t('admin.balanceLine', { balance: formatCredits(account.credits) })}
                 </span>
               </div>
               <div className="wb-admin-metrics">
                 <div className="wb-admin-metric">
-                  <span>近 30 天 tokens</span>
+                  <span>{t('admin.statTokens')}</span>
                   <strong>{formatNumber(tokens)}</strong>
                 </div>
                 <div className="wb-admin-metric">
-                  <span>工具次数</span>
+                  <span>{t('admin.metricToolCalls')}</span>
                   <strong>{formatNumber(toolCalls)}</strong>
                 </div>
                 <div className="wb-admin-metric">
-                  <span>credits 消耗</span>
+                  <span>{t('admin.metricCredits')}</span>
                   <strong>{formatCredits(credits)}</strong>
                 </div>
               </div>
@@ -1335,7 +1356,7 @@ const AnnouncementDialog: React.FC<{
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!title.trim()) return setError('请填写公告标题。');
+    if (!title.trim()) return setError(t('admin.errAnnouncementTitle'));
     const payload: AnnouncementInput = {
       title: title.trim(),
       body,
@@ -1346,20 +1367,20 @@ const AnnouncementDialog: React.FC<{
       active,
     };
     if (payload.starts_at && payload.ends_at && new Date(payload.ends_at) <= new Date(payload.starts_at)) {
-      return setError('结束时间必须晚于开始时间。');
+      return setError(t('admin.errAnnouncementTime'));
     }
     setBusy(true);
     setError('');
     try {
       if (initial) {
         await updateAnnouncement(initial.id, payload);
-        onDone('公告已保存。');
+        onDone(t('admin.announcementSaved'));
       } else {
         await createAnnouncement(payload);
-        onDone('公告已创建。');
+        onDone(t('admin.announcementCreated'));
       }
     } catch (e: any) {
-      setError(e.message || '保存公告失败。');
+      setError(e.message || t('admin.saveAnnouncementFailed'));
     } finally {
       setBusy(false);
     }
@@ -1368,41 +1389,41 @@ const AnnouncementDialog: React.FC<{
   return (
     <AdminModal
       title={initial ? t("admin.editAnnouncementTitle") : t("admin.createAnnouncementTitle")}
-      subtitle="留空生效时间表示立即生效；受众为空表示全部账号。"
+      subtitle={t('admin.announcementSubtitle')}
       onClose={onClose}
     >
       <form onSubmit={submit}>
         <label>
-          标题
+          {t('admin.fieldAnnouncementTitle')}
           <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={200} />
         </label>
         <label>
-          正文
+          {t('admin.fieldAnnouncementBody')}
           <textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={5000} />
         </label>
         <div className="wb-admin-form-grid">
           <SelectField
-            label="级别"
+            label={t('admin.fieldLevel')}
             value={level}
             onChange={(value) => setLevel(value as AnnouncementLevel)}
             options={(['info', 'warning', 'danger'] as AnnouncementLevel[]).map((value) => ({
               value,
-              label: `${LEVEL_LABEL[value]}（${value}）`,
+              label: t('admin.levelOption', { label: levelLabel(value), value }),
             }))}
           />
           <AnimatedSwitch
             size="sm"
-            label="启用（停用后不展示给任何账号）"
+            label={t('admin.announcementActiveLabel')}
             checked={active}
             onCheckedChange={setActive}
           />
         </div>
 
         <label>
-          受众
+          {t('admin.fieldAudience')}
           <div className="wb-admin-choices" role="group" aria-label={t("admin.audienceGroup")}>
             <button type="button" aria-pressed={audience.length === 0} onClick={() => setAudience([])}>
-              全部账号
+              {t('admin.audienceAll')}
             </button>
             {ALL_PLANS.map((plan) => (
               <button
@@ -1411,7 +1432,7 @@ const AnnouncementDialog: React.FC<{
                 aria-pressed={audience.includes(plan)}
                 onClick={() => toggleAudience(plan)}
               >
-                {PLAN_LABEL[plan] || plan}
+                {planLabel(plan)}
               </button>
             ))}
           </div>
@@ -1419,20 +1440,20 @@ const AnnouncementDialog: React.FC<{
 
         <div className="wb-admin-form-grid">
           <label>
-            生效时间
+            {t('admin.fieldStartsAt')}
             <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} />
           </label>
           <label>
-            结束时间
+            {t('admin.fieldEndsAt')}
             <input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} />
           </label>
         </div>
 
         {error && <Banner tone="danger">{error}</Banner>}
         <div className="wb-admin-modal-actions">
-          <button type="button" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" onClick={onClose} disabled={busy}>{t('common.cancel')}</button>
           <button type="submit" className="wb-primary" disabled={busy}>
-            {busy && <Loader2 size={15} className="wb-spin" />} 保存
+            {busy && <Loader2 size={15} className="wb-spin" />} {t('admin.saveAction')}
           </button>
         </div>
       </form>
@@ -1462,11 +1483,11 @@ const AnnouncementsPanel: React.FC = () => {
       setItems(data.announcements || []);
     } catch (e: any) {
       if (requestId !== requestIdRef.current) return;
-      setError(e.message || '读取公告失败。');
+      setError(e.message || t('admin.loadAnnouncementsFailed'));
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -1478,10 +1499,12 @@ const AnnouncementsPanel: React.FC = () => {
     setError('');
     try {
       await updateAnnouncement(item.id, { active: !item.active });
-      setFeedback(`公告「${item.title}」已${item.active ? '停用' : '启用'}。`);
+      setFeedback(item.active
+        ? t('admin.announcementDisabledNotice', { title: item.title })
+        : t('admin.announcementEnabledNotice', { title: item.title }));
       void load();
     } catch (e: any) {
-      setError(e.message || '更新公告失败。');
+      setError(e.message || t('admin.updateAnnouncementFailed'));
     } finally {
       setBusyId('');
     }
@@ -1489,20 +1512,20 @@ const AnnouncementsPanel: React.FC = () => {
 
   const remove = async (item: Announcement) => {
     const confirmed = await showConfirm({
-      title: '删除公告？',
-      message: `确定要删除公告「${item.title}」吗？此操作不可撤销。`,
+      title: t('admin.deleteAnnouncementTitle'),
+      message: t('admin.deleteAnnouncementMessage', { title: item.title }),
       tone: 'danger',
-      confirmLabel: '删除',
+      confirmLabel: t('admin.deleteAction'),
     });
     if (!confirmed) return;
     setBusyId(item.id);
     setError('');
     try {
       await deleteAnnouncement(item.id);
-      setFeedback(`公告「${item.title}」已删除。`);
+      setFeedback(t('admin.announcementDeletedNotice', { title: item.title }));
       void load();
     } catch (e: any) {
-      setError(e.message || '删除公告失败。');
+      setError(e.message || t('admin.deleteAnnouncementFailed'));
     } finally {
       setBusyId('');
     }
@@ -1514,13 +1537,13 @@ const AnnouncementsPanel: React.FC = () => {
       {error && <Banner tone="danger">{error}</Banner>}
 
       <div className="wb-admin-toolbar">
-        <p className="wb-admin-note">登录后展示第一条未读公告；受众为空表示全部账号。</p>
+        <p className="wb-admin-note">{t('admin.announcementsNote')}</p>
         <div className="wb-admin-toolbar-actions">
           <button onClick={() => void load()} disabled={loading} aria-label={t("admin.refreshAnnouncements")}>
             {loading ? <Loader2 size={16} className="wb-spin" /> : <RefreshCw size={16} />}
           </button>
           <button className="wb-primary" onClick={() => setCreating(true)}>
-            <Plus size={16} /> 新建公告
+            <Plus size={16} /> {t('admin.createAnnouncementAction')}
           </button>
         </div>
       </div>
@@ -1538,26 +1561,26 @@ const AnnouncementsPanel: React.FC = () => {
               <div className="wb-admin-item-main">
                 <div className="wb-admin-item-title">
                   {item.title}
-                  <StatusChip tone={LEVEL_TONE[item.level] || 'muted'}>{LEVEL_LABEL[item.level] || item.level}</StatusChip>
-                  <StatusChip tone={item.active ? 'ok' : 'muted'}>{item.active ? '已启用' : '已停用'}</StatusChip>
+                  <StatusChip tone={LEVEL_TONE[item.level] || 'muted'}>{levelLabel(item.level)}</StatusChip>
+                  <StatusChip tone={item.active ? 'ok' : 'muted'}>{item.active ? t('admin.announcementOn') : t('admin.announcementOff')}</StatusChip>
                 </div>
                 {item.body && <div className="wb-admin-item-body">{item.body}</div>}
                 <div className="wb-admin-item-meta">
-                  <span>受众：{item.audience && item.audience.length > 0 ? item.audience.map((plan) => PLAN_LABEL[plan] || plan).join('、') : '全部账号'}</span>
-                  <span>生效：{formatDateTime(item.starts_at)}</span>
-                  <span>结束：{item.ends_at ? formatDateTime(item.ends_at) : '长期'}</span>
-                  <span>创建：{item.created_by || '—'} · {formatDateTime(item.created_at)}</span>
+                  <span>{t('admin.audienceCell', { list: item.audience && item.audience.length > 0 ? item.audience.map((plan) => planLabel(plan)).join(t('admin.audienceSeparator')) : t('admin.audienceAll') })}</span>
+                  <span>{t('admin.startsAtCell', { time: formatDateTime(item.starts_at) })}</span>
+                  <span>{t('admin.endsAtCell', { time: item.ends_at ? formatDateTime(item.ends_at) : t('admin.endsNever') })}</span>
+                  <span>{t('admin.createdCell', { by: item.created_by || '—', time: formatDateTime(item.created_at) })}</span>
                 </div>
               </div>
               <div className="wb-admin-item-actions">
                 <button onClick={() => setEditing(item)} disabled={busyId === item.id}>
-                  <Pencil size={13} /> 编辑
+                  <Pencil size={13} /> {t('admin.editAction')}
                 </button>
                 <button onClick={() => void toggleActive(item)} disabled={busyId === item.id}>
-                  <Power size={13} /> {item.active ? '停用' : '启用'}
+                  <Power size={13} /> {item.active ? t('admin.disableAction') : t('admin.enableAction')}
                 </button>
                 <button className="wb-admin-danger" onClick={() => void remove(item)} disabled={busyId === item.id}>
-                  <Trash2 size={13} /> 删除
+                  <Trash2 size={13} /> {t('admin.deleteAction')}
                 </button>
               </div>
             </div>
@@ -1601,7 +1624,7 @@ const ConfigPanel: React.FC<{ role: Role }> = ({ role }) => {
   if (!isSudo) {
     return (
       <div className="wb-admin-main">
-        <Banner tone="warning">服务配置仅超级管理员可修改；如需调整模型或连接，请联系超级管理员。</Banner>
+        <Banner tone="warning">{t('admin.configForbiddenNote')}</Banner>
       </div>
     );
   }
@@ -1615,10 +1638,10 @@ const ConfigPanel: React.FC<{ role: Role }> = ({ role }) => {
             onClick={() => setSection('models')}
             aria-pressed={section === 'models'}
           >
-            <Sparkles size={16} /> 模型档案
+            <Sparkles size={16} /> {t('admin.configModels')}
           </button>
           <div className="wb-admin-config-sep" />
-          <span className="wb-admin-config-label">服务连接</span>
+          <span className="wb-admin-config-label">{t('admin.configConnections')}</span>
           {PROVIDER_ORDER.map((providerKey) => {
             const Icon = PROVIDER_ICONS[providerKey] || Settings2;
             return (
@@ -1658,10 +1681,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, onLogout }
   const isSudo = role === 'sudo';
 
   const tabs: { id: AdminTab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
-    { id: 'accounts', label: '账号', icon: Users },
-    { id: 'usage', label: '用量与监控', icon: Activity },
-    { id: 'announcements', label: '开屏公告', icon: Megaphone },
-    { id: 'config', label: '服务配置', icon: Settings2 },
+    { id: 'accounts', label: t('admin.tabAccounts'), icon: Users },
+    { id: 'usage', label: t('admin.tabUsage'), icon: Activity },
+    { id: 'announcements', label: t('admin.tabAnnouncements'), icon: Megaphone },
+    { id: 'config', label: t('admin.tabConfig'), icon: Settings2 },
   ];
 
   const selectTab = (next: AdminTab) => setTab(next);
@@ -1678,13 +1701,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ role, onLogout }
             </HoverInfo>
             <span className="wb-admin-mark"><BrandMark className="h-5 w-5" /></span>
             <div className="wb-admin-title">
-              <h1>{isSudo ? '系统管理' : '用户管理'}</h1>
-              <p>{isSudo ? '账号计费、用量监控、公告与服务配置' : '管理自己创建的用户与用量'}</p>
+              <h1>{isSudo ? t('admin.titleSudo') : t('admin.titleSelf')}</h1>
+              <p>{isSudo ? t('admin.subtitleSudo') : t('admin.subtitleSelf')}</p>
             </div>
           </div>
           <div className="wb-admin-head-actions">
             <button className="wb-quiet wb-danger" onClick={() => { void onLogout?.(); }}>
-              <LogOut size={16} /> 退出
+              <LogOut size={16} /> {t('admin.logoutAction')}
             </button>
           </div>
         </header>

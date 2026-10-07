@@ -98,9 +98,9 @@ export const LlmProfileManager: React.FC = () => {
       const llm = settings?.providers?.llm;
       setEnabled(Boolean(llm?.enabled));
     } catch (error) {
-      setLoadError((error as Error).message || '读取模型档案失败');
+      setLoadError((error as Error).message || t('admin.llmLoadFailed'));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -118,8 +118,8 @@ export const LlmProfileManager: React.FC = () => {
       setModels(next);
       if (next.length === 0) {
         await showAlert({
-          title: '没有取到模型列表',
-          message: '当前生效的 Base URL 与 API Key 未能返回 /models 列表，可以直接手动填写模型名称。',
+          title: t('admin.llmModelsEmptyTitle'),
+          message: t('admin.llmModelsEmptyMessage'),
           tone: 'warning',
         });
       }
@@ -150,15 +150,15 @@ export const LlmProfileManager: React.FC = () => {
   const handleSave = async () => {
     if (!draft) return;
     if (!draft.name.trim()) {
-      await showAlert({ title: '请填写档案名称', message: '档案名称用于在列表中区分不同模型。', tone: 'warning' });
+      await showAlert({ title: t('admin.llmNameRequiredTitle'), message: t('admin.llmNameRequiredMessage'), tone: 'warning' });
       return;
     }
     if (!draft.base_url.trim()) {
-      await showAlert({ title: '请填写 Base URL', message: '例如 https://api.deepseek.com', tone: 'warning' });
+      await showAlert({ title: t('admin.llmBaseUrlRequiredTitle'), message: t('admin.llmBaseUrlRequiredMessage'), tone: 'warning' });
       return;
     }
     if (!draft.model.trim()) {
-      await showAlert({ title: '请填写模型名称', message: '可以从模型列表中选择，也可以手动输入。', tone: 'warning' });
+      await showAlert({ title: t('admin.llmModelRequiredTitle'), message: t('admin.llmModelRequiredMessage'), tone: 'warning' });
       return;
     }
     setBusy('save');
@@ -178,10 +178,12 @@ export const LlmProfileManager: React.FC = () => {
       // 以后端返回的实际活动档案为准，避免"未勾选自动切换却提示已切换"。
       const activeName = next.profiles.find(profile => profile.id === next.active)?.name;
       const activated = activeName === name;
-      setFeedback(activated ? `已保存并切换到「${name}」，下一轮对话生效。` : `「${name}」已保存，可在列表中切换使用。`);
+      setFeedback(activated
+        ? t('admin.llmSavedActivated', { name })
+        : t('admin.llmSavedInactive', { name }));
       void load();
     } catch (error) {
-      await showAlert({ title: '保存失败', message: (error as Error).message, tone: 'danger' });
+      await showAlert({ title: t('admin.llmSaveFailedTitle'), message: (error as Error).message, tone: 'danger' });
     } finally {
       setBusy('');
     }
@@ -193,9 +195,9 @@ export const LlmProfileManager: React.FC = () => {
     try {
       const next = await activateLlmProfile(profile.id);
       setState(next);
-      setFeedback(`当前使用「${profile.name}」(${profile.model})，下一轮对话生效。`);
+      setFeedback(t('admin.llmActivateNotice', { name: profile.name, model: profile.model }));
     } catch (error) {
-      await showAlert({ title: '切换失败', message: (error as Error).message, tone: 'danger' });
+      await showAlert({ title: t('admin.llmActivateFailedTitle'), message: (error as Error).message, tone: 'danger' });
     } finally {
       setBusy('');
     }
@@ -203,10 +205,10 @@ export const LlmProfileManager: React.FC = () => {
 
   const handleDelete = async (profile: LlmProfile) => {
     const confirmed = await showConfirm({
-      title: `删除「${profile.name}」？`,
-      message: '该档案保存的模型端点与 API Key 会被一并移除，正在进行的对话不受影响。',
+      title: t('admin.llmDeleteConfirmTitle', { name: profile.name }),
+      message: t('admin.llmDeleteConfirmMessage'),
       tone: 'danger',
-      confirmLabel: '删除',
+      confirmLabel: t('admin.deleteAction'),
     });
     if (!confirmed) return;
     setBusy(`delete:${profile.id}`);
@@ -214,7 +216,7 @@ export const LlmProfileManager: React.FC = () => {
       const next = await deleteLlmProfile(profile.id);
       setState(next);
     } catch (error) {
-      await showAlert({ title: '删除失败', message: (error as Error).message, tone: 'danger' });
+      await showAlert({ title: t('admin.llmDeleteFailedTitle'), message: (error as Error).message, tone: 'danger' });
     } finally {
       setBusy('');
     }
@@ -222,10 +224,10 @@ export const LlmProfileManager: React.FC = () => {
 
   const handleClearKey = async (profile: LlmProfile) => {
     const confirmed = await showConfirm({
-      title: '清除该档案的 API Key？',
-      message: '清除后该档案需要重新填写 Key 才能调用模型。',
+      title: t('admin.llmClearKeyTitle'),
+      message: t('admin.llmClearKeyMessage'),
       tone: 'danger',
-      confirmLabel: '清除',
+      confirmLabel: t('admin.llmClearKeyConfirm'),
     });
     if (!confirmed) return;
     setBusy(`clear:${profile.id}`);
@@ -233,7 +235,7 @@ export const LlmProfileManager: React.FC = () => {
       await clearLlmProfileSecret(profile.id);
       await load();
     } catch (error) {
-      await showAlert({ title: '清除失败', message: (error as Error).message, tone: 'danger' });
+      await showAlert({ title: t('admin.llmClearKeyFailedTitle'), message: (error as Error).message, tone: 'danger' });
     } finally {
       setBusy('');
     }
@@ -249,7 +251,7 @@ export const LlmProfileManager: React.FC = () => {
       setSettingsSnapshot(result);
     } catch (error) {
       setEnabled(!next);
-      await showAlert({ title: '保存失败', message: (error as Error).message, tone: 'danger' });
+      await showAlert({ title: t('admin.llmSaveFailedTitle'), message: (error as Error).message, tone: 'danger' });
     } finally {
       setBusy('');
     }
@@ -260,12 +262,12 @@ export const LlmProfileManager: React.FC = () => {
     try {
       const result = await testProvider('llm');
       await showAlert({
-        title: '配置完整',
-        message: `${result.message}。实际可用性取决于服务商与网络，可在对话中验证。`,
+        title: t('admin.llmTestOkTitle'),
+        message: t('admin.llmTestOkMessage', { message: result.message }),
         tone: 'success',
       });
     } catch (error) {
-      await showAlert({ title: '检测未通过', message: (error as Error).message, tone: 'danger' });
+      await showAlert({ title: t('admin.llmTestFailTitle'), message: (error as Error).message, tone: 'danger' });
     } finally {
       setBusy('');
     }
@@ -280,14 +282,14 @@ export const LlmProfileManager: React.FC = () => {
           onClick={() => void load()}
           className="md3-btn-tonal lawver-pressable mt-3"
         >
-          <RefreshCw size={16} strokeWidth={2} /> 重试
+          <RefreshCw size={16} strokeWidth={2} /> {t('admin.llmRetry')}
         </button>
       </div>
     );
   }
 
   if (!state) {
-    return <CenteredSpinner label="正在读取模型档案…" />;
+    return <CenteredSpinner label={t('admin.llmLoading')} />;
   }
 
   const isBusy = busy !== '';
@@ -304,16 +306,16 @@ export const LlmProfileManager: React.FC = () => {
             </span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="t-title-m">当前生效模型</h2>
+                <h2 className="t-title-m">{t('admin.llmActiveModelTitle')}</h2>
                 <StatusChip tone={enabled ? 'ok' : 'muted'}>
-                  {enabled ? '已启用' : '已停用'}
+                  {enabled ? t('admin.llmEnabled') : t('admin.llmDisabled')}
                 </StatusChip>
               </div>
               <p className="mt-1 break-all font-mono text-[13px] leading-5 text-[var(--fg-1)]">
-                {state.effective.model || '未配置模型'}
+                {state.effective.model || t('admin.llmNoModel')}
               </p>
               <p className="mt-0.5 break-all text-[12px] leading-5 text-[var(--fg-3)]">
-                {state.effective.source || '环境变量默认'}
+                {state.effective.source || t('admin.llmEnvDefault')}
                 {state.effective.base_url ? ` · ${hostOf(state.effective.base_url)}` : ''}
               </p>
             </div>
@@ -326,7 +328,7 @@ export const LlmProfileManager: React.FC = () => {
               className="md3-btn-tonal lawver-pressable !min-h-11 text-sm disabled:opacity-50"
             >
               {busy === 'toggle' ? <Loader2 size={15} className="animate-spin" /> : <Gauge size={15} strokeWidth={2} />}
-              {enabled ? '停用 LLM' : '启用 LLM'}
+              {enabled ? t('admin.llmDisableAction') : t('admin.llmEnableAction')}
             </button>
             <button
               type="button"
@@ -335,14 +337,13 @@ export const LlmProfileManager: React.FC = () => {
               className="md3-btn-tonal lawver-pressable !min-h-11 text-sm disabled:opacity-50"
             >
               {busy === 'test' ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} strokeWidth={2} />}
-              检测配置
+              {t('admin.llmTestAction')}
             </button>
           </div>
         </div>
         <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-4 py-2.5 sm:px-5">
           <p className="text-[12px] leading-5 text-[var(--fg-3)]">
-            切换档案会立即写入运行时配置，<strong className="font-medium text-[var(--fg-2)]">无需重启服务</strong>；
-            对话、OCP 审查与标题生成都会使用新的模型。
+            {t('admin.llmHotSwitchNoteLead')}<strong className="font-medium text-[var(--fg-2)]">{t('admin.llmHotSwitchNoteStrong')}</strong>{t('admin.llmHotSwitchNoteTail')}
           </p>
         </div>
       </section>
@@ -352,10 +353,10 @@ export const LlmProfileManager: React.FC = () => {
         <div className="mb-2 flex min-w-0 items-end justify-between gap-3 px-1">
           <div className="min-w-0">
             <h2 className="t-label-m font-semibold uppercase tracking-[0.06em] text-[var(--fg-3)]">
-              已保存的模型 ({state.profiles.length})
+              {t('admin.llmSavedListTitle', { count: state.profiles.length })}
             </h2>
             <p className="mt-1 text-[12px] leading-5 text-[var(--fg-3)]">
-              保存多套端点后可直接切换，不必重复填写地址与密钥。
+              {t('admin.llmSavedListLead')}
             </p>
           </div>
           <button
@@ -364,7 +365,7 @@ export const LlmProfileManager: React.FC = () => {
             disabled={isBusy || draft !== null}
             className="md3-btn-filled lawver-pressable !min-h-11 shrink-0 text-sm disabled:opacity-50"
           >
-            <Plus size={16} strokeWidth={2.4} /> 新增配置
+            <Plus size={16} strokeWidth={2.4} /> {t('admin.llmCreateAction')}
           </button>
         </div>
 
@@ -376,7 +377,7 @@ export const LlmProfileManager: React.FC = () => {
               description={t("settings.llmProfile.emptyDescription")}
               action={(
                 <button type="button" onClick={openCreate} className="md3-btn-tonal lawver-pressable text-sm">
-                  <Plus size={16} strokeWidth={2.4} /> 新增配置
+                  <Plus size={16} strokeWidth={2.4} /> {t('admin.llmCreateAction')}
                 </button>
               )}
             />
@@ -401,22 +402,27 @@ export const LlmProfileManager: React.FC = () => {
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="truncate text-[14px] font-semibold text-[var(--fg-1)]">{profile.name}</span>
-                      {profile.active && <StatusChip tone="accent">使用中</StatusChip>}
-                      {profile.incomplete && <StatusChip tone="warn">配置不完整</StatusChip>}
-                      {!profile.has_api_key && <StatusChip tone="warn">缺少 Key</StatusChip>}
-                      {!profile.enabled && <StatusChip tone="muted">已停用</StatusChip>}
+                      {profile.active && <StatusChip tone="accent">{t('admin.llmInUse')}</StatusChip>}
+                      {profile.incomplete && <StatusChip tone="warn">{t('admin.llmIncomplete')}</StatusChip>}
+                      {!profile.has_api_key && <StatusChip tone="warn">{t('admin.llmMissingKey')}</StatusChip>}
+                      {!profile.enabled && <StatusChip tone="muted">{t('admin.llmDisabled')}</StatusChip>}
                     </div>
                     <p className="mt-0.5 truncate font-mono text-[12px] text-[var(--fg-2)]">
-                      {profile.model || '（未填写模型）'}
+                      {profile.model || t('admin.llmNoModelPlaceholder')}
                     </p>
                     <p className="truncate text-[11px] text-[var(--fg-4)]">
-                      {hostOf(profile.base_url) || '（未填写 Base URL）'}
+                      {hostOf(profile.base_url) || t('admin.llmNoBaseUrlPlaceholder')}
                     </p>
                     {profile.incomplete && (
                       <p className="mt-1 text-[11px] leading-4 text-[var(--color-warning-500)]">
-                        该档案缺少{!profile.base_url ? ' Base URL' : ''}{!profile.model ? ' 模型名称' : ''}，
-                        当前实际使用{state.effective.source ? `「${state.effective.source}」` : '环境变量配置'}，
-                        补齐后「切换使用」才会生效。
+                        {t('admin.llmIncompleteLead')}
+                        {!profile.base_url ? t('admin.llmIncompleteBaseUrl') : ''}
+                        {!profile.model ? t('admin.llmIncompleteModel') : ''}
+                        {t('admin.llmIncompleteMid')}
+                        {state.effective.source
+                          ? t('admin.llmIncompleteSource', { source: state.effective.source })
+                          : t('admin.llmIncompleteEnv')}
+                        {t('admin.llmIncompleteTail')}
                       </p>
                     )}
                   </div>
@@ -432,7 +438,7 @@ export const LlmProfileManager: React.FC = () => {
                         {busy === `activate:${profile.id}`
                           ? <Loader2 size={14} className="animate-spin" />
                           : <Zap size={14} strokeWidth={2} />}
-                        切换使用
+                        {t('admin.llmActivateButton')}
                       </button>
                     )}
                     <button
@@ -487,21 +493,21 @@ export const LlmProfileManager: React.FC = () => {
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--accent-quiet)] text-[var(--accent)]">
               {draft.id ? <Pencil size={17} strokeWidth={2} /> : <Plus size={18} strokeWidth={2.4} />}
             </span>
-            <h2 className="t-title-m">{draft.id ? '编辑模型配置' : '新增模型配置'}</h2>
+            <h2 className="t-title-m">{draft.id ? t('admin.llmEditTitle') : t('admin.llmCreateTitle')}</h2>
           </div>
 
           <div className="flex min-w-0 flex-col gap-4 p-4 sm:p-5">
             <div className="grid min-w-0 gap-4 sm:grid-cols-2">
-              <SettingsField label="档案名称" hint="用于在列表中区分，例如「主力 · DeepSeek」">
+              <SettingsField label={t('admin.llmFieldName')} hint={t('admin.llmFieldNameHint')}>
                 <input
                   className={fieldInputClass}
                   value={draft.name}
-                  placeholder="主力模型"
+                  placeholder={t('admin.llmFieldNamePlaceholder')}
                   onChange={event => setDraft(prev => (prev ? { ...prev, name: event.target.value } : prev))}
                   autoComplete="off"
                 />
               </SettingsField>
-              <SettingsField label="Base URL" hint="OpenAI 兼容端点，需包含 /v1 等路径前缀">
+              <SettingsField label="Base URL" hint={t('admin.llmFieldBaseUrlHint')}>
                 <input
                   className={fieldInputClass}
                   value={draft.base_url}
@@ -513,7 +519,7 @@ export const LlmProfileManager: React.FC = () => {
               </SettingsField>
             </div>
 
-            <SettingsField label="模型名称" hint="可手动输入，或从端点拉取可用模型">
+            <SettingsField label={t('admin.llmFieldModel')} hint={t('admin.llmFieldModelHint')}>
               <div className="flex min-w-0 gap-2">
                 <input
                   className={`${fieldInputClass} flex-1`}
@@ -530,7 +536,7 @@ export const LlmProfileManager: React.FC = () => {
                   aria-expanded={modelPickerOpen}
                 >
                   <ChevronDown size={16} strokeWidth={2} className={`transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
-                  列表
+                  {t('admin.llmModelListAction')}
                 </button>
               </div>
             </SettingsField>
@@ -540,8 +546,8 @@ export const LlmProfileManager: React.FC = () => {
                 <div className="flex min-w-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
                   <p className="min-w-0 truncate text-[12px] text-[var(--fg-3)]">
                     {models.length > 0
-                      ? `当前生效端点返回 ${models.length} 个模型`
-                      : '列表来自当前生效的端点与 Key'}
+                      ? t('admin.llmModelCount', { count: models.length })
+                      : t('admin.llmModelListSource')}
                   </p>
                   <button
                     type="button"
@@ -552,7 +558,7 @@ export const LlmProfileManager: React.FC = () => {
                     {busy === 'models'
                       ? <Loader2 size={13} className="animate-spin" />
                       : <RefreshCw size={13} strokeWidth={2} />}
-                    拉取
+                    {t('admin.llmFetchAction')}
                   </button>
                 </div>
                 {models.length > 0 && (
@@ -583,20 +589,20 @@ export const LlmProfileManager: React.FC = () => {
             {draft.id && !showKeyField ? (
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-2)] px-3 py-2.5">
                 <p className="min-w-0 text-[12px] text-[var(--fg-3)]">
-                  API Key 保持不变；如需更换请点击右侧按钮。
+                  {t('admin.llmKeyUnchanged')}
                 </p>
                 <button
                   type="button"
                   onClick={() => setShowKeyField(true)}
                   className="md3-btn-text lawver-pressable !min-h-9 shrink-0 !px-3 !text-[12px]"
                 >
-                  <KeyRound size={13} strokeWidth={2} /> 更换 Key
+                  <KeyRound size={13} strokeWidth={2} /> {t('admin.llmChangeKey')}
                 </button>
               </div>
             ) : (
               <SettingsField
-                label="API Key"
-                hint={draft.id ? '留空则不覆盖已保存的 Key' : '只保存在服务端 data/secrets.json，不会回传到前端'}
+                label={t('admin.llmFieldApiKey')}
+                hint={draft.id ? t('admin.llmApiKeyEditHint') : t('admin.llmApiKeyCreateHint')}
               >
                 <input
                   className={fieldInputClass}
@@ -612,7 +618,7 @@ export const LlmProfileManager: React.FC = () => {
             {!draft.id && (
               <CheckBox
                 className="min-h-11 gap-2.5 text-[13px] text-[var(--fg-2)]"
-                label="保存后立即切换使用"
+                label={t('admin.llmActivateOnSave')}
                 checked={draft.activate}
                 onCheckedChange={checked => setDraft(prev => (prev ? { ...prev, activate: checked } : prev))}
               />
@@ -625,7 +631,7 @@ export const LlmProfileManager: React.FC = () => {
                 disabled={busy === 'save'}
                 className="md3-btn-text lawver-pressable text-sm disabled:opacity-50"
               >
-                取消
+                {t('common.cancel')}
               </button>
               <button
                 type="button"
@@ -634,7 +640,7 @@ export const LlmProfileManager: React.FC = () => {
                 className="md3-btn-filled lawver-pressable text-sm disabled:opacity-50"
               >
                 {busy === 'save' ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} strokeWidth={2.4} />}
-                {draft.id ? '保存修改' : '保存配置'}
+                {draft.id ? t('admin.llmSaveEdit') : t('admin.llmSaveCreate')}
               </button>
             </div>
           </div>

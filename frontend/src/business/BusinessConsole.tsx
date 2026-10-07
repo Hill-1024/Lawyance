@@ -21,7 +21,7 @@ import {
 import { BrandMark } from '../components/Brand';
 import { HoverInfo } from '../components/HoverInfo';
 import { Banner, EmptyState, StatusChip } from '../components/settings/SettingsUI';
-import { useT } from '../i18n';
+import { translate, useT } from '../i18n';
 import { useAppDialog } from '../contexts/DialogContext';
 import { useAppBack } from '../hooks/useAppBack';
 import {
@@ -45,9 +45,14 @@ const formatCredits = (value: number | null | undefined) =>
 const formatCount = (value: number | null | undefined) =>
   Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 0 });
 
-/** tokens 动辄百万级，用「万」压缩；不足一万保留精确值。 */
+/** tokens 动辄百万级，用「万」压缩；不足一万保留精确值。文案随当前语言取词。 */
 const formatTokens = (value: number) =>
-  value >= 10000 ? `${(value / 10000).toFixed(1)} 万` : formatCount(value);
+  value >= 10000
+    ? translate('business.tokensWan', {
+        value: (value / 10000).toFixed(1),
+        thousands: String(Math.round(value / 1000)),
+      })
+    : formatCount(value);
 
 /** 用量行按天倒序返回，只取最近 30 天；上限之外的老数据不参与统计。 */
 const recentUsage = (rows: UsageRow[]) => rows.slice(0, 30);
@@ -91,7 +96,7 @@ const SubAccountCard: React.FC<{
     const value = Number(amount);
     if (!Number.isFinite(value) || value <= 0) {
       setNotice('');
-      setFailure('请输入大于 0 的 credits 数量。');
+      setFailure(t('business.invalidAmount'));
       return;
     }
     setBusy('allocate');
@@ -102,10 +107,15 @@ const SubAccountCard: React.FC<{
       setAmount('');
       onAllocated(item.username, result.parent_credits, result.child_credits);
       setNotice(
-        `已分配 ${formatCredits(value)} credits：母账号 ${formatCredits(result.parent_credits)} · ${item.username} ${formatCredits(result.child_credits)}`,
+        t('business.allocatedNotice', {
+          amount: formatCredits(value),
+          parent: formatCredits(result.parent_credits),
+          username: item.username,
+          child: formatCredits(result.child_credits),
+        }),
       );
     } catch (e) {
-      setFailure((e as Error).message || '分配 credits 失败。');
+      setFailure((e as Error).message || t('business.allocateFailed'));
     } finally {
       setBusy('');
     }
@@ -114,12 +124,12 @@ const SubAccountCard: React.FC<{
   const toggleStatus = async () => {
     const nextStatus = suspended ? 'active' : 'suspended';
     const confirmed = await showConfirm({
-      title: suspended ? '启用子账号？' : '停用子账号？',
+      title: suspended ? t('business.enableConfirmTitle') : t('business.disableConfirmTitle'),
       message: suspended
-        ? `启用后「${item.username}」可以重新登录并使用。`
-        : `停用后「${item.username}」将无法登录，在线设备立即下线。`,
+        ? t('business.enableConfirmMessage', { username: item.username })
+        : t('business.disableConfirmMessage', { username: item.username }),
       tone: suspended ? 'info' : 'danger',
-      confirmLabel: suspended ? '启用' : '停用',
+      confirmLabel: suspended ? t('business.enableAction') : t('business.disableAction'),
     });
     if (!confirmed) return;
     setBusy('status');
@@ -128,13 +138,15 @@ const SubAccountCard: React.FC<{
     try {
       await setSubaccountStatus(item.username, nextStatus);
       onStatusChanged(item.username, nextStatus);
-      setNotice(`「${item.username}」已${suspended ? '启用' : '停用'}。`);
+      setNotice(suspended
+        ? t('business.statusEnabledNotice', { username: item.username })
+        : t('business.statusSuspendedNotice', { username: item.username }));
     } catch (e) {
-      const message = (e as Error).message || '更新账号状态失败。';
+      const message = (e as Error).message || t('business.statusUpdateFailed');
       // 权限在会话中途变化时同样收手：隐藏按钮并说明，不留下假成功的假象。
       if (isForbidden(message)) {
         onStatusForbidden();
-        setFailure('停用/启用需要管理员权限，当前账号不可用。');
+        setFailure(t('business.statusForbiddenNote'));
       } else {
         setFailure(message);
       }
@@ -151,7 +163,7 @@ const SubAccountCard: React.FC<{
             <Users size={15} />
           </span>
           <strong>{item.username}</strong>
-          <StatusChip tone={suspended ? 'danger' : 'ok'}>{suspended ? '已停用' : '正常'}</StatusChip>
+          <StatusChip tone={suspended ? 'danger' : 'ok'}>{suspended ? t('business.statusSuspended') : t('business.statusActive')}</StatusChip>
         </div>
         {canManageStatus && (
           <button
@@ -165,30 +177,30 @@ const SubAccountCard: React.FC<{
             ) : (
               <Power size={15} />
             )}
-            {suspended ? '启用' : '停用'}
+            {suspended ? t('business.enableAction') : t('business.disableAction')}
           </button>
         )}
       </header>
 
       <div className="wb-business-metrics">
         <div className="wb-business-metric">
-          <span>余额</span>
+          <span>{t('business.metricBalance')}</span>
           <strong>{formatCredits(item.credits)}</strong>
         </div>
         <div className="wb-business-metric">
-          <span>预算上限</span>
-          <strong>{item.quota == null ? '不限' : formatCredits(item.quota)}</strong>
+          <span>{t('business.metricQuota')}</span>
+          <strong>{item.quota == null ? t('business.unlimited') : formatCredits(item.quota)}</strong>
         </div>
         <div className="wb-business-metric">
-          <span>近 30 天 tokens</span>
+          <span>{t('business.metricTokens')}</span>
           <strong>{formatTokens(totals.tokens)}</strong>
         </div>
         <div className="wb-business-metric">
-          <span>工具调用</span>
+          <span>{t('business.metricTools')}</span>
           <strong>{formatCount(totals.tools)}</strong>
         </div>
         <div className="wb-business-metric">
-          <span>近 30 天 credits</span>
+          <span>{t('business.metricCredits')}</span>
           <strong>{formatCredits(totals.credits)}</strong>
         </div>
       </div>
@@ -205,12 +217,12 @@ const SubAccountCard: React.FC<{
             title={`${row.day} · ${formatCredits(row.credits)} credits · ${formatTokens((row.prompt_tokens || 0) + (row.completion_tokens || 0))} tokens`}
           />
         ))}
-        {!bars.length && <span className="wb-business-spark-empty">近 30 天没有用量</span>}
+        {!bars.length && <span className="wb-business-spark-empty">{t('business.sparkEmpty')}</span>}
       </div>
 
       <form className="wb-business-allocate" onSubmit={submit}>
         <label>
-          <span>分配 credits</span>
+          <span>{t('business.allocateLabel')}</span>
           <input
             className="wb-business-input"
             type="number"
@@ -225,7 +237,7 @@ const SubAccountCard: React.FC<{
         </label>
         <button type="submit" className="wb-primary" disabled={busy === 'allocate' || !amount.trim()}>
           {busy === 'allocate' ? <Loader2 size={15} className="wb-spin" /> : <Wallet size={15} />}
-          分配
+          {t('business.allocateAction')}
         </button>
       </form>
 
@@ -276,12 +288,12 @@ export const BusinessConsole: React.FC = () => {
         setForbidden(true);
         setOverview(undefined);
       } else {
-        setError((e as Error).message || '读取子账号失败。');
+        setError((e as Error).message || t('business.loadFailed'));
       }
     } finally {
       if (alive.current) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const createSub = async () => {
     setCreateBusy(true);
@@ -291,7 +303,7 @@ export const BusinessConsole: React.FC = () => {
       setNewPassword('');
       await load();
     } catch (e: any) {
-      setError((e as Error).message || '创建子账号失败。');
+      setError((e as Error).message || t('business.createFailed'));
     } finally {
       setCreateBusy(false);
     }
@@ -352,14 +364,14 @@ export const BusinessConsole: React.FC = () => {
               <BrandMark className="h-5 w-5" />
             </span>
             <div className="wb-business-title">
-              <h1>Business 控制台</h1>
-              <p>子账号预算、状态与近期用量</p>
+              <h1>{t('business.consoleTitle')}</h1>
+              <p>{t('business.consoleSubtitle')}</p>
             </div>
           </div>
           <div className="wb-business-head-actions">
             <button className="wb-quiet" onClick={() => void load()} disabled={loading}>
               <RefreshCw size={16} className={loading ? 'wb-spin' : undefined} />
-              刷新
+              {t('business.refresh')}
             </button>
           </div>
         </header>
@@ -371,7 +383,7 @@ export const BusinessConsole: React.FC = () => {
   if (loading && !overview && !forbidden) {
     return shell(
       <p className="wb-business-loading">
-        <Loader2 size={18} className="wb-spin" /> 正在读取子账号…
+        <Loader2 size={18} className="wb-spin" /> {t('business.loading')}
       </p>,
     );
   }
@@ -398,7 +410,7 @@ export const BusinessConsole: React.FC = () => {
         {error && <Banner tone="danger">{error}</Banner>}
         <div>
           <button type="button" className="wb-quiet" onClick={() => void load()}>
-            <RefreshCw size={15} /> 重试
+            <RefreshCw size={15} /> {t("common.retry")}
           </button>
         </div>
       </>,
@@ -412,37 +424,37 @@ export const BusinessConsole: React.FC = () => {
 
       <section className="wb-business-stats" aria-label={t("business.overviewLabel")}>
         <div className="wb-business-stat">
-          <span>母账号余额</span>
+          <span>{t('business.parentBalance')}</span>
           <strong>{formatCredits(overview.parent_credits)}</strong>
           <small>credits</small>
         </div>
         <div className="wb-business-stat">
-          <span>子账号</span>
+          <span>{t('business.subaccountsTitle')}</span>
           <strong>
-            {used} / {overview.max_users == null ? '不限' : overview.max_users}
+            {used} / {overview.max_users == null ? t('business.unlimited') : overview.max_users}
           </strong>
-          <small>已用 / 上限</small>
+          <small>{t('business.quotaUsage')}</small>
         </div>
         <div className="wb-business-stat">
-          <span>子账号近 30 天消耗</span>
+          <span>{t('business.statSubCredits')}</span>
           <strong>{formatCredits(totals.credits)}</strong>
           <small>credits</small>
         </div>
       </section>
 
       <div className="wb-business-list-head">
-        <h2 className="wb-business-section-title">子账号</h2>
+        <h2 className="wb-business-section-title">{t('business.subaccountsTitle')}</h2>
         <div className="wb-business-create">
           <input
             aria-label={t("business.subName")}
-            placeholder="子账号名"
+            placeholder={t("business.subName")}
             value={newName}
             maxLength={128}
             onChange={(e) => setNewName(e.target.value)}
           />
           <input
             aria-label={t("business.subPassword")}
-            placeholder="初始密码（至少 6 位）"
+            placeholder={t("business.subPasswordPlaceholder")}
             type="password"
             value={newPassword}
             maxLength={1024}
@@ -454,7 +466,7 @@ export const BusinessConsole: React.FC = () => {
             disabled={createBusy || newName.trim().length < 1 || newPassword.length < 6}
             onClick={() => void createSub()}
           >
-            {createBusy ? '创建中…' : '新建子账号'}
+            {createBusy ? t('business.creating') : t('business.createAction')}
           </button>
         </div>
       </div>
