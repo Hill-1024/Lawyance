@@ -68,11 +68,14 @@ async def login(req: LoginRequest, response: Response, request: Request):
     if not success:
         raise HTTPException(status_code=401, detail=msg)
 
+    # 截断到 account_sessions 列宽（client String(40)、user_agent String(400)）：
+    # 生产是 PostgreSQL，varchar 超长赋值直接 22001 让 create_session 回滚 → 登录 500。
+    # UA 401+ 字符的浏览器（企业代理、WebView 变体）与任意长的 x-lawver-client 都会踩中。
     session_ok, session_msg, sid, _evicted = await run_in_threadpool(
         create_session,
         req.username,
-        client=((request.headers.get("x-lawver-client") or "web").strip() or "web"),
-        user_agent=(request.headers.get("user-agent") or "")[:512],
+        client=((request.headers.get("x-lawver-client") or "web").strip() or "web")[:40],
+        user_agent=(request.headers.get("user-agent") or "")[:400],
         ip_hash=hash_client_identity(client_ip_for_request(request)),
     )
     if not session_ok:
