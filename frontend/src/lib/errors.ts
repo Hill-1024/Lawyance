@@ -9,6 +9,12 @@
 /** 网络不可用 / 请求被中断时的统一文案。 */
 export const NETWORK_ERROR_MESSAGE = '网络连接异常，请检查网络后重试。';
 
+/**
+ * 已经是面向用户的最终文案（如限流状态码映射的本地化提示，构造时已按当前语言取词）。
+ * describeError 对它原样放行，不再走「无中文就换兜底」的改写。
+ */
+export class UserFacingError extends Error {}
+
 const NETWORK_PATTERNS = [
   'failed to fetch',
   'load failed',
@@ -24,6 +30,7 @@ const NETWORK_PATTERNS = [
  * 其余英文原文只写进控制台并返回兜底文案——界面不出现看不懂的英文。
  */
 export const describeError = (error: unknown, fallback = '操作失败，请稍后重试。'): string => {
+  if (error instanceof UserFacingError) return error.message;
   const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
   const message = raw.trim();
   if (!message) return fallback;
