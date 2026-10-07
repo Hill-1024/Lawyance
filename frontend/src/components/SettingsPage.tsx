@@ -1095,6 +1095,7 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
   const dialog = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const closing = useRef(false);
+  const navRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState('');
   const [plan, setPlan] = useState('');
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
@@ -1132,6 +1133,23 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
   useEffect(() => {
     dialog.current?.querySelector('[aria-current="page"]')?.scrollIntoView({block:'nearest', inline:'nearest'});
   }, [category]);
+  // 手机端分类行是横向滚动：按滚动位置点亮两端渐隐（is-scrolled-start/end），
+  // 提示两侧还有更多分类；滚到头的一侧不渐隐。直接写 classList，不经过 state 重渲染。
+  const updateNavFade = useCallback(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    el.classList.toggle('is-scrolled-start', el.scrollLeft > 1);
+    el.classList.toggle('is-scrolled-end', el.scrollLeft < max - 1);
+  }, []);
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    updateNavFade();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateNavFade);
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, [updateNavFade, query, categories]);
   const close = useCallback(async () => {
     if(closing.current) return false;
     closing.current = true;
@@ -1189,7 +1207,7 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
     <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} transition={{duration:reduceMotion?0:.16}} className="settings-overlay" onMouseDown={e => {if(e.target === e.currentTarget) void close();}}>
       <motion.section initial={{scale:reduceMotion?1:.98,y:reduceMotion?0:8}} animate={{scale:1,y:0}} exit={{scale:reduceMotion?1:.99,y:reduceMotion?0:4}} transition={{duration:reduceMotion?0:.2,ease:[.2,.8,.2,1]}} className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" ref={dialog}>
         <header className="settings-header"><h1 id="settings-title">{t("settings.title")}</h1><button ref={closeButton} className="settings-close" aria-label={t("settings.close")} onClick={() => void close()}><X size={20}/></button></header>
-        <aside className="settings-navigation"><label className="settings-search"><Search size={16}/><input aria-label={t("settings.searchLabel")} placeholder={t("settings.searchPlaceholder")} value={query} onChange={e => setQuery(e.target.value)}/></label><nav aria-label={t("settings.navLabel")}>{categories.filter(c => (c.label+c.hint).includes(query)).map(c => <button key={c.id} aria-current={category === c.id ? 'page' : undefined} onClick={() => select(c.id)}><c.icon size={18}/><span>{c.label}</span></button>)}{!categories.some(c => (c.label+c.hint).includes(query)) && <p className="settings-hint">{t("settings.noMatch")}</p>}</nav></aside>
+        <aside className="settings-navigation"><label className="settings-search"><Search size={16}/><input aria-label={t("settings.searchLabel")} placeholder={t("settings.searchPlaceholder")} value={query} onChange={e => setQuery(e.target.value)}/></label><nav ref={navRef} onScroll={updateNavFade} aria-label={t("settings.navLabel")}>{categories.filter(c => (c.label+c.hint).includes(query)).map(c => <button key={c.id} aria-current={category === c.id ? 'page' : undefined} onClick={() => select(c.id)}><c.icon size={18}/><span>{c.label}</span></button>)}{!categories.some(c => (c.label+c.hint).includes(query)) && <p className="settings-hint">{t("settings.noMatch")}</p>}</nav></aside>
         <main className="settings-content"><header className="settings-section-heading"><h2>{active.label}</h2><p>{active.hint}</p>{Object.values(dirty).some(Boolean) && <span className="settings-unsaved" role="status">{t("settings.unsaved")}</span>}</header>{Array.from(new Set([...visited,pane])).map(key => <div key={key} hidden={key !== pane} className="settings-pane">{renderPane(key)}</div>)}</main>
       </motion.section>
     </motion.div>

@@ -30,7 +30,10 @@
  .settings-header{padding:0 12px 0 18px}.settings-close{width:44px;height:44px}
  .settings-navigation{border-right:0;border-bottom:1px solid var(--border-default);padding:8px;overflow:hidden}
  .settings-search{margin:0 4px 8px;min-height:40px}
- .settings-navigation nav{flex-direction:row;overflow-x:auto;scrollbar-width:thin;gap:4px}
+ .settings-navigation nav{flex-direction:row;overflow-x:auto;scrollbar-width:thin;gap:4px;--nav-fade:18px;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 var(--nav-fade),#000 calc(100% - var(--nav-fade)),transparent 100%);mask-image:linear-gradient(90deg,transparent 0,#000 var(--nav-fade),#000 calc(100% - var(--nav-fade)),transparent 100%)}
+ .settings-navigation nav.is-scrolled-start{-webkit-mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - var(--nav-fade)),transparent 100%);mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - var(--nav-fade)),transparent 100%)}
+ .settings-navigation nav.is-scrolled-end{-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 var(--nav-fade),#000 100%);mask-image:linear-gradient(90deg,transparent 0,#000 var(--nav-fade),#000 100%)}
+ .settings-navigation nav.is-scrolled-start.is-scrolled-end{-webkit-mask-image:none;mask-image:none}
  .settings-navigation nav button{flex-shrink:0;padding:0 12px;gap:6px;font-size:13px}
  .settings-content{padding:20px 16px}.settings-content button{min-height:44px}.settings-content input:not([type=checkbox]):not([type=color]),.settings-content select{font-size:16px}
  .settings-section-heading{margin-bottom:18px}
