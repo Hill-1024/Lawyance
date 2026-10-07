@@ -147,6 +147,18 @@ async def upload_file_get(current_user: str = Depends(get_current_user)):
     raise HTTPException(status_code=405, detail="Method Not Allowed: Please use POST request to upload files.")
 
 
+def _validate_image_upload(safe_filename: str, content: bytes) -> None:
+    """图片统一按魔数校验并施加更小的体积上限，防止改扩展名绕过（upload/restore 共用）。"""
+    if not is_image_filename(safe_filename):
+        return
+    validate_image_content(safe_filename, content)
+    if len(content) > MAX_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"图片大小超过 {MAX_IMAGE_BYTES // (1024 * 1024)}MB 上限",
+        )
+
+
 @router.post("/api/upload")
 async def upload_file(
     file: Annotated[UploadFile, File()],
@@ -157,14 +169,7 @@ async def upload_file(
 ):
     safe_filename = validate_workspace_filename(file.filename)
     content = await read_limited_upload(file)
-    if is_image_filename(safe_filename):
-        # 图片额外按魔数校验并施加更小的体积上限，防止改扩展名绕过。
-        validate_image_content(safe_filename, content)
-        if len(content) > MAX_IMAGE_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"图片大小超过 {MAX_IMAGE_BYTES // (1024 * 1024)}MB 上限",
-            )
+    _validate_image_upload(safe_filename, content)
 
     temp_dir, _ = get_workspace_dirs(current_user, conversation_id)
     try:
@@ -202,6 +207,9 @@ async def restore_workspace_file(
 ):
     safe_filename = validate_workspace_filename(file.filename)
     content = await read_limited_upload(file)
+    # 与 /api/upload 同一标准：restore 不做图片魔数/体积校验的话，任意字节顶着
+    # .png 扩展名、以及超上限的大文件都能从这条路径进同一 TEMP 目录。
+    _validate_image_upload(safe_filename, content)
 
     if file_type == "upload":
         target_dir, _ = get_workspace_dirs(current_user, conversation_id)
