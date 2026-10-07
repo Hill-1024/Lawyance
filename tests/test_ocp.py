@@ -179,6 +179,30 @@ class OCPTests(unittest.TestCase):
         self.assertIn("> | **多次盗窃** | 二年内三次以上盗窃 | 需核实次数 |", cleaned)
         self.assertIn("> **⚠️ 重要提示：** 应核实具体次数。", cleaned)
 
+    def test_deterministic_repair_preserves_rows_with_multiple_empty_cells(self):
+        """T21 回归：带 ≥2 个空单元格的合法表格行不得被当成折叠表拆散。
+
+        旧判据「≥2 个 | | 空隙」会把质证意见挤到新行首列、行尾多出游离 |。
+        """
+        cleaned = ocp.OCPStatic._repair_markdown_tables(
+            "| 1 | 借款合同 |  | 无异议 |  |\n"
+            "| 1 | 诉讼费 |  | 法院收取 | 张三 |  |"
+        )
+        lines = cleaned.splitlines()
+        # 单元格内容留在原行：质证意见不得被挤到新行首列，也不得出现游离 | 行。
+        self.assertTrue(any("借款合同" in line and "无异议" in line for line in lines))
+        self.assertTrue(
+            any("诉讼费" in line and "法院收取" in line and "张三" in line for line in lines)
+        )
+        self.assertFalse(any(line.strip().startswith("| 无异议") for line in lines))
+        self.assertFalse(any(line.strip() == "|" for line in lines))
+
+    def test_deterministic_repair_keeps_dash_cell_rows_intact(self):
+        """T21 回归：含 ---- 文本单元格的行不满足折叠特征，整行原样保留。"""
+        line = "| 备注 | ---- 2020 修订 |  | 张三 | 李四 |"
+        cleaned = ocp.OCPStatic._repair_markdown_tables(line)
+        self.assertEqual(cleaned.splitlines(), [line])
+
     def test_deterministic_repair_normalizes_inconsistent_table_width(self):
         cleaned = ocp.OCPStatic._deterministic_format_repair(
             "| 法条 | 要点 |\n"
