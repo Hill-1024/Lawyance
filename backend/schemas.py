@@ -218,7 +218,9 @@ class ChangePasswordRequest(RequestModel):
 class AccountRequest(RequestModel):
     username: str = Field(min_length=1, max_length=MAX_USERNAME_CHARS)
     password: str = Field(min_length=6, max_length=MAX_PASSWORD_CHARS)
-    role: Optional[AccountRole] = "user"
+    # None/省略 = 沿用原值（upsert_account 的契约）：默认填 "user" 会让「重置密码时
+    # 省略 role」的日常调用把 admin/sudo 账号静默降级成 user 并吊销全部会话。
+    role: Optional[AccountRole] = None
     # 0 / -1 表示不限制；None 表示沿用原值。仅 sudo 有权设置这些字段。
     max_online: Optional[int] = Field(default=None, ge=0, le=MAX_ONLINE_LIMIT)
     max_users: Optional[int] = Field(default=None, ge=-1, le=MAX_USERS_QUOTA)

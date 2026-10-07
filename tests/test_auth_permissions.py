@@ -405,9 +405,9 @@ class AuthRouteScopeTests(AuthTestCase):
             self.assertEqual(len(bob_sessions), 1)
             self.assertTrue(bob_sessions[0]["online"])
 
-            # sudo 可以直接踢下线。
+            # sudo 可以直接踢下线（按列表摘要定位，原 sid 不出管理接口）。
             kicked = self.sudo_client.delete(
-                f"/api/admin/sessions/{bob_sessions[0]['sid']}",
+                f"/api/admin/sessions/{bob_sessions[0]['sid_fingerprint']}",
                 headers={"origin": LOCAL_ORIGIN},
             )
             self.assertEqual(kicked.status_code, 200, kicked.text)
@@ -458,3 +458,143 @@ class AuthRouteScopeTests(AuthTestCase):
 
         anyone = self.sudo_client.post("/api/admin/accounts/outsider/unlock", headers={"origin": LOCAL_ORIGIN})
         self.assertEqual(anyone.status_code, 200, anyone.text)
+
+
+class AccountContractRegressionTests(AuthTestCase):
+    """T18/T20/T24/T4 回归：账号管理 API 的契约不被默认值/泄露/列宽击穿。"""
+
+    def setUp(self):
+        super().setUp()
+        purge_runtime_modules()
+        self.agent = importlib.import_module("agent")
+        self.auth = importlib.import_module("auth")
+        self.sudo_client = TestClient(self.agent.app, base_url="http://localhost")
+        response = self.sudo_client.post(
+            "/api/login",
+            json={"username": "admin", "password": "bootstrap-password"},
+            headers={"origin": LOCAL_ORIGIN},
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def tearDown(self):
+        try:
+            self.sudo_client.close()
+        finally:
+            super().tearDown()
+
+    def test_upsert_without_role_keeps_existing_role(self):
+        """T20：重置密码省略 role 时不得把 admin/sudo 静默降级为 user。"""
+        ok, message = self.auth.upsert_account(
+            "admin", "boss", "boss-password-1", role="admin", max_users=3
+        )
+        self.assertTrue(ok, message)
+        response = self.sudo_client.post(
+            "/api/admin/accounts",
+            json={"username": "boss", "password": "boss-password-2"},
+            headers={"origin": LOCAL_ORIGIN},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.auth.get_user_role("boss"), "admin")
+
+        # 省略 role 的新建账号仍然落默认 user。
+        created = self.sudo_client.post(
+            "/api/admin/accounts",
+            json={"username": "newcomer", "password": "newcomer-password"},
+            headers={"origin": LOCAL_ORIGIN},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self.assertEqual(self.auth.get_user_role("newcomer"), "user")
+
+    def test_plan_upsert_clears_pending_downgrade_and_is_visible(self):
+        """T18：客服改套餐必须清掉预约降级；列表要能看到挂着预约的账号。"""
+        ok, message = self.auth.upsert_account("admin", "u1", "u1-password-1", plan="pro")
+        self.assertTrue(ok, message)
+        ok, _, effective = self.auth.schedule_plan_change("u1", "metered")
+        self.assertTrue(ok, message)
+        self.assertIsNotNone(effective)
+
+        # sudo 明确写入新套餐 = 推翻预约：不清的话结算日一到 go 会被 metered 覆盖。
+        ok, message = self.auth.upsert_account("admin", "u1", "u1-password-1", plan="go")
+        self.assertTrue(ok, message)
+        record = self.auth.get_user_record("u1")
+        self.assertIsNone(record.get("pending_plan"))
+        self.assertEqual(record.get("plan"), "go")
+
+        # 结算日已过也不会再把套餐打回去（懒应用走 store 层，与读取路径同源）。
+        from datetime import datetime, timedelta, timezone
+
+        account_store = importlib.import_module("infra.account_store")
+        applied = account_store.apply_pending_plan_if_due(
+            "u1", now=datetime.now(timezone.utc) + timedelta(days=400)
+        )
+        self.assertIsNone(applied)
+        self.assertEqual(self.auth.get_user_record("u1").get("plan"), "go")
+
+        accounts = self.auth.list_accounts("admin")
+        by_name = {item["username"]: item for item in accounts}
+        self.assertIn("pending_plan", by_name["u1"])
+
+        # 有预约的账号在列表里可见（客服能发现挂着降级的账号）。
+        ok, _, _ = self.auth.schedule_plan_change("u1", "metered")
+        self.assertTrue(ok)
+        accounts = self.auth.list_accounts("admin")
+        by_name = {item["username"]: item for item in accounts}
+        self.assertEqual(by_name["u1"]["pending_plan"], "metered")
+        self.assertIsNotNone(by_name["u1"]["pending_effective_at"])
+
+    def test_admin_sessions_list_never_exposes_raw_sid(self):
+        """T24：列表只出不可逆摘要；下线设备按摘要定位。"""
+        ok, message = self.auth.upsert_account("admin", "bob", "bob-password-1")
+        self.assertTrue(ok, message)
+        other = TestClient(self.agent.app, base_url="http://localhost")
+        try:
+            login = other.post(
+                "/api/login",
+                json={"username": "bob", "password": "bob-password-1"},
+                headers={"origin": LOCAL_ORIGIN},
+            )
+            self.assertEqual(login.status_code, 200)
+
+            sessions = self.sudo_client.get("/api/admin/sessions").json()["sessions"]
+            self.assertTrue(sessions)
+            for item in sessions:
+                self.assertNotIn("sid", item, "原 sid 就是会话凭据，不能出现在管理接口")
+                self.assertRegex(item["sid_fingerprint"], r"^[0-9a-f]{16}$")
+
+            bob_rows = [item for item in sessions if item["username"] == "bob"]
+            self.assertEqual(len(bob_rows), 1)
+            fingerprint = bob_rows[0]["sid_fingerprint"]
+
+            # 摘要不能反推回会话：bob 的原 sid 仍可用（未被误吊销）。
+            self.assertEqual(other.get("/api/verify_auth").status_code, 200)
+
+            revoke = self.sudo_client.delete(
+                f"/api/admin/sessions/{fingerprint}",
+                headers={"origin": LOCAL_ORIGIN},
+            )
+            self.assertEqual(revoke.status_code, 200, revoke.text)
+            self.assertEqual(other.get("/api/verify_auth").status_code, 401)
+        finally:
+            other.close()
+
+    def test_login_truncates_client_and_user_agent_to_column_width(self):
+        """T4：超长 UA（PostgreSQL varchar(400)）与任意长 x-lawver-client 不得 500。"""
+        response = self.sudo_client.post(
+            "/api/login",
+            json={"username": "admin", "password": "bootstrap-password"},
+            headers={
+                "origin": LOCAL_ORIGIN,
+                "user-agent": "U" * 512,
+                "x-lawver-client": "C" * 500,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+        account_store = importlib.import_module("infra.account_store")
+        rows = account_store.list_sessions(
+            usernames=["admin"], online_window=self.auth.ONLINE_WINDOW_SECONDS
+        )
+        # 中间件会 touch 旧会话，last_seen 排序不可靠：按 client 特征找本次登录的行。
+        latest = next(row for row in rows if (row["client"] or "").startswith("CCCC"))
+        self.assertEqual(len(latest["user_agent"] or ""), 400)
+        self.assertEqual(len(latest["client"] or ""), 40)
