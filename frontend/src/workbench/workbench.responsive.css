@@ -381,6 +381,11 @@
   .wb-space-row > button:first-child {
     min-height: 44px;
   }
+  /* 抽屉里的工作区胶囊：span 不再 flex:1 撑满，图标+文案+chevron 左侧成组，
+     短文案（如「个人工作区」）不再与贴死右缘的 chevron 之间留出大片空腔。 */
+  .wb-space-pill span {
+    flex: 0 1 auto;
+  }
   .wb-message-label button {
     min-height: 44px;
   }
