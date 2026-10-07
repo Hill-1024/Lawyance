@@ -154,6 +154,37 @@ class SideState:
         return Path(self.spec.flag_path).exists()
 
 
+_UPSTREAM_SET_COOKIE = "lawver_upstream_set_cookie"
+
+
+class _NoPersistTransport(httpx.AsyncHTTPTransport):
+    """把上游响应的 Set-Cookie 从 httpx 视野里剥离，暂存进 request.extensions
+    供代理转发给真实客户端。
+
+    分流核心是无状态反代：共享的 httpx.AsyncClient 自带 cookie 罐，会把上游
+    响应的 Set-Cookie 收留并在后续请求上回放——任何一个用户登录后，其他所有
+    访客的请求都会带着那个用户的会话令牌（跨用户会话劫持）。在这里剥掉，
+    罐子永远为空；Set-Cookie 本身仍逐条透传给发起请求的浏览器。
+    """
+
+    def __init__(self, inner: httpx.AsyncBaseTransport | None = None):
+        super().__init__()
+        # 生产路径 transport 为 None（由 httpx 自建默认传输层），这里补建后再包。
+        self._inner = inner if inner is not None else httpx.AsyncHTTPTransport()
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        response = await self._inner.handle_async_request(request)
+        raw = [
+            value
+            for key, value in response.headers.raw
+            if key.decode("latin-1").lower() == "set-cookie"
+        ]
+        if raw:
+            request.extensions[_UPSTREAM_SET_COOKIE] = raw
+            del response.headers["set-cookie"]
+        return response
+
+
 class Core:
     """分派、探活与维护兜底的全部逻辑（不依赖 Starlette，便于直接测）。"""
 
@@ -186,7 +217,7 @@ class Core:
             timeout=httpx.Timeout(
                 connect=config.connect_timeout, read=None, write=None, pool=None
             ),
-            transport=transport,
+            transport=_NoPersistTransport(transport),
             follow_redirects=False,
             # 上游只有本机/内网的功能页与介绍页，永远直连。httpx 默认会读系统代理（Windows 注册表、
             # macOS 网络设置）却不读绕过列表：本机开着代理工具时，转发到 127.0.0.1 的请求会被代理
@@ -388,11 +419,15 @@ class Core:
         )
         upstream = await self.client.send(upstream_request, stream=True)
 
-        cookies = [
+        # Set-Cookie 由 _NoPersistTransport 在 httpx 收留之前剥走并存进 extensions
+        # （否则共享客户端的 cookie 罐会把它回放给后续所有用户的请求）；
+        # 这里的兜底扫描覆盖不经过该传输层的路径。
+        cookies = upstream_request.extensions.get(_UPSTREAM_SET_COOKIE) or [
             value.decode("latin-1")
             for key, value in upstream.headers.raw
             if key.decode("latin-1").lower() == "set-cookie"
         ]
+        cookies = [value if isinstance(value, str) else value.decode("latin-1") for value in cookies]
         response_headers = [
             (key.decode("latin-1"), value.decode("latin-1"))
             for key, value in upstream.headers.raw

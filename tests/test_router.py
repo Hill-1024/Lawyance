@@ -324,6 +324,22 @@ class RouterTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual(["a=1; Path=/", "b=2; Path=/"], response.headers.get_list("set-cookie"))
 
+    async def test_upstream_set_cookie_is_never_replayed_to_other_users(self):
+        # 登录响应的 Set-Cookie 必须透传给发起请求的浏览器（上一条测试），
+        # 但绝不能被共享客户端的 cookie 罐收留后回放给其他用户的请求——
+        # 否则任何一次登录都会让后续所有无 Cookie 访客变成那个登录用户。
+        first = await self.client.get("/api/cookies")
+        self.assertEqual(["a=1; Path=/", "b=2; Path=/"], first.headers.get_list("set-cookie"))
+        self.assertEqual(0, len(self.core.client.cookies.jar))
+        # 第二个用户：全新的浏览器、不带任何 Cookie，上游不得收到 Cookie。
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=core.create_app(core=self.core)),
+            base_url="http://other-user.example",
+        ) as second:
+            response = await second.get("/home")
+            self.assertEqual(200, response.status_code)
+            self.assertNotIn("cookie", self.upstreams.seen[-1].headers)
+
 
 if __name__ == "__main__":
     unittest.main()
