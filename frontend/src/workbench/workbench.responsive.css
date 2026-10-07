@@ -376,6 +376,11 @@
     opacity: 1;
     min-width: 44px;
   }
+  /* 首页最近会话行的「管理」键（重命名/收藏/归档/回收站唯一入口）同理常显：
+     整行点击即打开会话，hover-only 的按钮在触屏上不可发现。 */
+  .wb-file-row .wb-file-row-manage {
+    opacity: 1;
+  }
   /* .wb-space-row > button:first-child 的 min-height:32px 特异性更高，会盖过
      .wb-app button 的 44px 触摸目标，这里按同特异性补回来。 */
   .wb-space-row > button:first-child {
