@@ -659,6 +659,10 @@ def list_accounts(actor: Optional[str] = None) -> list:
                 "max_users": record.get("max_users"),
                 "user_max_online": record.get("user_max_online"),
                 "plan": record.get("plan", "metered"),
+                # 预约中的套餐变更暴露给管理台：否则客服看不到账号挂着降级预约，
+                # 结算日一到还会覆盖自己刚设置的套餐（取消走重设套餐或用户自助）。
+                "pending_plan": record.get("pending_plan"),
+                "pending_effective_at": record.get("pending_effective_at"),
                 "billing_cycle": record.get("billing_cycle", "prepaid"),
                 "credits_balance": int(record.get("credits_balance", 0) or 0),
                 "status": record.get("status", "active"),
@@ -893,14 +897,21 @@ def upsert_account(
                         updates["billing_cycle"] = billing_cycle
                     if normalized_multiplier is not None:
                         updates["credit_multiplier"] = normalized_multiplier
+                if updates.get("plan") is not None:
+                    # 明确写入新套餐 = 推翻用户此前预约的降级。预约是懒应用的：不清掉的话，
+                    # 结算日一到它会覆盖客服刚设置的套餐——用户先自助预约降级再付费升级，
+                    # 次月被静默打回低价档。
+                    auth_store.set_pending_plan(username, None, None)
                 auth_store.update_user(username, **updates)
         except Exception:
             _logger.exception("保存账号失败：%s", username)
             return False, "保存账号失败，请稍后重试"
 
         # 密码或角色变化后立刻作废旧会话，避免旧令牌继续生效。
+        # 必须走本模块包装（含逐 sid _drop_session_cache）：verify_token 对缓存命中
+        # 直接放行，直调 auth_store 版本会让被吊销的会话在缓存 TTL 内继续通过认证。
         try:
-            auth_store.revoke_user_sessions(username)
+            revoke_user_sessions(username)
         except Exception:
             _logger.exception("清理账号会话失败：%s", username)
 
@@ -1029,7 +1040,8 @@ def delete_account(username: str, actor: Optional[str] = None) -> tuple[bool, st
             return False, "只能删除自己创建的账号"
 
         try:
-            auth_store.revoke_user_sessions(username)
+            # 包装版本会逐 sid 清 Redis 会话缓存：删号后缓存里的活会话不能等到 TTL 自然过期。
+            revoke_user_sessions(username)
             auth_store.delete_user_row(username)
             return True, "账号已删除"
         except Exception:
@@ -1433,6 +1445,21 @@ def revoke_session(actor: str, sid: str) -> tuple[bool, str]:
     _drop_session_cache(sid)
     auth_store.revoke_session(sid)
     return True, "已下线该设备"
+
+
+def session_fingerprint(sid: str) -> str:
+    """sid 本身就是会话凭据（_extract_token 直接拿它当 Bearer）：管理接口只出
+    不可逆摘要，出原值等于把名下用户的在用 token 发给管理员并落进代理/抓包日志。
+    """
+    return hashlib.sha256(str(sid).encode("utf-8")).hexdigest()[:16]
+
+
+def revoke_session_by_fingerprint(actor: str, fingerprint: str) -> tuple[bool, str]:
+    """按列表里的摘要定位并下线设备：管理端拿不到原 sid，摘要即定位键。"""
+    for session in list_sessions(actor):
+        if session_fingerprint(session["sid"]) == fingerprint:
+            return revoke_session(actor, session["sid"])
+    return False, "会话不存在或已过期"
 
 
 def hash_client_identity(client_ip: Optional[str]) -> Optional[str]:

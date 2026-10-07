@@ -45,6 +45,8 @@ async def court_turn_endpoint(request: CourtTurnRequest, current_user: str = Dep
     if not allowed:
         raise HTTPException(status_code=402, detail=refusal)
     # 计费倍率在开轮时快照（与工作台 worker 同口径）；账号只读一次，不再为三个字段各查一遍。
+    # 快照前先懒应用到点的预约降级：否则结算日当天仍按旧套餐计价，读路径不等写入路径。
+    await run_in_threadpool(account_store.apply_pending_plan_if_due, current_user)
     account = (await run_in_threadpool(account_store.get_user, current_user)) or {}
     multiplier = pricing.multiplier_for(
         account.get("plan", "metered"),
