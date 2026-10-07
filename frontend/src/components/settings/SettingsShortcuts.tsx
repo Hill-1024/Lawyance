@@ -143,6 +143,7 @@ export const SettingsShortcuts: React.FC = () => {
               <SettingsRow
                 key={def.id}
                 dense
+                stackTrailing
                 icon={<Keyboard size={17} strokeWidth={2} />}
                 title={t(def.labelKey)}
                 description={active ? t('settingsShortcuts.recording') : t(SCOPE_LABELS[def.scope])}
