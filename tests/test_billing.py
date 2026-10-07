@@ -146,45 +146,69 @@ class LedgerTests(BillingTestCase):
             [row for row in self.ledger.recent_ledger("bob") if row["kind"] == "charge"]
         )
 
-    def test_settle_retries_once_when_the_daily_upsert_hits_the_unique_index(self):
-        """并发首笔竞态：_bump_daily 先 SELECT 后 INSERT，撞唯一索引要整事务重试。
+    def test_bump_daily_is_a_single_relative_increment_upsert(self):
+        """T19：_bump_daily 必须是唯一索引上的单条**相对增量** upsert。
 
-        重试后账本只记一次、余额只扣一次、当日汇总恰好一行。
+        旧实现是 SELECT → Python 累加 → 绝对值 UPDATE：两个并发 settle 各自读到
+        同一条旧快照，后提交方把先提交方的累加整体覆盖——usage_daily 短记而
+        credit_ledger 两笔 charge 都在，两表口径分叉且 reconcile() 察觉不到。
+        SQLite 串行执行无法复现生产 PostgreSQL 的 MVCC 交错（与
+        test_allocation_reads_the_parent_balance_under_a_row_lock 同一手法），
+        这里按 PostgreSQL 方言编译实际语句确认：ON CONFLICT (username, day) 的
+        SET 是列间相加，而不是绝对值写回。
         """
-        from unittest import mock
+        from sqlalchemy.dialects import postgresql
 
-        from sqlalchemy.exc import IntegrityError
+        turn = self.metering.begin_turn("bob", multiplier=1.0, reason="工作台任务")
+        self.metering.record_model(1_000, 100)
+        stmt = self.ledger._daily_upsert_statement(turn, 12345, dialect_name="postgresql")
+        compiled = str(stmt.compile(dialect=postgresql.dialect()))
 
-        turn = self.metering.begin_turn("bob", multiplier=0.8, reason="工作台任务", ref_id="run-race")
+        self.assertIn("ON CONFLICT (username, day) DO UPDATE", compiled)
+        # SET 是列间相对增量（col = usage_daily.col + excluded.col），不是绝对值写回。
+        self.assertIn("credits_spent = (usage_daily.credits_spent + excluded.credits_spent)", compiled)
+        self.assertIn("prompt_tokens = (usage_daily.prompt_tokens + excluded.prompt_tokens)", compiled)
+        self.assertIn("turns = (usage_daily.turns + ", compiled)
+
+    def test_daily_usage_accumulates_on_top_of_committed_writes(self):
+        """T19 语义面：settle 的累加必须叠加在行上已有值之上，而不是覆盖。
+
+        模拟「另一个事务已提交的累加」先改行，再 settle：外部写入的 12345
+        micro-credits 必须保留。绝对值写回的实现会把它抹掉。
+        """
+        from sqlalchemy import update
+
+        from billing.models import UsageDaily
+        from infra.database import transaction
+
+        turn_a = self.metering.begin_turn("bob", multiplier=0.8, reason="工作台任务", ref_id="run-a")
         self.metering.record_model(10_000, 2_000)
-        self.metering.record_tool("web_search")
-        original_bump = self.ledger._bump_daily
-        calls = {"n": 0}
-
-        def racing_bump(session, turn_usage, spent_micro):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                # 模拟并发对手先一步插入了 (username, day) 行。
-                raise IntegrityError(
-                    "INSERT INTO usage_daily", None, Exception("UNIQUE constraint failed")
-                )
-            return original_bump(session, turn_usage, spent_micro)
-
-        with mock.patch.object(self.ledger, "_bump_daily", racing_bump):
-            summary = self.ledger.settle(turn)
+        summary_a = self.ledger.settle(turn_a)
         self.metering.end_turn()
 
-        self.assertEqual(calls["n"], 2)
-        self.assertAlmostEqual(summary["credits"], 2.08, places=2)
-        # 余额与账本各只生效一次（第一次失败的事务整体回滚，不留下重复扣款）。
-        self.assertAlmostEqual(
-            self.pricing.as_credits(self.ledger.balance("bob")), 7.92, places=2
-        )
-        charges = [row for row in self.ledger.recent_ledger("bob") if row["kind"] == "charge"]
-        self.assertEqual(len(charges), 1)
+        with transaction() as session:
+            session.execute(
+                update(UsageDaily).values(credits_spent=UsageDaily.credits_spent + 12345)
+            )
+
+        turn_b = self.metering.begin_turn("bob", multiplier=0.8, reason="工作台任务", ref_id="run-b")
+        self.metering.record_model(10_000, 2_000)
+        summary_b = self.ledger.settle(turn_b)
+        self.metering.end_turn()
+
         rows = self.ledger.usage_rows("bob")
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["turns"], 1)
+        self.assertEqual(rows[0]["turns"], 2)
+        # micro 口径先合计、再走同一个 as_credits 舍入，避免分段舍入吃掉精度。
+        expected_micro = (
+            self.pricing.credits(summary_a["credits"])
+            + self.pricing.credits(summary_b["credits"])
+            + 12345
+        )
+        self.assertEqual(rows[0]["credits"], self.pricing.as_credits(expected_micro))
+        # 两笔 charge 都在，余额按相对增量正确。
+        charges = [row for row in self.ledger.recent_ledger("bob") if row["kind"] == "charge"]
+        self.assertEqual(len(charges), 2)
 
     def test_reconcile_rebuilds_balance_from_ledger(self):
         # bob 开户已有 10（见 setUp），再充值 5、修正 -3 → 账本合计 12

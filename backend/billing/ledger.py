@@ -19,7 +19,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from sqlalchemy import func, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from billing import pricing
 from billing.models import CreditLedger, TopUp, UsageDaily
@@ -220,37 +221,54 @@ def _write_ledger(
     )
 
 
-def _bump_daily(session, turn: TurnUsage, spent_micro: int) -> None:
+def _daily_upsert_statement(turn: TurnUsage, spent_micro: int, *, dialect_name: Optional[str] = None):
+    """当日汇总的**相对增量** upsert 语句（_bump_daily 的可编译内核）。
+
+    此前是 SELECT → Python 累加 → 绝对值 UPDATE：同一账号并发两次 settle（Max 档
+    允许 3 个并行工作台任务，或工作台+庭审同时跑）各自读到同一条旧快照，后提交方
+    把先提交方的累加整体覆盖——usage_daily 短记，而 credit_ledger 两笔 charge 都在
+    （余额按相对增量、正确），两表口径分叉，报表短记且 reconcile() 察觉不到。
+    改成 INSERT .. ON CONFLICT (username, day) DO UPDATE SET col = col + excluded.col
+    后累加发生在数据库行上：SQLite（测试）与 PostgreSQL（生产）方言各自支持。
+    """
     day = _today()
-    row = session.scalar(
-        select(UsageDaily).where(
-            UsageDaily.username == turn.username, UsageDaily.day == day
-        )
+    dialect = dialect_name or _engine_dialect_name()
+    dialect_insert = pg_insert if dialect == "postgresql" else sqlite_insert
+    stmt = dialect_insert(UsageDaily).values(
+        id=new_id(),
+        username=turn.username,
+        day=day,
+        prompt_tokens=turn.prompt_tokens,
+        completion_tokens=turn.completion_tokens,
+        tool_calls=turn.tool_calls,
+        documents=turn.documents,
+        document_chars=turn.document_chars,
+        turns=1,
+        credits_spent=spent_micro,
     )
-    if row is None:
-        session.add(
-            UsageDaily(
-                id=new_id(),
-                username=turn.username,
-                day=day,
-                prompt_tokens=turn.prompt_tokens,
-                completion_tokens=turn.completion_tokens,
-                tool_calls=turn.tool_calls,
-                documents=turn.documents,
-                document_chars=turn.document_chars,
-                turns=1,
-                credits_spent=spent_micro,
-            )
-        )
-        return
-    row.prompt_tokens += turn.prompt_tokens
-    row.completion_tokens += turn.completion_tokens
-    row.tool_calls += turn.tool_calls
-    row.documents += turn.documents
-    row.document_chars += turn.document_chars
-    row.turns += 1
-    row.credits_spent += spent_micro
-    row.updated_at = datetime.now(timezone.utc)
+    return stmt.on_conflict_do_update(
+        index_elements=[UsageDaily.username, UsageDaily.day],
+        set_={
+            "prompt_tokens": UsageDaily.prompt_tokens + stmt.excluded.prompt_tokens,
+            "completion_tokens": UsageDaily.completion_tokens + stmt.excluded.completion_tokens,
+            "tool_calls": UsageDaily.tool_calls + stmt.excluded.tool_calls,
+            "documents": UsageDaily.documents + stmt.excluded.documents,
+            "document_chars": UsageDaily.document_chars + stmt.excluded.document_chars,
+            "turns": UsageDaily.turns + 1,
+            "credits_spent": UsageDaily.credits_spent + stmt.excluded.credits_spent,
+            "updated_at": datetime.now(timezone.utc),
+        },
+    )
+
+
+def _engine_dialect_name() -> str:
+    from infra.database import engine_for, database_url
+
+    return engine_for(database_url()).dialect.name
+
+
+def _bump_daily(session, turn: TurnUsage, spent_micro: int) -> None:
+    session.execute(_daily_upsert_statement(turn, spent_micro))
 
 
 def _settle_once(turn: TurnUsage, spent_micro: int, actor: str | None) -> None:
@@ -289,14 +307,10 @@ def settle(turn: TurnUsage | None, *, actor: str | None = None) -> dict[str, Any
     try:
         ensure_tables()
         spent = turn.charged_micro
-        try:
-            _settle_once(turn, spent, actor)
-        except IntegrityError:
-            # 当日首笔的并发竞态：_bump_daily 先 SELECT 后 INSERT，两个请求同时判定
-            # 「当日还没有汇总行」，后提交的一方撞 ix_usage_daily_owner_day 唯一索引，
-            # 整个事务（含账本行与扣款）一起回滚。重开事务重试一次即可：此时当日行
-            # 已由先提交的一方写入，_bump_daily 走累加分支，账本不会重复记账。
-            _settle_once(turn, spent, actor)
+        # _bump_daily 已是唯一索引上的单条相对增量 upsert：当日首笔的并发竞态由
+        # ON CONFLICT 就地消解，不再需要「IntegrityError 后整事务重试」的补救路径
+        # （那条路只救得了 INSERT 撞索引，救不了已存在行 UPDATE 的丢更新）。
+        _settle_once(turn, spent, actor)
         return turn.summary()
     except Exception:
         _logger.exception("结算用量失败：%s", turn.username)
