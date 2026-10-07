@@ -66,7 +66,8 @@ export interface AccountLimits {
 }
 
 export interface SessionInfo {
-  sid: string;
+  // 后端只回不可逆摘要：sid 本身就是会话凭据，原值不出管理接口。
+  sid_fingerprint: string;
   username: string;
   client?: string | null;
   user_agent?: string | null;
@@ -710,10 +711,13 @@ export const fetchSessions = async (): Promise<{ status: string; sessions: Sessi
   return res.json();
 };
 
-export const revokeSession = async (sid: string) => {
-  const res = await apiFetch(`/api/admin/sessions/${encodeURIComponent(sid)}`, {
-    method: 'DELETE'
-  });
+export const revokeSession = async (sidFingerprint: string) => {
+  const res = await apiFetch(
+    `/api/admin/sessions/${encodeURIComponent(sidFingerprint)}`,
+    {
+      method: 'DELETE'
+    }
+  );
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Failed to revoke session');
