@@ -1,4 +1,5 @@
 import { Item } from "./client";
+import { translate } from "../i18n";
 
 /** 会话标签页模型：一个空间（个人工作区/项目）一套标签，标签只表示会话与庭审。 */
 export type TabKind = "conversation" | "court" | "new";
@@ -161,7 +162,10 @@ export function tabTitle(
   conversations: Item[],
   courts: Item[],
 ): string {
-  if (tab.kind === "new") return "新会话";
+  // 标签文字走 i18n：此前写死中文，切到 en-US 后每个页面顶部仍残留「新会话/模拟庭审」。
+  // 用模块级 translate()（读当前语言快照），调用方不必传 Translator。
+  if (tab.kind === "new") return translate("workbench.tabs.newSessionTab");
   const pool = tab.kind === "court" ? courts : conversations;
-  return pool.find((item) => item.id === tab.id)?.title || (tab.kind === "court" ? "模拟庭审" : "会话");
+  return pool.find((item) => item.id === tab.id)?.title
+    || (tab.kind === "court" ? translate("workbench.tabs.newCourt") : translate("workbench.tabs.newSession"));
 }
