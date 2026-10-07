@@ -10,6 +10,9 @@ import { api, Item, Reference } from "./client";
 
 const CourtConversation = React.lazy(() => import("./CourtConversation"));
 
+/** 思考轨迹是模型原始叙述，会带内部协议标记（如 <final_answer>）；展示时剥掉。 */
+const stripProtocolTags = (text: string) => text.replace(/<\/?final_answer>/g, "");
+
 /** 会话面板：普通会话的头部 + 消息流 + 运行状态，或嵌入式庭审会话。 */
 export type SessionViewProps = {
   courtSelection?: string;
@@ -151,7 +154,7 @@ export function SessionView({
       >
         {RUN_ICON(run.data.status)}
         {running && hasTimeline
-          ? currentActivityLabel(activityBlocks)
+          ? stripProtocolTags(currentActivityLabel(activityBlocks))
           : hasTimeline
             ? RUN_TEXT[run.data.status] + " · " + (timelineOpen ? t("workbench.session.collapseThought") : t("workbench.session.viewThought"))
             : RUN_TEXT[run.data.status]}
@@ -183,7 +186,7 @@ export function SessionView({
             <div key={block.key} className={"wb-thought-block is-" + block.kind}>
               <small>{block.label}</small>
               <div className="wb-thought-copy">
-                <Markdown>{block.content}</Markdown>
+                <Markdown>{stripProtocolTags(block.content)}</Markdown>
               </div>
             </div>
           ))}
