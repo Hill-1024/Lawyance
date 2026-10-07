@@ -326,8 +326,8 @@ python -m pytest
 - `LAWVER_REDIS_URL`（兼容 `REDIS_URL`）：Redis 连接串，例如 `redis://127.0.0.1:6379/0`；未设置时全部退回进程内。
 - `LAWVER_REDIS_PREFIX`：键前缀，默认 `lawver`。
 - `LAWVER_REDIS_TIMEOUT`：单次 Redis 命令超时秒数，默认 `0.25`；Redis 卡住时最多给每个请求增加这点延迟。
-- `LAWVER_API_RATE_LIMIT`：全局 API 单 IP 每分钟上限，默认 `100`。
-- `LAWVER_LOGIN_RATE_LIMIT`：登录接口单 IP 每分钟上限，默认 `30`。
+- `LAWVER_API_RATE_LIMIT`：全局 API 单 IP 每分钟上限，默认 `600`（流式回复期间的事件轮询与索引刷新、共享出口 IP 的多会话叠加，过低的预算会让正常用户互相打满，登录等请求被连带 429）。
+- `LAWVER_LOGIN_RATE_LIMIT`：登录接口单 IP 每分钟上限，默认 `30`。`/api/login` 只按此桶计数、不计入全局桶：登录被别的 API 流量连带 429 会让页面停在登录页打不进去。
 - `LAWVER_RATE_LIMIT_ENABLED`：设为 `0` 完全关闭限流（仅建议测试环境）。
 - `LAWVER_BLOOM_ENABLED`：设为 `0` 关闭会话布隆过滤器，每个请求都回源数据库。
 - `LAWVER_BLOOM_SESSION_CAPACITY`：位图容量，默认 `200000`，按有效会话数量级估算。

@@ -32,7 +32,11 @@ def _bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int
 
 # 通用 API 桶与登录桶分开：撞库是「同一 IP 喷洒大量用户名」，账号级锁定拦不住，
 # 只能靠 IP 维度的登录限流。计数默认走 Redis 共享，未配置时退回进程内。
-RATE_LIMIT = _bounded_env_int("LAWVER_API_RATE_LIMIT", 100, 1, 1_000_000)
+# 通用桶按出口 IP 计数：流式回复期间事件轮询 ≥1s/次（≈60-100 次/分钟），再叠加
+# 发送/上传后的索引刷新与多标签页、同一律所/回环代理后的多会话，100 次/60s 会让
+# 正常用户互相打满（大量 429、假登出、误报网络失败），600 只给正常交互留余量，
+# 依然拦得住脚本洪水。
+RATE_LIMIT = _bounded_env_int("LAWVER_API_RATE_LIMIT", 600, 1, 1_000_000)
 LOGIN_RATE_LIMIT = _bounded_env_int("LAWVER_LOGIN_RATE_LIMIT", 30, 1, 100_000)
 
 
@@ -369,9 +373,12 @@ async def _buffer_json_body_with_limit(request: Request, limit: int | None = Non
 
 
 def _rate_limited_response(retry_after: int) -> Response:
-    return Response(
-        content="Rate limit exceeded",
+    # 429 也走全站 {"detail": ...} JSON 错误契约：纯文本体会被前端兜底成
+    # 「网络请求失败」，把服务端限流误报成用户网络故障。Retry-After 保留，
+    # 前端据此提示「N 秒后再试」。
+    return JSONResponse(
         status_code=429,
+        content={"detail": "Rate limit exceeded", "code": "rate_limited"},
         headers={"Retry-After": str(max(int(retry_after), 1))},
     )
 
@@ -382,21 +389,30 @@ async def security_and_logging_middleware(request: Request, call_next):
     path = request.url.path
 
     # 限流放在读取请求体之前：无效洪水应当只花一次计数，而不是先把 40MB 读进来。
+    # 登录只走专用登录桶、不进通用桶：登录是每个用户每会话一次的低频请求，把它
+    # 前置进通用桶会让「别的 API 流量打满预算」（视口扫描、流式轮询、共享出口 IP
+    # 的多会话）连带把登录 429 掉——页面停在 /login 打不进 /home。撞库防护不受
+    # 影响：同 IP 喷用户名由 LOGIN_RATE_LIMIT（30 次/分/IP）单独兜住。
     if path.startswith("/api") and method != "OPTIONS":
-        general = rate_limit.hit(
-            "api", client_ip, limit=RATE_LIMIT, window_seconds=RATE_LIMIT_WINDOW_SECONDS
-        )
-        if not general.allowed:
-            return _rate_limited_response(general.retry_after)
         if path == "/api/login":
             login = rate_limit.hit(
                 "login", client_ip, limit=LOGIN_RATE_LIMIT, window_seconds=RATE_LIMIT_WINDOW_SECONDS
             )
             if not login.allowed:
                 return _rate_limited_response(login.retry_after)
+        else:
+            general = rate_limit.hit(
+                "api", client_ip, limit=RATE_LIMIT, window_seconds=RATE_LIMIT_WINDOW_SECONDS
+            )
+            if not general.allowed:
+                return _rate_limited_response(general.retry_after)
 
     if _has_json_content_type(request):
         body_error = await _buffer_json_body_with_limit(request, _json_body_limit_for_path(path))
+        if body_error is not None:
+            return body_error
+    elif _has_multipart_content_type(request):
+        body_error = await _guard_multipart_body(request)
         if body_error is not None:
             return body_error
 
