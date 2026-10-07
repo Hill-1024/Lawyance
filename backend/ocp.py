@@ -408,19 +408,32 @@ class OCPStatic:
                     before_table = body[:first_pipe_index].rstrip()
                     table_tail = body[first_pipe_index:].strip()
 
+                # 折叠判据收紧（此前「≥2 个空隙 | |」会把带空单元格的合法表格行误判成
+                # 折叠表，单元格被拆到新行、行尾多出游离 |）。真正的折叠行只有两种特征：
+                # 1. 相邻双管道 ||（两行表格压在一起）；
+                # 2. 一个完整的分隔行单元格（| ---- / |:---: 紧跟管道收尾）。
                 has_collapsed_boundary = (
-                    re.search(r'\|\s+\|\s*:?-{3,}', table_tail) is not None or
-                    len(re.findall(r'\|\s+\|', table_tail)) >= 2
+                    re.search(r'\|\|', table_tail) is not None or
+                    re.search(r'\|\s*:?-{3,}:?\s*(?=\|)', table_tail) is not None
                 )
                 if not has_collapsed_boundary:
                     expanded.append(original_line)
                     continue
 
+                rows = [
+                    row.strip()
+                    for row in re.sub(r'\|\s+(?=\|)', '|\n', table_tail).splitlines()
+                    if row.strip()
+                ]
+                # 拆分后校验：至少两段、且各段列数（管道数）一致才落地；对不齐说明
+                # 这不是一张被压扁的表，整行原样保留。
+                if len(rows) < 2 or len({row.count("|") for row in rows}) != 1:
+                    expanded.append(original_line)
+                    continue
+
                 if before_table:
                     expanded.append(f"{prefix}{before_table}".rstrip())
-                for row in re.sub(r'\|\s+(?=\|)', '|\n', table_tail).splitlines():
-                    if row.strip():
-                        expanded.append(f"{prefix}{row.strip()}".rstrip())
+                expanded.extend(f"{prefix}{row}".rstrip() for row in rows)
             return expanded
 
         def is_table_like_line(line: str) -> bool:
