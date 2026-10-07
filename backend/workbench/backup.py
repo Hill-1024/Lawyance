@@ -2,15 +2,15 @@
 
 import asyncio
 import copy
-import io
 import json
 import os
+import tempfile
 import zipfile
 import hashlib
 from typing import Literal
 
 from fastapi import APIRouter, Depends, UploadFile, File, Header, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from workbench.api import gate, receipt
@@ -56,7 +56,10 @@ def _stream_sha256(stream) -> str:
 
 @router.get("")
 def export(user=Depends(gate)):
-    out = io.BytesIO()
+    # 事务里只收集 manifest 与 blob 键列表；blob 字节与 zip 编码移出事务、流式写临时
+    # 文件再分块回传。此前 io.BytesIO 全内存构建：工作区接近恢复接口允许的 256MB 时，
+    # 单次导出内存峰值即数百 MB、两个并发导出可拖垮进程，且整个构建期攥着同一个
+    # DB 快照（Postgres 长事务）。restore 侧早已流式化，导出侧对齐。
     with transaction() as s:
         items = s.scalars(
             select(Item).where(
@@ -93,20 +96,46 @@ def export(user=Depends(gate)):
             )
             if v.data.get("blob_key"):
                 keys.add(v.data["blob_key"])
-        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+
+    store = BlobStore()
+    missing = [key for key in sorted(keys) if not store.path(key).exists()]
+    if missing:
+        raise HTTPException(409, "有附件缺失，不能生成完整备份")
+
+    fd, out_path = tempfile.mkstemp(prefix="lawver-backup-", suffix=".zip")
+    os.close(fd)
+    try:
+        # ZipFile.write 对每个 blob 分块读盘压缩，进程内存只占压缩缓冲区。
+        with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("manifest.json", json.dumps(data, ensure_ascii=False))
-            for key in keys:
-                path = BlobStore().path(key)
-                if not path.exists():
-                    raise HTTPException(409, "有附件缺失，不能生成完整备份")
-                z.writestr("blobs/" + key, path.read_bytes())
-    return Response(
-        out.getvalue(),
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": 'attachment; filename="lawver-workbench-v5.zip"'
-        },
-    )
+            for key in sorted(keys):
+                z.write(store.path(key), arcname="blobs/" + key)
+
+        def stream():
+            try:
+                with open(out_path, "rb") as handle:
+                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                        yield chunk
+            finally:
+                # 客户端中途断开时 Starlette 会 close 生成器，finally 照样清理。
+                try:
+                    os.unlink(out_path)
+                except OSError:
+                    pass
+
+        return StreamingResponse(
+            stream(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": 'attachment; filename="lawver-workbench-v5.zip"'
+            },
+        )
+    except Exception:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+        raise
 
 
 @router.post("")
