@@ -6,6 +6,8 @@ import type { ConversationMemory, CourtSession } from '../types';
 import { clearAuthToken, getAuthToken, setAuthToken } from '../lib/auth-storage';
 import { APP_CONFIG, BASE_PATH } from '../lib/app-config';
 import { isNative } from '../lib/platform';
+import { describeHttpError } from '../lib/http-error';
+import { translate } from '../i18n';
 
 const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
 // Web 端带上网关区域前缀（如 /cn），使 API 请求与页面落入同一区域后端；无前缀时为空串。
@@ -321,8 +323,9 @@ export const login = async (username: string, password: string) => {
     body: JSON.stringify({ username, password })
   });
   if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Login failed');
+    // JSON detail 优先（如「用户名或密码错误」）；限流契约的英文 detail 与非 JSON 体
+    // 都退到状态码映射的本地化文案（429 提示 N 秒后再试），不再硬编码英文 Login failed。
+    throw new Error(await describeHttpError(res).catch(() => translate('errors.loginFailed')));
   }
   const data = await res.json() as LoginResult;
   if (isNative()) {
@@ -466,8 +469,8 @@ export const courtTurn = async (session: CourtSession, signal?: AbortSignal) => 
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || errorData.error || 'Court turn failed');
+    // 庭审回合失败（含被限流）给可读文案：状态码映射已按当前语言取词，429 带「N 秒后再试」。
+    throw new Error(await describeHttpError(response).catch(() => translate('errors.courtTurnFailed')));
   }
 
   return response;

@@ -1,4 +1,6 @@
 import { apiFetch } from "../services/api";
+import { describeHttpErrorBody } from "../lib/http-error";
+import { UserFacingError } from "../lib/errors";
 export type Item = {
   id: string;
   kind: string;
@@ -21,11 +23,14 @@ export type Reference = {
   rotation?: number;
   tools?: string[];
 };
-export class Conflict extends Error {
+export class Conflict extends UserFacingError {
   current?: Item;
-  constructor(message: string, current?: Item) {
+  /** 触发冲突的 HTTP 状态码：429/5xx 是瞬态失败，调用方据此不当离线/不当会话失效。 */
+  status?: number;
+  constructor(message: string, current?: Item, status?: number) {
     super(message);
     this.current = current;
+    this.status = status;
   }
 }
 export async function api<T = any>(
@@ -50,12 +55,12 @@ export async function api<T = any>(
           : JSON.stringify(body),
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "网络请求失败" }));
-    const detail = error.detail;
-    throw new Conflict(
-      typeof detail === "string" ? detail : detail?.message || "请求失败",
-      detail?.current,
-    );
+    // body 只能读一次：解析出的 JSON 既取 detail.current（409 冲突恢复），也供文案解析；
+    // 非 JSON 错误体（限流 429、网关页）按状态码映射本地化文案，
+    // 不再把服务端限流兜底成「网络请求失败」。
+    const raw: unknown = await res.json().catch(() => null);
+    const detail = (raw as { detail?: { current?: Item } } | null)?.detail;
+    throw new Conflict(describeHttpErrorBody(res, raw), detail?.current, res.status);
   }
   return res.json();
 }
