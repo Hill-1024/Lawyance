@@ -407,5 +407,46 @@ class CourtModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("admin/court%2D1:judge", prompt_text)
 
 
+class CourtTranscriptArchiveTests(unittest.TestCase):
+    """T22 回归：庭审归档摘要只追增量、超预算保尾。"""
+
+    @staticmethod
+    def _event(index: int, content: str | None = None) -> dict:
+        return {
+            "phase": "trial",
+            "speaker": "judge",
+            "type": "speech",
+            "content": content or f"第{index}轮发言内容",
+        }
+
+    def test_archive_is_incremental_and_never_duplicates_events(self):
+        from services.court_transcript import ARCHIVE_MARKER, prepare_public_transcript
+
+        summary = ""
+        events = []
+        for index in range(119):
+            events.append(self._event(index))
+            summary, recent = prepare_public_transcript(summary, events)
+
+        # 同一事件不再逐轮翻倍复制；归档标记只出现一次。
+        self.assertEqual(summary.count(ARCHIVE_MARKER), 1)
+        self.assertEqual(summary.count("第0轮发言内容"), 1)
+        # 紧贴 recent 窗口的最新归档事件（倒数第 17 条）必须在场。
+        self.assertIn("第102轮发言内容", summary)
+        self.assertEqual(len(recent), 16)
+
+    def test_over_budget_summary_keeps_the_newest_archived_events(self):
+        from services.court_transcript import prepare_public_transcript
+
+        huge = "争" * 1500
+        events = [self._event(index, content=f"第{index}轮:{huge}") for index in range(40)]
+        summary, recent = prepare_public_transcript("", events)
+
+        # 超预算后裁的是最旧段落：最新归档事件（倒数第 17 条 = 第 23 轮）在场，
+        # 最旧的第 0 轮可以被裁掉，recent 窗口原样保留。
+        self.assertIn("第23轮", summary)
+        self.assertEqual(len(recent), 16)
+
+
 if __name__ == "__main__":
     unittest.main()
