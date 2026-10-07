@@ -87,6 +87,9 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  /* 窄屏放不下时整项折行，而不是把徽标文案或「分支」按字竖排。 */
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 .wb-message-label .wb-role {
   flex-shrink: 0;
@@ -94,6 +97,8 @@
 /* 分支按钮始终在最右：角色名与执行过程开关留在左侧一组。 */
 .wb-message-label .wb-branch {
   margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* 执行过程开关：与状态同一行，安静的小控件（不是按钮堆栈）。 */
@@ -106,6 +111,7 @@
   border-radius: var(--radius-sm);
   font-size: 11px;
   color: var(--fg-3);
+  white-space: nowrap;
   background: transparent;
   transition:
     color var(--dur-fast) var(--ease-standard),
