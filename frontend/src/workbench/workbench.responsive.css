@@ -398,6 +398,21 @@
     display: none !important;
   }
 }
+/* 手机端「新建项目」按钮固定在标题行右侧：标题+筛选占左列（放不下时筛选在列内折行），
+   按钮钉在右列。此前 flex-wrap 会把按钮整体挤到标题下方左对齐、320/375 下还掉出首屏，
+   与空态文案「点击右上角『新建项目』」自相矛盾。 */
+@media (max-width: 480px) {
+  .wb-projects-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+  .wb-projects-title-row {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .wb-app *,
   .wb-app *::before,
