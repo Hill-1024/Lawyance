@@ -180,6 +180,39 @@ class RouteSecurityGroupDTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(normalized.startswith("TEMP/"), f"restore 路径无法归一: {returned}")
         self.assertNotIn(self.workspace_root, normalized, "归一后不应残留 workspace 根前缀")
 
+    async def test_workspace_restore_validates_image_content_like_upload(self) -> None:
+        """T25 回归：restore 不得绕过 upload 的图片魔数与体积双重校验。"""
+        fake_png = ("fake.png", b"definitely-not-an-image", "image/png")
+        upload = self.client.post(
+            "/api/upload",
+            data={"conversation_id": "conv-img"},
+            files={"file": fake_png},
+            headers=ORIGIN,
+        )
+        self.assertEqual(upload.status_code, 400)
+        self.assertIn("图片内容无法识别", upload.json()["detail"])
+
+        restore = self.client.post(
+            "/api/workspace/restore",
+            data={"conversation_id": "conv-img", "file_type": "upload"},
+            files={"file": fake_png},
+            headers=ORIGIN,
+        )
+        self.assertEqual(restore.status_code, 400, "restore 不能放行非图片字节")
+
+        # 带合法 PNG 魔数但超过 MAX_IMAGE_BYTES 的大图同样被 restore 拒绝。
+        from services.workspace_service import MAX_IMAGE_BYTES
+
+        oversize = ("big.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * (MAX_IMAGE_BYTES + 1), "image/png")
+        oversize_restore = self.client.post(
+            "/api/workspace/restore",
+            data={"conversation_id": "conv-img", "file_type": "upload"},
+            files={"file": oversize},
+            headers=ORIGIN,
+        )
+        self.assertEqual(oversize_restore.status_code, 400)
+        self.assertIn("MB 上限", oversize_restore.json()["detail"])
+
     async def test_workspace_rejects_parent_symlink_delete_escape(self) -> None:
         temp_dir, _ = self.workspace_route.get_workspace_dirs("admin", "conv-delete")
         outside_dir = os.path.join(self.tmp, "outside-delete")
