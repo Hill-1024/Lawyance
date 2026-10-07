@@ -62,8 +62,10 @@ export default function CourtConversation({project,selection,onSelect,onCancel,d
   if(creating)return <CourtSetup key={project || 'personal'} initialProject={project} onCreate={value=>onSelect(court.createCourtSession(value),value.project_id)} onCancel={onCancel}/>;
   if(!session || session.id!==selection || (project && session.project_id!==project))return <div className="wc-loading">{t('workbench.court.notFound')}<button onClick={onCancel}>{t('workbench.court.backToProject')}</button></div>;
   const state=session.court_state,events=session.public_events,started=events.some(e=>e.speaker!=='system');
-  const hasError=Object.values(session.agent_states).some(agent=>agent.status==='error');
-  const status=state.trial_over?t('workbench.court.trialOver'):isRunning?court.status || t('workbench.court.preparing'):hasError?court.status || t('workbench.court.turnError'):!started?t('workbench.court.readyToStart'):state.awaiting_user?t('workbench.court.waitingSide',{side:session.user_side}):t('workbench.court.turnDone');
+  // turnError：网络/限流等首回合启动失败。此时没有任何 agent 进入 error 态、system
+  // 错误事件又被消息流过滤，若不算进 hasError，「案卷已就绪」会把错误完全盖住（零反馈）。
+  const hasError=Object.values(session.agent_states).some(agent=>agent.status==='error')||!!court.turnError;
+  const status=state.trial_over?t('workbench.court.trialOver'):isRunning?court.status || t('workbench.court.preparing'):hasError?court.status || court.turnError || t('workbench.court.turnError'):!started?t('workbench.court.readyToStart'):state.awaiting_user?t('workbench.court.waitingSide',{side:session.user_side}):t('workbench.court.turnDone');
   return <div className="wc-conversation">
     <header className="wc-heading">{dragHandle}<div><h2>{session.title}</h2></div>{/* 可见文字就是可访问名，所以这里**不能**再给 aria-label：全局那条
         「.wb-app button[aria-label]:has(> .lucide:only-child) 统一 32px」会把带文字的按钮也压成

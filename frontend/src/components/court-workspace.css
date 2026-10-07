@@ -57,6 +57,9 @@
 .court-welcome h1 { font-family:var(--font-serif); font-size:26px; line-height:1.5; }
 .court-welcome p { font-size:13px; color:var(--fg-3); margin-top:8px; line-height:1.8; }
 .court-role-config { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+/* ≤360px 时两列各仅 ~130px：「我的立场」选中长值（行政相对人/行政机关（被告））会把
+   label 挤成一字一行、案件类型折成两行。改单列让两个选择器各占整行。 */
+@media(max-width:360px) { .court-role-config { grid-template-columns:1fr; } }
 .court-role-config label { font-size:12px; color:var(--fg-3); }
 .court-role-config select { display:block; width:100%; margin-top:8px; padding:10px 12px; min-height:44px; border:1px solid var(--border-default); border-radius:8px; background:var(--bg-surface); color:var(--fg-1); font-size:14px; }
 .court-preparation-tabs { display:flex; gap:8px; border-bottom:1px solid var(--border-default); overflow-x:auto; scrollbar-width:none; }

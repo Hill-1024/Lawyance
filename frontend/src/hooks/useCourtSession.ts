@@ -226,6 +226,9 @@ export function useCourtSession(enabled = true) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  // 回合失败的错误文案：首回合失败时没有任何 agent 进入 error 态、system 错误事件
+  // 又被消息流过滤，!started 的「案卷已就绪」会把错误盖住——单独记一条供状态栏优先显示。
+  const [turnError, setTurnError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState('');
   const sessionsRef = useRef<CourtSession[]>([]);
   const currentCourtIdRef = useRef('');
@@ -258,6 +261,7 @@ export function useCourtSession(enabled = true) {
       beginRunClosing(activeRun);
       setIsRunning(false);
       setStatus(null);
+      setTurnError(null);
     }
     currentCourtIdRef.current = nextId;
     setCurrentCourtIdState(nextId);
@@ -267,6 +271,12 @@ export function useCourtSession(enabled = true) {
     if (currentCourtIdRef.current !== sessionId) return;
     if (runToken !== undefined && activeRunRef.current?.token !== runToken) return;
     setStatus(nextStatus);
+  }, []);
+
+  const setTurnErrorForSession = useCallback((sessionId: string, message: string | null, runToken?: number) => {
+    if (currentCourtIdRef.current !== sessionId) return;
+    if (runToken !== undefined && activeRunRef.current?.token !== runToken) return;
+    setTurnError(message);
   }, []);
 
   useEffect(() => () => abortActiveTurn(), [abortActiveTurn]);
@@ -754,6 +764,7 @@ export function useCourtSession(enabled = true) {
         }
         updateAgentStatus(speaker, 'error');
         setStatusForSession(sessionId, errorMessage, runToken);
+        setTurnErrorForSession(sessionId, errorMessage, runToken);
       }
     };
 
@@ -793,7 +804,7 @@ export function useCourtSession(enabled = true) {
     }
 
     return { hadError, errorMessage, failedSpeaker };
-  }, [patchSession, setStatusForSession]);
+  }, [patchSession, setStatusForSession, setTurnErrorForSession]);
 
   const runNextTurn = useCallback(async () => {
     let session = getCurrentSession();
@@ -831,6 +842,7 @@ export function useCourtSession(enabled = true) {
 
     setIsRunning(true);
     setStatusForSession(session.id, '正在推进下一轮庭审。');
+    setTurnErrorForSession(session.id, null);
     const abortController = new AbortController();
     let completeRun!: () => void;
     const completion = new Promise<void>(resolve => {
@@ -930,18 +942,23 @@ export function useCourtSession(enabled = true) {
         // status 已在 stream 里设置
       } else if (latest?.court_state.trial_over) {
         setStatusForSession(session.id, '庭审已结束，复盘意见已写入记录。', activeRun.token);
+        setTurnErrorForSession(session.id, null, activeRun.token);
       } else if (latest?.court_state.awaiting_user) {
         setStatusForSession(session.id, '等待用户方发言。', activeRun.token);
+        setTurnErrorForSession(session.id, null, activeRun.token);
       } else if (hadInterjections) {
         setStatusForSession(session.id, '插话已进入公开记录，下一轮优先处理。', activeRun.token);
+        setTurnErrorForSession(session.id, null, activeRun.token);
       } else if (!latest?.pending_interjections.length) {
         setStatusForSession(session.id, '本轮已完成。', activeRun.token);
+        setTurnErrorForSession(session.id, null, activeRun.token);
       }
     } catch (error: any) {
       if (isAbortError(error)) {
         if (!hasNewerRunForSession()) restoreTurnSnapshot();
         if (isOwnRun()) {
           setStatusForSession(session.id, '已停止当前庭审回合。', activeRun.token);
+          setTurnErrorForSession(session.id, null, activeRun.token);
         }
         return;
       }
@@ -958,6 +975,8 @@ export function useCourtSession(enabled = true) {
       const message = error?.message || '庭审回合失败';
       rollbackFailedTurn(message);
       setStatusForSession(session.id, message, activeRun.token);
+      // 首回合失败时 hasError 为假、system 事件被过滤，状态栏必须能看到这条。
+      setTurnErrorForSession(session.id, message, activeRun.token);
       handleAutoFallback();
     } finally {
       if (isOwnRun()) {
@@ -968,7 +987,7 @@ export function useCourtSession(enabled = true) {
       }
       activeRun.complete();
     }
-  }, [drainInterjections, getCurrentSession, patchSession, processCourtStream, setStatusForSession]);
+  }, [drainInterjections, getCurrentSession, patchSession, processCourtStream, setStatusForSession, setTurnErrorForSession]);
 
   // 自动模式：监听结构变化触发下一轮。
   // 只取判定要用的原始值：整个会话对象每次流式更新都会换引用，直接依赖它会让计时器被反复重置。
@@ -1019,6 +1038,7 @@ export function useCourtSession(enabled = true) {
     isInitialized,
     isRunning,
     status,
+    turnError,
     composerText,
     setComposerText,
     createCourtSession,
