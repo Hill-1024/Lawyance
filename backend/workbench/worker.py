@@ -143,6 +143,8 @@ async def execute(identifier, user):
     from infra import account_store
 
     # 计费：整轮（多次模型调用 + 工具 + 文档）算作一次用量，倍率在开始时快照。
+    # 快照前先懒应用到点的预约降级（与 routes/court.py 同口径）。
+    await asyncio.to_thread(account_store.apply_pending_plan_if_due, user)
     account = await asyncio.to_thread(account_store.get_user, user)
     turn = metering.begin_turn(
         user,

@@ -18,7 +18,8 @@ from auth import (
     get_user_role,
     list_accounts,
     list_sessions,
-    revoke_session,
+    revoke_session_by_fingerprint,
+    session_fingerprint,
     set_account_limits,
     set_account_status,
     upsert_account,
@@ -30,8 +31,6 @@ from services.auth_dependencies import require_staff, require_sudo
 
 
 router = APIRouter()
-
-_SESSION_ID_PATTERN = r"^[A-Za-z0-9_-]{16,128}$"
 
 
 def _read_admin_logs(ip: str | None, ignore_heartbeat: bool) -> list[str]:
@@ -189,15 +188,21 @@ async def delete_admin_account(
 @router.get("/api/admin/sessions")
 async def get_admin_sessions(admin_user: str = Depends(require_staff)):
     sessions = await run_in_threadpool(list_sessions, admin_user)
+    # sid 就是会话凭据本身：列表只出不可逆摘要，原值不进前端内存/代理/抓包日志；
+    # 「下线设备」按摘要定位（见 DELETE 路由）。
+    for session in sessions:
+        session["sid_fingerprint"] = session_fingerprint(session.pop("sid"))
     return {"status": "success", "sessions": sessions}
 
 
-@router.delete("/api/admin/sessions/{sid}")
+@router.delete("/api/admin/sessions/{sid_fingerprint}")
 async def delete_admin_session(
-    sid: str = Path(min_length=16, max_length=128, pattern=_SESSION_ID_PATTERN),
+    sid_fingerprint: str = Path(min_length=16, max_length=16, pattern=r"^[0-9a-f]{16}$"),
     admin_user: str = Depends(require_staff),
 ):
-    success, msg = await run_in_threadpool(revoke_session, admin_user, sid)
+    success, msg = await run_in_threadpool(
+        revoke_session_by_fingerprint, admin_user, sid_fingerprint
+    )
     if not success:
         raise HTTPException(status_code=400, detail=msg)
     return {"status": "success", "message": msg}

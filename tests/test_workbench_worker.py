@@ -41,6 +41,8 @@ def billing_boundary(monkeypatch):
         return {"credits": 0.0}
 
     monkeypatch.setattr(account_store, "get_user", lambda _user: {"plan": "metered"})
+    # 倍率快照前的预约懒应用（T18）同样属于计费边界，不碰数据库。
+    monkeypatch.setattr(account_store, "apply_pending_plan_if_due", lambda _user: None)
     monkeypatch.setattr(ledger, "ensure_tables", lambda: None)
     monkeypatch.setattr(ledger, "settle", fake_settle)
     monkeypatch.setattr(worker, "emit", lambda *_args, **_kwargs: None)
