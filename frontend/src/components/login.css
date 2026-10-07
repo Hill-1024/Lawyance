@@ -261,4 +261,9 @@
   .lg-sheet {
     padding: 26px 22px 20px;
   }
+  /* 触控目标：32px 低于 44×44 下限，手机上误触率高；桌面保持与工作台网格对齐的 32px。 */
+  .lg-input,
+  .lg-submit {
+    height: 44px;
+  }
 }
