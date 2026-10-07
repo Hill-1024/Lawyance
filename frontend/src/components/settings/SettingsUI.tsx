@@ -48,6 +48,8 @@ type RowProps = {
   disabled?: boolean;
   /** 紧凑模式用于二级信息行，减少垂直留白。 */
   dense?: boolean;
+  /** 移动端尾槽强制独占一行：尾槽宽处在折行边界附近时，同组行高才会稳定一致。 */
+  stackTrailing?: boolean;
   className?: string;
 };
 
@@ -59,6 +61,7 @@ export const SettingsRow: React.FC<RowProps> = ({
   onClick,
   disabled = false,
   dense = false,
+  stackTrailing = false,
   className = '',
 }) => {
   const interactive = Boolean(onClick) && !disabled;
@@ -71,19 +74,25 @@ export const SettingsRow: React.FC<RowProps> = ({
           {icon}
         </span>
       )}
-      <span className="min-w-0 flex-1">
+      {/* 手机端行允许两行：文字列保底 96px（basis-24），尾槽放不下整组折到第二行，
+          避免 320px 下文字被压成一字一行；sm 起恢复单行 flex-1，桌面端布局不变。 */}
+      <span className="min-w-0 flex-1 basis-24 sm:basis-0">
         <span className="block truncate text-[14px] font-medium leading-5 text-[var(--fg-1)]">{title}</span>
         {description && (
           <span className="mt-0.5 block text-[12px] leading-5 text-[var(--fg-3)]">{description}</span>
         )}
       </span>
-      {trailing && <span className="flex shrink-0 items-center gap-2">{trailing}</span>}
+      {trailing && (
+        <span className={`flex shrink-0 items-center gap-2 ${stackTrailing ? 'max-sm:basis-full' : ''}`}>
+          {trailing}
+        </span>
+      )}
     </>
   );
 
   if (!interactive) {
     return (
-      <div className={`flex min-w-0 items-center gap-3 ${padding} ${disabled ? 'opacity-60' : ''} ${className}`}>
+      <div className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 ${padding} ${disabled ? 'opacity-60' : ''} ${className}`}>
         {content}
       </div>
     );
@@ -93,7 +102,7 @@ export const SettingsRow: React.FC<RowProps> = ({
     <button
       type="button"
       onClick={onClick}
-      className={`lawver-pressable flex min-w-0 w-full items-center gap-3 text-left transition-colors hover:bg-[var(--bg-surface-2)] ${padding} ${className}`}
+      className={`lawver-pressable flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 w-full text-left transition-colors hover:bg-[var(--bg-surface-2)] ${padding} ${className}`}
     >
       {content}
     </button>
