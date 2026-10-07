@@ -8,7 +8,7 @@ import { CourtMaterials, CourtSource } from '../workbench/CourtMaterials';
 import React, { useState } from 'react';
 import { Gavel, Landmark, Lock, Scale, ShieldCheck, Sparkles } from 'lucide-react';
 import type { CourtCaseType, CourtSession } from '../types';
-import { useT } from '../i18n';
+import { useT, type Translator } from '../i18n';
 
 type CreateInput = {
   project_id?: string;
@@ -36,9 +36,9 @@ type SetupForm = {
   risk_notes: string;
 };
 
-const charCount = (value: string) => {
+const charCount = (value: string, t: Translator) => {
   const length = value.trim().length;
-  return length > 0 ? `${length} 字` : '未填写';
+  return length > 0 ? t('courtSetup.charCountFilled', { count: length }) : t('courtSetup.charCountEmpty');
 };
 
 const SetupField: React.FC<{
@@ -48,7 +48,9 @@ const SetupField: React.FC<{
   onChange: (value: string) => void;
   rows?: number;
   tone?: 'public' | 'private';
-}> = ({ label, hint, value, onChange, rows = 4, tone = 'public' }) => (
+}> = ({ label, hint, value, onChange, rows = 4, tone = 'public' }) => {
+  const { t } = useT();
+  return (
   <label className="flex min-w-0 flex-col gap-1.5">
     <span className="flex items-baseline justify-between gap-3">
       <span className="text-[13px] font-semibold text-[var(--fg-1)]">{label}</span>
@@ -56,10 +58,11 @@ const SetupField: React.FC<{
         className={`text-[11px] ${
           tone === 'private' && value.trim()
             ? 'text-[var(--brand-tertiary-700)] dark:text-[#8ecdc7]'
-            : 'text-[var(--fg-4)]'
+            // 计数是功能性提示不是装饰：--fg-4 只有 2.5:1，提到 --fg-2 保证可读。
+            : 'text-[var(--fg-2)]'
         }`}
       >
-        {charCount(value)}
+        {charCount(value, t)}
       </span>
     </span>
     <textarea
@@ -70,7 +73,8 @@ const SetupField: React.FC<{
       className="custom-scrollbar w-full resize-none rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-[14px] leading-6 text-[var(--fg-1)] outline-none transition-colors placeholder:text-[var(--fg-4)] focus:border-[var(--accent)] focus:shadow-[0_0_0_1px_var(--accent)]"
     />
   </label>
-);
+  );
+};
 
 export const CourtSetup: React.FC<CourtSetupProps> = ({ onCreate, onCancel, initialProject = "" }) => {
   const {showConfirm} = useAppDialog();
