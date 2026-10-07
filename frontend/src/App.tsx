@@ -9,7 +9,7 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import { ShieldAlert, ExternalLink } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useStorage } from './hooks/useStorage';
-import { apiFetch, fetchSession, logout as apiLogout, setUnauthorizedHandler, type Role } from './services/api';
+import { apiFetch, fetchSession, logout as apiLogout, setUnauthorizedHandler, SessionProbeUnavailableError, type Role } from './services/api';
 import { isNative } from './lib/platform';
 import { APP_CONFIG } from './lib/app-config';
 import { exitNativeApp, useBackButton } from './hooks/useBackButton';
@@ -128,22 +128,40 @@ function App() {
   };
 
   // 登录成功：拉到工作台状态后进工作台；深链被守卫拦下时按 state.from 送回原路径。
+  // 拉取失败按「未启用」兜底前先退避重试一次：429/5xx 是瞬态（限流窗口很常见），
+  // 直接判「服务端没配数据库」会把整个工作台变成「打不开」。
+  const loadWorkbenchStatus = React.useCallback(async (): Promise<{ enabled: boolean; username: string } | null> => {
+    const fetchOnce = async () => {
+      const res = await apiFetch('/api/workbench/status');
+      return res.ok ? await res.json() : null;
+    };
+    try {
+      const status = await fetchOnce();
+      if (status) return status;
+    } catch {
+      // 网络瞬断：走下面的重试。
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      return await fetchOnce();
+    } catch {
+      return null;
+    }
+  }, []);
+
   const handleLoginSuccess = async (data: { role?: Role }) => {
     setUserRole(data.role || 'user');
     setIsAuthenticated(true);
     const from = (location.state as { from?: string } | null)?.from;
-    try {
-      const res = await apiFetch('/api/workbench/status');
-      const status = res.ok ? await res.json() : null;
-      setWorkbenchStatus(status || { enabled: false, username: '' });
-    } catch {
-      setWorkbenchStatus({ enabled: false, username: '' });
-    }
+    const status = await loadWorkbenchStatus();
+    setWorkbenchStatus(status || { enabled: false, username: '' });
     navigate(from || '/home', { replace: true });
   };
 
-  useEffect(() => { if (isAuthenticated) apiFetch('/api/workbench/status').then(r=>r.ok?r.json():null).then(s=>setWorkbenchStatus(s||{enabled:false,username:''})).catch(()=>setWorkbenchStatus({enabled:false,username:''})); else setWorkbenchStatus(undefined); }, [isAuthenticated]);
+  useEffect(() => { if (isAuthenticated) loadWorkbenchStatus().then(s => setWorkbenchStatus(s || { enabled: false, username: '' })); else setWorkbenchStatus(undefined); }, [isAuthenticated, loadWorkbenchStatus]);
 
+  // 探测不可用（限流/断网）≠ 未登录：保持当前登录态、停留当前路由，绝不假登出。
+  // 会话若真失效，后续任一 API 的 401 会经 unauthorizedHandler 送回 /login。
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -151,7 +169,16 @@ function App() {
         setIsAuthenticated(data.authenticated);
         setUserRole(data.role || 'user');
       } catch (e) {
-        setIsAuthenticated(false);
+        if (e instanceof SessionProbeUnavailableError) {
+          // 冷启动/刷新撞上限流窗口：探测不可用 ≠ 未登录。必须显式置为已登录——
+          // 启动态 isAuthenticated 初始就是 false，这里只 warn 不置位的话等于仍然
+          // 假登出：每次整页导航都会被守卫弹回 /login（生产站扫描复现的正是这个）。
+          // 无效会话会被后续任一 API 的 401 经 unauthorizedHandler 纠正送回 /login。
+          setIsAuthenticated(true);
+          console.warn('Session probe unavailable (throttled/offline); assuming signed in.');
+        } else {
+          setIsAuthenticated(false);
+        }
       } finally {
         setIsAuthChecking(false);
         if (isNative()) {
@@ -184,8 +211,9 @@ function App() {
         const data = await fetchSession();
         setIsAuthenticated(data.authenticated);
         setUserRole(data.role || 'user');
-      } catch {
-        setIsAuthenticated(false);
+      } catch (e) {
+        // 切回前台撞上限流/断网：保持当前登录态，别把还在用应用的用户踢去登录页。
+        if (!(e instanceof SessionProbeUnavailableError)) setIsAuthenticated(false);
       }
     }).then(handle => {
       if (disposed) {

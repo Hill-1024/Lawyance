@@ -81,8 +81,9 @@ export const setUnauthorizedHandler = (handler: (() => void | Promise<void>) | n
 
 export const apiUrl = (path: string) => `${API_BASE}${path}`;
 
-/** 登录/注册类端点的 401 表示凭据错误，而非会话失效。 */
-const AUTH_ATTEMPT_PATHS = ['/api/login', '/api/register'];
+/** 登录/注册/登录态探测端点的 401 不触发全局登出：凭据错误与会话探测的 401
+ *  由调用方自行解读（fetchSession 会二次复核），不能抢先把有效会话弹去登录页。 */
+const AUTH_ATTEMPT_PATHS = ['/api/login', '/api/register', '/api/session'];
 const isAuthAttemptPath = (path: string) => AUTH_ATTEMPT_PATHS.some(p => path.startsWith(p));
 
 export const apiFetch = async (path: string, init: RequestInit = {}): Promise<Response> => {
@@ -157,11 +158,50 @@ export const changePassword = async (
  * 登录态探测：服务端保证 200，用 authenticated 字段表达结果。
  * 启动时的这次探测走 verify_auth 必然 401，浏览器会把每个 4xx 资源响应记成
  * console error——每个未登录用户一打开页面就有一条噪音。
+ *
+ * 只有 401（以及 200 响应体里的 authenticated:false）才是「确定未登录」；
+ * 429/5xx/网络抛错是瞬态失败——限流窗口或断网期间把仍持有效会话的用户判成
+ * 未登录会造成假登出（刷新即被踢去 /login，像「登录没生效」）。瞬态失败先退避
+ * 重试一次，仍不可用就抛 SessionProbeUnavailableError，由调用方保持当前登录态；
+ * 会话若真的失效，后续任一 API 的 401 仍会经 unauthorizedHandler 兜底踢出。
  */
+export class SessionProbeUnavailableError extends Error {
+  constructor() {
+    super('Session probe unavailable (transient failure)');
+    this.name = 'SessionProbeUnavailableError';
+  }
+}
+
+const SESSION_PROBE_RETRY_DELAY_MS = 600;
+
+/** 探一次：拿到结论返回 probe；瞬态失败（429/5xx/网络抛错）返回 null，不算结论。 */
+const probeSessionOnce = async (): Promise<SessionProbe | null> => {
+  try {
+    const res = await apiFetch('/api/session');
+    if (res.ok) return await res.json();
+    if (res.status === 401) return { authenticated: false };
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 export const fetchSession = async (): Promise<SessionProbe> => {
-  const res = await apiFetch('/api/session');
-  if (!res.ok) return { authenticated: false };
-  return res.json();
+  const settleConfirmed = async (result: SessionProbe): Promise<SessionProbe> => {
+    // 「仍登录」直接可信；「未登录」结论先复核一次再落锤：单次 401/200:false 可能是
+    // 代理或多节点部署的一次性抖动，误弹登录页（打断整页导航）的代价远高于多探一次。
+    // 复核翻案（说仍登录）时以较新结论为准；复核本身不可用则保留原结论。
+    if (result.authenticated) return result;
+    const confirm = await probeSessionOnce();
+    return confirm?.authenticated ? confirm : result;
+  };
+
+  const first = await probeSessionOnce();
+  if (first) return settleConfirmed(first);
+  await new Promise(resolve => setTimeout(resolve, SESSION_PROBE_RETRY_DELAY_MS));
+  const retry = await probeSessionOnce();
+  if (retry) return settleConfirmed(retry);
+  throw new SessionProbeUnavailableError();
 };
 
 // ─── 个人资料（自定义 ID / 头像）──────────────────────────────────────────

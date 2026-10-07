@@ -35,6 +35,7 @@
     "test:backup-crypto": "tsx scripts/test-backup-crypto.ts",
     "test:storage-cleanup": "tsx scripts/test-storage-cleanup.ts",
     "test:stream-run-guards": "tsx scripts/test-stream-run-guards.ts",
+    "test:session-probe": "tsx scripts/test-session-probe.ts",
     "test:app-back": "tsx scripts/test-app-back.ts",
     "test:attachment-prompt": "tsx scripts/test-attachment-prompt.ts",
     "test:composer-autosize": "tsx scripts/test-composer-autosize.ts",
