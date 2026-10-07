@@ -29,6 +29,7 @@ import {
   api,
   cached,
   remember,
+  Conflict,
   Item,
   Reference,
   withoutTitle,
@@ -444,7 +445,9 @@ export default function Workbench({ username }: { username: string }) {
           reload();
           return;
         }
-        setTimeout(poll, data.has_more ? 50 : 1500);
+        // 流式期间 ≥1s 轮询：50ms 的「顺滑」会把限流预算打满（≈1200 次/分钟），
+        // 同出口 IP 的其他用户跟着吃 429——发消息/上传/登录全被误伤。
+        setTimeout(poll, data.has_more ? 1000 : 1500);
       } catch {
         if (!canceled) {
           notifyPollInterrupted();
@@ -891,7 +894,12 @@ export default function Workbench({ username }: { username: string }) {
     });
   }
   async function send() {
-    if (!draft.text.trim() || running || offline) return;
+    if (!draft.text.trim() || running) return;
+    if (offline) {
+      // 离线标记会静默拦截发送：至少让用户知道消息没发出去、为什么。
+      setNotice(t("workbench.composer.offlineSendBlocked"));
+      return;
+    }
     try {
       const fingerprint = JSON.stringify({ draft, mode, ocp, projectId });
       let pending = await cached<{ fingerprint: string; key: string }>(
@@ -1021,7 +1029,7 @@ export default function Workbench({ username }: { username: string }) {
     setAgentVisible(true);
     setMobile("会话");
   }
-  async function mutate(item: Item, patch: any) {
+  async function mutate(item: Item, patch: any, retry = true) {
     try {
       const family =
         item.kind === "project"
@@ -1038,6 +1046,13 @@ export default function Workbench({ username }: { username: string }) {
       setMenu(undefined);
       reload();
     } catch (e) {
+      // 409 revision 冲突（常见于会话刚跑完、服务端异步写还没落盘）：后端在
+      // detail.current 里带了最新版本。用它刷新本地索引并以新 revision 自动重试一次，
+      // 用户填的改名/收藏不丢；只弹「内容已更新」横幅再让人手动重试必然再撞 409。
+      if (retry && e instanceof Conflict && e.current) {
+        reload();
+        return mutate(e.current, patch, false);
+      }
       reportError(e);
     }
   }
