@@ -264,7 +264,10 @@
 /* Portal menus mount on <body>, outside .wb-app — use root-level tokens only. */
 .wb-space-menu {
   position: fixed;
-  z-index: var(--z-popover);
+  /* 移动端抽屉（--z-drawer 300）打开时也会触发本菜单；--z-popover(100) 会让菜单
+     压在抽屉/遮罩(280/300)后面，看起来就是「点了没反应」。与 .wb-tab-menu 的
+     既有修法一致（见 index.css 对 --z-popover-modal 的注释）。 */
+  z-index: var(--z-popover-modal);
   width: min(240px, calc(100vw - 16px));
   max-height: 420px;
   overflow: auto;
