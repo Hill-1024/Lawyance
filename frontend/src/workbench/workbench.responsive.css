@@ -410,12 +410,26 @@
   .wb-projects-head {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title button"
+      "filter filter";
     align-items: center;
-    gap: 12px;
+    gap: 10px 12px;
   }
+  /* 标题行拆成网格项：项目+按钮一行中心对齐，筛选条独占第二行——
+     避免 360px 下「标题/筛选/按钮」三种高度互相挤、垂直中心错位。 */
   .wb-projects-title-row {
-    flex-wrap: wrap;
-    gap: 8px 16px;
+    display: contents;
+  }
+  .wb-projects-title {
+    grid-area: title;
+    line-height: 1.2;
+  }
+  .wb-projects-filter {
+    grid-area: filter;
+  }
+  .wb-projects-new {
+    grid-area: button;
   }
 }
 @media (prefers-reduced-motion: reduce) {
