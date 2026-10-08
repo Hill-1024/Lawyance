@@ -91,7 +91,7 @@ export const zhCN = {
       switchWorkspace: "切换工作区",
       personalWorkspace: "个人工作区",
       manageProject: "管理 {title}",
-      newProject: "创建项目",
+      newProject: "新建项目",
       files: "文件",
       fileFallback: "文件",
       uploadHint: "上传文件（悬停可选新建文档）",

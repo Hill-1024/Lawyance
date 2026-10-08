@@ -88,7 +88,7 @@ export const enUS = {
       switchWorkspace: "Switch workspace",
       personalWorkspace: "Personal workspace",
       manageProject: "Manage {title}",
-      newProject: "Create project",
+      newProject: "New project",
       files: "Files",
       fileFallback: "File",
       uploadHint: "Upload file (hover for a new document)",
