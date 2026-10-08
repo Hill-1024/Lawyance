@@ -2,7 +2,9 @@
    导航与列表骨架：文档窗格标题行、会话历史下拉、内容行、侧栏工具与主区/主体容器。
    由 workbench.css 按原顺序 @import；单独引入会打乱层叠顺序。 */
 
-.wb-space-head > button {
+/* 方形图标按钮（项目“管理”）。排除 .wb-space-pill：本选择器特异性(0,1,1)高于
+   .wb-space-pill(0,1,0)，不排除会把胶囊的 padding 压成 0，icon 顶出圆角轮廓。 */
+.wb-space-head > button:not(.wb-space-pill) {
   width: var(--wb-control-size);
   min-width: var(--wb-control-size);
   height: var(--wb-control-size);
@@ -12,7 +14,7 @@
   flex-shrink: 0;
   color: var(--wb-muted);
 }
-.wb-space-head > button:hover {
+.wb-space-head > button:not(.wb-space-pill):hover {
   color: var(--wb-ink);
   background: var(--wb-hover);
 }
