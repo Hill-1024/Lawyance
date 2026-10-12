@@ -55,6 +55,7 @@ import { getBinding, matchKeys, SHORTCUT_IDS } from "../lib/shortcuts";
 import { useBackButton } from "../hooks/useBackButton";
 import { useWorkspaceLayout } from "./WorkspaceLayout";
 import { describeError } from "../lib/errors";
+import { useAppDialog } from "../contexts/DialogContext";
 import { useT } from "../i18n";
 import { SessionView } from "./SessionView";
 import { TextDialog } from "./TextDialog";
@@ -101,6 +102,7 @@ export default function Workbench({ username }: { username: string }) {
     reload,
   } = useWorkbenchIndex(username, setError);
   const { t } = useT();
+  const { showConfirm } = useAppDialog();
   const suggestions = useSuggestions();
   // credits 耗尽时的升级提示：仅非 max/business、非运维豁免账号；localStorage 冷却门
   // ——勾选「不再提醒」永久关闭，否则 14 天只提醒一次，不高频打扰。
@@ -841,7 +843,17 @@ export default function Workbench({ username }: { username: string }) {
         label: t("workbench.manage.trash"),
         icon: <Trash2 size={14} />,
         danger: true,
-        onSelect: () => void removeItem(item),
+        // 回收站可恢复（保留 30 天），但仍先确认一次再移走。
+        onSelect: () => {
+          void showConfirm({
+            title: t("workbench.manage.trashConfirmTitle"),
+            message: t("workbench.manage.trashConfirmMessage", { title: item.title }),
+            confirmLabel: t("workbench.manage.trash"),
+            tone: "danger",
+          }).then((confirmed) => {
+            if (confirmed) void removeItem(item);
+          });
+        },
       });
     return items;
   }
@@ -1082,7 +1094,11 @@ export default function Workbench({ username }: { username: string }) {
   // 没有消息时的兜底空数组也要保持引用稳定，否则下面的钉底 effect 每次渲染都会重跑。
   const convMessages = conv?.data.messages;
   const messages = React.useMemo(() => convMessages || [], [convMessages]);
-  const activityBlocks = React.useMemo(() => aggregateActivity(events), [events]);
+  // 时间线标签随语言取词（activity.ts 里走 translate 快照），语言切换时重算一次。
+  const activityBlocks = React.useMemo(() => {
+    void t; // 重算触发器：t 不直接进入标签文案，但语言变化必须让 memo 失效。
+    return aggregateActivity(events);
+  }, [events, t]);
   // 距底 140px 内算「在底部」（与庭审会话同一阈值）：发送即视为在底部，上翻即脱钩。
   const trackStick = React.useCallback(() => {
     const el = scroll.current;

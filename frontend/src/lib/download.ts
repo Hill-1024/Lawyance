@@ -6,7 +6,9 @@ import { Directory, Filesystem } from "@capacitor/filesystem";
 import { FileTransfer } from "@capacitor/file-transfer";
 import { Share } from "@capacitor/share";
 import { getAuthToken } from "./auth-storage";
+import { UserFacingError } from "./errors";
 import { isNative } from "./platform";
+import { translate } from "../i18n";
 import { apiFetch, apiUrl } from "../services/api";
 
 export const safeDownloadName = (name: string) => {
@@ -65,7 +67,7 @@ const nativeDownload = async (filePath: string, fileName: string) => {
   });
   await Share.share({
     title: fileName,
-    dialogTitle: "打开或分享文件",
+    dialogTitle: translate("download.shareDialogTitle"),
     files: [stored.uri],
   });
 };
@@ -107,13 +109,14 @@ export const downloadApiFile = async (path: string, name: string) => {
     });
     await Share.share({
       title: fileName,
-      dialogTitle: "打开或分享文件",
+      dialogTitle: translate("download.shareDialogTitle"),
       files: [target.uri],
     });
     return;
   }
   const response = await apiFetch(path);
-  if (!response.ok) throw new Error("无法下载文档");
+  // UserFacingError：文案已按当前语言取词，describeError 原样放行，不再被兜底改写。
+  if (!response.ok) throw new UserFacingError(translate("errors.downloadFailed"));
   const href = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = href;

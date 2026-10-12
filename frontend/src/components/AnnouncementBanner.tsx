@@ -56,7 +56,7 @@ export const AnnouncementBanner: React.FC = () => {
       className={`wb-announcement ${level}`}
       role="status"
       aria-live="polite"
-      aria-label={`公告：${announcement.title}`}
+      aria-label={t("announcement.label", { title: announcement.title })}
     >
       <span className="wb-announcement-icon"><Icon size={16} strokeWidth={2} /></span>
       <div className="wb-announcement-body">
