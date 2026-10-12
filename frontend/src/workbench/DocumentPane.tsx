@@ -667,7 +667,7 @@ export function DocumentPane({
             <button
               className="wb-text-action"
               onClick={() =>
-                api<Item>(`/documents/${doc.id}/editable-copy`, "POST")
+                api<Item>(`/documents/${doc.id}/editable-copy`, "POST", undefined, crypto.randomUUID())
                   .then(onSaved)
                   .catch((e) => onError(e.message))
               }
@@ -751,7 +751,7 @@ export function DocumentPane({
                   title: doc.title + t("workbench.doc.conflictCopySuffix"),
                   project_id: doc.project_id,
                   content: editor.getJSON(),
-                });
+                }, crypto.randomUUID());
                 blocked.current = false;
                 markDirty(false);
                 await remember(user, "doc-draft:" + doc.id, null);
@@ -977,6 +977,7 @@ export function DocumentPane({
                           expected_revision: latest.current.revision,
                           revision: v.revision,
                         },
+                        crypto.randomUUID(),
                       );
                       onSaved(d);
                       setVersions(undefined);

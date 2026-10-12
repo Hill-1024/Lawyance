@@ -279,10 +279,11 @@ export default function Workbench({ username }: { username: string }) {
       .slice(0, 6);
 
   function createDocument() {
+    // 创建类 POST 强制 Idempotency-Key：key 与本次「新建文档」动作绑定，网络重试复用。
     api<Item>("/documents", "POST", {
       title: t("workbench.manage.untitledDocument"),
       project_id: projectId,
-    })
+    }, crypto.randomUUID())
       .then((d) => {
         saved(d);
         openDocument(d);
@@ -895,7 +896,7 @@ export default function Workbench({ username }: { username: string }) {
       withDescription: true,
       submit: async (title, desc) => {
         try {
-          const p = await api<Item>("/projects", "POST", { title, desc });
+          const p = await api<Item>("/projects", "POST", { title, desc }, crypto.randomUUID());
           setTextDialog(undefined);
           await reload();
           quick(p.id);
@@ -984,7 +985,8 @@ export default function Workbench({ username }: { username: string }) {
       body.append("file", f);
       if (projectId) body.append("project_id", projectId);
       try {
-        const d = await api<Item>("/documents/upload", "POST", body);
+        // 每个文件是独立的创建动作，各带自己的 key：重试只重放失败的那一个。
+        const d = await api<Item>("/documents/upload", "POST", body, crypto.randomUUID());
         uploaded += 1;
         if (d.title !== f.name) renamed.push(`${f.name} → ${d.title}`);
         updateDraft({
@@ -1134,7 +1136,7 @@ export default function Workbench({ username }: { username: string }) {
         api<Item>(`/conversations/${conv.id}/branch`, "POST", {
           message_id: messageId,
           title: conv.title + t("workbench.manage.branchSuffix"),
-        })
+        }, crypto.randomUUID())
           .then((c) => {
             reload();
             openConversation(c.id);

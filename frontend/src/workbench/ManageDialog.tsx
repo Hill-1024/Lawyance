@@ -94,10 +94,11 @@ export function ManageDialog({
               : {}),
         });
       else
+        // 后端对创建类 POST 强制 Idempotency-Key：每次保存动作生成一个，失败重试复用同一动作的 key。
         await api("/" + family, "POST", {
           title,
           ...(family === "skills" ? { instructions } : { url, secret }),
-        });
+        }, crypto.randomUUID());
       setEditing(undefined);
       onReload();
     } catch (e) {
@@ -403,7 +404,7 @@ export function ManageDialog({
                 <button
                   onClick={async () => {
                     try {
-                      await api("/trash/" + item.id + "/restore", "POST");
+                      await api("/trash/" + item.id + "/restore", "POST", undefined, crypto.randomUUID());
                       setTrash(await api("/trash"));
                       onReload();
                     } catch (e) {

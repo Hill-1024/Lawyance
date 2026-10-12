@@ -295,7 +295,7 @@ export function SessionView({
                     api(`/runs/${run.id}/confirmation`, "POST", {
                       call_id: run.data.confirmation.id,
                       allow,
-                    }).catch((e) => onError(e.message))
+                    }, crypto.randomUUID()).catch((e) => onError(e.message))
                   }
                 >
                   {allow ? t("workbench.session.allowOnce") : t("workbench.session.deny")}
