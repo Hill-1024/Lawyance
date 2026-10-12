@@ -184,6 +184,13 @@ class _NoPersistTransport(httpx.AsyncHTTPTransport):
             del response.headers["set-cookie"]
         return response
 
+    async def aclose(self) -> None:
+        # 优雅重启的收尾链路是 Core.aclose → client.aclose → transport.aclose。
+        # 基类的默认实现只关包装层自己那个从未用过的连接池，真正承载 keep-alive
+        # 连接的是内层传输层——不显式关它，每次重启都泄漏一池连接。
+        await self._inner.aclose()
+        await super().aclose()
+
 
 class Core:
     """分派、探活与维护兜底的全部逻辑（不依赖 Starlette，便于直接测）。"""
@@ -474,10 +481,13 @@ class Core:
             httpx.ConnectTimeout,
             httpx.ReadError,
             httpx.ReadTimeout,
+            httpx.WriteError,
             httpx.RemoteProtocolError,
         ) as exc:
             # 连接不上、或上游接受连接后在读响应头阶段断开/超时：立刻判下线并给出
             # 维护页，而不是把 502/500 丢给用户。此时还没向客户端发出任何字节。
+            # WriteError 覆盖 POST/PUT 上传体流式发送中途断开——与读断开一样不该
+            # 冒成 500（WriteTimeout 是它的子类，一并覆盖）。
             self._set_state(side, up=False, reason=f"proxy: {type(exc).__name__}")
             return self.unavailable(request, side)
 

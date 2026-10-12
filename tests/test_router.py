@@ -40,6 +40,7 @@ class FakeUpstreams:
         self.app_down = False
         self.intro_down = False
         self.app_read_error = False
+        self.app_write_error = False
         self.seen: list[httpx.Request] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -56,6 +57,9 @@ class FakeUpstreams:
         if side == "app" and self.app_read_error:
             # 上游接受连接后、回完响应头之前被 RST：httpx 抛 ReadError。
             raise httpx.ReadError(f"{side} reset while reading response headers", request=request)
+        if side == "app" and self.app_write_error:
+            # POST/PUT 上传体流式发送中途被 RST：httpx 抛 WriteError。
+            raise httpx.WriteError(f"{side} reset while sending request body", request=request)
         if request.url.path == "/api/court/turn":
             chunks = [b'data: {"n": 1}\n\n', b'data: {"n": 2}\n\n', b"data: [DONE]\n\n"]
 
@@ -291,6 +295,24 @@ class RouterTestCase(unittest.IsolatedAsyncioTestCase):
         await self.core.probe_once()
         self.assertEqual(200, (await self.client.get("/home")).status_code)
 
+    async def test_write_error_while_sending_body_marks_the_side_down_instead_of_500(self):
+        # POST 上传体流式转发时上游中途断开（WriteError）：与读断开同样处理——
+        # 立刻判下线给维护页，而不是裸 500。
+        self.upstreams.app_write_error = True
+        response = await self.client.post(
+            "/api/upload",
+            content=bytes(range(256)) * 8,
+            headers={"sec-fetch-mode": "navigate", "content-type": "application/octet-stream"},
+        )
+        self.assertEqual(302, response.status_code)
+        self.assertFalse(self.core.sides["app"].up)
+        self.upstreams.app_write_error = False
+        await self.core.probe_once()
+        self.assertEqual(
+            200,
+            (await self.client.post("/api/upload", content=b"ok")).status_code,
+        )
+
     # ── 转发保真 ───────────────────────────────────────────────────────────
     async def test_sse_stream_passes_through_unbuffered(self):
         response = await self.client.get("/api/court/turn")
@@ -339,6 +361,37 @@ class RouterTestCase(unittest.IsolatedAsyncioTestCase):
             response = await second.get("/home")
             self.assertEqual(200, response.status_code)
             self.assertNotIn("cookie", self.upstreams.seen[-1].headers)
+
+    # ── 优雅重启不泄漏连接 ────────────────────────────────────────────────
+    async def test_closing_the_core_closes_the_wrapped_inner_transport(self):
+        """_NoPersistTransport 包装真实传输层：包装层 aclose 必须连带关闭内层。
+
+        否则 Core.aclose → client.aclose 只关包装层自身未使用的池，内层承载的
+        keep-alive 连接每次优雅重启都泄漏一批。
+        """
+
+        class InnerTransport(httpx.MockTransport):
+            def __init__(self):
+                super().__init__(lambda request: httpx.Response(200))
+                self.closed = False
+
+            async def aclose(self) -> None:
+                self.closed = True
+                await super().aclose()
+
+        inner = InnerTransport()
+        standalone = core.Core(
+            core.Config(
+                app_upstream=f"http://127.0.0.1:{self.APP_PORT}",
+                intro_upstream=f"http://127.0.0.1:{self.INTRO_PORT}",
+                state_dir=self.tmp.name,
+                maintenance_page=str(Path(core.__file__).resolve().parent / "maintenance.html"),
+            ),
+            transport=inner,
+        )
+        self.assertFalse(inner.closed)
+        await standalone.aclose()
+        self.assertTrue(inner.closed)
 
 
 if __name__ == "__main__":
