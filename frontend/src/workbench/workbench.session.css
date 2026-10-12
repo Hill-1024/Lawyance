@@ -74,6 +74,9 @@
   margin-bottom: 28px;
   font-size: 14px;
   overflow-wrap: anywhere;
+  /* 宽屏正文不再吃满整栏（1440 下单行 ~975px 读距过长）：46rem 与首页内容栏同档；
+     不加 auto 居中，保持与标题行、输入框同一条左基线，只约束正文列宽度。 */
+  max-width: 46rem;
 }
 .wb-message.user {
   padding: 14px 16px;

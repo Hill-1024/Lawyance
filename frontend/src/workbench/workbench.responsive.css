@@ -252,17 +252,25 @@
     min-height: 88px;
   }
   .wb-composer-actions {
-    gap: 0;
+    /* 图标态统一 44px 触摸目标后 320px 整行放不下：横向滚动兜底（同备庭页签），滚动条隐藏。 */
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .wb-composer-actions::-webkit-scrollbar {
+    display: none;
   }
   .wb-composer-actions button {
     min-height: 38px;
+    /* 上传/高级键此前仅 ~30px 宽、:has(> span) 只盖三枚；全部按键统一钉 44px，
+       关掉收缩，塞不下交给整行滚动而不是互相压扁。 */
+    width: var(--wb-control-size);
+    min-width: var(--wb-control-size);
     padding: 0 7px;
+    flex: 0 0 auto;
   }
   .wb-composer-actions button > span {
     display: none;
-  }
-  .wb-composer-actions button:has(> span) {
-    width: var(--wb-control-size);
   }
   .wb-composer-actions .wb-spacer {
     min-width: 0;

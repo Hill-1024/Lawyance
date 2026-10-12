@@ -100,6 +100,12 @@
  .court-preparation-tabs button { padding:12px 8px; font-size:12px; }
 }
 @media(prefers-reduced-motion:reduce) { .court-preparation-pane { animation:none !important; } .court-embedded * { transition:none !important; } }
+/* 320px 视口下容器 ~268px：≤600 档（8px 内边距、6px 图标间距）三枚页签总宽 ~288，
+   「项目材料」右缘截断 20px。≤360 再收一档（4px 间距/内边距），三枚 ~253px 放得下，
+   溢出仍由 overflow-x:auto 兜底。 */
+@container(max-width:360px) {
+ .court-preparation-tabs button { gap:4px; padding:12px 4px; }
+}
 .court-session-heading > button { flex-shrink:0; white-space:nowrap; }
 .court-session-controls { display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; }
 .court-session-controls details { font-size:12px; color:var(--fg-3); }

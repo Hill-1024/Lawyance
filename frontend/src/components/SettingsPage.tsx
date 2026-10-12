@@ -837,7 +837,7 @@ const AboutSection: React.FC<{ onOpenBusiness?: () => void }> = ({ onOpenBusines
           href={BUILD_INFO.projectUrl}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex min-w-0 max-w-[46vw] items-center gap-1.5 text-[12px] transition-opacity hover:opacity-80 hover:underline sm:max-w-none"
+          className="relative inline-flex min-w-0 max-w-[46vw] items-center gap-1.5 text-[12px] transition-opacity hover:opacity-80 hover:underline after:absolute after:-inset-x-4 after:-inset-y-3.5 after:content-[''] sm:max-w-none"
         >
           <span className="truncate font-mono">{BUILD_INFO.projectUrl}</span>
           <ExternalLink size={13} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
