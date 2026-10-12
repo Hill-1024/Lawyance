@@ -459,6 +459,50 @@ class AuthRouteScopeTests(AuthTestCase):
         anyone = self.sudo_client.post("/api/admin/accounts/outsider/unlock", headers={"origin": LOCAL_ORIGIN})
         self.assertEqual(anyone.status_code, 200, anyone.text)
 
+    def test_delete_account_error_contract_distinguishes_forbidden_missing_and_invalid(self):
+        """删除账号的状态码要区分语义：403=越权、404=目标不存在、400=业务约束。
+
+        「非名下」是权限问题（与 unlock/status 端点一致回 403），「不存在」是
+        资源定位问题（404），两者都不能落进笼统的 400。
+        """
+        self.assertEqual(
+            self._create(self.sudo_client, "alice", "alice-password", role="admin").status_code,
+            200,
+        )
+        self.assertEqual(self._create(self.sudo_client, "outsider", "outsider-password").status_code, 200)
+        admin_client = TestClient(self.agent.app, base_url="http://localhost")
+        try:
+            self._login(admin_client, "alice", "alice-password")
+            # 越权：目标存在但不在自己名下 → 403。
+            foreign = admin_client.delete(
+                "/api/admin/accounts/outsider", headers={"origin": LOCAL_ORIGIN}
+            )
+            self.assertEqual(foreign.status_code, 403)
+            self.assertIn("只能删除自己创建的账号", foreign.json()["detail"])
+            # 与应用同一份 auth 模块（setUp 里导入 agent 时重新加载过）。
+            auth = importlib.import_module("auth")
+            self.assertTrue(auth.get_user_record("outsider"))  # 未被误删
+            # 目标不存在 → 404。
+            missing = admin_client.delete(
+                "/api/admin/accounts/nobody-here", headers={"origin": LOCAL_ORIGIN}
+            )
+            self.assertEqual(missing.status_code, 404)
+        finally:
+            admin_client.close()
+        # 其余业务约束仍是 400：内置管理员不可删除。
+        builtin = self.sudo_client.delete(
+            "/api/admin/accounts/admin", headers={"origin": LOCAL_ORIGIN}
+        )
+        self.assertEqual(builtin.status_code, 400)
+
+    def test_revoking_an_unknown_session_returns_404(self):
+        """下线一个定位不到的会话是 404（资源不存在），不是 400（请求格式无误）。"""
+        response = self.sudo_client.delete(
+            "/api/admin/sessions/" + "0" * 16, headers={"origin": LOCAL_ORIGIN}
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("会话不存在", response.json()["detail"])
+
 
 class AccountContractRegressionTests(AuthTestCase):
     """T18/T20/T24/T4 回归：账号管理 API 的契约不被默认值/泄露/列宽击穿。"""

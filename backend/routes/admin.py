@@ -181,6 +181,12 @@ async def delete_admin_account(
         raise HTTPException(status_code=400, detail="不能在登录状态下删除自己")
     success, msg = await run_in_threadpool(delete_account, username, admin_user)
     if not success:
+        # 状态码承载语义：403=越权（目标存在但不在名下，与 unlock/status 端点一致）、
+        # 404=目标不存在；400 留给其余业务约束（如删除系统管理员）。
+        if msg == "只能删除自己创建的账号":
+            raise HTTPException(status_code=403, detail=msg)
+        if msg == "账号不存在":
+            raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     return {"status": "success", "message": msg}
 
@@ -204,6 +210,9 @@ async def delete_admin_session(
         revoke_session_by_fingerprint, admin_user, sid_fingerprint
     )
     if not success:
+        # 摘要定位不到任何可见会话 = 目标不存在：404 而不是 400（请求本身格式无误）。
+        if msg == "会话不存在或已过期":
+            raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
     return {"status": "success", "message": msg}
 

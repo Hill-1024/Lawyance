@@ -17,16 +17,17 @@ export const suggestionFallback = (t: Translator): SuggestionItem[] => [
 
 /** 首页工作建议：按空间缓存，换一批强制重生成；任何失败都退回本地静态建议。 */
 export function useSuggestions() {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [cache, setCache] = useState<Record<string, SuggestionItem[]>>({});
   const [loadingSpace, setLoadingSpace] = useState("");
   async function load(space: string, refresh: boolean) {
     setLoadingSpace(space);
     try {
+      // locale：让后端按当前界面语言生成建议。
       const data = await api<{ items: SuggestionItem[]; degraded: boolean }>(
         "/suggestions",
         "POST",
-        { project_id: space === "personal" ? undefined : space, refresh },
+        { project_id: space === "personal" ? undefined : space, refresh, locale },
       );
       setCache((prev) => ({
         ...prev,

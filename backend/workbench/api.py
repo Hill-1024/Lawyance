@@ -135,6 +135,8 @@ class Branch(Body):
 class Suggest(Body):
     project_id: str | None = None
     refresh: bool = False
+    # 界面语言（BCP-47，如 en-US / zh-CN）：只影响生成提示，缺省中文、行为不变。
+    locale: str | None = None
 
 
 def enabled(user):
@@ -316,7 +318,7 @@ async def suggestions(body: Suggest, user=Depends(gate)):
         await asyncio.to_thread(check_project)
     from workbench.suggestions import generate
 
-    return await generate(user, body.project_id, body.refresh)
+    return await generate(user, body.project_id, body.refresh, body.locale)
 
 
 @router.get("/trash")
@@ -906,7 +908,7 @@ def save_court(identifier: str, body: CourtSnapshot, user=Depends(gate)):
 def listing(family: str, project_id: str | None = None, include_session: bool = False, user=Depends(gate)):
     kind = KINDS.get(family)
     if not kind:
-        raise HTTPException(404)
+        raise HTTPException(404, "内容不存在或无权访问")
     with transaction() as s:
         query = select(Item).where(
             Item.owner == user, Item.kind == kind, Item.deleted_at.is_(None)
@@ -950,7 +952,7 @@ def create(
 ):
     kind = KINDS.get(family)
     if not kind:
-        raise HTTPException(404)
+        raise HTTPException(404, "内容不存在或无权访问")
     if kind == "court":
         raise HTTPException(422, "请使用庭审保存接口")
     with transaction() as s:
@@ -1006,7 +1008,7 @@ def create(
 @router.get("/{family}/{identifier}")
 def detail(family: str, identifier: str, user=Depends(gate)):
     if family not in KINDS:
-        raise HTTPException(404)
+        raise HTTPException(404, "内容不存在或无权访问")
     with transaction() as s:
         return public(get_item(s, user, identifier, KINDS[family]))
 
@@ -1014,7 +1016,7 @@ def detail(family: str, identifier: str, user=Depends(gate)):
 @router.patch("/{family}/{identifier}")
 def edit(family: str, identifier: str, body: Edit, user=Depends(gate)):
     if family not in KINDS:
-        raise HTTPException(404)
+        raise HTTPException(404, "内容不存在或无权访问")
     with transaction() as s:
         item = get_item(s, user, identifier, KINDS[family], lock=True)
         check_revision(item, body.expected_revision)
@@ -1053,7 +1055,7 @@ def edit(family: str, identifier: str, body: Edit, user=Depends(gate)):
 @router.delete("/{family}/{identifier}")
 def delete(family: str, identifier: str, user=Depends(gate)):
     if family not in KINDS:
-        raise HTTPException(404)
+        raise HTTPException(404, "内容不存在或无权访问")
     with transaction() as s:
         item = get_item(s, user, identifier, KINDS[family], lock=True)
         if item.kind in ("project", "conversation"):
