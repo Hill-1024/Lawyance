@@ -384,6 +384,42 @@ def test_suggestions_degrade_and_rotate_without_materials(client):
         assert item["title"] and item["prompt"]
 
 
+def test_suggestions_locale_reaches_the_model_prompt(client):
+    """locale 只作用于生成提示：带 en-US 时提示里要有英文要求，缺省时提示原样。"""
+    import function_calling
+    from workbench import suggestions
+
+    p = project(client)
+    document(client, p)
+    answer = SimpleNamespace(
+        content='```json\n{"items":[{"title":"Review payment terms",'
+        '"prompt":"Please review the payment terms and list the risks."}]}\n```'
+    )
+    with mock.patch.object(
+        function_calling, "call", mock.AsyncMock(return_value=answer)
+    ) as fake:
+        generated = client.post(
+            "/api/workbench/suggestions",
+            json={"project_id": p["id"], "locale": "en-US"},
+        ).json()
+        assert generated["items"] == [
+            {
+                "title": "Review payment terms",
+                "prompt": "Please review the payment terms and list the risks.",
+            }
+        ]
+        assert fake.await_count == 1
+        system = fake.await_args.args[0][0]["content"]
+        assert "en-US" in system and "英文" in system
+    # 不带 locale 的请求必须拿到未改动的系统提示，行为与旧版完全一致。
+    with mock.patch.object(
+        function_calling, "call", mock.AsyncMock(return_value=answer)
+    ) as fake:
+        client.post("/api/workbench/suggestions", json={"project_id": p["id"]})
+        assert fake.await_count == 1
+        assert fake.await_args.args[0][0]["content"] == suggestions.SYSTEM_PROMPT
+
+
 def test_suggestions_use_model_then_cache_then_degrade(client, monkeypatch):
     import function_calling
     from workbench import suggestions
@@ -479,3 +515,91 @@ def test_workbench_tables_self_heal_on_first_use(tmp_path, monkeypatch):
     with store.transaction() as session:
         assert session.scalars(select(Item).limit(1)).all() == []
     assert inspect(engine).has_table("workbench_items")
+
+
+def test_failed_restore_keeps_blobs_referenced_by_anyone(client):
+    """恢复失败清理 written_blobs 前必须查引用：blob 按内容寻址、跨用户共享。
+
+    顺序模拟并发恢复同一附件的交错窗口——先提交方（bob 的文档）已经引用了
+    这个 blob；后失败方恢复同一附件并在 blob 落盘后因清单里混入坏条目而回滚。
+    后失败方的清理绝不能删掉仍被引用的共享 blob。
+    """
+    import hashlib
+    import io
+    import json
+    import zipfile
+
+    from workbench.store import BlobStore
+
+    payload = "并发双方共享的附件内容".encode()
+    key = hashlib.sha256(payload).hexdigest()
+
+    # 先提交方：已提交、引用该 blob 的文档（blob 文件是否已在盘上不重要——
+    # 并发窗口里后失败方总是走「落盘前不存在」分支并记录该键）。
+    with transaction() as s:
+        s.add(
+            Item(
+                id="committed-doc",
+                owner="bob",
+                kind="document",
+                title="已提交",
+                revision=1,
+                data={
+                    "format": "pdf",
+                    "blob_key": key,
+                    "size": len(payload),
+                    "mime": "application/pdf",
+                },
+            )
+        )
+
+    # 后失败方：同一 blob + 一个非法条目，让事务在 blob 落盘之后才失败。
+    manifest = {
+        "format": "lawver-workbench",
+        "version": 5,
+        "items": [
+            {
+                "id": "doc-b",
+                "kind": "document",
+                "title": "附件副本",
+                "revision": 1,
+                "data": {
+                    "format": "pdf",
+                    "blob_key": key,
+                    "size": len(payload),
+                    "mime": "application/pdf",
+                },
+            },
+            {"id": "bad-item", "kind": "bogus", "title": "坏条目", "revision": 1, "data": {}},
+        ],
+        "versions": [],
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
+        z.writestr("blobs/" + key, payload)
+
+    response = client.post(
+        "/api/workbench/backup",
+        files={"file": ("broken.zip", buffer.getvalue(), "application/zip")},
+        headers={"Idempotency-Key": "broken-restore"},
+    )
+    assert response.status_code == 422
+    # 失败点必须是「坏条目」：说明 blob 已落盘、条目已入事务后才回滚。
+    assert response.json()["detail"] == "不支持的内容类型"
+    # blob 仍被先提交方引用：失败清理必须放过它。
+    assert BlobStore().path(key).exists()
+
+
+def test_unknown_family_404_uses_business_copy(client):
+    """未知 family 的 404 要带业务文案，与同族「内容不存在或无权访问」一致。"""
+    responses = [
+        client.get("/api/workbench/widgets"),
+        client.post("/api/workbench/widgets", json={"title": "x"}),
+        client.get("/api/workbench/widgets/abc"),
+        client.patch("/api/workbench/widgets/abc", json={"expected_revision": 1}),
+        client.delete("/api/workbench/widgets/abc"),
+    ]
+    for response in responses:
+        assert response.status_code == 404
+        assert response.json()["detail"] == "内容不存在或无权访问"

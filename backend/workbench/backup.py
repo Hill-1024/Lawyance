@@ -155,6 +155,47 @@ async def restore(
     return await asyncio.to_thread(_restore_backup, file.file, idempotency_key, user)
 
 
+def _drop_unreferenced_blobs(keys: set[str]) -> None:
+    """恢复失败后的孤儿清理：只删除此刻已无任何 item/version 引用的 blob。
+
+    BlobStore 按内容寻址、跨用户共享同一份文件：并发恢复相同附件时，后失败方
+    记录在 written_blobs 里的键可能与先提交方刚刚建立的引用撞在一起——直接
+    unlink 会删掉别人已提交的附件。这里的引用查询在失败事务回滚之后新开事务
+    执行，看到的是已提交状态；查询本身失败时宁留孤儿文件，不冒删错的风险。
+    """
+    if not keys:
+        return
+    candidates = sorted(keys)
+    referenced: set[str] = set()
+    try:
+        with transaction() as s:
+            item_keys = set(
+                s.scalars(
+                    select(Item.data["blob_key"].as_string()).where(
+                        Item.data["blob_key"].as_string().in_(candidates)
+                    )
+                )
+            )
+            version_keys = set(
+                s.scalars(
+                    select(Version.data["blob_key"].as_string()).where(
+                        Version.data["blob_key"].as_string().in_(candidates)
+                    )
+                )
+            )
+            referenced = item_keys | version_keys
+    except Exception:
+        return
+    store = BlobStore()
+    for key in candidates:
+        if key in referenced:
+            continue
+        try:
+            store.path(key).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _restore_backup(stream, idempotency_key: str | None, user: str):
     fingerprint = _stream_sha256(stream)
     stream.seek(0)
@@ -256,9 +297,7 @@ def _restore_backup(stream, idempotency_key: str | None, user: str):
                 s, user, idempotency_key, {"sha256": fingerprint}, apply
             )
     except Exception:
-        for key in written_blobs:
-            try:
-                BlobStore().path(key).unlink(missing_ok=True)
-            except OSError:
-                pass
+        # 只清理确认已无人引用的 blob：内容寻址存储跨用户共享，被引用的键
+        # （哪怕不是本次恢复写入的）绝不能删。
+        _drop_unreferenced_blobs(written_blobs)
         raise
