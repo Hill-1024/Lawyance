@@ -344,6 +344,11 @@
   padding: 22px 0;
   color: var(--wb-muted);
   font-size: 12px;
+  /* 项目空态是 .wb-project-cards（minmax(250px,1fr) 网格）的网格项：1440 下被切进
+     ~300px 窄列，整句折两行且尾行只剩「料。」。占满整行恢复单行提示；
+     更窄的单列场景交给 text-wrap: balance 两行均分，不再出单字孤行。 */
+  grid-column: 1 / -1;
+  text-wrap: balance;
 }
 .wb-composer {
   border: 1px solid var(--wb-line);

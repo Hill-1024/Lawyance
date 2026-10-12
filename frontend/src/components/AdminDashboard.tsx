@@ -834,6 +834,8 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
           icon={<Users size={22} strokeWidth={2} />}
           title={isSudo ? t('admin.emptyAccountsTitle') : t('admin.emptyUsersTitle')}
           description={loading ? t('admin.loadingAccounts') : t('admin.emptyAccountsDescription')}
+          /* 空列表时脚注贴进空态卡片，不再孤悬页面中段；有列表时仍留在表格下方。 */
+          action={<p className="wb-admin-note">{t('admin.accountsFootnote')}</p>}
         />
       ) : (
         <div className="wb-admin-table-scroll">
@@ -957,9 +959,11 @@ const AccountsPanel: React.FC<{ role: Role }> = ({ role }) => {
         </div>
       )}
 
-      <p className="wb-admin-note">
-        {t('admin.accountsFootnote')}
-      </p>
+      {accounts.length > 0 && (
+        <p className="wb-admin-note">
+          {t('admin.accountsFootnote')}
+        </p>
+      )}
 
       {createOpen && (
         <CreateAccountDialog

@@ -119,11 +119,19 @@
   line-height: 1.6;
 }
 .wb-space-upload-link {
+  position: relative;
   min-height: 0;
   padding: 0 2px;
   font-size: 11px;
   color: var(--wb-blue);
   text-decoration: underline;
+}
+/* 视觉只有一行 11px 文字（~18px 高），命中区用 ::after 补回 ≥24px，
+   不撑破 .wb-space-hint 的行内布局（同 .wb-reference button 的做法）。 */
+.wb-space-upload-link::after {
+  content: "";
+  position: absolute;
+  inset: -4px -6px;
 }
 .wb-nav-footer {
   padding-top: 12px;
