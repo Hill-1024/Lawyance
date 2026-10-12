@@ -1,6 +1,7 @@
 import { apiFetch } from "../services/api";
 import { describeHttpErrorBody } from "../lib/http-error";
 import { UserFacingError } from "../lib/errors";
+import { translate } from "../i18n";
 export type Item = {
   id: string;
   kind: string;
@@ -68,7 +69,8 @@ export async function binary(id: string, exportWord = false) {
   const r = await apiFetch(
     `/api/workbench/documents/${id}/${exportWord ? "export" : "blob"}`,
   );
-  if (!r.ok) throw new Error("无法读取文件");
+  // UserFacingError：文案已按当前语言取词，describeError 原样放行。
+  if (!r.ok) throw new UserFacingError(translate("errors.fileReadFailed"));
   return r.blob();
 }
 export { downloadWorkbenchFile as download } from "../lib/download";

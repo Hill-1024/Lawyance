@@ -11,7 +11,7 @@ import { BrandMark } from '../components/Brand';
 import { HoverInfo } from '../components/HoverInfo';
 import { Banner } from '../components/settings/SettingsUI';
 import { useAppBack } from '../hooks/useAppBack';
-import { useT, type MessageKey } from '../i18n';
+import { useT, type MessageKey, type Translator } from '../i18n';
 import {
   cancelScheduledPlanChange,
   fetchUsageSummary,
@@ -26,8 +26,9 @@ const RANGES = [7, 14, 30, 90] as const;
 const formatCredits = (value: number) =>
   value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 
-const formatTokens = (value: number) =>
-  value >= 10000 ? `${(value / 10000).toFixed(1)} 万` : value.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+/** tokens 大数缩写：中文以「万」计，其他语言给等价换算（×10k）。 */
+const formatTokens = (value: number, t: Translator) =>
+  value >= 10000 ? t('usage.tokensWan', { value: (value / 10000).toFixed(1) }) : value.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
 
 /** 每日 credits 折线 + 渐变面积；悬停显示当日细项。series 升序、已补零。 */
 const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series }) => {
@@ -78,7 +79,7 @@ const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series
       >
         <strong>{hoverEntry.day.slice(5)}</strong>
         <span>{formatCredits(hoverEntry.credits)} credits</span>
-        <span>{formatTokens(hoverEntry.tokens)} tokens · {hoverEntry.tool_calls} 次工具</span>
+        <span>{formatTokens(hoverEntry.tokens, t)} tokens · {t('usage.tipToolCalls', { count: hoverEntry.tool_calls })}</span>
       </div>
     )}
     <svg
@@ -132,7 +133,7 @@ const CreditsLineChart: React.FC<{ series: UsageSummary['series'] }> = ({ series
         {last?.day.slice(5)}
       </text>
       <text x={padX} y={padTop + 8} className="wb-usage-axis">
-        峰值 {formatCredits(max)}
+        {t('usage.peak', { value: formatCredits(max) })}
       </text>
     </svg>
     </div>

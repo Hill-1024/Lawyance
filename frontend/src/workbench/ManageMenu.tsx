@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { SelectField } from "./SelectField";
 import { useT } from "../i18n";
+import { useAppDialog } from "../contexts/DialogContext";
 import { Item } from "./client";
 
 /** 内容管理弹窗：会话/文档/项目的重命名、收藏、归档、跨空间移动与回收站。 */
@@ -26,6 +27,17 @@ export function ManageMenu({
   onDelete,
 }: ManageMenuProps) {
   const { t } = useT();
+  const { showConfirm } = useAppDialog();
+  // 回收站可恢复（保留 30 天），但仍先确认一次，避免误触直接移走正在用的内容。
+  const confirmTrash = async (target: Item) => {
+    const confirmed = await showConfirm({
+      title: t("workbench.manage.trashConfirmTitle"),
+      message: t("workbench.manage.trashConfirmMessage", { title: target.title }),
+      confirmLabel: t("workbench.manage.trash"),
+      tone: "danger",
+    });
+    if (confirmed) onDelete(target);
+  };
   return (
     <div className="wb-modal-backdrop" onClick={onClose}>
       <section
@@ -59,7 +71,7 @@ export function ManageMenu({
             ]}
           />
         )}
-        <button className="wb-danger" onClick={() => onDelete(item)}>
+        <button className="wb-danger" onClick={() => void confirmTrash(item)}>
           {t("workbench.manage.trash")}
         </button>
       </section>

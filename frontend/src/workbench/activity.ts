@@ -1,4 +1,6 @@
-/** 运行事件到可读时间线的折叠规则：只做数据整形，不碰 React。 */
+/** 运行事件到可读时间线的折叠规则：只做数据整形，不碰 React（文案走 translate 取当前语言）。 */
+
+import { translate, type MessageKey } from "../i18n";
 
 export type ThoughtBlock = {
   key: number;
@@ -7,22 +9,23 @@ export type ThoughtBlock = {
   content: string;
 };
 
-export const THOUGHT_LABELS: Record<string, string> = {
-  reasoning: "思考",
-  draft: "初稿",
-  tool: "工具",
-  plan: "计划",
-  ocp: "输出审查",
-  memory: "记忆",
+// 思考块类型 → 词条键：渲染时取词，切语言后重算（Workbench 的 memo 依赖 t）。
+const THOUGHT_LABEL_KEYS: Record<string, MessageKey> = {
+  reasoning: "activity.thoughtReasoning",
+  draft: "activity.thoughtDraft",
+  tool: "activity.thoughtTool",
+  plan: "activity.thoughtPlan",
+  ocp: "activity.thoughtOcp",
+  memory: "activity.thoughtMemory",
 };
 
-// 其余可见事件类型也走中文，避免时间线里冒出英文枚举名。
-const EVENT_LABELS: Record<string, string> = {
-  error: "错误",
-  tool_result: "工具结果",
-  status: "状态",
-  notice: "提示",
-  user_choice: "选择",
+// 其余可见事件类型也走词条，避免时间线里冒出英文枚举名。
+const EVENT_LABEL_KEYS: Record<string, MessageKey> = {
+  error: "activity.eventError",
+  tool_result: "activity.eventToolResult",
+  status: "activity.eventStatus",
+  notice: "activity.eventNotice",
+  user_choice: "activity.eventChoice",
 };
 
 // 无需展示给用户的内部信号：正文增量走 live，确认/选择有专门 UI，签名与记忆候选是管线细节。
@@ -45,7 +48,7 @@ export function aggregateActivity(events: any[]): ThoughtBlock[] {
   for (const event of events) {
     if (HIDDEN_EVENT_TYPES.has(event.type)) continue;
     if (event.type === "thought") {
-      const kind = THOUGHT_LABELS[event.thought_type] ? event.thought_type : "reasoning";
+      const kind = THOUGHT_LABEL_KEYS[event.thought_type] ? event.thought_type : "reasoning";
       const append = event.mode === "append" || kind === "reasoning" || kind === "draft";
       const last = blocks[blocks.length - 1];
       if (append && last && last.kind === kind) {
@@ -55,7 +58,7 @@ export function aggregateActivity(events: any[]): ThoughtBlock[] {
       blocks.push({
         key: blocks.length,
         kind,
-        label: THOUGHT_LABELS[kind],
+        label: translate(THOUGHT_LABEL_KEYS[kind] ?? "activity.thoughtReasoning"),
         content: event.content || "",
       });
       continue;
@@ -66,7 +69,7 @@ export function aggregateActivity(events: any[]): ThoughtBlock[] {
     blocks.push({
       key: blocks.length,
       kind: event.type,
-      label: EVENT_LABELS[event.type] || "执行",
+      label: translate(EVENT_LABEL_KEYS[event.type] ?? "activity.eventFallback"),
       content,
     });
   }
@@ -78,13 +81,15 @@ export function currentActivityLabel(blocks: ThoughtBlock[]): string {
   const block = blocks[blocks.length - 1];
   if (!block) return "";
   if (block.kind === "tool") {
+    // 功能性正则：匹配的是后端生成的中文正文（「执行: `工具名`」「工具执行完毕」），
+    // 不是界面文案——必须保留中文原文做匹配，只有展示给用户的措辞走词条。
     const match = block.content.match(/执行:\s*`([^`]+)`/);
-    if (match) return "正在执行 " + match[1];
-    if (block.content.includes("工具执行完毕")) return "正在生成最终回复";
-    return "正在调用工具";
+    if (match) return translate("activity.runningTool", { name: match[1] });
+    if (block.content.includes("工具执行完毕")) return translate("activity.runningToolDone");
+    return translate("activity.runningCallingTool");
   }
-  if (block.kind === "draft") return "正在拟定回答初稿";
-  if (block.kind === "plan") return "正在规划执行步骤";
-  if (block.kind === "ocp") return "正在审查输出";
-  return "正在分析问题";
+  if (block.kind === "draft") return translate("activity.runningDrafting");
+  if (block.kind === "plan") return translate("activity.runningPlanning");
+  if (block.kind === "ocp") return translate("activity.runningReviewing");
+  return translate("activity.runningAnalyzing");
 }

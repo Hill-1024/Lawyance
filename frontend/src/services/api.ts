@@ -5,9 +5,10 @@
 import type { ConversationMemory, CourtSession } from '../types';
 import { clearAuthToken, getAuthToken, setAuthToken } from '../lib/auth-storage';
 import { APP_CONFIG, BASE_PATH } from '../lib/app-config';
+import { UserFacingError } from '../lib/errors';
 import { isNative } from '../lib/platform';
 import { describeHttpError } from '../lib/http-error';
-import { translate } from '../i18n';
+import { translate, type MessageKey } from '../i18n';
 
 const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
 // Web 端带上网关区域前缀（如 /cn），使 API 请求与页面落入同一区域后端；无前缀时为空串。
@@ -15,6 +16,16 @@ const env = (import.meta as ImportMeta & { env?: Record<string, string | undefin
 const API_BASE = isNative()
   ? (env.VITE_LAWVER_API_BASE || APP_CONFIG.nativeApiBase)
   : BASE_PATH;
+
+/**
+ * 接口错误统一抛出：后端 detail 原样透传（保持既有「无中文换兜底」的判定素材，
+ * describeError 仍会对英文 detail 走兜底）；缺 detail 时退到按当前语言取词的用户兜底，
+ * 包成 UserFacingError 让 describeError 原样放行——英文兜底不会被再换成默认中文文案。
+ */
+const fail = (detail: unknown, fallbackKey: MessageKey): Error =>
+  typeof detail === 'string' && detail
+    ? new Error(detail)
+    : new UserFacingError(translate(fallbackKey));
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
 
@@ -152,7 +163,7 @@ export const changePassword = async (
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string })?.detail || '修改密码失败');
+    throw fail((data as { detail?: string })?.detail, 'errors.api.changePassword');
   }
   return res.json();
 };
@@ -250,7 +261,7 @@ export interface UsageSummary {
 
 export const fetchUsageSummary = async (days: number): Promise<UsageSummary> => {
   const res = await apiFetch(`/api/usage/summary?days=${days}`);
-  if (!res.ok) throw new Error('读取用量失败');
+  if (!res.ok) throw fail(null, 'errors.api.usageRead');
   return res.json();
 };
 
@@ -263,7 +274,7 @@ export const schedulePlanChange = async (targetPlan: string): Promise<void> => {
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string })?.detail || '操作失败');
+    throw fail((data as { detail?: string })?.detail, 'errors.api.operationFailed');
   }
 };
 
@@ -272,7 +283,7 @@ export const cancelScheduledPlanChange = async (): Promise<void> => {
   const res = await apiFetch('/api/subscription/cancel-change', { method: 'POST' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string })?.detail || '操作失败');
+    throw fail((data as { detail?: string })?.detail, 'errors.api.operationFailed');
   }
 };
 
@@ -285,7 +296,7 @@ export const updateCustomId = async (customId: string | null): Promise<AccountPr
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string })?.detail || '保存失败');
+    throw fail((data as { detail?: string })?.detail, 'errors.api.saveFailed');
   }
   const data = await res.json();
   return data.profile;
@@ -301,7 +312,7 @@ export const uploadAvatar = async (file: File): Promise<AccountProfile> => {
   const res = await apiFetch('/api/profile/avatar', { method: 'PUT', body });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string })?.detail || '上传失败');
+    throw fail((data as { detail?: string })?.detail, 'errors.api.uploadFailed');
   }
   const data = await res.json();
   return data.profile;
@@ -311,7 +322,7 @@ export const removeAvatar = async (): Promise<AccountProfile> => {
   const res = await apiFetch('/api/profile/avatar', { method: 'DELETE' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as { detail?: string })?.detail || '移除失败');
+    throw fail((data as { detail?: string })?.detail, 'errors.api.removeFailed');
   }
   const data = await res.json();
   return data.profile;
@@ -331,7 +342,7 @@ export const login = async (username: string, password: string) => {
   const data = await res.json() as LoginResult;
   if (isNative()) {
     if (!data.token) {
-      throw new Error('原生登录未返回 Bearer token，请确认服务端已部署原生鉴权支持并允许 https://localhost。');
+      throw new UserFacingError(translate('errors.api.nativeLoginNoToken'));
     }
     await setAuthToken(data.token);
   }
@@ -607,7 +618,7 @@ export const unlockAccount = async (username: string) => {
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || '解锁失败');
+    throw fail(errorData.detail, 'errors.api.unlockFailed');
   }
   return res.json();
 };
@@ -621,7 +632,7 @@ export const createSubaccount = async (username: string, password: string) => {
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || '创建子账号失败');
+    throw fail(errorData.detail, 'errors.api.createSubaccountFailed');
   }
   return res.json();
 };
@@ -635,7 +646,7 @@ export const setSubaccountStatus = async (username: string, status: 'active' | '
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || '状态更新失败');
+    throw fail(errorData.detail, 'errors.api.subaccountStatusFailed');
   }
   return res.json();
 };
@@ -751,7 +762,7 @@ export interface AppSettings {
 export const getSettings = async (): Promise<AppSettings> => {
   const response = await apiFetch('/api/settings');
   if (!response.ok) {
-    throw await response.json().then(data => new Error((data as any)?.detail || '读取设置失败'));
+    throw await response.json().then(data => fail((data as any)?.detail, 'errors.api.settingsReadFailed'));
   }
   return response.json();
 };
@@ -762,7 +773,7 @@ export const updateSettings = async (payload: Partial<AppSettings>): Promise<App
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw await response.json().then(data => new Error((data as any)?.detail || '保存失败'));
+  if (!response.ok) throw await response.json().then(data => fail((data as any)?.detail, 'errors.api.saveFailed'));
   return response.json();
 };
 
@@ -778,7 +789,7 @@ export const getProviderStatus = async (): Promise<ProviderStatus[]> => {
 
 export const testProvider = async (provider: string): Promise<ProviderStatus> => {
   const response = await apiFetch(`/api/providers/test/${provider}`);
-  if (!response.ok) throw await response.json().then(data => new Error((data as any)?.detail || '测试失败'));
+  if (!response.ok) throw await response.json().then(data => fail((data as any)?.detail, 'errors.api.testFailed'));
   return response.json();
 };
 
@@ -789,7 +800,7 @@ export const setSecret = async (provider: string, key: string, value: string): P
     body: JSON.stringify({ provider, key, value }),
   });
   if (!response.ok) {
-    throw await response.json().then(data => new Error((data as any)?.detail || '保存凭据失败'));
+    throw await response.json().then(data => fail((data as any)?.detail, 'errors.api.saveSecretFailed'));
   }
 };
 
@@ -800,7 +811,7 @@ export const clearSecret = async (provider: string, key?: string): Promise<void>
     body: JSON.stringify({ provider, key }),
   });
   if (!response.ok) {
-    throw await response.json().then(data => new Error((data as any)?.detail || '清除凭据失败'));
+    throw await response.json().then(data => fail((data as any)?.detail, 'errors.api.clearSecretFailed'));
   }
 };
 
@@ -824,14 +835,14 @@ export interface LlmProfileState {
   effective: { base_url: string; model: string; source: string };
 }
 
-const profileError = async (response: Response, fallback: string) =>
+const profileError = async (response: Response, fallbackKey: MessageKey) =>
   response.json()
-    .then(data => new Error((data as any)?.detail || fallback))
-    .catch(() => new Error(fallback));
+    .then(data => fail((data as any)?.detail, fallbackKey))
+    .catch(() => new UserFacingError(translate(fallbackKey)));
 
 export const getLlmProfiles = async (): Promise<LlmProfileState> => {
   const response = await apiFetch('/api/settings/llm/profiles');
-  if (!response.ok) throw await profileError(response, '读取模型档案失败');
+  if (!response.ok) throw await profileError(response, 'errors.api.llmProfilesReadFailed');
   return response.json();
 };
 
@@ -849,7 +860,7 @@ export const saveLlmProfile = async (payload: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw await profileError(response, '保存模型档案失败');
+  if (!response.ok) throw await profileError(response, 'errors.api.llmProfileSaveFailed');
   return response.json();
 };
 
@@ -858,7 +869,7 @@ export const activateLlmProfile = async (profileId: string): Promise<LlmProfileS
     `/api/settings/llm/profiles/${encodeURIComponent(profileId)}/activate`,
     { method: 'POST' },
   );
-  if (!response.ok) throw await profileError(response, '切换模型档案失败');
+  if (!response.ok) throw await profileError(response, 'errors.api.llmProfileActivateFailed');
   return response.json();
 };
 
@@ -866,7 +877,7 @@ export const deleteLlmProfile = async (profileId: string): Promise<LlmProfileSta
   const response = await apiFetch(`/api/settings/llm/profiles/${encodeURIComponent(profileId)}`, {
     method: 'DELETE',
   });
-  if (!response.ok) throw await profileError(response, '删除模型档案失败');
+  if (!response.ok) throw await profileError(response, 'errors.api.llmProfileDeleteFailed');
   return response.json();
 };
 
@@ -875,7 +886,7 @@ export const clearLlmProfileSecret = async (profileId: string): Promise<void> =>
     `/api/settings/llm/profiles/${encodeURIComponent(profileId)}/secret/clear`,
     { method: 'POST' },
   );
-  if (!response.ok) throw await profileError(response, '清除该档案的 API Key 失败');
+  if (!response.ok) throw await profileError(response, 'errors.api.llmSecretClearFailed');
 };
 
 export const fetchLlmModels = async (): Promise<LlmModel[]> => {
@@ -912,8 +923,8 @@ export interface UsageAccount {
 export const fetchAdminUsage = async (): Promise<{ status: string; accounts: UsageAccount[] }> => {
   const res = await apiFetch('/api/admin/usage');
   if (!res.ok) {
-    if (res.status === 403) throw new Error('需要管理员权限。');
-    throw new Error('读取用量数据失败。');
+    if (res.status === 403) throw fail(null, 'errors.api.adminRequired');
+    throw fail(null, 'errors.api.adminUsageReadFailed');
   }
   return res.json();
 };
@@ -933,7 +944,7 @@ export interface MyCredits {
 /** 当前账号的余额与套餐：侧栏余额、Business 入口与设置页都读这一份。 */
 export const fetchMyCredits = async (): Promise<MyCredits> => {
   const res = await apiFetch('/api/credits');
-  if (!res.ok) throw new Error('读取额度失败。');
+  if (!res.ok) throw fail(null, 'errors.api.creditsReadFailed');
   return res.json();
 };
 
@@ -941,7 +952,7 @@ export const fetchMyCredits = async (): Promise<MyCredits> => {
 
 /** 403 表示当前账号不是 Business 套餐：调用方据此渲染说明页，而不是错误屏。 */
 export class PlanForbiddenError extends Error {
-  constructor(message = '仅 Business 账号可用。') {
+  constructor(message = translate('errors.api.businessOnly')) {
     super(message);
     this.name = 'PlanForbiddenError';
   }
@@ -965,7 +976,7 @@ export interface BusinessOverview {
 export const fetchBusinessOverview = async (): Promise<BusinessOverview> => {
   const res = await apiFetch('/api/business/subaccounts');
   if (res.status === 403) throw new PlanForbiddenError();
-  if (!res.ok) throw new Error('读取子账号失败。');
+  if (!res.ok) throw fail(null, 'errors.api.subaccountsReadFailed');
   return res.json();
 };
 
@@ -988,7 +999,7 @@ export const allocateSubaccountCredits = async (
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(typeof data?.detail === 'string' ? data.detail : '分配 credits 失败。');
+    throw fail(data?.detail, 'errors.api.allocateFailed');
   }
   return res.json();
 };
@@ -1020,24 +1031,24 @@ export interface AnnouncementInput {
   active: boolean;
 }
 
-const announcementError = async (response: Response, fallback: string) =>
+const announcementError = async (response: Response, fallbackKey: MessageKey) =>
   response.json()
     .then(data => {
       const detail = (data as any)?.detail;
       if (typeof detail === 'string') return new Error(detail);
-      return new Error(fallback);
+      return new UserFacingError(translate(fallbackKey));
     })
-    .catch(() => new Error(fallback));
+    .catch(() => new UserFacingError(translate(fallbackKey)));
 
 export const fetchAnnouncements = async (): Promise<{ status: string; announcements: Announcement[] }> => {
   const res = await apiFetch('/api/announcements');
-  if (!res.ok) throw new Error('读取公告失败。');
+  if (!res.ok) throw fail(null, 'errors.api.announcementsReadFailed');
   return res.json();
 };
 
 export const fetchAdminAnnouncements = async (): Promise<{ status: string; announcements: Announcement[] }> => {
   const res = await apiFetch('/api/admin/announcements');
-  if (!res.ok) throw await announcementError(res, '读取公告列表失败。');
+  if (!res.ok) throw await announcementError(res, 'errors.api.adminAnnouncementsReadFailed');
   return res.json();
 };
 
@@ -1047,7 +1058,7 @@ export const createAnnouncement = async (payload: AnnouncementInput): Promise<An
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) throw await announcementError(res, '保存公告失败。');
+  if (!res.ok) throw await announcementError(res, 'errors.api.announcementSaveFailed');
   const data = await res.json();
   return data.announcement as Announcement;
 };
@@ -1061,7 +1072,7 @@ export const updateAnnouncement = async (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch)
   });
-  if (!res.ok) throw await announcementError(res, '保存公告失败。');
+  if (!res.ok) throw await announcementError(res, 'errors.api.announcementSaveFailed');
   const data = await res.json();
   return data.announcement as Announcement;
 };
@@ -1070,7 +1081,7 @@ export const deleteAnnouncement = async (id: string): Promise<void> => {
   const res = await apiFetch(`/api/admin/announcements/${encodeURIComponent(id)}`, {
     method: 'DELETE'
   });
-  if (!res.ok) throw await announcementError(res, '删除公告失败。');
+  if (!res.ok) throw await announcementError(res, 'errors.api.announcementDeleteFailed');
 };
 
 
@@ -1084,6 +1095,6 @@ export type ThrottleBucket = {
 
 export const fetchThrottleBuckets = async (): Promise<{ buckets: ThrottleBucket[] }> => {
   const response = await apiFetch('/api/admin/throttle');
-  if (!response.ok) throw new Error('无法读取登录节流状态');
+  if (!response.ok) throw fail(null, 'errors.api.throttleReadFailed');
   return response.json();
 };
