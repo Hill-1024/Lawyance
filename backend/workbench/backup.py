@@ -144,6 +144,10 @@ async def restore(
     idempotency_key: str | None = Header(None),
     user=Depends(gate),
 ):
+    # 恢复是创建/恢复类变更，幂等键强制；且预检必须先于 zip 解析——
+    # 无键请求一个字节都不解析，直接 422（完整的 receipt 校验保持在事务内原位置）。
+    if not idempotency_key or len(idempotency_key) > 128:
+        raise HTTPException(422, "需要有效的 Idempotency-Key")
     # 上传体已在 Starlette 的 SpooledTemporaryFile 里（超限自动落盘）：这里只探测
     # 大小、把文件对象交给线程流式处理，256 MB 的压缩包不再整块读进内存。
     file.file.seek(0, os.SEEK_END)
