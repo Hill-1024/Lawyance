@@ -132,6 +132,106 @@ class CourtModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(decision.awaiting_user)
         self.assertIsNone(decision.speaker)
 
+    async def test_fsm_interjection_response_stays_in_original_phase_when_cap_reached(self):
+        """插话与阶段上限同轮触发：法官回应留在原阶段，不得消耗新阶段预算。"""
+        court_fsm = importlib.import_module("services.court_fsm")
+        decision = court_fsm.decide_next_turn(
+            {
+                "case_type": "civil",
+                "user_side": "原告",
+                "phase": "evidence_cross",
+                "phase_turn_counts": {"evidence_cross": 4},
+                "total_turns": 6,
+                "pending_interjection": True,
+            },
+            public_events=[
+                {"speaker": "opponent", "phase": "evidence_cross", "content": "对该份证据无异议"},
+                {
+                    "speaker": "user",
+                    "phase": "evidence_cross",
+                    "type": "interjection",
+                    "content": "插话：请法庭注意证据三的取证程序。",
+                },
+            ],
+        )
+
+        self.assertEqual(decision.speaker, "judge")
+        # 插话回应留在 evidence_cross，而不是先推进到 court_debate。
+        self.assertEqual(decision.phase, "evidence_cross")
+        self.assertEqual(decision.court_state["phase"], "evidence_cross")
+        counts = decision.court_state["phase_turn_counts"]
+        self.assertEqual(counts.get("court_debate"), None)
+
+    async def test_fsm_forced_advance_with_pending_interjection_does_not_consume_new_budget(self):
+        """强制推进 + 未处理插话：阶段照常推进，但法官插话回应不吃新阶段预算。"""
+        court_fsm = importlib.import_module("services.court_fsm")
+        decision = court_fsm.decide_next_turn(
+            {
+                "case_type": "civil",
+                "user_side": "原告",
+                "phase": "evidence_cross",
+                "phase_turn_counts": {"evidence_cross": 4},
+                "total_turns": 6,
+                "pending_interjection": True,
+                "forced_advance_requested": True,
+            },
+            public_events=[
+                {"speaker": "user", "phase": "evidence_cross", "type": "interjection", "content": "插话：请说明证据链。"},
+            ],
+        )
+
+        self.assertEqual(decision.speaker, "judge")
+        self.assertEqual(decision.phase, "court_debate")
+        counts = decision.court_state["phase_turn_counts"]
+        self.assertEqual(counts.get("court_debate"), None)
+        self.assertFalse(decision.court_state["pending_interjection"])
+        self.assertFalse(decision.court_state["forced_advance_requested"])
+
+    async def test_fsm_judge_closing_announcement_survives_user_reply(self):
+        """法官宣告「无更多意见，法庭调查结束」后，用户的回应不应顶掉阶段推进信号。"""
+        court_fsm = importlib.import_module("services.court_fsm")
+        decision = court_fsm.decide_next_turn(
+            {
+                "case_type": "civil",
+                "user_side": "原告",
+                "phase": "court_inquiry",
+                "phase_turn_counts": {"court_inquiry": 1},
+                "total_turns": 3,
+            },
+            public_events=[
+                {"speaker": "judge", "phase": "court_inquiry", "content": "原告对证据二还有什么意见？"},
+                {"speaker": "user", "phase": "court_inquiry", "content": "没有其他意见了。"},
+                {"speaker": "judge", "phase": "court_inquiry", "content": "各方无更多意见，法庭调查结束。"},
+                {"speaker": "user", "phase": "court_inquiry", "content": "好的审判长。"},
+            ],
+        )
+
+        self.assertEqual(decision.phase, "evidence_cross")
+        self.assertEqual(decision.court_state["phase"], "evidence_cross")
+
+    async def test_fsm_judge_substantive_speech_after_yield_blocks_advance(self):
+        """结束宣告之后法庭又有实质发言：宣告失效，不再触发推进。"""
+        court_fsm = importlib.import_module("services.court_fsm")
+        decision = court_fsm.decide_next_turn(
+            {
+                "case_type": "civil",
+                "user_side": "原告",
+                "phase": "court_inquiry",
+                "phase_turn_counts": {"court_inquiry": 1},
+                "total_turns": 3,
+            },
+            public_events=[
+                {"speaker": "judge", "phase": "court_inquiry", "content": "各方无更多意见，法庭调查结束。"},
+                {"speaker": "user", "phase": "court_inquiry", "content": "好的。"},
+                {"speaker": "judge", "phase": "court_inquiry", "content": "补充询问一下合同签订的具体时间。"},
+                {"speaker": "user", "phase": "court_inquiry", "content": "去年三月签订。"},
+            ],
+        )
+
+        # 用户回应后仍轮到法官继续询问，不推进阶段。
+        self.assertEqual(decision.phase, "court_inquiry")
+        self.assertEqual(decision.speaker, "judge")
+
     async def test_fsm_criminal_final_statement_belongs_to_defense(self):
         """刑事最后陈述权属被告——辩护方用户必须开口。"""
         court_fsm = importlib.import_module("services.court_fsm")

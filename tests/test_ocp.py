@@ -580,6 +580,52 @@ class OCPSourceSectionTests(unittest.TestCase):
         self.assertEqual(repaired.count("## 法律/案例信源"), 1)
         self.assertIn("2. [《民法典》第六百七十六条](https://example.com/676)", repaired)
 
+    def test_custom_source_heading_with_complete_entries_is_not_duplicated(self):
+        """正文已用自定义标题（如「## 参考来源」）列全条目时，不得再文末追加标准分区。"""
+        text = (
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>规定借款人应按期返还借款。\n\n'
+            "## 参考来源\n"
+            "1. [《民法典》第六百七十五条](https://example.com/675)"
+        )
+
+        self.assertEqual(ocp.OCPStatic._deterministic_format_repair(text), text)
+
+    def test_custom_source_heading_missing_entry_gets_filled_in_place(self):
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>与第六百七十六条'
+            '<sup><a href="https://example.com/676">2</a></sup>。\n\n'
+            "## 参考来源\n"
+            "1. [《民法典》第六百七十五条](https://example.com/675)"
+        )
+
+        # 缺的条目补进自定义分区本身，而不是另起标准分区。
+        self.assertNotIn("## 法律/案例信源", repaired)
+        self.assertEqual(repaired.count("## 参考来源"), 1)
+        self.assertIn("2. [《民法典》第六百七十六条](https://example.com/676)", repaired)
+
+    def test_web_footnotes_covered_by_custom_source_heading(self):
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            '据公开报道<sup><a href="https://news.example.com/a">网1</a></sup>，该案已立案。\n\n'
+            "### 报道来源\n"
+            "网1. [news.example.com](https://news.example.com/a)"
+        )
+
+        self.assertNotIn("## 联网搜索来源", repaired)
+        self.assertEqual(repaired.count("### 报道来源"), 1)
+
+    def test_source_like_heading_without_entries_does_not_block_rebuild(self):
+        """含「来源」字样但无列表条目的标题不算信源区，补建照常进行。"""
+        repaired = ocp.OCPStatic._deterministic_format_repair(
+            "## 争议焦点与来源说明\n\n本案焦点在于还款义务是否成立。\n\n"
+            "《民法典》第六百七十五条"
+            '<sup><a href="https://example.com/675">1</a></sup>规定借款人应按期返还借款。'
+        )
+
+        self.assertIn("## 法律/案例信源", repaired)
+        self.assertIn("1. [《民法典》第六百七十五条](https://example.com/675)", repaired)
+
     def test_ignores_text_without_footnotes(self):
         text = "普通正文，没有角标。"
         self.assertEqual(ocp.OCPStatic._deterministic_format_repair(text), text)

@@ -57,6 +57,18 @@ def _aware(value: Optional[datetime]) -> Optional[datetime]:
     return value
 
 
+def _to_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """写入口把带时区的 datetime 归一为 UTC 再落库。
+
+    SQLite 方言不保存 DateTime 的 offset：+08:00 原样入库会丢掉时区，
+    读回被当作 UTC 的同墙钟时刻，漂移整整个时差。归一为 UTC 后两种
+    方言（SQLite / PostgreSQL timestamptz）读回的都是同一时刻。
+    """
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc)
+
+
 def _validate_scope(
     *,
     title: str,
@@ -218,8 +230,8 @@ def create_announcement(payload: AnnouncementCreate, actor: str = Depends(requir
             body=payload.body,
             level=payload.level,
             audience=audience,
-            starts_at=payload.starts_at,
-            ends_at=payload.ends_at,
+            starts_at=_to_utc(payload.starts_at),
+            ends_at=_to_utc(payload.ends_at),
             active=payload.active,
             created_by=actor,
         )
@@ -267,8 +279,8 @@ def update_announcement(
         row.body = body
         row.level = level
         row.audience = audience
-        row.starts_at = starts_at
-        row.ends_at = ends_at
+        row.starts_at = _to_utc(starts_at)
+        row.ends_at = _to_utc(ends_at)
         row.active = active
         session.flush()
         result = _to_dict(row)
