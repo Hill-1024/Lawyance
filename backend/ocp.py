@@ -547,7 +547,14 @@ class OCPStatic:
         flags=re.IGNORECASE | re.DOTALL,
     )
     _SOURCE_HEADING_RE = re.compile(r'^\s*#{2,4}\s*(法律/案例信源|联网搜索来源)\s*$')
+    # 自定义信源分区：任意 2-4 级标题，标题文字含「信源」或「来源」即视为候选，
+    # 但还须在其下扫到列表条目才算数（见 _GENERIC_SOURCE_ENTRY_RE）。
+    _GENERIC_SOURCE_HEADING_RE = re.compile(r'^\s*#{2,4}\s*(\S.*?)\s*$')
+    _GENERIC_SOURCE_KEYWORD_RE = re.compile(r'信源|来源')
     _SOURCE_ENTRY_LABEL_RE = re.compile(r'^\s*(?:\[\s*(网?\d+)\s*\]|(网?\d+)\s*[.、)．])')
+    # 自定义分区里的条目允许带 Markdown 列表符号（"- 1. …"）或引用前缀。
+    _GENERIC_SOURCE_ENTRY_RE = re.compile(r'^\s*(?:[-*+]\s*|>\s*)?(?:\[\s*(网?\d+)\s*\]|(网?\d+)\s*[.、)．])')
+    _ANY_HEADING_PREFIX_RE = re.compile(r'^\s*#{1,6}\s')
     _LAW_NAME_RE = re.compile(r'《[^》\n]{2,60}》')
     _ARTICLE_NUM_RE = re.compile(r'第[一二三四五六七八九十百千零〇\d]+条')
     _CASE_NO_REF_RE = re.compile(r'[（(]\s*\d{4}\s*[)）][^\s，。；、\n]{2,30}?号')
@@ -616,6 +623,10 @@ class OCPStatic:
     def _ensure_source_sections(cls, text: str) -> str:
         """正文有角标而文末信源区缺失或漏项时，依据角标 URL 确定性补建。
 
+        识别标准分区（法律/案例信源、联网搜索来源）之外，也识别含「信源/来源」
+        字样且带编号条目的自定义分区（如「## 参考来源」）：条目齐全时不补建，
+        漏项时补进该分区本身，避免文末出现重复的信源区。
+
         幂等：编号与正文角标齐全时不改动文本。
         """
         if not text or "<sup" not in text.lower():
@@ -623,12 +634,41 @@ class OCPStatic:
 
         lines = text.split("\n")
         headings: list[tuple[int, str]] = []
+        generic_sections: list[tuple[int, int]] = []  # (标题行, 分区结束行) 前闭后开
         for index, line in enumerate(lines):
             match = cls._SOURCE_HEADING_RE.match(line)
             if match:
                 headings.append((index, match.group(1)))
+                continue
+            generic = cls._GENERIC_SOURCE_HEADING_RE.match(line)
+            if generic and cls._GENERIC_SOURCE_KEYWORD_RE.search(generic.group(1)):
+                end = next(
+                    (j for j in range(index + 1, len(lines)) if cls._ANY_HEADING_PREFIX_RE.match(lines[j])),
+                    len(lines),
+                )
+                generic_sections.append((index, end))
 
-        body_end = headings[0][0] if headings else len(lines)
+        # 自定义信源分区：标题下扫得到编号条目才算已有信源区，其编号同时
+        # 覆盖「法条」与「联网」两类角标（自定义分区通常不区分两者）。
+        covered_labels: set[str] = set()
+        generic_entry_sections: list[tuple[int, int]] = []  # 含条目的自定义分区
+        for index, end in generic_sections:
+            labels: set[str] = set()
+            for line in lines[index + 1:end]:
+                entry = cls._GENERIC_SOURCE_ENTRY_RE.match(line)
+                if not entry:
+                    continue
+                label = entry.group(1) or entry.group(2)
+                labels.add(label)
+                labels.add(f"网{label}")
+            if labels:
+                covered_labels |= labels
+                generic_entry_sections.append((index, end))
+
+        # 正文止于第一个真正的信源分区（标准或含条目的自定义分区）。
+        source_starts = [index for index, _ in headings]
+        source_starts.extend(index for index, _ in generic_entry_sections)
+        body_end = min(source_starts) if source_starts else len(lines)
         body = "\n".join(lines[:body_end])
         footnotes = cls._collect_footnotes(body)
         if not footnotes:
@@ -651,11 +691,14 @@ class OCPStatic:
 
         insertions: list[tuple[int, list[str]]] = []
         new_sections: list[list[str]] = []
+        generic_pending: list[str] = []
+        generic_fill_target = generic_entry_sections[-1] if generic_entry_sections else None
         for name, is_web in ((cls._LEGAL_SECTION_NAME, False), (cls._WEB_SECTION_NAME, True)):
             notes = [f for f in footnotes if f["label"].startswith("网") == is_web]
             if not notes:
                 continue
-            missing = [note for note in notes if note["label"] not in existing_labels.get(name, set())]
+            listed = existing_labels.get(name, set()) | covered_labels
+            missing = [note for note in notes if note["label"] not in listed]
             if not missing:
                 continue
             rendered = [cls._render_source_entry(body, note) for note in missing]
@@ -668,8 +711,21 @@ class OCPStatic:
                         position = cursor + 1
                         break
                 insertions.append((position, rendered))
+            elif generic_fill_target is not None:
+                # 已有自定义信源分区（如「## 参考来源」）：缺项补进分区本身，
+                # 不再另起标准分区造成重复。
+                generic_pending.extend(rendered)
             else:
                 new_sections.append([f"## {name}", *rendered])
+
+        if generic_pending and generic_fill_target is not None:
+            index, end = generic_fill_target
+            position = index + 1
+            for cursor in range(end - 1, index, -1):
+                if lines[cursor].strip():
+                    position = cursor + 1
+                    break
+            insertions.append((position, generic_pending))
 
         if new_sections:
             position = body_end if headings else len(lines)

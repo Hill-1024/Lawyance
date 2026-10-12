@@ -190,13 +190,6 @@ def _advance_phase(state: dict[str, Any]) -> None:
     state["forced_advance_requested"] = False
 
 
-def _last_public_event(events: list[dict[str, Any]]) -> dict[str, Any]:
-    for event in reversed(events or []):
-        if isinstance(event, dict):
-            return event
-    return {}
-
-
 def _last_speech_role(events: list[dict[str, Any]], user_side: str) -> str | None:
     """根据最近一条非系统发言推断说话方的诉/答角色。"""
     for event in reversed(events or []):
@@ -214,12 +207,25 @@ def _last_speech_role(events: list[dict[str, Any]], user_side: str) -> str | Non
     return None
 
 
+_YIELD_MARKERS = ("无更多意见", "没有更多意见", "不再补充", "暂无补充")
+
+
 def _last_ai_yields(events: list[dict[str, Any]]) -> bool:
-    last = _last_public_event(events)
-    if last.get("speaker") not in COURT_SPEAKERS:
-        return False
-    content = str(last.get("content") or "")
-    return any(marker in content for marker in ("无更多意见", "没有更多意见", "不再补充", "暂无补充"))
+    """法庭是否已经作出「无更多意见」式的结束宣告且宣告仍然有效。
+
+    从最近的事件向前扫描：用户方的回应（如对法官结束宣告的确认）不会顶掉宣告；
+    但宣告之后法庭（法官/对方/复盘员）只要又有不含结束标记的发言，就视为宣告
+    已失效，不再触发阶段推进。
+    """
+    for event in reversed(events or []):
+        if not isinstance(event, dict) or event.get("type") == "system":
+            continue
+        speaker = str(event.get("speaker") or "")
+        if speaker not in COURT_SPEAKERS:
+            continue
+        content = str(event.get("content") or "")
+        return any(marker in content for marker in _YIELD_MARKERS)
+    return False
 
 
 def _phase_limit_reached(state: dict[str, Any]) -> bool:
@@ -264,10 +270,18 @@ def decide_next_turn(raw_state: dict[str, Any] | None, public_events: list[dict[
     if state.get("awaiting_user") and not state.get("forced_advance_requested"):
         return CourtDecision(None, state["phase"], state, awaiting_user=True)
 
-    if state.get("forced_advance_requested") or _phase_limit_reached(state) or _last_ai_yields(public_events):
-        _advance_phase(state)
-        if state.get("trial_over"):
-            return CourtDecision(None, state["phase"], state, trial_over=True)
+    # 有待处理的插话时，法官的回应留在当前阶段；阶段推进（上限/yield/强制）
+    # 推迟到插话处理完的下一轮。用户显式要求推进（forced_advance_requested）
+    # 时仍照常推进，但插话回应不消耗推进后新阶段的预算。
+    had_interjection = bool(state.get("pending_interjection"))
+    forced_advance = bool(state.get("forced_advance_requested"))
+    advanced = False
+    if not had_interjection or forced_advance:
+        if forced_advance or _phase_limit_reached(state) or _last_ai_yields(public_events):
+            _advance_phase(state)
+            advanced = True
+            if state.get("trial_over"):
+                return CourtDecision(None, state["phase"], state, trial_over=True)
 
     role = _select_role(state, public_events)
     user_side = str(state.get("user_side") or "")
@@ -284,9 +298,10 @@ def decide_next_turn(raw_state: dict[str, Any] | None, public_events: list[dict[
 
     next_state["awaiting_user"] = speaker == "judge" and next_state["phase"] in JUDGE_AWAIT_PHASES
     next_state["total_turns"] = int(next_state.get("total_turns") or 0) + 1
-    counts = dict(next_state.get("phase_turn_counts") or {})
-    counts[next_state["phase"]] = int(counts.get(next_state["phase"], 0) or 0) + 1
-    next_state["phase_turn_counts"] = counts
+    if not (had_interjection and advanced):
+        counts = dict(next_state.get("phase_turn_counts") or {})
+        counts[next_state["phase"]] = int(counts.get(next_state["phase"], 0) or 0) + 1
+        next_state["phase_turn_counts"] = counts
     positions = dict(next_state.get("speaker_last_positions") or {})
     positions[speaker] = next_state["total_turns"]
     next_state["speaker_last_positions"] = positions
