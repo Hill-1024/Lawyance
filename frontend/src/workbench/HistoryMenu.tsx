@@ -12,6 +12,10 @@ const KEEP_OPEN_SELECTORS = [".wb-thread-menu", ".wb-thread-history"] as const;
 export type HistoryMenuProps = {
   conversations: Item[];
   courts: Item[];
+  /** 会话列表还有下一页（服务端游标非空）：下拉里据此显示「加载更多」。 */
+  hasMoreConversations: boolean;
+  loadingMoreConversations: boolean;
+  onLoadMoreConversations: () => void;
   currentConvId?: string;
   currentCourtId?: string;
   open: boolean;
@@ -26,6 +30,9 @@ export type HistoryMenuProps = {
 export function HistoryMenu({
   conversations,
   courts,
+  hasMoreConversations,
+  loadingMoreConversations,
+  onLoadMoreConversations,
   currentConvId,
   currentCourtId,
   open,
@@ -89,6 +96,18 @@ export function HistoryMenu({
                 </small>
               </button>
             ))}
+            {/* 会话列表分页：还有下一页才显示；不关菜单，静默续拉。 */}
+            {hasMoreConversations && (
+              <button
+                role="menuitem"
+                className="wb-load-more"
+                disabled={loadingMoreConversations}
+                onClick={onLoadMoreConversations}
+              >
+                <MessageSquare size={14} />
+                {t("common.loadMore")}
+              </button>
+            )}
             {!!courts.length && <small className="wb-thread-group">{t("workbench.history.groupCourt")}</small>}
             {courts.map((item) => (
               <button

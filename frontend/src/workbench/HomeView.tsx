@@ -14,6 +14,10 @@ export type HomeViewProps = {
   suggestions: SuggestionItem[];
   suggestionsLoading: boolean;
   recentSessions: RecentSession[];
+  /** 会话列表还有下一页（服务端游标非空）：最近会话尾部据此显示「加载更多」。 */
+  hasMoreSessions: boolean;
+  loadingMoreSessions: boolean;
+  onLoadMoreSessions: () => void;
   projects: Item[];
   projectFilter: "全部" | "最近";
   composer: React.ReactNode;
@@ -34,6 +38,9 @@ export function HomeView({
   suggestions,
   suggestionsLoading,
   recentSessions,
+  hasMoreSessions,
+  loadingMoreSessions,
+  onLoadMoreSessions,
   projects,
   projectFilter,
   composer,
@@ -131,6 +138,16 @@ export function HomeView({
           </div>
         ))}
         {!recentSessions.length && <p className="wb-empty-hint">{t("workbench.home.emptySessions")}</p>}
+        {/* 服务端还有下一页才显示；静默追加，不打断当前滚动位置。 */}
+        {hasMoreSessions && (
+          <button
+            className="wb-load-more"
+            disabled={loadingMoreSessions}
+            onClick={onLoadMoreSessions}
+          >
+            {t("common.loadMore")}
+          </button>
+        )}
       </section>
       {!project && (
         <section className="wb-home-projects">

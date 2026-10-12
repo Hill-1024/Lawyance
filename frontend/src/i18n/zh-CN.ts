@@ -17,6 +17,7 @@ export const zhCN = {
     save: "保存",
     gotIt: "知道了",
     retry: "重试",
+    loadMore: "加载更多",
     unknownError: "操作失败，请稍后重试。",
   },
   errors: {

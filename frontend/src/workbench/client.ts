@@ -12,6 +12,12 @@ export type Item = {
   updated_at: string;
   data: Record<string, any>;
 };
+/**
+ * 列表信封：GET /api/workbench/{family}（conversations/documents/projects…）与
+ * /search 恒返回此形态（旧数组形态已移除）。next_cursor === "" 表示没有更多；
+ * cursor 是不透明串，续拉时要 encodeURIComponent。
+ */
+export type Page<T = Item> = { items: T[]; next_cursor: string };
 export type Reference = {
   kind: "document" | "selection" | "region" | "folder" | "skill" | "connector";
   id: string;

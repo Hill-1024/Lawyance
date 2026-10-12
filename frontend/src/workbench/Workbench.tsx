@@ -31,6 +31,7 @@ import {
   remember,
   Conflict,
   Item,
+  Page,
   Reference,
   withoutTitle,
 } from "./client";
@@ -100,6 +101,12 @@ export default function Workbench({ username }: { username: string }) {
     courtItems,
     offline,
     reload,
+    conversationsCursor,
+    documentsCursor,
+    loadingMoreConversations,
+    loadingMoreDocuments,
+    loadMoreConversations,
+    loadMoreDocuments,
   } = useWorkbenchIndex(username, setError);
   const { t } = useT();
   const { showConfirm } = useAppDialog();
@@ -165,6 +172,8 @@ export default function Workbench({ username }: { username: string }) {
   const [notice, setNotice] = useState(""),
     [query, setQuery] = useState(""),
     [results, setResults] = useState<any[]>(),
+    [resultsCursor, setResultsCursor] = useState(""),
+    [searchingMore, setSearchingMore] = useState(false),
     [sidebar, setSidebar] = useState(false),
     [mobile, setMobile] = useState("会话"),
     [dialog, setDialog] = useState(""),
@@ -179,7 +188,10 @@ export default function Workbench({ username }: { username: string }) {
     [resizing, setResizing] = useState(false);
   const dragDepth = useRef(0),
     sideFile = useRef<HTMLInputElement>(null),
-    historyButton = useRef<HTMLButtonElement>(null);
+    historyButton = useRef<HTMLButtonElement>(null),
+    // 搜索的分页游标与轮次号：ref 供异步回调与「加载更多」读「此刻」的值。
+    searchCursor = useRef(""),
+    searchRound = useRef(0);
   const active = useRef<string>(undefined),
     draftKey = conv?.id || "new:" + String(projectId),
     draftReady = useRef(""),
@@ -275,8 +287,8 @@ export default function Workbench({ username }: { username: string }) {
         item,
       })),
     ]
-      .sort((a, b) => new Date(b.item.updated_at).getTime() - new Date(a.item.updated_at).getTime())
-      .slice(0, 6);
+      .sort((a, b) => new Date(b.item.updated_at).getTime() - new Date(a.item.updated_at).getTime());
+    // 不再截前 6 条：列表本身已是服务端分页的第一页（50 条），尾部挂「加载更多」续拉。
 
   function createDocument() {
     // 创建类 POST 强制 Idempotency-Key：key 与本次「新建文档」动作绑定，网络重试复用。
@@ -349,25 +361,53 @@ export default function Workbench({ username }: { username: string }) {
         setError(t("workbench.shell.draftCacheFailed")),
       );
   }
+  // 搜索同样走信封分页：query 变化重拉第一页（limit=50，重置游标），
+  // 「加载更多」按游标续拉并按 id 去重追加；轮次号让乱序返回的过期响应直接丢弃。
+  async function runSearch(mode: "reset" | "more") {
+    if (mode === "more" && !searchCursor.current) return;
+    const cursor = mode === "more" ? searchCursor.current : "";
+    const round = ++searchRound.current;
+    if (mode === "more") setSearchingMore(true);
+    try {
+      const page = await api<Page>(
+        "/search?kind=document&space=" +
+          encodeURIComponent(projectId || "personal") +
+          "&q=" +
+          encodeURIComponent(query) +
+          "&limit=50" +
+          (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""),
+      );
+      if (round !== searchRound.current) return;
+      searchCursor.current = page.next_cursor;
+      setResultsCursor(page.next_cursor);
+      setResults((old) =>
+        mode === "more" && old
+          ? [...old, ...page.items.filter((item) => !old.some((o) => o.id === item.id))]
+          : page.items,
+      );
+    } catch (e) {
+      // 换词触发的第一页失败照常报错；续拉失败静默，按钮留在原地可重试。
+      if (mode === "reset" && round === searchRound.current) reportError(e);
+    } finally {
+      if (mode === "more") setSearchingMore(false);
+    }
+  }
+  const runSearchRef = useRef(runSearch);
+  runSearchRef.current = runSearch;
   useEffect(() => {
     if (!query) {
+      searchRound.current += 1; // 使在途搜索响应过期
+      searchCursor.current = "";
+      setResultsCursor("");
       setResults(undefined);
       return;
     }
-    const timer = setTimeout(
-      () =>
-        api<any[]>(
-          "/search?kind=document&space=" +
-            encodeURIComponent(projectId || "personal") +
-            "&q=" +
-            encodeURIComponent(query),
-        )
-          .then(setResults)
-          .catch((e) => reportError(e)),
-      180,
-    );
+    // 换词/换空间立即作废旧游标：防抖等待期间「加载更多」隐藏，也不会拿旧词的游标续拉。
+    searchCursor.current = "";
+    setResultsCursor("");
+    const timer = setTimeout(() => void runSearchRef.current("reset"), 180);
     return () => clearTimeout(timer);
-  }, [query, projectId, reportError]);
+  }, [query, projectId]);
   // 运行状态只有这一个写入口：终止状态且该标签不是当前标签时留下未读标记。
   function recordRun(key: string, id: string, status: string) {
     const terminal = !["queued", "running", "waiting_confirmation"].includes(status);
@@ -651,13 +691,20 @@ export default function Workbench({ username }: { username: string }) {
     if (!alive({ kind: isCourtPath ? "court" : "conversation", id: routeUuid }))
       navigate(projectId ? "/project/" + encodeURIComponent(projectId) : "/home");
   });
+  // 索引分页后只持有第一页（+已加载页）：不在已加载页里的会话/庭审不能被当成「已删除」，
+  // 否则打开第 50 条以外的旧会话会被下面的标签清理 effect 立即关掉并弹回首页。
+  // 见过的 id 永久放行；真正的删除由 removeItem 显式清标记并清标签。
+  const knownSessions = useRef<Set<string>>(new Set());
+  for (const item of conversations) knownSessions.current.add(item.id);
+  for (const item of courtItems) knownSessions.current.add(item.id);
   // 会话/庭审被删除后剔除残留标签；当前标签被清掉时把路由带回空间首页。
   useEffect(() => {
     if (!conversations.length && !courtItems.length) return;
     const alive = (tab: TabRef) =>
-      tab.kind === "court"
+      knownSessions.current.has(tab.id) ||
+      (tab.kind === "court"
         ? courtItems.some((item) => item.id === tab.id)
-        : conversations.some((item) => item.id === tab.id);
+        : conversations.some((item) => item.id === tab.id));
     setTabBook((book) => {
       let next = book;
       for (const name of Object.keys(book)) next = purgeTabs(next, name, alive);
@@ -760,6 +807,7 @@ export default function Workbench({ username }: { username: string }) {
             : "conversations";
     return api("/" + family + "/" + item.id, "DELETE")
       .then(() => {
+        knownSessions.current.delete(item.id);
         if (doc?.id === item.id) setDoc(undefined);
         if (conv?.id === item.id) setConv(undefined);
         if (item.kind === "conversation")
@@ -1194,7 +1242,13 @@ export default function Workbench({ username }: { username: string }) {
         courtSession={!!courtSelection}
         query={query}
         results={results}
+        resultsCursor={resultsCursor}
+        loadingMoreResults={searchingMore}
+        onLoadMoreResults={() => void runSearchRef.current("more")}
         docs={spaceDocs}
+        docsCursor={documentsCursor}
+        loadingMoreDocs={loadingMoreDocuments}
+        onLoadMoreDocs={() => void loadMoreDocuments()}
         activeDocId={doc?.id}
         showDoc={showDoc}
         fileInput={sideFile}
@@ -1240,6 +1294,9 @@ export default function Workbench({ username }: { username: string }) {
               <HistoryMenu
                 conversations={spaceConversations}
                 courts={spaceCourts}
+                hasMoreConversations={!!conversationsCursor}
+                loadingMoreConversations={loadingMoreConversations}
+                onLoadMoreConversations={() => void loadMoreConversations()}
                 currentConvId={conv?.id}
                 currentCourtId={courtSelection}
                 open={history}
@@ -1376,6 +1433,9 @@ export default function Workbench({ username }: { username: string }) {
               suggestions={suggestions.itemsFor(space)}
               suggestionsLoading={suggestions.loading(space)}
               recentSessions={recentSessions}
+              hasMoreSessions={!!conversationsCursor}
+              loadingMoreSessions={loadingMoreConversations}
+              onLoadMoreSessions={() => void loadMoreConversations()}
               projects={projects}
               projectFilter={projectFilter}
               composer={composer}
