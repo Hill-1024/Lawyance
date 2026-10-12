@@ -181,12 +181,23 @@ def _parse(raw: str) -> list[dict[str, str]]:
     return items
 
 
-async def _ask_model(digest: str) -> list[dict[str, str]]:
+def _locale_directive(locale: str | None) -> str:
+    """把界面语言并入生成要求；未指定 locale 时返回空串，提示与原行为完全一致。"""
+    if not locale:
+        return ""
+    return (
+        f"\n- 语言：建议的 title 与 prompt 一律使用 {locale} 对应的语言撰写"
+        f"（{locale} 是 BCP-47 标签，例如 en-US 表示英文、zh-CN 表示中文）；"
+        "确实无法表达时才回退中文。"
+    )
+
+
+async def _ask_model(digest: str, locale: str | None = None) -> list[dict[str, str]]:
     from function_calling import call
 
     message = await call(
         [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": SYSTEM_PROMPT + _locale_directive(locale)},
             {"role": "user", "content": digest},
         ],
         stream=False,
@@ -202,22 +213,27 @@ def _prune(now_ts: float):
         _cache.pop(key, None)
 
 
-async def generate(user: str, project_id: str | None, refresh: bool = False) -> dict:
+async def generate(
+    user: str, project_id: str | None, refresh: bool = False, locale: str | None = None
+) -> dict:
     """首页建议的对外入口：**任何**异常都降级成静态建议。
 
     这是首页的装饰性内容，它失败不该让整个首页报错——尤其是存储层还没就绪、
     模型没配置这类完全与用户无关的原因。
     """
     try:
-        return await _generate(user, project_id, refresh)
+        return await _generate(user, project_id, refresh, locale)
     except Exception:
         _logger.exception("生成工作建议失败，改用静态建议")
         return {"items": _fallback(f"{user}|{project_id or '*'}", advance=refresh), "degraded": True, "cached": False}
 
 
-async def _generate(user: str, project_id: str | None, refresh: bool = False) -> dict:
+async def _generate(
+    user: str, project_id: str | None, refresh: bool = False, locale: str | None = None
+) -> dict:
     signature, digest = material_digest(user, project_id)
-    key = f"{user}|{project_id or '*'}"
+    # locale 参与缓存键：不同语言的请求不能互相命中对方的缓存；留空时键与原先完全一致。
+    key = f"{user}|{project_id or '*'}" + (f"|{locale}" if locale else "")
     now_ts = time.time()
     entry = _cache.get(key)
     fresh = bool(entry and entry["expires"] > now_ts and entry["signature"] == signature)
@@ -233,7 +249,7 @@ async def _generate(user: str, project_id: str | None, refresh: bool = False) ->
         return {**value, "cached": False}
     _refresh_at[key] = now_ts
     try:
-        items = await asyncio.wait_for(_ask_model(digest), timeout=MODEL_TIMEOUT)
+        items = await asyncio.wait_for(_ask_model(digest, locale), timeout=MODEL_TIMEOUT)
     except Exception:
         items = []
     if items:
