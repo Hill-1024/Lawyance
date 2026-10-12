@@ -64,7 +64,7 @@ python -m workbench.maintenance verify /secure/backups/lawver/YYYY-MM-DD
 - 明确豁免（保持无键）：`POST /suggestions`（查询类）、`POST /connectors/{identifier}/test`（连接探测，要求带键会挡住「再测一次」）、`POST /runs/{id}/stop`（紧急取消，重放无副作用）。
 - **重试必须复用同一个键**：服务端按 `sha256(user:key)` 去重（PostgreSQL 上另加 advisory lock 串行化同键并发提交）。同键同载荷返回首次的结果（内容一字不差）；同键不同载荷返回 `409 幂等键已经用于不同请求`。网络超时后原样重发（同键同体）是安全的；换内容重试必须换新键。
 - 422 语义：键缺失或长度超过 128 字符时返回 `422 {"detail": "需要有效的 Idempotency-Key"}`。这与请求体校验失败共用同一状态码，客户端按 `detail` 文案区分。
-- 配套的列表/搜索分页（`GET /{family}`、`GET /search`）为附加式可选 `limit`（1..200）与 `cursor`（不透明串，取最后一行 `(updated_at, id)` 的 base64）：任一出现时返回 `{items, next_cursor}` 信封，`next_cursor` 为空串表示没有更多；两者都缺省时维持旧的纯数组返回与原有上限（列表 2000、搜索 100），旧客户端不受影响。
+- **列表/搜索分页（`GET /{family}`、`GET /search`）为破坏性变更：恒返回 `{items, next_cursor}` 信封，旧的纯数组返回形态已移除。** `limit` 缺省 50，合法范围 1..200（越界 422）；`cursor` 是不透明串（最后一行 `(updated_at, id)` 的 base64），`next_cursor` 为空串表示没有更多。排序按 `updated_at DESC`（keyset 行值比较），数据发生变更后应重拉第一页，不要依赖旧游标继续翻页。按数组解析的旧客户端（前端、脚本）必须改读 `items` 字段后才能使用。
 
 ## 监控与敏感数据
 
