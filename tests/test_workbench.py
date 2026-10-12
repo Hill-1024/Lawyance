@@ -354,7 +354,7 @@ def test_project_optional_description_roundtrip(client):
     detail = client.get('/api/workbench/projects/' + saved['id']).json()
     assert detail['data']['desc'] == '梳理付款条款\n核对交付期限'
     listed = client.get('/api/workbench/projects').json()
-    assert next(p for p in listed if p['id'] == saved['id'])['data']['desc'] == detail['data']['desc']
+    assert next(p for p in listed['items'] if p['id'] == saved['id'])['data']['desc'] == detail['data']['desc']
     assert client.post('/api/workbench/projects', json={'title': '过长', 'desc': '字' * 2001}, headers={'Idempotency-Key': new_id()}).status_code == 422
 
 
@@ -381,20 +381,25 @@ def test_search_kind_and_space_filter(client):
         headers={"Idempotency-Key": new_id()},
     )
     everything = client.get("/api/workbench/search", params={"q": "合同"}).json()
-    assert {hit["kind"] for hit in everything} == {"document", "conversation"}
+    assert {hit["kind"] for hit in everything["items"]} == {"document", "conversation"}
     files = client.get("/api/workbench/search", params={"q": "合同", "kind": "document"}).json()
-    assert [hit["kind"] for hit in files] == ["document"]
-    assert "付款期限" not in str(files[0]["data"])
+    assert [hit["kind"] for hit in files["items"]] == ["document"]
+    assert "付款期限" not in str(files["items"][0]["data"])
     assert (
         client.get(
             "/api/workbench/search",
             params={"q": "合同", "kind": "document", "space": "personal"},
-        ).json()
+        ).json()["items"]
         == []
     )
-    assert len(
-        client.get("/api/workbench/search", params={"q": "合同", "space": p["id"]}).json()
-    ) == 2
+    assert (
+        len(
+            client.get(
+                "/api/workbench/search", params={"q": "合同", "space": p["id"]}
+            ).json()["items"]
+        )
+        == 2
+    )
     assert (
         client.get("/api/workbench/search", params={"q": "合同", "kind": "court"}).status_code
         == 422
@@ -497,7 +502,7 @@ def test_project_court_snapshot_conflict_and_resume(client):
     assert client.put('/api/workbench/courts/trial-one/snapshot',json=payload).json()['revision'] == 1
     listing = client.get('/api/workbench/courts').json()
     assert '私有策略' not in str(listing)
-    restored = client.get('/api/workbench/courts?include_session=true').json()[0]['data']['session']
+    restored = client.get('/api/workbench/courts?include_session=true').json()['items'][0]['data']['session']
     assert restored['project_id'] == p['id'] and restored['private_brief']['strategy'] == '私有策略'
     snapshot['shared_dossier']['summary'] = '修订事实'
     assert client.put('/api/workbench/courts/trial-one/snapshot',json=payload).status_code == 409
@@ -666,7 +671,7 @@ def test_create_requires_and_honors_idempotency_key(client):
         == 409
     )
     # 幂等去重之后列表里仍然只有一条。
-    assert len(client.get("/api/workbench/documents").json()) == 1
+    assert len(client.get("/api/workbench/documents").json()["items"]) == 1
 
 
 def _conversation_with_message(client):
@@ -800,21 +805,21 @@ def test_listing_and_search_skip_items_whose_project_is_gone(client):
     """可达性批量复核与 get_item 同语义：项目进回收站后条目从列表与搜索消失。"""
     p = project(client)
     d = document(client, p)
-    assert [x["id"] for x in client.get("/api/workbench/documents").json()] == [d["id"]]
+    assert [x["id"] for x in client.get("/api/workbench/documents").json()["items"]] == [d["id"]]
     client.delete("/api/workbench/projects/" + p["id"])
-    assert client.get("/api/workbench/documents").json() == []
+    assert client.get("/api/workbench/documents").json()["items"] == []
     assert (
-        client.get("/api/workbench/search", params={"q": "合同"}).json() == []
+        client.get("/api/workbench/search", params={"q": "合同"}).json()["items"] == []
     )
     client.post(
         "/api/workbench/trash/" + p["id"] + "/restore",
         headers={"Idempotency-Key": new_id()},
     )
-    assert [x["id"] for x in client.get("/api/workbench/documents").json()] == [d["id"]]
+    assert [x["id"] for x in client.get("/api/workbench/documents").json()["items"]] == [d["id"]]
 
 
-def test_listing_keyset_pagination_is_additive(client):
-    """limit/cursor 任一出现才返回信封；都缺省时维持原数组形状与上限语义。"""
+def test_listing_keyset_pagination_is_envelope_only(client):
+    """破坏性契约：恒返回 {items, next_cursor} 信封，缺省 limit=50。"""
     p = project(client)
     titles = {f"文档{i}" for i in range(5)}
     for title in sorted(titles):
@@ -825,9 +830,12 @@ def test_listing_keyset_pagination_is_additive(client):
         )
         assert r.status_code == 200, r.text
 
-    legacy = client.get("/api/workbench/documents")
-    assert isinstance(legacy.json(), list)
-    assert len(legacy.json()) == 5
+    default = client.get("/api/workbench/documents")
+    assert isinstance(default.json(), dict)
+    assert set(default.json()) == {"items", "next_cursor"}
+    # 5 行 < 默认 50：一次取尽，next_cursor 为空串。
+    assert default.json()["next_cursor"] == ""
+    assert {item["title"] for item in default.json()["items"]} == titles
 
     seen, cursor, pages = [], None, 0
     while True:
@@ -848,7 +856,7 @@ def test_listing_keyset_pagination_is_additive(client):
     assert len(seen) == len(set(seen)) == 5
     assert set(seen) == titles
 
-    # 只带 cursor（不带 limit）同样走信封：默认页大小一次取完剩余行。
+    # 只带 cursor（不带 limit）同样返回信封：缺省页大小一次取完剩余行。
     first = client.get("/api/workbench/documents", params={"limit": 2}).json()
     rest = client.get(
         "/api/workbench/documents", params={"cursor": first["next_cursor"]}
@@ -871,7 +879,7 @@ def test_listing_keyset_pagination_is_additive(client):
     )
 
 
-def test_search_keyset_pagination_is_additive(client):
+def test_search_keyset_pagination_is_envelope_only(client):
     p = project(client)
     for index in range(4):
         r = client.post(
@@ -885,9 +893,12 @@ def test_search_keyset_pagination_is_additive(client):
         )
         assert r.status_code == 200, r.text
 
-    legacy = client.get("/api/workbench/search", params={"q": "合同"})
-    assert isinstance(legacy.json(), list)
-    assert len(legacy.json()) == 4
+    default = client.get("/api/workbench/search", params={"q": "合同"})
+    assert isinstance(default.json(), dict)
+    assert set(default.json()) == {"items", "next_cursor"}
+    # 4 行 < 默认 50：一次取尽，next_cursor 为空串。
+    assert default.json()["next_cursor"] == ""
+    assert len(default.json()["items"]) == 4
 
     first = client.get("/api/workbench/search", params={"q": "合同", "limit": 3})
     assert first.status_code == 200
@@ -902,3 +913,56 @@ def test_search_keyset_pagination_is_additive(client):
     assert rest["next_cursor"] == ""
     ids = [item["id"] for item in envelope["items"] + rest["items"]]
     assert len(ids) == len(set(ids)) == 4
+
+
+def test_pagination_contract_default_limit_bounds_and_exhaustion(client):
+    """破坏性契约三要素：a) 无参数默认 limit=50 且返回信封；b) limit 越界 422；
+    c) 翻页到尽头 next_cursor 为空串。列表与搜索同一契约。"""
+    p = project(client)
+    for index in range(55):
+        r = client.post(
+            "/api/workbench/documents",
+            json={
+                "title": f"分页{index:02d}",
+                "project_id": p["id"],
+                "content": native("条款"),
+            },
+            headers={"Idempotency-Key": new_id()},
+        )
+        assert r.status_code == 200, r.text
+
+    # a) 无参数：信封形状，默认 limit=50（55 行 → 首页恰好 50 行且还有下一页）。
+    for path, params in (
+        ("/api/workbench/documents", None),
+        ("/api/workbench/search", {"q": "分页"}),
+    ):
+        default = client.get(path, params=params)
+        assert default.status_code == 200
+        envelope = default.json()
+        assert set(envelope) == {"items", "next_cursor"}
+        assert len(envelope["items"]) == 50
+        assert envelope["next_cursor"]
+
+        # b) limit 边界：越界由既有 Query 校验拒绝，边界值放行。
+        assert client.get(path, params={**(params or {}), "limit": 0}).status_code == 422
+        assert client.get(path, params={**(params or {}), "limit": 201}).status_code == 422
+        assert client.get(path, params={**(params or {}), "limit": 1}).status_code == 200
+        ceiling = client.get(path, params={**(params or {}), "limit": 200})
+        assert ceiling.status_code == 200
+        assert len(ceiling.json()["items"]) == 55
+        assert ceiling.json()["next_cursor"] == ""
+
+        # c) 翻页到尽头：从默认页的游标继续，最后一页 5 行，next_cursor 为空串。
+        seen = len(envelope["items"])
+        cursor = envelope["next_cursor"]
+        while True:
+            page = client.get(path, params={**(params or {}), "cursor": cursor})
+            assert page.status_code == 200
+            body = page.json()
+            assert set(body) == {"items", "next_cursor"}
+            seen += len(body["items"])
+            if not body["next_cursor"]:
+                break
+            cursor = body["next_cursor"]
+            assert seen <= 55
+        assert seen == 55

@@ -329,7 +329,7 @@ def search(
     q: str = "",
     kind: str | None = None,
     space: str | None = None,
-    limit: int | None = Query(default=None, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=200),
     cursor: str | None = Query(default=None),
     user=Depends(gate),
 ):
@@ -339,8 +339,7 @@ def search(
         if kind not in kinds:
             raise HTTPException(422, "不支持的搜索类型")
         kinds = [kind]
-    # 附加式分页：limit/cursor 任一出现才改用信封；都缺省时维持原数组形状与上限（100）。
-    paged = limit is not None or cursor is not None
+    # 破坏性切换：恒返回 {items, next_cursor} 信封，缺省 limit=50（越界由 Query 校验 422）。
     with transaction() as s:
         query = select(Item).where(
             Item.owner == user,
@@ -356,7 +355,7 @@ def search(
         elif space:
             get_item(s, user, space, "project")
             query = query.where(Item.project_id == space)
-        page = limit if limit is not None else 100
+        page = limit
         if cursor is not None:
             query = _after_cursor(query, cursor)
         rows = s.scalars(query.order_by(Item.updated_at.desc()).limit(page)).all()
@@ -380,8 +379,6 @@ def search(
                     ][:200],
                 }
             )
-        if not paged:
-            return result
         return _page_envelope(rows, result, page)
 
 
@@ -1060,15 +1057,14 @@ def listing(
     family: str,
     project_id: str | None = None,
     include_session: bool = False,
-    limit: int | None = Query(default=None, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=200),
     cursor: str | None = Query(default=None),
     user=Depends(gate),
 ):
     kind = KINDS.get(family)
     if not kind:
         raise HTTPException(404, "内容不存在或无权访问")
-    # 附加式分页：limit/cursor 任一出现才改用信封；都缺省时维持原数组形状与上限（2000）。
-    paged = limit is not None or cursor is not None
+    # 破坏性切换：恒返回 {items, next_cursor} 信封，缺省 limit=50（越界由 Query 校验 422）。
     with transaction() as s:
         query = select(Item).where(
             Item.owner == user, Item.kind == kind, Item.deleted_at.is_(None)
@@ -1076,7 +1072,7 @@ def listing(
         if project_id:
             get_item(s, user, project_id, "project")
             query = query.where(Item.project_id == project_id)
-        page = limit if limit is not None else 2000
+        page = limit
         if cursor is not None:
             query = _after_cursor(query, cursor)
         rows = s.scalars(query.order_by(Item.updated_at.desc()).limit(page)).all()
@@ -1103,11 +1099,8 @@ def listing(
                     if k not in ("content", "text", "import_content")
                 }
             values.append(value)
-        prefix = builtins() if kind == "skill" else []
-        if not paged:
-            return prefix + values
         envelope = _page_envelope(rows, values, page)
-        envelope["items"] = prefix + envelope["items"]
+        envelope["items"] = builtins() + envelope["items"] if kind == "skill" else envelope["items"]
         return envelope
 
 
