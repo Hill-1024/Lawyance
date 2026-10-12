@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 import asyncio
+import base64
 import copy
 import hashlib
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Query,
     UploadFile,
     File,
     Form,
@@ -20,7 +23,7 @@ from fastapi import (
 )
 from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import select, or_
+from sqlalchemy import and_, or_, select
 from services.auth_dependencies import get_current_user
 from infra import database
 from billing import ledger as billing
@@ -194,6 +197,75 @@ def receipt(session, user, key, payload, action):
     return result
 
 
+def _require_key(key: str | None) -> None:
+    """路由级幂等键预检：让昂贵的解析（附件、压缩包）发生之前就拒绝无键请求。
+
+    完整校验仍由事务内的 receipt() 负责，这里只是提前短路。
+    """
+    if not key or len(key) > 128:
+        raise HTTPException(422, "需要有效的 Idempotency-Key")
+
+
+def _reachable_projects(session, user, rows):
+    """列表/搜索的批量项目可达性复核。
+
+    get_item 对一行内容的额外判定只有一条：带 project_id 的条目要求所属项目
+    存在、归属本人且未删除（条目本身的 owner/kind/deleted_at 已由列表查询
+    过滤）。这里一次查出相关 project 集合代替逐行 get_item：2000 行的列表
+    从 2000 次查询降为 1 次，判定语义与 get_item 完全一致。
+    """
+    identifiers = {row.project_id for row in rows if row.project_id}
+    if not identifiers:
+        return set()
+    return set(
+        session.scalars(
+            select(Item.id).where(
+                Item.id.in_(identifiers),
+                Item.owner == user,
+                Item.deleted_at.is_(None),
+            )
+        )
+    )
+
+
+def _encode_cursor(item) -> str:
+    """不透明游标 = 最后一行 (updated_at, id) 的 base64（urlsafe，客户端原样回传）。"""
+    raw = f"{item.updated_at.isoformat()}|{item.id}".encode()
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+def _decode_cursor(cursor: str):
+    try:
+        moment, identifier = base64.urlsafe_b64decode(cursor.encode()).decode().split(
+            "|", 1
+        )
+        return datetime.fromisoformat(moment), identifier
+    except Exception:
+        raise HTTPException(422, "无效的游标")
+
+
+def _after_cursor(query, cursor: str):
+    """keyset 条件：排序是 updated_at DESC，下一页 = (updated_at, id) 严格小于游标。
+
+    id 升一维防止同一时刻的并列行在翻页时丢行或重行。
+    """
+    moment, identifier = _decode_cursor(cursor)
+    return query.where(
+        or_(
+            Item.updated_at < moment,
+            and_(Item.updated_at == moment, Item.id < identifier),
+        )
+    )
+
+
+def _page_envelope(rows, values, page: int):
+    """信封形状：next_cursor 为空串表示没有更多。"""
+    return {
+        "items": values,
+        "next_cursor": _encode_cursor(rows[-1]) if len(rows) == page else "",
+    }
+
+
 def _unique_document_title(session, user, project_id, title: str) -> str:
     """同名文件自动加序号（name (2).ext）。
 
@@ -257,6 +329,8 @@ def search(
     q: str = "",
     kind: str | None = None,
     space: str | None = None,
+    limit: int | None = Query(default=None, ge=1, le=200),
+    cursor: str | None = Query(default=None),
     user=Depends(gate),
 ):
     q = q.strip()[:200]
@@ -265,6 +339,8 @@ def search(
         if kind not in kinds:
             raise HTTPException(422, "不支持的搜索类型")
         kinds = [kind]
+    # 附加式分页：limit/cursor 任一出现才改用信封；都缺省时维持原数组形状与上限（100）。
+    paged = limit is not None or cursor is not None
     with transaction() as s:
         query = select(Item).where(
             Item.owner == user,
@@ -280,12 +356,14 @@ def search(
         elif space:
             get_item(s, user, space, "project")
             query = query.where(Item.project_id == space)
-        rows = s.scalars(query.order_by(Item.updated_at.desc()).limit(100)).all()
+        page = limit if limit is not None else 100
+        if cursor is not None:
+            query = _after_cursor(query, cursor)
+        rows = s.scalars(query.order_by(Item.updated_at.desc()).limit(page)).all()
+        reachable = _reachable_projects(s, user, rows)
         result = []
         for item in rows:
-            try:
-                get_item(s, user, item.id)
-            except HTTPException:
+            if item.project_id and item.project_id not in reachable:
                 continue
             value = {**public(item)}
             if item.kind == "document":
@@ -302,12 +380,15 @@ def search(
                     ][:200],
                 }
             )
-        return result
+        if not paged:
+            return result
+        return _page_envelope(rows, result, page)
 
 
 @router.post("/suggestions")
 async def suggestions(body: Suggest, user=Depends(gate)):
     """首页建议只读素材标题；模型失败或维护期都不影响其它接口。"""
+    # 幂等键豁免：查询类端点（读素材 + 进程内缓存），不产生持久变更，重放无副作用。
     if body.project_id:
 
         def check_project():
@@ -336,14 +417,23 @@ def trash(user=Depends(gate)):
 
 
 @router.post("/trash/{identifier}/restore")
-def undelete(identifier: str, user=Depends(gate)):
+def undelete(
+    identifier: str,
+    idempotency_key: str | None = Header(None),
+    user=Depends(gate),
+):
+    # 恢复是创建/恢复类变更：强制幂等键，重试不会恢复出第二条记录。
     with transaction() as s:
-        item = get_item(s, user, identifier, deleted=True, lock=True)
-        if item.project_id:
-            get_item(s, user, item.project_id, "project")
-        item.deleted_at = None
-        item.updated_at = now()
-        return public(item)
+
+        def apply():
+            item = get_item(s, user, identifier, deleted=True, lock=True)
+            if item.project_id:
+                get_item(s, user, item.project_id, "project")
+            item.deleted_at = None
+            item.updated_at = now()
+            return public(item)
+
+        return receipt(s, user, idempotency_key, {"id": identifier}, apply)
 
 
 @router.get("/documents/{identifier}/versions")
@@ -391,29 +481,44 @@ def save(identifier: str, body: Save, user=Depends(gate)):
 
 
 @router.post("/documents/{identifier}/restore-version")
-def restore_version(identifier: str, body: Restore, user=Depends(gate)):
+def restore_version(
+    identifier: str,
+    body: Restore,
+    idempotency_key: str | None = Header(None),
+    user=Depends(gate),
+):
+    # 恢复历史版本是创建/恢复类变更：强制幂等键，网络重试不会叠加出多个新版本。
     with transaction() as s:
-        item = get_item(s, user, identifier, "document", lock=True)
-        check_revision(item, body.expected_revision)
-        v = s.scalar(
-            select(Version).where(
-                Version.document_id == identifier,
-                Version.owner == user,
-                Version.revision == body.revision,
+
+        def apply():
+            item = get_item(s, user, identifier, "document", lock=True)
+            check_revision(item, body.expected_revision)
+            v = s.scalar(
+                select(Version).where(
+                    Version.document_id == identifier,
+                    Version.owner == user,
+                    Version.revision == body.revision,
+                )
             )
+            if not v or v.data.get("format") != "native":
+                raise HTTPException(422, "此版本不能恢复为原生文档")
+            update_content(s, item, copy.deepcopy(v.data["content"]))
+            return public(item)
+
+        return receipt(
+            s, user, idempotency_key, {"id": identifier, **body.model_dump()}, apply
         )
-        if not v or v.data.get("format") != "native":
-            raise HTTPException(422, "此版本不能恢复为原生文档")
-        update_content(s, item, copy.deepcopy(v.data["content"]))
-        return public(item)
 
 
 @router.post("/documents/upload")
 async def upload(
     file: UploadFile = File(...),
     project_id: str | None = Form(None),
+    idempotency_key: str | None = Header(None),
     user=Depends(gate),
 ):
+    # 路由级预检：键缺失/超长直接 422，不要白解析一份 32 MB 的附件。
+    _require_key(idempotency_key)
     raw = await file.read(MAX_UPLOAD + 1)
     if len(raw) > MAX_UPLOAD:
         raise HTTPException(413, "文件不能超过 32 MB")
@@ -424,26 +529,37 @@ async def upload(
     def store():
         # 落 blob（最大 32 MB）与建条目同样是阻塞操作，和解析一起放进线程。
         with transaction() as s:
-            if project_id:
-                get_item(s, user, project_id, "project")
-            # 同名文件自动加序号：此前两次上传同名文件会产生两条标题完全相同的记录，
-            # 引用、搜索和清理时都分不出彼此。
-            unique_title = _unique_document_title(s, user, project_id, title)
-            data.update(blob_key=BlobStore().put(raw), size=len(raw), mime=mime)
-            item = Item(
-                id=new_id(),
-                owner=user,
-                kind="document",
-                project_id=project_id,
-                title=unique_title,
-                revision=1,
-                data=data,
-                searchable=data.get("text", ""),
+
+            def apply():
+                if project_id:
+                    get_item(s, user, project_id, "project")
+                # 同名文件自动加序号：此前两次上传同名文件会产生两条标题完全相同的记录，
+                # 引用、搜索和清理时都分不出彼此。
+                unique_title = _unique_document_title(s, user, project_id, title)
+                data.update(blob_key=BlobStore().put(raw), size=len(raw), mime=mime)
+                item = Item(
+                    id=new_id(),
+                    owner=user,
+                    kind="document",
+                    project_id=project_id,
+                    title=unique_title,
+                    revision=1,
+                    data=data,
+                    searchable=data.get("text", ""),
+                )
+                s.add(item)
+                s.flush()
+                save_version(s, item)
+                return public(item)
+
+            # 指纹取语义字段：同名同大小的文件传到不同项目算不同请求。
+            return receipt(
+                s,
+                user,
+                idempotency_key,
+                {"filename": title, "size": len(raw), "project_id": project_id},
+                apply,
             )
-            s.add(item)
-            s.flush()
-            save_version(s, item)
-            return public(item)
 
     return await asyncio.to_thread(store)
 
@@ -465,23 +581,32 @@ def blob(identifier: str, user=Depends(gate)):
 
 
 @router.post("/documents/{identifier}/editable-copy")
-def editable(identifier: str, user=Depends(gate)):
+def editable(
+    identifier: str,
+    idempotency_key: str | None = Header(None),
+    user=Depends(gate),
+):
+    # 创建编辑副本是创建类变更：强制幂等键，重试不会复制出多份副本。
     with transaction() as s:
-        item = get_item(s, user, identifier, "document")
-        content = (
-            item.data.get("content")
-            or item.data.get("import_content")
-            or native(item.data.get("text", ""))
-        )
-        copy_item = create_document(
-            s, user, item.project_id, item.title + " · 编辑副本", content
-        )
-        copy_item.data = {
-            **copy_item.data,
-            "source_id": item.id,
-            "conversion_notice": "这是编辑副本，复杂版式、批注、页眉页脚和嵌入对象可能未保留。原文件保持不变。",
-        }
-        return public(copy_item)
+
+        def apply():
+            item = get_item(s, user, identifier, "document")
+            content = (
+                item.data.get("content")
+                or item.data.get("import_content")
+                or native(item.data.get("text", ""))
+            )
+            copy_item = create_document(
+                s, user, item.project_id, item.title + " · 编辑副本", content
+            )
+            copy_item.data = {
+                **copy_item.data,
+                "source_id": item.id,
+                "conversion_notice": "这是编辑副本，复杂版式、批注、页眉页脚和嵌入对象可能未保留。原文件保持不变。",
+            }
+            return public(copy_item)
+
+        return receipt(s, user, idempotency_key, {"id": identifier}, apply)
 
 
 @router.get("/documents/{identifier}/export")
@@ -580,34 +705,47 @@ def decide(
 
 
 @router.post("/conversations/{identifier}/branch")
-def branch(identifier: str, body: Branch, user=Depends(gate)):
+def branch(
+    identifier: str,
+    body: Branch,
+    idempotency_key: str | None = Header(None),
+    user=Depends(gate),
+):
+    # 创建分支是创建类变更：强制幂等键，重试不会分支出第二条会话。
     with transaction() as s:
-        original = get_item(s, user, identifier, "conversation")
-        messages = original.data.get("messages", [])
-        index = next(
-            (i for i, m in enumerate(messages) if m["id"] == body.message_id), -1
+
+        def apply():
+            original = get_item(s, user, identifier, "conversation")
+            messages = original.data.get("messages", [])
+            index = next(
+                (i for i, m in enumerate(messages) if m["id"] == body.message_id), -1
+            )
+            if index < 0:
+                raise HTTPException(404, "分支点不存在")
+            item = Item(
+                id=new_id(),
+                owner=user,
+                kind="conversation",
+                title=body.title,
+                project_id=original.project_id,
+                parent_id=identifier,
+                data={
+                    "messages": copy.deepcopy(messages[: index + 1]),
+                    "branch_point_message_id": body.message_id,
+                },
+            )
+            s.add(item)
+            s.flush()
+            return public(item)
+
+        return receipt(
+            s, user, idempotency_key, {"id": identifier, **body.model_dump()}, apply
         )
-        if index < 0:
-            raise HTTPException(404, "分支点不存在")
-        item = Item(
-            id=new_id(),
-            owner=user,
-            kind="conversation",
-            title=body.title,
-            project_id=original.project_id,
-            parent_id=identifier,
-            data={
-                "messages": copy.deepcopy(messages[: index + 1]),
-                "branch_point_message_id": body.message_id,
-            },
-        )
-        s.add(item)
-        s.flush()
-        return public(item)
 
 
 @router.post("/connectors/{identifier}/test")
 async def test_connector(identifier: str, user=Depends(gate)):
+    # 幂等键豁免：连接探测只回写测试时间/工具清单，不创建内容；要求带键反而挡住「再测一次」。
     # 三段事务都进线程执行；中间的远程调用本身是 async 的，不占线程。
     def load():
         with transaction() as s:
@@ -807,6 +945,7 @@ def events(identifier: str, after: int = 0, user=Depends(gate)):
 
 @router.post("/runs/{identifier}/stop")
 def stop(identifier: str, user=Depends(gate)):
+    # 幂等键豁免：紧急取消必须随手可用，重放 stop 也无副作用（只是置停止标记）。
     with transaction() as s:
         run = get_item(s, user, identifier, "run", lock=True)
         if run.data["status"] in ("queued", "running", "waiting_confirmation"):
@@ -820,16 +959,28 @@ class Approval(Body):
 
 
 @router.post("/runs/{identifier}/confirmation")
-def confirmation(identifier: str, body: Approval, user=Depends(gate)):
+def confirmation(
+    identifier: str,
+    body: Approval,
+    idempotency_key: str | None = Header(None),
+    user=Depends(gate),
+):
+    # 审批决定是变更类提交：强制幂等键，双击「允许/拒绝」不会写入两次。
     with transaction() as s:
-        run = get_item(s, user, identifier, "run", lock=True)
-        if (
-            run.data.get("confirmation", {}).get("id") != body.call_id
-            or run.data.get("status") != "waiting_confirmation"
-        ):
-            raise HTTPException(409, "确认请求已失效")
-        run.data = {**run.data, "approval": body.model_dump()}
-        return public(run)
+
+        def apply():
+            run = get_item(s, user, identifier, "run", lock=True)
+            if (
+                run.data.get("confirmation", {}).get("id") != body.call_id
+                or run.data.get("status") != "waiting_confirmation"
+            ):
+                raise HTTPException(409, "确认请求已失效")
+            run.data = {**run.data, "approval": body.model_dump()}
+            return public(run)
+
+        return receipt(
+            s, user, idempotency_key, {"id": identifier, **body.model_dump()}, apply
+        )
 
 
 class CourtSnapshot(Body):
@@ -905,10 +1056,19 @@ def save_court(identifier: str, body: CourtSnapshot, user=Depends(gate)):
 
 # Generic resource routes are deliberately last (upload/search paths must win).
 @router.get("/{family}")
-def listing(family: str, project_id: str | None = None, include_session: bool = False, user=Depends(gate)):
+def listing(
+    family: str,
+    project_id: str | None = None,
+    include_session: bool = False,
+    limit: int | None = Query(default=None, ge=1, le=200),
+    cursor: str | None = Query(default=None),
+    user=Depends(gate),
+):
     kind = KINDS.get(family)
     if not kind:
         raise HTTPException(404, "内容不存在或无权访问")
+    # 附加式分页：limit/cursor 任一出现才改用信封；都缺省时维持原数组形状与上限（2000）。
+    paged = limit is not None or cursor is not None
     with transaction() as s:
         query = select(Item).where(
             Item.owner == user, Item.kind == kind, Item.deleted_at.is_(None)
@@ -916,12 +1076,15 @@ def listing(family: str, project_id: str | None = None, include_session: bool = 
         if project_id:
             get_item(s, user, project_id, "project")
             query = query.where(Item.project_id == project_id)
-        rows = s.scalars(query.order_by(Item.updated_at.desc()).limit(2000)).all()
+        page = limit if limit is not None else 2000
+        if cursor is not None:
+            query = _after_cursor(query, cursor)
+        rows = s.scalars(query.order_by(Item.updated_at.desc()).limit(page)).all()
+        # 批量复核项目可达性（语义同 get_item）：每行一次查询的 N+1 在这里收口。
+        reachable = _reachable_projects(s, user, rows)
         values = []
         for item in rows:
-            try:
-                get_item(s, user, item.id)
-            except HTTPException:
+            if item.project_id and item.project_id not in reachable:
                 continue
             value = public(item)
             if kind == "court" and not include_session:
@@ -940,7 +1103,12 @@ def listing(family: str, project_id: str | None = None, include_session: bool = 
                     if k not in ("content", "text", "import_content")
                 }
             values.append(value)
-        return (builtins() if kind == "skill" else []) + values
+        prefix = builtins() if kind == "skill" else []
+        if not paged:
+            return prefix + values
+        envelope = _page_envelope(rows, values, page)
+        envelope["items"] = prefix + envelope["items"]
+        return envelope
 
 
 @router.post("/{family}")
@@ -996,12 +1164,10 @@ def create(
             s.flush()
             return public(item)
 
-        return (
-            receipt(
-                s, user, idempotency_key, {"family": family, **body.model_dump()}, apply
-            )
-            if idempotency_key
-            else apply()
+        # 创建是创建/恢复类变更：幂等键一律强制（历史上是「带键才去重」的可选行为，
+        # 已统一为方向 A——缺失或超长的键在 receipt 里直接 422）。
+        return receipt(
+            s, user, idempotency_key, {"family": family, **body.model_dump()}, apply
         )
 
 

@@ -48,7 +48,12 @@ def client(tmp_path, monkeypatch):
 
 
 def project(c):
-    return c.post("/api/workbench/projects", json={"title": "测试项目"}).json()
+    # 幂等键方向 A 之后创建类 POST 一律强制带键；用例间随机键避免 receipt 去重串台。
+    return c.post(
+        "/api/workbench/projects",
+        json={"title": "测试项目"},
+        headers={"Idempotency-Key": new_id()},
+    ).json()
 
 
 def document(c, p):
@@ -59,6 +64,7 @@ def document(c, p):
             "project_id": p["id"],
             "content": native("付款期限为三十日。\n双方应保密。"),
         },
+        headers={"Idempotency-Key": new_id()},
     ).json()
 
 
@@ -79,6 +85,7 @@ def test_version_conflict_and_restore(client):
     r = client.post(
         "/api/workbench/documents/" + d["id"] + "/restore-version",
         json={"expected_revision": 2, "revision": 1},
+        headers={"Idempotency-Key": "restore-version-1"},
     )
     assert r.status_code == 200
     assert r.json()["revision"] == 3
@@ -90,7 +97,9 @@ def test_owner_project_context_and_idempotency(client):
     d = document(client, p)
     q = project(client)
     c = client.post(
-        "/api/workbench/conversations", json={"title": "咨询", "project_id": p["id"]}
+        "/api/workbench/conversations",
+        json={"title": "咨询", "project_id": p["id"]},
+        headers={"Idempotency-Key": "conv-1"},
     ).json()
     body = {
         "conversation_id": c["id"],
@@ -117,7 +126,9 @@ def test_owner_project_context_and_idempotency(client):
     assert client.get("/api/workbench/documents/" + d["id"]).status_code == 404
     client.app.dependency_overrides[get_current_user] = lambda: "alice"
     c2 = client.post(
-        "/api/workbench/conversations", json={"title": "其他", "project_id": q["id"]}
+        "/api/workbench/conversations",
+        json={"title": "其他", "project_id": q["id"]},
+        headers={"Idempotency-Key": "conv-2"},
     ).json()
     assert (
         client.post(
@@ -179,13 +190,21 @@ def test_delete_conversation_retains_project_file(client):
     p = project(client)
     d = document(client, p)
     c = client.post(
-        "/api/workbench/conversations", json={"title": "咨询", "project_id": p["id"]}
+        "/api/workbench/conversations",
+        json={"title": "咨询", "project_id": p["id"]},
+        headers={"Idempotency-Key": new_id()},
     ).json()
     assert client.delete("/api/workbench/conversations/" + c["id"]).status_code == 200
     assert client.get("/api/workbench/documents/" + d["id"]).status_code == 200
     assert client.delete("/api/workbench/projects/" + p["id"]).status_code == 200
     assert client.get("/api/workbench/documents/" + d["id"]).status_code == 404
-    assert client.post("/api/workbench/trash/" + p["id"] + "/restore").status_code == 200
+    assert (
+        client.post(
+            "/api/workbench/trash/" + p["id"] + "/restore",
+            headers={"Idempotency-Key": new_id()},
+        ).status_code
+        == 200
+    )
     assert client.get("/api/workbench/documents/" + d["id"]).status_code == 200
 
 
@@ -195,6 +214,7 @@ def test_upload_and_native_export(client):
         "/api/workbench/documents/upload",
         data={"project_id": p["id"]},
         files={"file": ("材料.txt", "测试材料".encode(), "text/plain")},
+        headers={"Idempotency-Key": "upload-1"},
     )
     assert r.status_code == 200, r.text
     d = r.json()
@@ -203,7 +223,10 @@ def test_upload_and_native_export(client):
         client.get("/api/workbench/documents/" + d["id"] + "/blob").content
         == "测试材料".encode()
     )
-    copy = client.post("/api/workbench/documents/" + d["id"] + "/editable-copy").json()
+    copy = client.post(
+        "/api/workbench/documents/" + d["id"] + "/editable-copy",
+        headers={"Idempotency-Key": "editable-1"},
+    ).json()
     assert (
         client.get("/api/workbench/documents/" + copy["id"] + "/export").content[:2] == b"PK"
     )
@@ -214,6 +237,7 @@ def test_plugin_rejects_non_https_and_private_dns(client):
         client.post(
             "/api/workbench/connectors",
             json={"title": "不安全", "url": "http://localhost/mcp"},
+            headers={"Idempotency-Key": new_id()},
         ).status_code
         == 422
     )
@@ -324,14 +348,14 @@ def test_migration_attachment_retry_and_backup(client):
 def test_project_optional_description_roundtrip(client):
     plain = project(client)
     assert plain['data']['desc'] == ''
-    response = client.post('/api/workbench/projects', json={'title': '合同审查', 'desc': '  梳理付款条款\n核对交付期限  '})
+    response = client.post('/api/workbench/projects', json={'title': '合同审查', 'desc': '  梳理付款条款\n核对交付期限  '}, headers={'Idempotency-Key': new_id()})
     assert response.status_code == 200
     saved = response.json()
     detail = client.get('/api/workbench/projects/' + saved['id']).json()
     assert detail['data']['desc'] == '梳理付款条款\n核对交付期限'
     listed = client.get('/api/workbench/projects').json()
     assert next(p for p in listed if p['id'] == saved['id'])['data']['desc'] == detail['data']['desc']
-    assert client.post('/api/workbench/projects', json={'title': '过长', 'desc': '字' * 2001}).status_code == 422
+    assert client.post('/api/workbench/projects', json={'title': '过长', 'desc': '字' * 2001}, headers={'Idempotency-Key': new_id()}).status_code == 422
 
 
 def test_court_context_is_scoped_and_marks_ai_drafts(client):
@@ -351,7 +375,11 @@ def test_court_context_is_scoped_and_marks_ai_drafts(client):
 def test_search_kind_and_space_filter(client):
     p = project(client)
     document(client, p)
-    client.post("/api/workbench/conversations", json={"title": "合同咨询", "project_id": p["id"]})
+    client.post(
+        "/api/workbench/conversations",
+        json={"title": "合同咨询", "project_id": p["id"]},
+        headers={"Idempotency-Key": new_id()},
+    )
     everything = client.get("/api/workbench/search", params={"q": "合同"}).json()
     assert {hit["kind"] for hit in everything} == {"document", "conversation"}
     files = client.get("/api/workbench/search", params={"q": "合同", "kind": "document"}).json()
@@ -603,3 +631,274 @@ def test_unknown_family_404_uses_business_copy(client):
     for response in responses:
         assert response.status_code == 404
         assert response.json()["detail"] == "内容不存在或无权访问"
+
+
+def test_create_requires_and_honors_idempotency_key(client):
+    """方向 A：创建类 POST 无条件强制幂等键；重放返回同一结果，换载荷报 409。"""
+    missing = client.post("/api/workbench/documents", json={"title": "无键"})
+    assert missing.status_code == 422
+    assert missing.json()["detail"] == "需要有效的 Idempotency-Key"
+    assert (
+        client.post(
+            "/api/workbench/documents",
+            json={"title": "超长键"},
+            headers={"Idempotency-Key": "k" * 129},
+        ).status_code
+        == 422
+    )
+
+    body = {"title": "合同"}
+    first = client.post(
+        "/api/workbench/documents", json=body, headers={"Idempotency-Key": "doc-1"}
+    )
+    assert first.status_code == 200, first.text
+    replay = client.post(
+        "/api/workbench/documents", json=body, headers={"Idempotency-Key": "doc-1"}
+    )
+    assert replay.status_code == 200
+    assert replay.json()["id"] == first.json()["id"]
+    assert (
+        client.post(
+            "/api/workbench/documents",
+            json={"title": "其他"},
+            headers={"Idempotency-Key": "doc-1"},
+        ).status_code
+        == 409
+    )
+    # 幂等去重之后列表里仍然只有一条。
+    assert len(client.get("/api/workbench/documents").json()) == 1
+
+
+def _conversation_with_message(client):
+    conv = client.post(
+        "/api/workbench/conversations",
+        json={"title": "咨询"},
+        headers={"Idempotency-Key": new_id()},
+    ).json()
+    with transaction() as s:
+        item = s.get(Item, conv["id"])
+        item.data = {
+            **item.data,
+            "messages": [{"id": "m-1", "role": "user", "content": "材料"}],
+        }
+    return conv
+
+
+def test_branch_upload_trash_restore_require_and_honor_key(client):
+    """分支、上传、回收站恢复：无键 422，带键 200，重放同一结果。"""
+    conv = _conversation_with_message(client)
+
+    branch_body = {"message_id": "m-1", "title": "分支"}
+    path = "/api/workbench/conversations/" + conv["id"] + "/branch"
+    assert client.post(path, json=branch_body).status_code == 422
+    first = client.post(path, json=branch_body, headers={"Idempotency-Key": "branch-1"})
+    assert first.status_code == 200, first.text
+    replay = client.post(path, json=branch_body, headers={"Idempotency-Key": "branch-1"})
+    assert replay.json()["id"] == first.json()["id"]
+
+    files = {"file": ("材料.txt", "上传内容".encode(), "text/plain")}
+    assert client.post("/api/workbench/documents/upload", files=files).status_code == 422
+    uploaded = client.post(
+        "/api/workbench/documents/upload",
+        files=files,
+        headers={"Idempotency-Key": "upload-1"},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    again = client.post(
+        "/api/workbench/documents/upload",
+        files=files,
+        headers={"Idempotency-Key": "upload-1"},
+    )
+    assert again.json()["id"] == uploaded.json()["id"]
+
+    deleted = project(client)
+    client.delete("/api/workbench/projects/" + deleted["id"])
+    restore_path = "/api/workbench/trash/" + deleted["id"] + "/restore"
+    assert client.post(restore_path).status_code == 422
+    restored = client.post(restore_path, headers={"Idempotency-Key": "undelete-1"})
+    assert restored.status_code == 200, restored.text
+    assert (
+        client.post(restore_path, headers={"Idempotency-Key": "undelete-1"}).json()["id"]
+        == deleted["id"]
+    )
+
+
+def test_document_restore_editable_confirmation_require_and_honor_key(client):
+    """版本恢复、编辑副本、运行审批：无键 422，带键 200，重放同一结果。"""
+    p = project(client)
+    d = document(client, p)
+    client.put(
+        "/api/workbench/documents/" + d["id"] + "/content",
+        json={"expected_revision": 1, "content": native("第二版。")},
+    )
+
+    restore_path = "/api/workbench/documents/" + d["id"] + "/restore-version"
+    restore_body = {"expected_revision": 2, "revision": 1}
+    assert client.post(restore_path, json=restore_body).status_code == 422
+    first = client.post(
+        restore_path, json=restore_body, headers={"Idempotency-Key": "rv-1"}
+    )
+    assert first.status_code == 200, first.text
+    assert (
+        client.post(restore_path, json=restore_body, headers={"Idempotency-Key": "rv-1"}).json()
+        == first.json()
+    )
+
+    copy_path = "/api/workbench/documents/" + d["id"] + "/editable-copy"
+    assert client.post(copy_path).status_code == 422
+    copy = client.post(copy_path, headers={"Idempotency-Key": "copy-1"})
+    assert copy.status_code == 200, copy.text
+    assert (
+        client.post(copy_path, headers={"Idempotency-Key": "copy-1"}).json()["id"]
+        == copy.json()["id"]
+    )
+
+    conv = _conversation_with_message(client)
+    with transaction() as s:
+        s.add(
+            Item(
+                id="run-confirm",
+                owner="alice",
+                kind="run",
+                parent_id=conv["id"],
+                title="审批",
+                data={
+                    "status": "waiting_confirmation",
+                    "confirmation": {"id": "call-1"},
+                },
+            )
+        )
+    approval_path = "/api/workbench/runs/run-confirm/confirmation"
+    approval_body = {"call_id": "call-1", "allow": True}
+    assert client.post(approval_path, json=approval_body).status_code == 422
+    approved = client.post(
+        approval_path, json=approval_body, headers={"Idempotency-Key": "approve-1"}
+    )
+    assert approved.status_code == 200, approved.text
+    assert (
+        client.post(
+            approval_path, json=approval_body, headers={"Idempotency-Key": "approve-1"}
+        ).json()
+        == approved.json()
+    )
+    assert approved.json()["data"]["approval"] == approval_body
+
+
+def test_backup_restore_requires_key_before_parsing_zip(client):
+    """恢复的幂等键预检必须在 zip 解析之前：无键请求一个字节都不解析。"""
+    files = {"file": ("broken.zip", b"this is not a zip archive", "application/zip")}
+    missing = client.post("/api/workbench/backup", files=files)
+    assert missing.status_code == 422
+    assert missing.json()["detail"] == "需要有效的 Idempotency-Key"
+    # 带键才走到解析：此时拿到的是格式错误，而不是键错误。
+    parsed = client.post("/api/workbench/backup", files=files, headers={"Idempotency-Key": "restore-1"})
+    assert parsed.status_code == 422
+    assert parsed.json()["detail"] == "备份格式无效；旧版备份请从本地旧资料导入"
+
+
+def test_listing_and_search_skip_items_whose_project_is_gone(client):
+    """可达性批量复核与 get_item 同语义：项目进回收站后条目从列表与搜索消失。"""
+    p = project(client)
+    d = document(client, p)
+    assert [x["id"] for x in client.get("/api/workbench/documents").json()] == [d["id"]]
+    client.delete("/api/workbench/projects/" + p["id"])
+    assert client.get("/api/workbench/documents").json() == []
+    assert (
+        client.get("/api/workbench/search", params={"q": "合同"}).json() == []
+    )
+    client.post(
+        "/api/workbench/trash/" + p["id"] + "/restore",
+        headers={"Idempotency-Key": new_id()},
+    )
+    assert [x["id"] for x in client.get("/api/workbench/documents").json()] == [d["id"]]
+
+
+def test_listing_keyset_pagination_is_additive(client):
+    """limit/cursor 任一出现才返回信封；都缺省时维持原数组形状与上限语义。"""
+    p = project(client)
+    titles = {f"文档{i}" for i in range(5)}
+    for title in sorted(titles):
+        r = client.post(
+            "/api/workbench/documents",
+            json={"title": title, "project_id": p["id"], "content": native("内容")},
+            headers={"Idempotency-Key": new_id()},
+        )
+        assert r.status_code == 200, r.text
+
+    legacy = client.get("/api/workbench/documents")
+    assert isinstance(legacy.json(), list)
+    assert len(legacy.json()) == 5
+
+    seen, cursor, pages = [], None, 0
+    while True:
+        params = {"limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        response = client.get("/api/workbench/documents", params=params)
+        assert response.status_code == 200
+        envelope = response.json()
+        assert set(envelope) == {"items", "next_cursor"}
+        seen.extend(item["title"] for item in envelope["items"])
+        pages += 1
+        if not envelope["next_cursor"]:
+            break
+        cursor = envelope["next_cursor"]
+        assert pages < 10
+    assert pages == 3
+    assert len(seen) == len(set(seen)) == 5
+    assert set(seen) == titles
+
+    # 只带 cursor（不带 limit）同样走信封：默认页大小一次取完剩余行。
+    first = client.get("/api/workbench/documents", params={"limit": 2}).json()
+    rest = client.get(
+        "/api/workbench/documents", params={"cursor": first["next_cursor"]}
+    ).json()
+    assert set(rest) == {"items", "next_cursor"}
+    assert rest["next_cursor"] == ""
+    assert {item["title"] for item in rest["items"]} == titles - {
+        item["title"] for item in first["items"]
+    }
+
+    assert (
+        client.get("/api/workbench/documents", params={"limit": 0}).status_code == 422
+    )
+    assert (
+        client.get("/api/workbench/documents", params={"limit": 201}).status_code == 422
+    )
+    assert (
+        client.get("/api/workbench/documents", params={"cursor": "无关字符串"}).status_code
+        == 422
+    )
+
+
+def test_search_keyset_pagination_is_additive(client):
+    p = project(client)
+    for index in range(4):
+        r = client.post(
+            "/api/workbench/documents",
+            json={
+                "title": f"合同{index}",
+                "project_id": p["id"],
+                "content": native("条款"),
+            },
+            headers={"Idempotency-Key": new_id()},
+        )
+        assert r.status_code == 200, r.text
+
+    legacy = client.get("/api/workbench/search", params={"q": "合同"})
+    assert isinstance(legacy.json(), list)
+    assert len(legacy.json()) == 4
+
+    first = client.get("/api/workbench/search", params={"q": "合同", "limit": 3})
+    assert first.status_code == 200
+    envelope = first.json()
+    assert set(envelope) == {"items", "next_cursor"}
+    assert len(envelope["items"]) == 3 and envelope["next_cursor"]
+    rest = client.get(
+        "/api/workbench/search",
+        params={"q": "合同", "cursor": envelope["next_cursor"]},
+    ).json()
+    assert set(rest) == {"items", "next_cursor"}
+    assert rest["next_cursor"] == ""
+    ids = [item["id"] for item in envelope["items"] + rest["items"]]
+    assert len(ids) == len(set(ids)) == 4
