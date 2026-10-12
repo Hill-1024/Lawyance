@@ -14,6 +14,7 @@ export const enUS = {
     save: "Save",
     gotIt: "Got it",
     retry: "Retry",
+    loadMore: "Load more",
     unknownError: "Something went wrong. Please try again.",
   },
   errors: {

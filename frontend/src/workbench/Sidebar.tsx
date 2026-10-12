@@ -44,7 +44,15 @@ export type SidebarProps = {
   courtSession: boolean;
   query: string;
   results?: any[];
+  /** 搜索结果续拉游标：非空表示还有下一页，搜索列表尾部据此显示「加载更多」。 */
+  resultsCursor: string;
+  loadingMoreResults: boolean;
+  onLoadMoreResults: () => void;
   docs: Item[];
+  /** 文件列表续拉游标：非空表示还有下一页，文件列表尾部据此显示「加载更多」。 */
+  docsCursor: string;
+  loadingMoreDocs: boolean;
+  onLoadMoreDocs: () => void;
   /** 当前标签正在显示的文档：决定文件行的选中态。 */
   activeDocId?: string;
   showDoc: boolean;
@@ -74,7 +82,13 @@ export function Sidebar({
   courtSession,
   query,
   results,
+  resultsCursor,
+  loadingMoreResults,
+  onLoadMoreResults,
   docs,
+  docsCursor,
+  loadingMoreDocs,
+  onLoadMoreDocs,
   activeDocId,
   showDoc,
   fileInput,
@@ -250,6 +264,16 @@ export function Sidebar({
               </button>
             ))}
             {!results.length && <p className="wb-space-hint">{t("workbench.sidebar.noMatch")}</p>}
+            {/* 搜索也走信封分页：还有下一页才显示，静默续拉追加。 */}
+            {!!resultsCursor && (
+              <button
+                className="wb-load-more"
+                disabled={loadingMoreResults}
+                onClick={onLoadMoreResults}
+              >
+                {t("common.loadMore")}
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -276,6 +300,16 @@ export function Sidebar({
                   {t("workbench.composer.upload")}
                 </button>
               </p>
+            )}
+            {/* 文件列表是分页的第一页：还有下一页才显示，静默续拉追加。 */}
+            {!!docsCursor && (
+              <button
+                className="wb-load-more"
+                disabled={loadingMoreDocs}
+                onClick={onLoadMoreDocs}
+              >
+                {t("common.loadMore")}
+              </button>
             )}
           </>
         )}

@@ -1,4 +1,4 @@
-import { api, Item, remember, cached } from './client';
+import { api, Item, Page, remember, cached } from './client';
 import { fileDB } from '../lib/db';
 import type { CourtSession } from '../types';
 
@@ -15,7 +15,8 @@ export class CourtRepository {
     const status = await api('/status');
     if (!status.enabled) {this.ready = true; return local;}
     this.user = status.username;
-    const courts = await api<Item[]>('/courts?include_session=true');
+    // 列表端点恒返回信封 { items, next_cursor }；庭审是低增长列表，limit=200 单页拉满即可。
+    const courts = (await api<Page>('/courts?include_session=true&limit=200')).items;
     const cloud = courts.map(item => {
       const session = {...item.data.session, auto_mode:false} as CourtSession;
       this.revisions.set(item.id, item.revision);

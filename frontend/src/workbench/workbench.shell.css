@@ -397,3 +397,39 @@
 .wb-space-add-menu > button:hover {
   background: var(--wb-hover);
 }
+
+/* ── 列表「加载更多」：分页列表（最近会话/侧栏文件/搜索结果/历史菜单）尾部的
+   静默续拉按钮，仅服务端游标非空时渲染。 ───────────────────────────────── */
+.wb-load-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: calc(100% - 12px);
+  margin: 2px 6px 8px;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px dashed var(--wb-line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: 12px;
+  color: var(--wb-muted);
+  cursor: pointer;
+  transition:
+    background-color 140ms var(--ease-standard),
+    color 140ms var(--ease-standard);
+}
+.wb-load-more:hover:not(:disabled) {
+  background: var(--wb-hover);
+  color: var(--wb-ink);
+}
+.wb-load-more:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* 历史菜单里沿用菜单行外观，弱化为居中的次级动作。 */
+.wb-thread-menu > button.wb-load-more {
+  width: auto;
+  margin: 4px 6px;
+  color: var(--wb-muted);
+}

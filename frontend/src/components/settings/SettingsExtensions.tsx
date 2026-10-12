@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useT } from '../../i18n';
 import { ManageDialog } from '../../workbench/ManageDialog';
-import { api, type Item } from '../../workbench/client';
+import { api, type Item, type Page } from '../../workbench/client';
 import { Banner, CenteredSpinner } from './SettingsUI';
 import '../../workbench/workbench.css';
 export function SettingsExtensions() {
@@ -18,9 +18,10 @@ export function SettingsExtensions() {
       if (!alive.current) return;
       setEnabled(status.enabled);
       if(!status.enabled) return;
-      const [skills,connectors] = await Promise.all([api<Item[]>('/skills'),api<Item[]>('/connectors')]);
+      // 技能/插件低增长：单页 limit=200 拉满，恒为信封形态。
+      const [skills,connectors] = await Promise.all([api<Page>('/skills?limit=200'),api<Page>('/connectors?limit=200')]);
       if (!alive.current) return;
-      setData({skills,connectors}); setError('');
+      setData({skills:skills.items,connectors:connectors.items}); setError('');
     } catch(e) {if (alive.current) setError((e as Error).message);}
   },[]);
   useEffect(() => {alive.current = true; void load();},[load]);
