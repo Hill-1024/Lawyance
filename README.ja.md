@@ -106,10 +106,10 @@ API_KEY="your_api_key_here"
 
 ```bash
 pnpm install
-pip install -r requirements.txt
+uv sync
 ```
 
-リポジトリには `pyproject.toml` と `uv.lock` も含まれています。ローカルの運用で uv を使う場合は、チームの規約に従って Python 依存関係をインストールしてください。
+Python 依存関係は [uv](https://docs.astral.sh/uv/) で統一管理しています（`pyproject.toml` + `uv.lock` が唯一の情報源。`requirements.txt` は互換用にのみ残しています）。
 
 ## 開発実行
 

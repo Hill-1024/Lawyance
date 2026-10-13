@@ -106,10 +106,10 @@ API_KEY="your_api_key_here"
 
 ```bash
 pnpm install
-pip install -r requirements.txt
+uv sync
 ```
 
-仓库也包含 `pyproject.toml` 与 `uv.lock`。如果你的本地工作流使用 uv，可以按团队约定改用 uv 安装 Python 依赖。
+Python 依赖统一用 [uv](https://docs.astral.sh/uv/) 管理（`pyproject.toml` + `uv.lock` 为事实来源；`requirements.txt` 仅作兼容保留）。
 
 ## 开发运行
 
@@ -377,7 +377,7 @@ sudo mkdir -p /srv /var/lib/lawver/{workbench-blobs,backups,router-state}
 sudo chown -R lawver:lawver /srv /var/lib/lawver
 ```
 
-- 软件：`git`、**Python ≥ 3.13**、**Node ≥ 20 + pnpm 10.33.2**（介绍页要构建）、**PostgreSQL 17**，可选 Redis（多 worker 时必需）、可选 Docker（用来跑 `deploy/workbench/compose.yml`）。
+- 软件：`git`、**uv**（Python 依赖与解释器的统一管理器）、**Python ≥ 3.13**（系统版本不够时 `uv python install 3.13`）、**Node ≥ 20 + pnpm 10.33.2**（介绍页要构建）、**PostgreSQL 17**，可选 Redis（多 worker 时必需）、可选 Docker（用来跑 `deploy/workbench/compose.yml` 与 SearXNG）。
 
 ```bash
 # Node 与 pnpm（Debian/Ubuntu：先装 Node 20+）
@@ -393,13 +393,15 @@ sudo -u lawver git clone --branch dev https://github.com/Hill-1024/Lawyance_Intr
 
 两个仓库互不依赖：功能页更新不影响介绍页，反之亦然——这正是分开拉取的目的。之后所有 `git pull` 都在各自目录里做。
 
-### 3. Python 依赖
+### 3. Python 依赖（uv）
 
 ```bash
-sudo -u lawver python3 -m venv /srv/lawver/.venv
-sudo -u lawver /srv/lawver/.venv/bin/pip install -U pip
-sudo -u lawver /srv/lawver/.venv/bin/pip install -r /srv/lawver/requirements.txt
+# 安装 uv（系统级；已有则跳过；系统没有 Python 3.13 时先 uv python install 3.13）
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+sudo -H -u lawver bash -c 'cd /srv/lawver && uv sync --frozen --no-dev'
 ```
+
+venv 固定落在 `/srv/lawver/.venv`（systemd 单元指向的正是它）；`--frozen` 不改动锁文件，`--no-dev` 不安装开发依赖。完整说明（含存量 pip 环境的迁移）见 [docs/deployment.md](docs/deployment.md)。
 
 ### 4. 数据库
 
@@ -536,7 +538,7 @@ INTRO_REPO=/srv/lawver-intro bash /srv/lawver/deploy/router/rehearsal.sh
 
 ```bash
 sudo -u lawver bash -c 'cd /srv/lawver && git pull'
-sudo -u lawver /srv/lawver/.venv/bin/pip install -r /srv/lawver/requirements.txt   # 依赖有变时
+sudo -H -u lawver bash -c 'cd /srv/lawver && uv sync --frozen --no-dev'           # Python 依赖有变时（uv.lock 变更）
 cd /srv/lawver/backend && sudo -u lawver env LAWVER_DATABASE_URL='<同第 4 步>' \
   /srv/lawver/.venv/bin/alembic -c alembic.ini upgrade head                        # 有迁移时
 sudo systemctl restart lawver-app
