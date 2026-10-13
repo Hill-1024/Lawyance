@@ -355,6 +355,8 @@ global.lawver.dev   → 隧道 → 海外机器：分流核心 8080 ─┴─ �
 
 给在部署机上工作的执行者（人或 agent）：从零到上线照这个顺序做，每一步都给了验收方式。本文按 Debian 12 / Ubuntu 22.04 写，其他发行版把包管理命令换掉即可。
 
+> **面向 agent 的完整版部署手册见 [docs/deployment.md](docs/deployment.md)**：包含全部环境变量、PostgreSQL/Redis/SearXNG 的搭建与维护、前后端双仓更新流程、备份与故障排查；本节保留为速查。
+
 ### 0. 名词与端口
 
 | 名称 | 目录 | 端口 | 对外 |
