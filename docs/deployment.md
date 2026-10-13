@@ -39,7 +39,7 @@
 |---|---|---|
 | 1 | 系统用户与目录 | `id lawver` 存在；`/srv`、`/var/lib/lawver` 属主 lawver |
 | 2 | 拉两个仓库（`dev` 分支） | 两个目录下 `git log -1` 有输出 |
-| 3 | Python 依赖（venv） | `/srv/lawver/.venv/bin/python -c "import fastapi"` 无报错 |
+| 3 | Python 依赖（uv 同步） | `/srv/lawver/.venv/bin/python -c "import fastapi"` 无报错 |
 | 4 | PostgreSQL（Docker compose） | `pg_isready` 通过 |
 | 5 | 跑 Alembic 迁移 | `alembic upgrade head` 退出码 0 |
 | 6 | （可选）Redis | `redis-cli ping` 返回 PONG；不部署则跳过 |
@@ -71,19 +71,23 @@ sudo chown -R lawver:lawver /srv /var/lib/lawver
 | 软件 | 版本要求 | 用途 |
 |---|---|---|
 | git | 任意 | 拉代码 |
-| Python | **≥ 3.13** | 功能页与核心（核心只用到标准库 + httpx） |
+| uv | 最新（本机已验证 0.11+） | Python 依赖与解释器的统一管理器 |
+| Python | **≥ 3.13**；系统没有也可用——uv 自管解释器（`uv python install 3.13`） | 功能页与核心（核心只用到标准库 + httpx） |
 | Node | **≥ 20** + pnpm **10.33.2** | 两个前端构建（介绍页构建也需要） |
 | Docker + compose 插件 | 任意（推荐） | PostgreSQL、SearXNG（本文以外的另装方式见各节备选） |
 | PostgreSQL | **17**（Docker 镜像即可） | 账号、会话、工作台数据 |
 
 ```bash
-sudo apt update && sudo apt install -y git python3.13 python3.13-venv curl
+sudo apt update && sudo apt install -y git curl
+# uv：Python 依赖与解释器的统一安装方式（系统级安装，所有用户可用）
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+uv --version
 # Node ≥20（任选一种：发行版源 / NodeSource / nvm），然后激活 pnpm：
 corepack enable && corepack prepare pnpm@10.33.2 --activate
 pnpm --version   # 期望 10.33.2
 ```
 
-**验收**：`python3.13 --version` ≥ 3.13；`node --version` ≥ v20；`pnpm --version` = 10.33.2；`docker compose version` 有输出。
+**验收**：`uv --version` 有输出；`node --version` ≥ v20；`pnpm --version` = 10.33.2；`docker compose version` 有输出。（Python 3.13 的可用性由第 3 节 `uv sync` 一并校验，系统没有时让 uv 装。）
 
 ---
 
@@ -100,17 +104,27 @@ sudo -u lawver git clone --branch dev https://github.com/Hill-1024/Lawyance_Intr
 
 ---
 
-## 3. Python 依赖（功能页 venv）
+## 3. Python 依赖（uv 统一管理）
+
+Python 依赖与解释器统一用 **uv**（`pyproject.toml` + `uv.lock` 是唯一事实来源）：
 
 ```bash
-sudo -u lawver python3.13 -m venv /srv/lawver/.venv
-sudo -u lawver /srv/lawver/.venv/bin/pip install -U pip
-sudo -u lawver /srv/lawver/.venv/bin/pip install -r /srv/lawver/requirements.txt
+# 1) 系统没有 Python 3.13 时，让 uv 装一个（uv 自管解释器，无需动系统 Python）
+#    已有共享解释器目录的机器可加 UV_PYTHON_INSTALL_DIR=<目录> 复用它（如 /opt/uv/pythons）
+sudo -H -u lawver uv python install 3.13
+
+# 2) 按锁文件创建 /srv/lawver/.venv 并同步依赖（生产不装 dev 组）
+sudo -H -u lawver bash -c 'cd /srv/lawver && uv sync --frozen --no-dev'
 ```
 
-> 也可以把最后一行换成 `uv pip install --python /srv/lawver/.venv/bin/python -r /srv/lawver/requirements.txt`（机器上装了 uv 时更快），venv 路径不变，systemd 单元指向的仍是 `/srv/lawver/.venv/bin/python`。
+要点：
 
-**验收**：`sudo -u lawver /srv/lawver/.venv/bin/python -c "import fastapi, httpx, alembic; print('ok')"` 输出 ok。
+- venv 固定落在项目目录 `/srv/lawver/.venv`——systemd 三个单元指向的正是它，不要改名或用 `UV_PROJECT_ENVIRONMENT` 改路径。
+- `--frozen`：绝不改动锁文件（锁文件只随 git 更新）；`--no-dev`：不安装 pytest/fakeredis 等开发依赖。
+- `sudo -H` 与 `cd /srv/lawver` 二者都必要：前者让 uv 使用 lawver 的 HOME 与缓存，后者让 uv 找到项目（从 root 家目录启动会因不可遍历而报权限错）。
+- `requirements.txt` 仅为兼容保留，部署流程不再使用。
+
+**验收**：`sudo -u lawver /srv/lawver/.venv/bin/python -c "import fastapi, httpx, mcp, psycopg, alembic, cryptography; print('deps ok')"` 输出 `deps ok`。
 
 ---
 
@@ -265,7 +279,7 @@ sudo -u lawver nano /srv/lawver/.env
 | `INITIAL_ADMIN_PASSWORD` | **一次性**：账号表为空时引导内置 `admin`（sudo 角色）。**引导成功后删掉这一行并重启** | 自定强密码 |
 | `LAWVER_DATABASE_URL` | 与第 4 步一致 | `postgresql+psycopg://lawver:<强密码>@127.0.0.1:5432/lawver` |
 | `LAWVER_BLOB_DIR` | 附件 blob 存储 | `/var/lib/lawver/workbench-blobs` |
-| `LAWVER_CONNECTOR_KEY` | 插件凭据加密密钥（Fernet）。**与数据库/备份分开保管；丢失 = 插件凭据全部解不开** | `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `LAWVER_CONNECTOR_KEY` | 插件凭据加密密钥（Fernet）。**与数据库/备份分开保管；丢失 = 插件凭据全部解不开** | `/srv/lawver/.venv/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `LAWVER_WORKBENCH_USERS` | 工作台灰度名单，如 `admin`；全部验收后再改 `*` | `admin` |
 | `LAWVER_HOST` | **部署机必须为 `127.0.0.1`**（收回回环）。systemd 单元已用 `Environment=` 预设，手工部署的也写上 | `127.0.0.1` |
 
@@ -432,8 +446,8 @@ INTRO_REPO=/srv/lawver-intro bash /srv/lawver/deploy/router/rehearsal.sh
 
 ```bash
 sudo -u lawver bash -c 'cd /srv/lawver && git pull'
-# 依赖有变（requirements.txt / uv.lock 变了）时：
-sudo -u lawver /srv/lawver/.venv/bin/pip install -r /srv/lawver/requirements.txt
+# Python 依赖有变（uv.lock 变了）时：
+sudo -H -u lawver bash -c 'cd /srv/lawver && uv sync --frozen --no-dev'
 # 前端有变（frontend/ / package.json / pnpm-lock.yaml 变了）时：
 sudo -u lawver bash -c 'cd /srv/lawver && pnpm install --frozen-lockfile && pnpm run build'
 # 有迁移（backend/migrations/versions/ 出现新文件）时：
@@ -495,6 +509,30 @@ curl -s 'http://127.0.0.1:8083/search?q=test&format=json' | head -c 80  # SearXN
 | 功能页 | `git checkout <上一个 tag/提交>` + 重跑依赖与构建 + 重启；**迁移不回滚** |
 | 分流核心 | 同功能页思路，`git checkout` 后重启 `lawver-router` |
 
+### 14.8 存量机器：把 pip 虚拟环境迁移到 uv
+
+已有机器上若 `.venv` 是 `python -m venv` + pip 安装的，一次性迁移（有备份可回退）：
+
+```bash
+# 1) 备份旧 venv 并重建为 uv 管理的（已有共享解释器目录时加 UV_PYTHON_INSTALL_DIR=/opt/uv/pythons 复用）
+sudo -H -u lawver bash -c 'cd /srv/lawver && mv .venv .venv.bak-pip \
+  && UV_PYTHON_INSTALL_DIR=/opt/uv/pythons uv sync --frozen --no-dev'
+
+# 2) 依赖冒烟 + 重启 + 健康检查
+sudo -u lawver /srv/lawver/.venv/bin/python -c "import fastapi, httpx, psycopg, alembic; print('deps ok')"
+sudo systemctl restart lawver-app lawver-router
+sleep 6 && curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8081/api/health   # 200
+curl -s http://127.0.0.1:8080/__core/status | python3 -m json.tool                    # 两侧 up:true（重启瞬间的探活可能短暂 False，等下一个探活周期再确认）
+
+# 3) 跑一遍端到端彩排确认（期望「通过 35，失败 0」）
+sudo -H -u lawver bash -c 'cd /srv/lawver && INTRO_REPO=/srv/lawver-intro bash deploy/router/rehearsal.sh'
+
+# 4) 全部正常后删除备份；异常则回滚：
+#    sudo -u lawver bash -c 'cd /srv/lawver && rm -rf .venv && mv .venv.bak-pip .venv'
+#    sudo systemctl restart lawver-app lawver-router
+sudo rm -rf /srv/lawver/.venv.bak-pip
+```
+
 ---
 
 ## 15. 故障排查
@@ -534,3 +572,4 @@ curl -s 'http://127.0.0.1:8083/search?q=test&format=json' | head -c 80  # SearXN
 3. **改动最小化**：只按文档执行；对不在本文档内的现有服务（已有数据库、已有隧道配置）先读现状再动手，与预期不符时停下报告。
 4. **幂等优先**：拉取用 `--ff-only`；重建容器前先 `docker inspect` 记下现有挂载与端口。
 5. **变更后自检**：任何更新（14.1–14.3）之后跑对应验收命令；全站级变更后跑一遍第 13 节的路径检查。
+6. **Python 依赖只用 uv**：同步统一走 `uv sync --frozen --no-dev`（cwd 必须是 `/srv/lawver`，且用 `sudo -H`）；不要在 venv 里 `pip install` 临时装包——任何新依赖都必须先进 `pyproject.toml`/`uv.lock` 再同步。
