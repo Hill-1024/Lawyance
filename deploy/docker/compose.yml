@@ -96,11 +96,13 @@ services:
       LAWVER_INTRO_PORT: '8082'
       # serve.py 每请求解析一次 current 符号链接，于是宿主上跑 tools/build.sh
       # 就能热切换版本，容器不用重启——现有的零停机换版方式原样保留。
-      LAWVER_INTRO_ROOT: /intro/current
+      LAWVER_INTRO_ROOT: ${LAWVER_INTRO_HOME:?Set LAWVER_INTRO_HOME to the Lawyance_Intro checkout}/current
     volumes:
-      # 挂整个介绍页仓库根（只读）：current 是指向 releases/<时间戳> 的相对符号链接，
-      # 必须与目标在同一挂载树里才能解析。
-      - ${LAWVER_INTRO_HOME:?Set LAWVER_INTRO_HOME to the Lawyance_Intro checkout}:/intro:ro
+      # 挂整个介绍页仓库根（只读）。**挂载点必须与宿主路径一模一样**：
+      # tools/build.sh 建的 current 是绝对符号链接（实测
+      # current -> /srv/lawver-intro/releases/<时间戳>），挂到别的容器路径后这个链接
+      # 在容器里指向不存在的目录，整站 404。同一个变量做两侧即可保证一致。
+      - ${LAWVER_INTRO_HOME:?Set LAWVER_INTRO_HOME to the Lawyance_Intro checkout}:${LAWVER_INTRO_HOME:?Set LAWVER_INTRO_HOME to the Lawyance_Intro checkout}:ro
     networks:
       - lawver
     healthcheck:
