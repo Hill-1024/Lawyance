@@ -458,7 +458,7 @@ const PROVIDER_FIELDS: Record<string, { key: string; label: string; placeholder?
     { key: 'model', label: '模型', placeholder: 'gpt-4o / qwen-plus' },
   ],
   deli: [
-    { key: 'endpoint', label: 'Endpoint', placeholder: 'https://openapi.delilegal.com/...' },
+    { key: 'endpoint', label: 'Endpoint', placeholder: 'https://platform.delilegal.com/api/v1/generice/case/list' },
   ],
   searxng: [
     { key: 'base_url', label: 'Base URL', placeholder: 'https://searx.example.com' },
@@ -479,8 +479,7 @@ const PROVIDER_FIELDS: Record<string, { key: string; label: string; placeholder?
 const PROVIDER_SECRETS: Record<string, { key: string; label: string; placeholder?: string }[]> = {
   llm: [{ key: 'api_key', label: 'API Key', placeholder: 'sk-...' }],
   deli: [
-    { key: 'appid', label: 'App ID' },
-    { key: 'secret', label: 'Secret' },
+    { key: 'api_key', label: 'API Key', placeholder: 'sk-...' },
   ],
   searxng: [
     { key: 'cf_client_id', label: 'CF Client ID', placeholder: '可选' },
