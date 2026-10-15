@@ -40,6 +40,10 @@ _MAX_CASES = 8
 
 _DEFAULT_ENDPOINT = "https://platform.delilegal.com/api/v1/generice/case/list"
 _ALLOWED_HOST = "platform.delilegal.com"
+# 旧版端点。用户从旧配置迁移过来时，settings 里还会存着这个地址，
+# 而 settings 的值优先于默认值 —— 于是客户端会拿旧地址去请求并在这里被拦下。
+# 单列出来是为了给一句能照着做的提示，而不是干巴巴的"地址非法"。
+_LEGACY_HOSTS = ("openapi.delilegal.com",)
 
 
 # 得理的业务错误码 → 人话。它 HTTP 层可能返回 200，真正的错误只在正文的
@@ -124,6 +128,12 @@ class DELIClient:
         self.endpoint = (os.getenv("DELI_ENDPOINT") or _DEFAULT_ENDPOINT).strip()
         parsed = urlparse(self.endpoint)
         # 与其余外部客户端一致：只允许官方 https 地址，避免把凭据发给任意主机。
+        if parsed.hostname in _LEGACY_HOSTS:
+            raise DELIClientError(
+                "得理服务地址仍指向旧版端点（%s）。得理已改用新平台，"
+                "请到管理后台「得理法搜」把 Endpoint 改为：%s"
+                % (parsed.hostname, _DEFAULT_ENDPOINT)
+            )
         if (
             parsed.scheme != "https"
             or parsed.hostname != _ALLOWED_HOST
@@ -132,7 +142,10 @@ class DELIClient:
             or parsed.query
             or parsed.fragment
         ):
-            raise DELIClientError("得理服务地址配置非法")
+            raise DELIClientError(
+                "得理服务地址配置非法（当前为 %s）。正确地址应为：%s"
+                % (self.endpoint, _DEFAULT_ENDPOINT)
+            )
 
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -229,6 +242,11 @@ def match_legal_case(
             "message": "案例检索服务未配置：请先在管理后台「得理法搜」中填写 API Key"
                        "（或在环境变量中设置 DELI_API_KEY）。",
         }
+    except DELIClientError as exc:
+        # 构造客户端阶段的错误（多半是 endpoint 还指着旧地址）。
+        # 必须在这里接住：工具层期望的是结构化返回，不是异常。
+        logger.warning("得理客户端初始化失败 | %s", exc)
+        return {"success": False, "message": str(exc)}
 
     # 把关键词拼成查询语句。得理是语义检索，自然语言比逗号分隔的关键词效果好。
     parts = [str(k).strip() for k in (keywords or []) if str(k).strip()]
