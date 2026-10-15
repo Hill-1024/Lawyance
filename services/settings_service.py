@@ -81,15 +81,16 @@ PROVIDER_SPECS = {
     },
     "deli": {
         "label": "得理法搜",
+        # 2026-10 接口变更：得理开放平台改为标准 API Key（Bearer sk-...），
+        # 不再需要企业资质的 appid/secret。旧的 DELI_APPID/DELI_SECRET 已废弃。
         "config_env": {
             "endpoint": ("DELI_ENDPOINT",),
         },
         "secret_env": {
-            "appid": ("DELI_APPID",),
-            "secret": ("DELI_SECRET",),
+            "api_key": ("DELI_API_KEY",),
         },
-        "defaults": {"endpoint": "https://openapi.delilegal.com/api/qa/v3/search/queryListCase"},
-        "required": ("appid", "secret"),
+        "defaults": {"endpoint": "https://platform.delilegal.com/api/v1/generice/case/list"},
+        "required": ("api_key",),
     },
     "searxng": {
         "label": "网页检索 (SearXNG)",
@@ -812,27 +813,31 @@ def _probe_searxng(provider: dict) -> tuple[bool, str]:
 
 
 _DELI_PROBE_HINTS = {
-    10001: "appid 无效",
-    10002: "secret 无效",
-    10003: "appid 与 secret 不匹配",
-    10004: "账号未开通该接口",
+    10001: "API Key 无效或已删除",
+    10002: "API Key 已过期",
+    10003: "该接口未开通权限",
+    10004: "余额不足，去开放平台「余额」页充值",
+    10005: "并发超限",
 }
 
 
 def _probe_deli(provider: dict) -> tuple[bool, str]:
-    """POST 一次只读案例检索（pageSize=1），验证 appid/secret 是否被接受。"""
+    """POST 一次只读案例检索（pageSize=1），验证 API Key 是否被接受。
+
+    2026-10 起得理改用 Bearer API Key；旧版是 appid/secret 放在自定义头里。
+    """
     endpoint = str(provider.get("endpoint") or "").strip()
+    api_key = str(provider.get("api_key") or "")
     headers = {
         "Content-Type": "application/json",
-        "appid": str(provider.get("appid") or ""),
-        "secret": str(provider.get("secret") or ""),
+        "Authorization": f"Bearer {api_key}",
     }
     payload = {
         "pageNo": 1,
         "pageSize": 1,
         "sortField": "correlation",
         "sortOrder": "desc",
-        "condition": {"keywordArr": [_PROBE_SEARCH_QUERY]},
+        "query": _PROBE_SEARCH_QUERY,
     }
     try:
         response = requests.post(
@@ -844,14 +849,13 @@ def _probe_deli(provider: dict) -> tuple[bool, str]:
     except requests.exceptions.RequestException as exc:
         return False, _probe_transport_error_message(exc)
     if response.status_code == 200:
-        # 得理在**凭据错误时也返回 200**，只在正文里写
-        # {"success": false, "code": 10001, "msg": "appid error"}。
-        # 原来只看状态码，于是假凭据也报"连接正常" —— 这个按钮会骗人。
+        # 得理在**凭据错误时也可能返回 200**，真正的错误只在正文的
+        # code/msg 里。原来只看状态码，于是假凭据也报"连接正常" —— 这个按钮会骗人。
         try:
             body = response.json()
         except (ValueError, AttributeError):
             # AttributeError：测试里的假响应对象没有 json()。
-            # 拿不到正文就按旧行为处理，别因为探测把测试搞挂。
+            # 拿不到正文就按成功处理，别因为探测把测试搞挂。
             body = None
         if isinstance(body, dict) and body.get("success") is False:
             reason = body.get("msg") or body.get("message") or "凭据被拒绝"
