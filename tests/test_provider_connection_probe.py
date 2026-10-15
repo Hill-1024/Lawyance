@@ -33,7 +33,10 @@ SEARXNG_CFG = {
     "cf_client_id": "cf-id",
     "cf_client_secret": "cf-secret",
 }
-DELI_CFG = {"endpoint": "https://deli.example/api/query", "appid": "app", "secret": "sec"}
+DELI_CFG = {
+    "endpoint": "https://platform.delilegal.com/api/v1/generice/case/list",
+    "api_key": "sk-test",
+}
 QCC_CFG = {
     "endpoint": "https://agent.qcc.com/mcp/company/stream",
     "access_token": "qcc-token",
@@ -188,12 +191,14 @@ class DeliProbeTests(unittest.TestCase):
                 result = settings_service.test_provider_connection("deli")
         self.assertTrue(result["ok"])
         self.assertEqual(result["message"], "得理法搜 连接正常")
-        self.assertEqual(post_mock.call_args.args[0], "https://deli.example/api/query")
+        self.assertEqual(post_mock.call_args.args[0], DELI_CFG["endpoint"])
+        # 2026-10 起得理改为 Bearer API Key（旧版是 appid/secret 自定义头）
         headers = post_mock.call_args.kwargs["headers"]
-        self.assertEqual(headers["appid"], "app")
-        self.assertEqual(headers["secret"], "sec")
+        self.assertEqual(headers["Authorization"], "Bearer sk-test")
         body = post_mock.call_args.kwargs["json"]
         self.assertEqual(body["pageSize"], 1)
+        # 新版是语义检索，收自然语言 query；旧版是 condition.keywordArr
+        self.assertIn("query", body)
         self.assertNotIn("delete", str(body).lower())
 
     def test_auth_failure_is_specific(self):
@@ -202,6 +207,49 @@ class DeliProbeTests(unittest.TestCase):
                 result = settings_service.test_provider_connection("deli")
         self.assertFalse(result["ok"])
         self.assertEqual(result["message"], "密钥无效或无权限 (HTTP 401)")
+
+    def test_business_error_in_200_body_is_reported(self):
+        """得理可能 HTTP 200 但正文 success=false —— 探测不能报"连接正常"。"""
+        fake = _FakeResponse(200)
+        fake.json = lambda: {"success": False, "code": 10001, "msg": "invalid api key"}
+        with mock.patch.object(settings_service, "get_provider_runtime_config", return_value=DELI_CFG):
+            with mock.patch.object(settings_service.requests, "post", return_value=fake):
+                result = settings_service.test_provider_connection("deli")
+        self.assertFalse(result["ok"])
+        self.assertIn("凭据被拒绝", result["message"])
+        self.assertIn("invalid api key", result["message"])
+
+
+class DeliClientTests(unittest.TestCase):
+    """得理客户端的迁移期行为：旧端点要给出可照做的提示，且不能抛异常。"""
+
+    def test_legacy_endpoint_returns_actionable_message(self):
+        from mcp import deli_client
+        with mock.patch.dict("os.environ", {
+                "DELI_API_KEY": "sk-x",
+                "DELI_ENDPOINT": "https://openapi.delilegal.com/api/qa/v3/search/queryListCase"}):
+            result = deli_client.match_legal_case(keywords=["工伤"])
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result["success"])
+        self.assertIn("旧版端点", result["message"])
+        self.assertIn("platform.delilegal.com", result["message"])
+
+    def test_illegal_endpoint_returns_structured_error(self):
+        from mcp import deli_client
+        with mock.patch.dict("os.environ", {
+                "DELI_API_KEY": "sk-x",
+                "DELI_ENDPOINT": "http://evil.example/api"}):
+            result = deli_client.match_legal_case(keywords=["工伤"])
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result["success"])
+
+    def test_missing_key_is_structured(self):
+        from mcp import deli_client
+        with mock.patch.dict("os.environ", {"DELI_API_KEY": ""}, clear=False):
+            result = deli_client.match_legal_case(keywords=["工伤"])
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result["success"])
+        self.assertIn("未配置", result["message"])
 
 
 class QccProbeTests(unittest.TestCase):

@@ -288,7 +288,7 @@ sudo -u lawver nano /srv/lawver/.env
 | 键 | 说明 |
 |---|---|
 | `API_KEY` / `BASE_URL` / `LLM_MODEL` | 主模型（OpenAI 兼容端点）。不配 = 不能对话 |
-| `DELI_APPID` / `DELI_SECRET` | 得理法律数据 API（法条/案例检索） |
+| `DELI_API_KEY` | 得理案例检索（新版开放平台，Bearer `sk-...`，个人可申请；端点默认 `https://platform.delilegal.com/api/v1/generice/case/list`） |
 | `QCC_ACCESS_TOKEN` | 企查查 MCP（企业信息；可留空，对应工具不可用） |
 | `SEARXNG_BASE_URL` | 第 6 步的 `http://127.0.0.1:8083/` |
 
@@ -305,7 +305,9 @@ sudo -u lawver nano /srv/lawver/.env
 
 ### 7.4 已废弃 / 无需
 
-- `PKU_ACCESS_TOKEN`、`MODELSCOPE_*`：**不再需要**（法条检索走本地法库 `RAG/law_data_search`），示例文件里已移除。老机器上若残留可删。
+- `MODELSCOPE_*`：**不再需要**，示例文件里已移除。
+- `DELI_APPID` / `DELI_SECRET`：**已废弃**（2026-10 得理改用 `DELI_API_KEY`）。老机器上若残留可删。
+- `PKU_ACCESS_TOKEN`：**可选**。法条检索走本地法库 `RAG/law_data_search`，默认不依赖它；示例文件中保留该条目，便于仍需远程法宝接口时启用。
 - `PORT`：**不要写**（见第 15 节禁止事项）。
 
 **验收**：`sudo -u lawver bash -c 'cd /srv/lawver && set -a && source .env && set +a && echo $LAWVER_DATABASE_URL | grep -q postgresql && echo env-ok'`；以及权限 `stat -c %a /srv/lawver/.env` 为 `600`。
