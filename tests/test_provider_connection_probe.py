@@ -197,6 +197,38 @@ class DeliProbeTests(unittest.TestCase):
         self.assertIn("invalid api key", result["message"])
 
 
+class DeliClientTests(unittest.TestCase):
+    """得理客户端的迁移期行为：旧端点要给出可照做的提示，且不能抛异常。"""
+
+    def test_legacy_endpoint_returns_actionable_message(self):
+        from mcp import deli_client
+        with mock.patch.dict("os.environ", {
+                "DELI_API_KEY": "sk-x",
+                "DELI_ENDPOINT": "https://openapi.delilegal.com/api/qa/v3/search/queryListCase"}):
+            result = deli_client.match_legal_case(keywords=["工伤"])
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result["success"])
+        self.assertIn("旧版端点", result["message"])
+        self.assertIn("platform.delilegal.com", result["message"])
+
+    def test_illegal_endpoint_returns_structured_error(self):
+        from mcp import deli_client
+        with mock.patch.dict("os.environ", {
+                "DELI_API_KEY": "sk-x",
+                "DELI_ENDPOINT": "http://evil.example/api"}):
+            result = deli_client.match_legal_case(keywords=["工伤"])
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result["success"])
+
+    def test_missing_key_is_structured(self):
+        from mcp import deli_client
+        with mock.patch.dict("os.environ", {"DELI_API_KEY": ""}, clear=False):
+            result = deli_client.match_legal_case(keywords=["工伤"])
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result["success"])
+        self.assertIn("未配置", result["message"])
+
+
 class QccProbeTests(unittest.TestCase):
     def test_success_uses_initialize_handshake(self):
         fake = _FakeResponse(200)
