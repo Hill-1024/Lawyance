@@ -1,0 +1,71 @@
+# 全机共享基建：PostgreSQL + Redis + SearXNG。
+#
+# 一份机器只起一套，多个实例共用（实例通过 external 网络 lawver-infra 按服务名访问）。
+# 项目名固定为 lawver-infra，与实例的 COMPOSE_PROJECT_NAME 解耦——否则第二个实例会
+# 各自起一份 PG/SearXNG，一机三实例就是三个 Postgres。
+#
+# 与实例 compose（compose.yml）的分工：
+#   · 这里只放"一台机器只需要一份"的东西；
+#   · router/app/intro 属于实例，在 compose.yml 里，每实例一套。
+#
+# 用法（在 deploy/docker 下）：
+#   docker compose --env-file infra.env -f compose.infra.yml up -d
+#
+# 安全约定：三个服务都**不发布宿主端口**。这既省掉多实例时的端口冲突，也把
+# 数据库与搜索服务收进容器网络——外部要连只能走 `docker compose exec`。
+# PG 原来的 `127.0.0.1:5432` 与 SearXNG 的 `127.0.0.1:8083` 因此消失。
+name: lawver-infra
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${LAWVER_POSTGRES_DB:-lawver}
+      POSTGRES_USER: ${LAWVER_POSTGRES_USER:-lawver}
+      POSTGRES_PASSWORD: ${LAWVER_POSTGRES_PASSWORD:?Set a strong database password in infra.env}
+    volumes:
+      - lawver-postgres:/var/lib/postgresql/data
+    networks:
+      - lawver-infra
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${LAWVER_POSTGRES_USER:-lawver} -d ${LAWVER_POSTGRES_DB:-lawver}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # 多 worker / 多实例时限流与布隆过滤器必须共享计数，否则每实例各算一份，
+  # 实际上限被放大成 N 倍；单实例单 worker 时应用会自动降级为进程内实现。
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    volumes:
+      - lawver-redis:/data
+    networks:
+      - lawver-infra
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    volumes:
+      - ./searxng:/etc/searxng:ro
+    networks:
+      - lawver-infra
+    # 容器内以 uid 977 运行；settings.yml 只读挂载即可，但搜引擎缓存目录要可写，
+    # 所以这里不设 read_only，只在文档里要求宿主 ./searxng 目录属主为 977。
+
+networks:
+  # 显式命名，实例 compose 以 external: true 复用同一张网
+  lawver-infra:
+    name: lawver-infra
+
+volumes:
+  lawver-postgres:
+  lawver-redis:

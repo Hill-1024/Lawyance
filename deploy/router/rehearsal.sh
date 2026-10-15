@@ -94,8 +94,10 @@ if command -v cygpath >/dev/null 2>&1; then
   WORK="$(cygpath -m "$WORK")"
 fi
 
-pass=0
-fail=0
+# 断言与计数来自共享片段：容器版彩排（deploy/docker/rehearsal.sh）用的是同一份，
+# 两种拓扑的"过没过"因此可比。必须在 CORE/PYTHON 赋值之后 source。
+. "$ROOT/deploy/router/rehearsal-lib.sh"
+
 app_pid=""
 intro_pid=""
 core_pid=""
@@ -129,37 +131,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
-check() { # check <描述> <期望> <实际>
-  if [[ "$2" == "$3" ]]; then
-    printf '  ok   %s\n' "$1"
-    pass=$((pass + 1))
-  else
-    printf '  FAIL %s\n       期望: %s\n       实际: %s\n' "$1" "$2" "$3"
-    fail=$((fail + 1))
-  fi
-}
-check_contains() { # check_contains <描述> <子串> <文本>
-  if [[ "$3" == *"$2"* ]]; then
-    printf '  ok   %s\n' "$1"
-    pass=$((pass + 1))
-  else
-    printf '  FAIL %s\n       期望包含: %s\n       实际: %s\n' "$1" "$2" "${3:0:200}"
-    fail=$((fail + 1))
-  fi
-}
-
-status_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@"; }
-location_of() { curl -s -o /dev/null -D - --max-time 20 "$@" | awk 'tolower($1)=="location:"{print $2}' | tr -d '\r'; }
-side_up() { curl -s --max-time 5 "$CORE/__core/status" | "$PYTHON" -c "import json,sys;print(json.load(sys.stdin)['sides']['$1']['up'])" 2>/dev/null || echo unknown; }
-wait_side() { # wait_side <side> <True|False>
-  local deadline=$((SECONDS + PROBE_WAIT))
-  while ((SECONDS < deadline)); do
-    [[ "$(side_up "$1")" == "$2" ]] && return 0
-    sleep 0.5
-  done
-  return 1
-}
 start_app() {
   # 功能页只监听回环，与部署拓扑一致：应用默认绑 0.0.0.0，会把 18081 暴露到局域网。
   # API_KEY/BASE_URL 显式指向一个不可达端点：仓库根的 .env 里是生产凭据，而应用会
@@ -221,17 +192,17 @@ check "介绍页在线" "True" "$(side_up intro)"
 
 say "2. 路径分派"
 check "GET / → 介绍页" "200" "$(status_code "$CORE/")"
-check "/ 来自介绍页进程" "intro" "$(curl -s -o /dev/null -D - "$CORE/" | awk 'tolower($1)=="x-core-upstream:"{print $2}' | tr -d '\r')"
-check "GET /design → 介绍页" "intro" "$(curl -s -o /dev/null -D - "$CORE/design" | awk 'tolower($1)=="x-core-upstream:"{print $2}' | tr -d '\r')"
-check "GET /home → 功能页" "app" "$(curl -s -o /dev/null -D - "$CORE/home" | awk 'tolower($1)=="x-core-upstream:"{print $2}' | tr -d '\r')"
-check "GET /api/plans → 功能页" "app" "$(curl -s -o /dev/null -D - "$CORE/api/plans" | awk 'tolower($1)=="x-core-upstream:"{print $2}' | tr -d '\r')"
+check "/ 来自介绍页进程" "intro" "$(upstream_of "$CORE/")"
+check "GET /design → 介绍页" "intro" "$(upstream_of "$CORE/design")"
+check "GET /home → 功能页" "app" "$(upstream_of "$CORE/home")"
+check "GET /api/plans → 功能页" "app" "$(upstream_of "$CORE/api/plans")"
 check_contains "GET /robots.txt 是介绍页的 robots" "Sitemap:" "$(curl -s --max-time 10 "$CORE/robots.txt")"
 check_contains "GET /api/plans 返回套餐目录" '"plans"' "$(curl -s --max-time 10 "$CORE/api/plans")"
 check "GET /api/health 免鉴权可用" "200" "$(status_code "$CORE/api/health")"
 # 内容类型必须逐个对：HTML 被当成 application/octet-stream 时 curl 看不出任何问题，
 # 浏览器却只会把页面下载下来——整套界面白屏。
-check "首页是 text/html" "text/html; charset=utf-8" "$(curl -s -o /dev/null -D - --max-time 10 "$CORE/" | awk 'tolower($1)=="content-type:"{$1="";sub(/^ +/,"");print}' | tr -d '\r')"
-check "JS 产物是 text/javascript" "text/javascript; charset=utf-8" "$(curl -s -o /dev/null -D - --max-time 10 "$CORE/intro-assets/$(ls "$INTRO_ROOT/intro-assets" | grep -E '\.js$' | head -1)" | awk 'tolower($1)=="content-type:"{$1="";sub(/^ +/,"");print}' | tr -d '\r')"
+check "首页是 text/html" "text/html; charset=utf-8" "$(content_type_of --max-time 10 "$CORE/")"
+check "JS 产物是 text/javascript" "text/javascript; charset=utf-8" "$(content_type_of --max-time 10 "$CORE/intro-assets/$(ls "$INTRO_ROOT/intro-assets" | grep -E '\.js$' | head -1)")"
 
 say "3. 大文件穿透（介绍页 8MB 产物）"
 asset="$(ls "$INTRO_ROOT/intro-assets" | grep -E '\.js$' | head -1)"
@@ -239,7 +210,7 @@ head -c 8388608 /dev/urandom >"$INTRO_ROOT/intro-assets/rehearsal.bin"
 expected="$(shasum -a 256 "$INTRO_ROOT/intro-assets/rehearsal.bin" | awk '{print $1}')"
 got="$(curl -s --max-time 60 "$CORE/intro-assets/rehearsal.bin" | shasum -a 256 | awk '{print $1}')"
 check "8MB 资源经核心逐字节一致" "$expected" "$got"
-check "静态资源带长缓存" "public, max-age=31536000, immutable" "$(curl -s -o /dev/null -D - "$CORE/intro-assets/$asset" | awk 'tolower($1)=="cache-control:"{$1="";sub(/^ /,"");print}' | tr -d '\r')"
+check "静态资源带长缓存" "public, max-age=31536000, immutable" "$(cache_control_of "$CORE/intro-assets/$asset")"
 rm -f "$INTRO_ROOT/intro-assets/rehearsal.bin"
 
 say "4. 功能页下线：介绍页不受影响"
@@ -282,12 +253,12 @@ rm -f "$WORK/state/app.maintenance"
 wait_side app True || true
 check "撤销开关后恢复" "True" "$(side_up app)"
 
-say "结果"
-printf '  通过 %d，失败 %d\n' "$pass" "$fail"
-if ((fail > 0)); then
-  printf '\n最近的核心日志：\n'
-  tail -20 "$WORK/core.log"
-  printf '\n最近的功能页日志：\n'
-  tail -20 "$WORK/app.log"
-  exit 1
+if report; then
+  exit 0
 fi
+
+printf '\n最近的核心日志：\n'
+tail -20 "$WORK/core.log"
+printf '\n最近的功能页日志：\n'
+tail -20 "$WORK/app.log"
+exit 1

@@ -1,0 +1,69 @@
+name: Docker Images
+
+# 功能页镜像推到 GHCR（介绍页镜像由 Lawyance_Intro 仓的 docker-image.yml 负责）。
+#
+# 为什么单独走 GHCR 而不是在部署机上构建：2B 交付时客户只拿到 compose 文件与镜像，
+# 源码与法律语料都不落到客户机器上（docs/law-service-split-plan.md §6 的硬要求）。
+# 语料本来就不在镜像里（.dockerignore 排除 RAG/data），客户侧再只读挂自营法库即可。
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build, for example v0.1.22'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Build and push lawver-app
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        env:
+          CHECKOUT_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$CHECKOUT_REF" || git fetch --depth=1 origin "refs/tags/$CHECKOUT_REF"
+          git checkout --detach FETCH_HEAD
+
+      - name: Resolve image tags
+        id: meta
+        run: |
+          set -euo pipefail
+          # GHCR 拒绝大写 owner，必须小写化
+          OWNER="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr 'A-Z' 'a-z')"
+          VERSION="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          echo "image=ghcr.io/${OWNER}/lawver-app" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          target: runtime
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

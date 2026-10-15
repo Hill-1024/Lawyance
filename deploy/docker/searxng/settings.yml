@@ -1,0 +1,26 @@
+use_default_settings: true
+
+server:
+  # 必须换成自己生成的随机值：openssl rand -hex 32
+  # 容器内以 uid 977 运行，这个文件只读挂载即可
+  secret_key: "REPLACE_WITH_RANDOM_HEX"
+  limiter: false
+  image_proxy: false
+  bind_address: "0.0.0.0:8080"
+
+search:
+  safe_search: 0
+  default_lang: "all"
+  formats:
+    - html
+    - json          # 功能页的联网搜索依赖 JSON API，不可去（少了它就报「未返回 JSON」）
+
+engines:
+  - name: bing
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: startpage
+    disabled: false
