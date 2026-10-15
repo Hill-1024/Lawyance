@@ -79,6 +79,14 @@
     "original_filename": "北京市专业技术人员继续教育规定(2016修正).json",
     "source_id": "7da7e33c36057f637aa733eead469ca3"
   },
+  "北京市专业技术人员继续教育规定修正案(2001)": {
+    "law_name": "北京市专业技术人员继续教育规定修正案(2001) English",
+    "short_name": "北京市专",
+    "article_count": 2,
+    "file": "dfa6f8ccdef60034d12fa921cd796e04.json",
+    "original_filename": "北京市专业技术人员继续教育规定修正案(2001).json",
+    "source_id": "dfa6f8ccdef60034d12fa921cd796e04"
+  },
   "北京市专利保护和促进条例(2021修正)": {
     "law_name": "北京市专利保护和促进条例(2021修正) English",
     "short_name": "北京市专",
@@ -135,6 +143,38 @@
     "original_filename": "北京市人口与计划生育条例(2021修正).json",
     "source_id": "d8d377d7abddb3637c00d53824fab019"
   },
+  "北京市人口与计划生育条例修正案": {
+    "law_name": "北京市人口与计划生育条例修正案 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "79d9011445977f8e2afba09c254c2941.json",
+    "original_filename": "北京市人口与计划生育条例修正案.json",
+    "source_id": "79d9011445977f8e2afba09c254c2941"
+  },
+  "北京市人大常委会废止《北京市价格监督检查条例》的决定": {
+    "law_name": "北京市人大常委会废止《北京市价格监督检查条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "395e915d52cfecd5588b1f6d91fee5ef.json",
+    "original_filename": "北京市人大常委会废止《北京市价格监督检查条例》的决定.json",
+    "source_id": "395e915d52cfecd5588b1f6d91fee5ef"
+  },
+  "北京市人大常委会废止《北京市建设工程质量条例》的决定": {
+    "law_name": "北京市人大常委会废止《北京市建设工程质量条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "61fe95d212aecf4cceb0fde8e70cd0ee.json",
+    "original_filename": "北京市人大常委会废止《北京市建设工程质量条例》的决定.json",
+    "source_id": "61fe95d212aecf4cceb0fde8e70cd0ee"
+  },
+  "北京市人大常委会废止《北京市职工教育条例》的决定": {
+    "law_name": "北京市人大常委会废止《北京市职工教育条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "d77c4e052e37f780a6767aee0ea68d78.json",
+    "original_filename": "北京市人大常委会废止《北京市职工教育条例》的决定.json",
+    "source_id": "d77c4e052e37f780a6767aee0ea68d78"
+  },
   "北京市人民代表大会代表建议、批评和意见办理条例(2026修订)": {
     "law_name": "北京市人民代表大会代表建议、批评和意见办理条例(2026修订)",
     "short_name": "北京市人",
@@ -158,6 +198,22 @@
     "file": "d146a2d601b6a20b99fcb868638c81fd.json",
     "original_filename": "北京市人民代表大会常务委员会任免国家机关工作人员条例修正案(2007).json",
     "source_id": "d146a2d601b6a20b99fcb868638c81fd"
+  },
+  "北京市人民代表大会常务委员会公告(第86号)－－废止《北京市保障律师执行职务若干规定》": {
+    "law_name": "北京市人民代表大会常务委员会公告(第86号)－－废止《北京市保障律师执行职务若干规定》",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "810db894bd7351ba6ddb52ac3146f1d0.json",
+    "original_filename": "北京市人民代表大会常务委员会公告(第86号)－－废止《北京市保障律师执行职务若干规定》.json",
+    "source_id": "810db894bd7351ba6ddb52ac3146f1d0"
+  },
+  "北京市人民代表大会常务委员会公告(第87号)－－废止《北京市商用计量器具管理办法》": {
+    "law_name": "北京市人民代表大会常务委员会公告(第87号)－－废止《北京市商用计量器具管理办法》",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "c38837d91ba14d4c26958f40ae280d8d.json",
+    "original_filename": "北京市人民代表大会常务委员会公告(第87号)－－废止《北京市商用计量器具管理办法》.json",
+    "source_id": "c38837d91ba14d4c26958f40ae280d8d"
   },
   "北京市人民代表大会常务委员会关于京津冀协同推进大运河文化保护传承利用的决定": {
     "law_name": "北京市人民代表大会常务委员会关于京津冀协同推进大运河文化保护传承利用的决定",
@@ -511,6 +567,14 @@
     "original_filename": "北京市人民代表大会常务委员会关于北京市应税大气污染物和水污染物环境保护税适用税额的决定.json",
     "source_id": "6f485036f6da0d9eaadc56a9e02e8ccb"
   },
+  "北京市人民代表大会常务委员会关于北京市第十五届人民代表大会第二次会议召开时间的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于北京市第十五届人民代表大会第二次会议召开时间的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "41115d6d98d9e34e9ab33165fddb3342.json",
+    "original_filename": "北京市人民代表大会常务委员会关于北京市第十五届人民代表大会第二次会议召开时间的决定.json",
+    "source_id": "41115d6d98d9e34e9ab33165fddb3342"
+  },
   "北京市人民代表大会常务委员会关于北京市耕地占用税适用税额的决定": {
     "law_name": "北京市人民代表大会常务委员会关于北京市耕地占用税适用税额的决定 English",
     "short_name": "北京市人",
@@ -559,6 +623,30 @@
     "original_filename": "北京市人民代表大会常务委员会关于废止《北京市人才市场管理条例》等二部地方性法规的决定.json",
     "source_id": "a8b511fc656d846e4bbc4b992fb10979"
   },
+  "北京市人民代表大会常务委员会关于废止《北京市人民代表大会常务委员会监督司法工作条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市人民代表大会常务委员会监督司法工作条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "41510d47b8dc7b235704a3a6e2433507.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市人民代表大会常务委员会监督司法工作条例》的决定.json",
+    "source_id": "41510d47b8dc7b235704a3a6e2433507"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市人民警察巡察条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市人民警察巡察条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "a4d10d742cbf62f4ac1b475c2a02190b.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市人民警察巡察条例》的决定.json",
+    "source_id": "a4d10d742cbf62f4ac1b475c2a02190b"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市公路路政管理条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市公路路政管理条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "eec4ea590810e9960a6d1a69f21c9a71.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市公路路政管理条例》的决定.json",
+    "source_id": "eec4ea590810e9960a6d1a69f21c9a71"
+  },
   "北京市人民代表大会常务委员会关于废止《北京市农业承包合同条例》《北京市农村集体所有荒山荒滩租赁条例》的决定": {
     "law_name": "北京市人民代表大会常务委员会关于废止《北京市农业承包合同条例》《北京市农村集体所有荒山荒滩租赁条例》的决定",
     "short_name": "北京市人",
@@ -566,6 +654,118 @@
     "file": "e19533599163bc0b48128c21977f6523.json",
     "original_filename": "北京市人民代表大会常务委员会关于废止《北京市农业承包合同条例》《北京市农村集体所有荒山荒滩租赁条例》的决定.json",
     "source_id": "e19533599163bc0b48128c21977f6523"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市动员组织公民献血条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市动员组织公民献血条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "766e937f6cdf79aec3b1f77a5bf1e973.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市动员组织公民献血条例》的决定.json",
+    "source_id": "766e937f6cdf79aec3b1f77a5bf1e973"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市外商投资企业清算条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市外商投资企业清算条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "adaeccda0d6459e4e130ac0939283008.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市外商投资企业清算条例》的决定.json",
+    "source_id": "adaeccda0d6459e4e130ac0939283008"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市外商投资企业解散条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市外商投资企业解散条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "07019de31a9e24555530bce369ae97d2.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市外商投资企业解散条例》的决定.json",
+    "source_id": "07019de31a9e24555530bce369ae97d2"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市外地来京务工经商人员管理条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市外地来京务工经商人员管理条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "1c109c24ed22111816493eaf48628236.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市外地来京务工经商人员管理条例》的决定.json",
+    "source_id": "1c109c24ed22111816493eaf48628236"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市小公共汽车管理条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市小公共汽车管理条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "72ee1305ae6355b3f49ceed7a5761965.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市小公共汽车管理条例》的决定.json",
+    "source_id": "72ee1305ae6355b3f49ceed7a5761965"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市建筑市场管理条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市建筑市场管理条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "389a1467aebc6c9a10b5f72dcae46075.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市建筑市场管理条例》的决定.json",
+    "source_id": "389a1467aebc6c9a10b5f72dcae46075"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市建设拆迁安置办法》的决议": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市建设拆迁安置办法》的决议",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "c9bc716e6e0974d8d203ad8328e66725.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市建设拆迁安置办法》的决议.json",
+    "source_id": "c9bc716e6e0974d8d203ad8328e66725"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市征收城市容纳费条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市征收城市容纳费条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "73933d5e7b937cdcdf894836dbf5c49c.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市征收城市容纳费条例》的决定.json",
+    "source_id": "73933d5e7b937cdcdf894836dbf5c49c"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市文化娱乐市场管理条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市文化娱乐市场管理条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "6a258f8162bb523b84b3bf6d1e8f241e.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市文化娱乐市场管理条例》的决定.json",
+    "source_id": "6a258f8162bb523b84b3bf6d1e8f241e"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市水利工程保护管理条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市水利工程保护管理条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "9b60cd0e0a3fda9f944d1541bca66ab0.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市水利工程保护管理条例》的决定.json",
+    "source_id": "9b60cd0e0a3fda9f944d1541bca66ab0"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市电信通信条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市电信通信条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "c805faf624ebb1167cb0273d7dfbaf0e.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市电信通信条例》的决定.json",
+    "source_id": "c805faf624ebb1167cb0273d7dfbaf0e"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市职业病防治卫生监督条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市职业病防治卫生监督条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "db0e0735cdf2608249b790cfdd1f72f3.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市职业病防治卫生监督条例》的决定.json",
+    "source_id": "db0e0735cdf2608249b790cfdd1f72f3"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市行政性事业性收费管理条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市行政性事业性收费管理条例》的决定 English",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "521195e4935cc93a90f35c6feb5af694.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市行政性事业性收费管理条例》的决定.json",
+    "source_id": "521195e4935cc93a90f35c6feb5af694"
+  },
+  "北京市人民代表大会常务委员会关于废止《北京市食品安全条例》的决定": {
+    "law_name": "北京市人民代表大会常务委员会关于废止《北京市食品安全条例》的决定",
+    "short_name": "北京市人",
+    "article_count": 1,
+    "file": "6c77d1e03e6fc41e2258b93fe7e63aec.json",
+    "original_filename": "北京市人民代表大会常务委员会关于废止《北京市食品安全条例》的决定.json",
+    "source_id": "6c77d1e03e6fc41e2258b93fe7e63aec"
   },
   "北京市人民代表大会常务委员会关于废止部分地方性法规的决定": {
     "law_name": "北京市人民代表大会常务委员会关于废止部分地方性法规的决定 English",
@@ -911,6 +1111,30 @@
     "original_filename": "北京市农村集体资产管理条例(2010修正).json",
     "source_id": "b18d64b7091f84a0d0051b7c335be66d"
   },
+  "北京市出租汽车管理条例 已被修改": {
+    "law_name": "北京市出租汽车管理条例 已被修改",
+    "short_name": "北京市出",
+    "article_count": 41,
+    "file": "a9bc0a3ef17488e016bffe34ad216bd3.json",
+    "original_filename": "北京市出租汽车管理条例 已被修改.json",
+    "source_id": "a9bc0a3ef17488e016bffe34ad216bd3"
+  },
+  "北京市出租汽车管理条例(2001修订) 已被修改": {
+    "law_name": "北京市出租汽车管理条例(2001修订) 已被修改",
+    "short_name": "北京市出",
+    "article_count": 38,
+    "file": "45718c8546ba661364154581506037db.json",
+    "original_filename": "北京市出租汽车管理条例(2001修订) 已被修改.json",
+    "source_id": "45718c8546ba661364154581506037db"
+  },
+  "北京市出租汽车管理条例修正案(2001)": {
+    "law_name": "北京市出租汽车管理条例修正案(2001) English",
+    "short_name": "北京市出",
+    "article_count": 13,
+    "file": "42fab533a15e8485f9b0729f30ca5f31.json",
+    "original_filename": "北京市出租汽车管理条例修正案(2001).json",
+    "source_id": "42fab533a15e8485f9b0729f30ca5f31"
+  },
   "北京市出租汽车管理条例修正案(2002)": {
     "law_name": "北京市出租汽车管理条例修正案(2002) English",
     "short_name": "北京市出",
@@ -943,6 +1167,46 @@
     "original_filename": "北京市区、乡、民族乡、镇人民代表大会代表选举实施细则(2021修正).json",
     "source_id": "24995e5770b5ff10e1659b42926a0783"
   },
+  "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(1998修订) 已被修改": {
+    "law_name": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(1998修订) 已被修改",
+    "short_name": "北京市区",
+    "article_count": 52,
+    "file": "7ce2f6bd56671cc2308dd5f4be08e550.json",
+    "original_filename": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(1998修订) 已被修改.json",
+    "source_id": "7ce2f6bd56671cc2308dd5f4be08e550"
+  },
+  "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2003修正) 已被修改": {
+    "law_name": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2003修正) 已被修改",
+    "short_name": "北京市区",
+    "article_count": 52,
+    "file": "fca5e22ba4391ac32823cbce63f0b717.json",
+    "original_filename": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2003修正) 已被修改.json",
+    "source_id": "fca5e22ba4391ac32823cbce63f0b717"
+  },
+  "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2005修正) 已被修改": {
+    "law_name": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2005修正) English已被修改",
+    "short_name": "北京市区",
+    "article_count": 52,
+    "file": "ba7913cbb8e3b70f1cf50398d9a2df33.json",
+    "original_filename": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2005修正) 已被修改.json",
+    "source_id": "ba7913cbb8e3b70f1cf50398d9a2df33"
+  },
+  "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2011修正) 已被修改": {
+    "law_name": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2011修正) 已被修改",
+    "short_name": "北京市区",
+    "article_count": 66,
+    "file": "d8c1493a5d998b109a61669136aab31d.json",
+    "original_filename": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则(2011修正) 已被修改.json",
+    "source_id": "d8c1493a5d998b109a61669136aab31d"
+  },
+  "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则修正案(2003)": {
+    "law_name": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则修正案(2003) English",
+    "short_name": "北京市区",
+    "article_count": 1,
+    "file": "e4067ad02fd3fc0dedb33415ba60182b.json",
+    "original_filename": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则修正案(2003).json",
+    "source_id": "e4067ad02fd3fc0dedb33415ba60182b"
+  },
   "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则修正案(2005)": {
     "law_name": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则修正案(2005) English",
     "short_name": "北京市区",
@@ -950,6 +1214,30 @@
     "file": "58933015b15bdd9a30486cb8207e9452.json",
     "original_filename": "北京市区、县、乡、民族乡、镇人民代表大会代表选举实施细则修正案(2005).json",
     "source_id": "58933015b15bdd9a30486cb8207e9452"
+  },
+  "北京市区、县、乡、镇人民代表大会代表选举实施细则 已被修改": {
+    "law_name": "北京市区、县、乡、镇人民代表大会代表选举实施细则 已被修改",
+    "short_name": "北京市区",
+    "article_count": 50,
+    "file": "84664db4bf99c143466ed2ff43b279cb.json",
+    "original_filename": "北京市区、县、乡、镇人民代表大会代表选举实施细则 已被修改.json",
+    "source_id": "84664db4bf99c143466ed2ff43b279cb"
+  },
+  "北京市区、县、乡、镇人民代表大会代表选举实施细则(1986修正) 已被修改": {
+    "law_name": "北京市区、县、乡、镇人民代表大会代表选举实施细则(1986修正) 已被修改",
+    "short_name": "北京市区",
+    "article_count": 50,
+    "file": "c4944679c94c69c0cc562dbd30cd4b2f.json",
+    "original_filename": "北京市区、县、乡、镇人民代表大会代表选举实施细则(1986修正) 已被修改.json",
+    "source_id": "c4944679c94c69c0cc562dbd30cd4b2f"
+  },
+  "北京市区、县、乡、镇人民代表大会代表选举实施细则(1993修正) 已被修改": {
+    "law_name": "北京市区、县、乡、镇人民代表大会代表选举实施细则(1993修正) 已被修改",
+    "short_name": "北京市区",
+    "article_count": 50,
+    "file": "0d5b78a1138e0f4f2ade81294e52d32d.json",
+    "original_filename": "北京市区、县、乡、镇人民代表大会代表选举实施细则(1993修正) 已被修改.json",
+    "source_id": "0d5b78a1138e0f4f2ade81294e52d32d"
   },
   "北京市医院安全秩序管理规定": {
     "law_name": "北京市医院安全秩序管理规定 English",
@@ -1375,6 +1663,14 @@
     "original_filename": "北京市实施《中华人民共和国矿山安全法》办法(2021修正).json",
     "source_id": "2cf5de36c35b0594581aa90a3e4bd81e"
   },
+  "北京市实施《中华人民共和国矿山安全法》办法修正案(2001)": {
+    "law_name": "北京市实施《中华人民共和国矿山安全法》办法修正案(2001)",
+    "short_name": "矿山安全法",
+    "article_count": 2,
+    "file": "ec7dac11abdb8e959e2cb1e41b25696f.json",
+    "original_filename": "北京市实施《中华人民共和国矿山安全法》办法修正案(2001).json",
+    "source_id": "ec7dac11abdb8e959e2cb1e41b25696f"
+  },
   "北京市实施《中华人民共和国突发事件应对法》办法": {
     "law_name": "北京市实施《中华人民共和国突发事件应对法》办法 English",
     "short_name": "突发事件应对法",
@@ -1662,6 +1958,14 @@
     "file": "af460623a7b391400f9622cd903f956a.json",
     "original_filename": "北京市查处非法客运若干规定.json",
     "source_id": "af460623a7b391400f9622cd903f956a"
+  },
+  "北京市殡葬管理暂行条例 已被修改": {
+    "law_name": "北京市殡葬管理暂行条例 已被修改",
+    "short_name": "北京市殡",
+    "article_count": 38,
+    "file": "155eca0263006c7514554224cbf53765.json",
+    "original_filename": "北京市殡葬管理暂行条例 已被修改.json",
+    "source_id": "155eca0263006c7514554224cbf53765"
   },
   "北京市殡葬管理条例(2016修正)": {
     "law_name": "北京市殡葬管理条例(2016修正) English",
