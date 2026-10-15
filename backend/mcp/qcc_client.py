@@ -67,6 +67,42 @@ class QCCClientError(RuntimeError):
     pass
 
 
+# 状态码 → 人话。401/403 几乎总是凭据问题，直接说清楚，
+# 别让用户看到"请稍后重试"然后一直等。
+_HTTP_HINTS = {
+    400: "请求被拒绝（参数或 tool 名不对）",
+    401: "访问令牌无效或缺失",
+    403: "访问令牌权限不足（可能是积分不足或未开通该能力）",
+    404: "接口地址不存在",
+    429: "调用过于频繁，请降低频率",
+    500: "企查查服务端错误",
+    502: "企查查服务暂时不可用",
+    503: "企查查服务暂时不可用",
+}
+
+
+def _describe_http_error(status: int, response) -> str:
+    """把 HTTP 错误连同响应正文一起说清楚。
+
+    原来的实现只抛"企查查服务返回异常状态"，把服务端返回的正文整个丢掉 ——
+    而那正文里恰恰写着真正的原因（例如 401 时的
+    "身份凭证缺失，请配置 Bearer Token"）。排查时等于没说。
+    """
+    hint = _HTTP_HINTS.get(status, "未知错误")
+    detail = ""
+    try:
+        raw = response.text or ""
+        if raw.strip():
+            # 只取一小段，够看清原因就行，避免把长正文塞进日志
+            detail = raw.strip().replace("\n", " ")[:200]
+    except Exception:
+        pass
+    msg = "企查查服务返回 %d：%s" % (status, hint)
+    if detail:
+        msg += "。服务端说明：%s" % detail
+    return msg
+
+
 class QichachaSimpleClient:
     """企查查MCP客户端 - 精简版"""
 
@@ -210,7 +246,11 @@ class QichachaSimpleClient:
             )
             try:
                 if response.status_code != 200:
-                    raise QCCClientError("企查查服务返回异常状态")
+                    # 不要把响应正文扔掉：企查查在 401 里写清了原因
+                    # （"身份凭证缺失，请配置 Bearer Token…"），
+                    # 原来只说"返回异常状态"，排查时等于没说。
+                    raise QCCClientError(_describe_http_error(
+                        response.status_code, response))
                 response_content = self._read_bounded_response(response)
             finally:
                 response.close()
@@ -249,6 +289,12 @@ def run_tool(tool_name: str, company: str) -> Dict[str, Any]:
 
         return result
 
+    except QCCClientError as exc:
+        # 已知的具体原因（凭据、地址、状态码…）原样告诉调用方。
+        # 不能吞成"请稍后重试" —— 那会让"你根本没配 token"这种
+        # 一眼就能修的问题，看起来像服务临时故障。
+        logger.warning("QCC tool failed | tool=%s | %s", tool_name, exc)
+        return {"error": str(exc)}
     except Exception:
         logger.exception("QCC tool call failed | tool=%s", tool_name)
         return {"error": "企业信息服务调用失败，请稍后重试。"}
