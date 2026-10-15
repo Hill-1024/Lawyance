@@ -302,12 +302,12 @@ sudo -u lawver nano /srv/lawver/.env
 | `LAWVER_RELEASE_*` / `LAWVER_PUBLIC_BASE_URL` / `LAWVER_APK_DOWNLOAD_RPM` | Android APK 分发（从 GitHub Release 同步）；私有仓或 API 限流时可加 `LAWVER_GITHUB_TOKEN` |
 | `UVICORN_WORKERS` | 多 worker 时必须同时配 `LAWVER_REDIS_URL`（见第 5 节） |
 | `SEARXNG_ENGINES` / `SEARXNG_LANGUAGE` / `SEARXNG_SAFE_SEARCH` 等 | 覆盖 SearXNG 默认参数；通常留空，让服务端 settings.yml 决定 |
+| `PKU_LAW_SOURCE` + `PKU_ACCESS_TOKEN` | **法条检索数据源**。留空 = 本地法库（`RAG/law_data_search` + `RAG/data`，默认）；`PKU_LAW_SOURCE=remote` + Token = 走北大法宝开放平台 MCP（条文与链接来自法宝官方库，可溯源到 pkulaw.com）。切远程前需先完成服务订阅与积分充值，否则调用会被直接拒绝。可选 `PKU_LAW_SEARCH_ENDPOINT` / `PKU_DOC_LINK_ENDPOINT` 覆盖端点（默认即官方网关，受主机白名单约束） |
 
 ### 7.4 已废弃 / 无需
 
 - `MODELSCOPE_*`：**不再需要**，示例文件里已移除。
 - `DELI_APPID` / `DELI_SECRET`：**已废弃**（2026-10 得理改用 `DELI_API_KEY`）。老机器上若残留可删。
-- `PKU_ACCESS_TOKEN`：**可选**。法条检索走本地法库 `RAG/law_data_search`，默认不依赖它；示例文件中保留该条目，便于仍需远程法宝接口时启用。
 - `PORT`：**不要写**（见第 15 节禁止事项）。
 
 **验收**：`sudo -u lawver bash -c 'cd /srv/lawver && set -a && source .env && set +a && echo $LAWVER_DATABASE_URL | grep -q postgresql && echo env-ok'`；以及权限 `stat -c %a /srv/lawver/.env` 为 `600`。
