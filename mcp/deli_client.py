@@ -16,6 +16,18 @@ load_dotenv(".env")
 _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
+# 得理的业务错误码 → 人话。它凭据错误时返回 HTTP 200，
+# 真正的错误只在正文的 code/msg 里，所以这张表是排查的关键。
+_DELI_CODE_HINTS = {
+    10001: "appid 无效 —— 检查 DELI_APPID 是否填对",
+    10002: "secret 无效 —— 检查 DELI_SECRET 是否填对",
+    10003: "appid 与 secret 不匹配",
+    10004: "账号未开通该接口权限",
+    10005: "余额或额度不足",
+    10006: "并发超限（个人版只有 1 个并发）",
+}
+
+
 class DELINotConfiguredError(RuntimeError):
     """DELI_APPID / DELI_SECRET 尚未配置（环境变量或管理后台）。"""
 
@@ -168,11 +180,27 @@ def match_legal_case(
     )
     # print(json.dumps(result_data, indent=2, ensure_ascii=False))
 
+    # 得理在**凭据错误时也返回 HTTP 200**，只在正文里写
+    # {"success": false, "code": 10001, "msg": "appid error"}。
+    # 所以必须检查正文的 success 字段 —— 只看状态码会被骗过去。
+    if isinstance(result_data, dict) and result_data.get("success") is False:
+        code = result_data.get("code")
+        # 得理用的键是 msg（不是 message），原来取错了键，
+        # 真实原因"appid error"就这么丢了，只剩一句"返回异常"。
+        reason = (result_data.get("msg") or result_data.get("message")
+                  or "未知原因")
+        hint = _DELI_CODE_HINTS.get(code)
+        msg = "案例检索服务拒绝请求：%s" % reason
+        if hint:
+            msg += "（%s）" % hint
+        return {"success": False, "message": msg}
+
     if not isinstance(result_data, dict) or not isinstance(result_data.get("body"), dict):
-        return {
-            "success": False,
-            "message": result_data.get("message", "案例检索服务返回异常") if isinstance(result_data, dict) else "案例检索服务返回异常"
-        }
+        fallback = "案例检索服务返回异常"
+        if isinstance(result_data, dict):
+            fallback = (result_data.get("msg") or result_data.get("message")
+                        or fallback)
+        return {"success": False, "message": fallback}
 
     body = result_data.get("body") or {}
     raw_items = body.get("data")
