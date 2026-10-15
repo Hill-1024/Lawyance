@@ -356,6 +356,8 @@ global.lawver.dev   → 隧道 → 海外机器：分流核心 8080 ─┴─ �
 给在部署机上工作的执行者（人或 agent）：从零到上线照这个顺序做，每一步都给了验收方式。本文按 Debian 12 / Ubuntu 22.04 写，其他发行版把包管理命令换掉即可。
 
 > **面向 agent 的完整版部署手册见 [docs/deployment.md](docs/deployment.md)**：包含全部环境变量、PostgreSQL/Redis/SearXNG 的搭建与维护、前后端双仓更新流程、备份与故障排查；本节保留为速查。
+>
+> **容器化部署（Docker Compose）见 [docs/docker-deployment.md](docs/docker-deployment.md)**：一份 compose 一个实例、宿主只发布一个端口、一台机器可跑多个实例并共享一套 PG/Redis/SearXNG。两条路可以并存与互相切换（该文档第 8 节）。
 
 ### 0. 名词与端口
 

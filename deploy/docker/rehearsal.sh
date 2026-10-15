@@ -98,6 +98,27 @@ STATE_DIR="$WORK/state"
 DATA_ROOT="$WORK/data"
 mkdir -p "$STATE_DIR" "$DATA_ROOT"/{data,TEMP,Result}
 
+# 挂进容器的宿主目录属主必须是**容器内那个用户**，否则应用在 import 期就会
+# os.chmod("/app/data") 失败（[Errno 1] Operation not permitted）并崩溃重启。
+# 这里直接问镜像本身要 uid/gid——比在脚本里写死一个数字可靠。
+APP_UID="$(docker run --rm --entrypoint id "$APP_IMAGE" -u 2>/dev/null || echo 0)"
+APP_GID="$(docker run --rm --entrypoint id "$APP_IMAGE" -g 2>/dev/null || echo 0)"
+if [[ "$APP_UID" != "0" ]]; then
+  chown -R "$APP_UID:$APP_GID" "$DATA_ROOT" "$STATE_DIR"
+fi
+
+# 介绍页：把当前生效的那一版产物复制进工作目录，并重建 current 为**相对**符号链接。
+# 两个原因：一是线上 current 是绝对链接（指向 /srv/...），直接挂进来会让容器里那个
+# 链接指向不存在的位置；二是彩排要写 8MB 测试文件，不该写进线上 release 目录。
+# 保留符号链接形态是有意的——容器里换版依赖的正是"每请求解析链接"这条路径。
+resolved_site="$(cd "$INTRO_ROOT" && pwd -P)"
+site_name="$(basename "$resolved_site")"
+mkdir -p "$WORK/intro/releases/$site_name"
+cp -a "$resolved_site/." "$WORK/intro/releases/$site_name/"
+ln -s "releases/$site_name" "$WORK/intro/current"
+INTRO_REPO="$WORK/intro"
+INTRO_ROOT="$WORK/intro/current"
+
 cat >"$WORK/app.env" <<ENV
 # 彩排专用：假密钥、测试模式（sqlite 兜底，不需要 Postgres）、关掉 APK 同步。
 SECRET_KEY=rehearsal-secret-rehearsal-secret-32
@@ -111,6 +132,10 @@ ENV
 
 cat >"$WORK/compose.env" <<ENV
 COMPOSE_PROJECT_NAME=$PROJECT
+# 用上面校验过存在的本地镜像：compose.yml 的默认值是 GHCR 的 :latest，
+# 不覆盖的话 compose 会去拉私有仓库（未登录 = denied），而不是用本地这份。
+LAWVER_APP_IMAGE=$APP_IMAGE
+LAWVER_INTRO_IMAGE=$INTRO_IMAGE
 LAWVER_ROUTER_PUBLISH_PORT=$CORE_PORT
 LAWVER_ROUTER_PUBLISH_HOST=127.0.0.1
 LAWVER_NETWORK_SUBNET=10.99.0.0/24

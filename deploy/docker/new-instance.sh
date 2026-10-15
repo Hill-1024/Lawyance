@@ -18,8 +18,21 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCES_ROOT="${LAWVER_INSTANCES_ROOT:-/srv/lawver-instances}"
-APP_UID="${LAWVER_APP_UID:-1000}"
-APP_GID="${LAWVER_APP_GID:-1000}"
+# 容器内运行用户必须与宿主持久化目录的属主一致，否则应用在 import 期就会
+# os.chmod("/app/data") 失败并崩溃重启（[Errno 1] Operation not permitted），
+# 分流核心也读不了维护开关目录。**不问镜像要 uid 就会猜错**——部署机上 lawver
+# 是 996，不是 1000。顺序：显式变量 → 本地镜像里的实际用户 → lawver 用户 → 1000。
+APP_UID="${LAWVER_APP_UID:-}"
+APP_GID="${LAWVER_APP_GID:-}"
+if [[ -z "$APP_UID" || -z "$APP_GID" ]]; then
+  app_image="${LAWVER_APP_IMAGE:-ghcr.io/hill-1024/lawver-app:latest}"
+  if docker image inspect "$app_image" >/dev/null 2>&1; then
+    APP_UID="${APP_UID:-$(docker run --rm --entrypoint id "$app_image" -u 2>/dev/null)}"
+    APP_GID="${APP_GID:-$(docker run --rm --entrypoint id "$app_image" -g 2>/dev/null)}"
+  fi
+fi
+APP_UID="${APP_UID:-$(id -u lawver 2>/dev/null || echo 1000)}"
+APP_GID="${APP_GID:-$(id -g lawver 2>/dev/null || echo 1000)}"
 # 网段候选：10.42.<n>.0/24，n 从 0 试到 255。避开 docker 默认地址池
 # （172.17–172.31），撞上别人项目的概率最低。
 SUBNET_TEMPLATE="${LAWVER_SUBNET_TEMPLATE:-10.42.%d.0/24}"
@@ -160,10 +173,14 @@ DATA_ROOT="$INSTANCE_DIR/data"
 STATE_DIR="$INSTANCE_DIR/state/router"
 mkdir -p "$DATA_ROOT"/{data,TEMP,Result} "$STATE_DIR"
 
-# 以 root 运行时装好属主：容器内默认以 uid 1000 跑，宿主目录属主不对就写不进去
+# 以 root 运行时装好属主：容器内以镜像里的用户跑，宿主目录属主不对就写不进去——
+# 症状是应用在 import 期就 os.chmod("/app/data") 失败并崩溃重启（[Errno 1]）。
 if [[ "$(id -u)" == "0" ]]; then
   chown -R "$APP_UID:$APP_GID" "$DATA_ROOT" "$STATE_DIR"
   chmod 750 "$DATA_ROOT" "$STATE_DIR"
+else
+  printf '注意：当前不是 root，请确认 %s 的属主是容器内用户（uid %s）：\n      sudo chown -R %s:%s %s\n' \
+    "$DATA_ROOT" "$APP_UID" "$APP_UID" "$APP_GID" "$INSTANCE_DIR" >&2
 fi
 
 # ── 写 compose.env ─────────────────────────────────────────────────────────
@@ -207,6 +224,11 @@ SEARXNG_BASE_URL=http://searxng:8080/
 
 # 共享 Redis 的前缀：每实例必须不同
 LAWVER_REDIS_PREFIX=$PREFIX
+
+# 镜像：默认拉 GHCR 上的版本化镜像（2B 交付就是这种形态，客户机上没有源码）。
+# 本地构建过的话改成 lawver-app:local / lawver-intro:local，免得 compose 去拉私有仓库。
+LAWVER_APP_IMAGE=${LAWVER_APP_IMAGE:-ghcr.io/hill-1024/lawver-app:latest}
+LAWVER_INTRO_IMAGE=${LAWVER_INTRO_IMAGE:-ghcr.io/hill-1024/lawver-intro:latest}
 
 # self-hosted overlay 用（frontier 实例不挂语料，改用 compose.frontier.yml）
 LAWVER_LAW_DATA_DIR=$LAW_DATA_DIR
