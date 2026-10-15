@@ -811,6 +811,14 @@ def _probe_searxng(provider: dict) -> tuple[bool, str]:
     )
 
 
+_DELI_PROBE_HINTS = {
+    10001: "appid 无效",
+    10002: "secret 无效",
+    10003: "appid 与 secret 不匹配",
+    10004: "账号未开通该接口",
+}
+
+
 def _probe_deli(provider: dict) -> tuple[bool, str]:
     """POST 一次只读案例检索（pageSize=1），验证 appid/secret 是否被接受。"""
     endpoint = str(provider.get("endpoint") or "").strip()
@@ -836,6 +844,22 @@ def _probe_deli(provider: dict) -> tuple[bool, str]:
     except requests.exceptions.RequestException as exc:
         return False, _probe_transport_error_message(exc)
     if response.status_code == 200:
+        # 得理在**凭据错误时也返回 200**，只在正文里写
+        # {"success": false, "code": 10001, "msg": "appid error"}。
+        # 原来只看状态码，于是假凭据也报"连接正常" —— 这个按钮会骗人。
+        try:
+            body = response.json()
+        except (ValueError, AttributeError):
+            # AttributeError：测试里的假响应对象没有 json()。
+            # 拿不到正文就按旧行为处理，别因为探测把测试搞挂。
+            body = None
+        if isinstance(body, dict) and body.get("success") is False:
+            reason = body.get("msg") or body.get("message") or "凭据被拒绝"
+            hint = _DELI_PROBE_HINTS.get(body.get("code"))
+            msg = "凭据被拒绝：%s" % reason
+            if hint:
+                msg += "（%s）" % hint
+            return False, msg
         return True, ""
     return False, _probe_status_error_message(response.status_code)
 
