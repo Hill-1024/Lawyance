@@ -1,0 +1,41 @@
+# overlay：自营实例（我们自己的机器）。挂上语料，法条检索走本地法库。
+#
+#   docker compose --env-file <inst>/compose.env \
+#     -f compose.yml -f compose.self-hosted.yml up -d
+#
+# 与 compose.frontier.yml 的区别只有一处：**语料挂不挂**。其余完全相同，
+# 所以两个实例形态共用同一个镜像，不需要"带语料的镜像"和"不带语料的镜像"两套。
+services:
+  app:
+    volumes:
+      # 语料只读挂载。可以全机共享同一份检出（多个实例挂同一个目录，互不影响）。
+      # 只读是刻意的：应用对语料只读，写入只发生在 /app/RAG/cache（命名卷）。
+      # 注意 RAG/cache 必须可写——database_build_lock() 即使零重建也会以
+      # "a+" 打开 build.lock，把 cache 挂成只读会让启动直接失败。
+      - ${LAWVER_LAW_DATA_DIR:?在 compose.env 里配置语料目录（LAWVER_LAW_DATA_DIR）}:/app/RAG/data:ro
+
+  # ---------------------------------------------------------------------------
+  # 独立法库服务的位置（下一轮实现，见 docs/law-service-split-plan.md）
+  #
+  # 落地后这里长这样，实例侧只需把 LAWVER_LAW_SERVICE_URL 指过去、并去掉上面的语料挂载：
+  #
+  # law-db:
+  #   image: ${LAWVER_LAW_IMAGE:-ghcr.io/hill-1024/lawver-law:latest}
+  #   restart: unless-stopped
+  #   profiles: ['law-db']
+  #   environment:
+  #     LAW_LISTEN: 0.0.0.0:8084
+  #     LAW_DATA_DIR: /law/RAG/data
+  #     LAW_DB_PATH: /law/RAG/cache/law.db
+  #     LAW_KEYS_FILE: /etc/lawver-law/keys.json
+  #     LAW_AUDIT_LOG: /var/lib/lawver-law/audit.jsonl
+  #   volumes:
+  #     - ${LAWVER_LAW_DATA_DIR}:ro:/law/RAG/data
+  #     - lawver-law-db:/law/RAG/cache
+  #     - ${LAWVER_LAW_KEYS_FILE:?}:/etc/lawver-law/keys.json:ro
+  #   ports:
+  #     # 法库是"对外第二个端口"，走自己的隧道路由（law-api.<域名>），
+  #     # 与产品域名的分流核心完全解耦
+  #     - '${LAWVER_LAW_PUBLISH_HOST:-127.0.0.1}:${LAWVER_LAW_PUBLISH_PORT:-8084}:8084'
+  #   networks: [lawver]
+  # ---------------------------------------------------------------------------

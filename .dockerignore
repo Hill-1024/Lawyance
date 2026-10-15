@@ -1,0 +1,47 @@
+# 镜像构建上下文排除清单（构建上下文是仓库根，见 deploy/docker/compose.yml）。
+#
+# 两条硬要求：
+#   1. 绝不把 .env / secrets.json 打进镜像——镜像会被推到 GHCR，一旦进去就收不回来；
+#   2. 绝不把 RAG/data（语料）打进镜像——它是只读挂载进来的。拆分方案
+#      （docs/law-service-split-plan.md §6）要求交付物里不含语料，这条从镜像层就守住。
+
+# 机密与本地配置
+.env
+.env.*
+data/
+backend/data/
+
+# 语料与索引：运行期只读挂载（RAG/data）+ 命名卷（RAG/cache）
+RAG/data/
+RAG/cache/
+RAG/data_doc/
+
+# 依赖目录：镜像里各自重新安装（前端在 web 阶段，Python 在 deps 阶段）
+.venv/
+node_modules/
+**/node_modules/
+
+# 构建产物与运行期工作区
+dist/
+TEMP/
+Result/
+nul
+
+# 与本镜像无关的源码
+android/
+ios/
+tests/
+docs/
+.github/
+.vscode/
+.idea/
+deploy/workbench/
+deploy/docker/state/
+
+# 版本控制与缓存
+.git/
+.gitignore
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+tsconfig.tsbuildinfo

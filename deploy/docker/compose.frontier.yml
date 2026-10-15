@@ -1,0 +1,22 @@
+# overlay：前沿实例（例如 2B 合约部署到律所）。
+#
+#   docker compose --env-file <inst>/compose.env \
+#     -f compose.yml -f compose.frontier.yml up -d
+#
+# 核心区别只有一条：**不带语料**。律所机器上不落任何法律语料，法条检索通过远程取。
+#
+# 今天远程这条路走的是北大法宝官方 MCP（PKU_LAW_SOURCE=remote，按次计费）。
+# 等自营法库服务按 docs/law-service-split-plan.md 落地后，改指我们服务器上的法库即可
+# （把下面的 PKU_LAW_SOURCE 换成 LAWVER_LAW_SERVICE_URL + LAWVER_LAW_SERVICE_KEY），
+# 实例侧不需要改任何代码——那是同一个适配层的第三个数据源。
+#
+# ⚠️ PKU_LAW_SOURCE=remote 在这里不是可选项而是**必须项**：没有语料时若仍按默认的
+# local 模式跑，启动期的法库准备会因 RAG/data 不存在直接失败
+# （LawSearchEngine 构造时抛 ValueError，law_cache 不接这个异常）。所以这里用
+# ${PKU_LAW_SOURCE:-remote} 兜住，宁可在 .env 里显式写回 local 也不允许默认掉进必崩的路径。
+services:
+  app:
+    environment:
+      PKU_LAW_SOURCE: ${PKU_LAW_SOURCE:-remote}
+    # 刻意不挂 /app/RAG/data：前沿实例的镜像与自营实例是同一个，
+    # 差别只在有没有把这个只读卷挂上。

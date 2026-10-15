@@ -1,0 +1,124 @@
+# 一个实例 = 分流核心 + 功能页 + 介绍页（同域三件套，必须成套）。
+#
+# 用法（在 deploy/docker 下，<inst> 指实例目录）：
+#   docker compose --env-file <inst>/compose.env -f compose.yml \
+#     -f compose.self-hosted.yml up -d
+#   new-instance.sh 会把这条命令写进实例目录的 run.sh，直接 ./run.sh up -d。
+#
+# 前置：先起全机共享基建（compose.infra.yml），它建出 lawver-infra 网络并跑
+# PostgreSQL/Redis/SearXNG。功能页离不开 PostgreSQL（账号、会话、计费、工作台），
+# 所以基建不是可选项——一台机器一份，供该机所有实例共用。
+#
+# 端口真相：**只有分流核心发布宿主端口**（LAWVER_ROUTER_PUBLISH_PORT，隧道指这里）。
+# app 的 8081、intro 的 8082 只存在于本实例的容器网络里，多实例之间天然不冲突——
+# 所以一台机器跑 N 个实例，宿主上只需 N 个互不相同的发布端口。
+#
+# 配置分两层，刻意不混：
+#   · 应用的业务配置仍由应用自己读它工作目录下的 .env（只读挂载进 /app/.env），
+#     与 systemd 单元"刻意不用 EnvironmentFile"同一条理由：单一事实来源。
+#   · 这里的 environment: 只放**容器拓扑**项（监听地址、服务名、网段、数据路径）。
+#     python-dotenv 不覆盖已存在的环境变量，所以拓扑项不会被 .env 顶掉。
+name: ${COMPOSE_PROJECT_NAME:-lawver}
+
+services:
+  router:
+    image: ${LAWVER_APP_IMAGE:-ghcr.io/hill-1024/lawver-app:latest}
+    command: ['python', 'deploy/router/router.py']
+    restart: unless-stopped
+    # 整站入口：不依赖 app/intro，两侧全挂时它自己必须还能起来答维护页
+    environment:
+      LAWVER_ROUTER_HOST: 0.0.0.0
+      LAWVER_ROUTER_PORT: '8080'
+      LAWVER_ROUTER_APP_UPSTREAM: http://app:8081
+      LAWVER_ROUTER_INTRO_UPSTREAM: http://intro:8082
+      LAWVER_ROUTER_STATE_DIR: /state
+    volumes:
+      # 维护开关是文件标志位，必须落在宿主能看到、能 touch 的地方
+      - ${LAWVER_ROUTER_STATE_DIR:-./state/router}:/state
+    ports:
+      - '${LAWVER_ROUTER_PUBLISH_HOST:-127.0.0.1}:${LAWVER_ROUTER_PUBLISH_PORT:-8080}:8080'
+    networks:
+      - lawver
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/__core/status',timeout=5).status==200 else 1)"]
+      interval: 15s
+      timeout: 8s
+      retries: 3
+      start_period: 10s
+
+  app:
+    image: ${LAWVER_APP_IMAGE:-ghcr.io/hill-1024/lawver-app:latest}
+    restart: unless-stopped
+    environment:
+      # 容器内必须绑 0.0.0.0；systemd 那份 127.0.0.1 在容器里会不可达。
+      # 对外收口交给上面的 ports:（只绑回环），职责从这里挪到了发布层。
+      LAWVER_HOST: 0.0.0.0
+      LAWVER_DATA_DIR: /app/data
+      # 可信代理 = 本实例网段：核心容器在它里面，真实客户端 IP（CF-Connecting-IP）
+      # 才会被采信，限流与访问日志才看得到真实来源。同一个变量也喂给网络的 ipam，
+      # 两处不可能漂移。
+      LAWVER_TRUSTED_PROXY_CIDRS: ${LAWVER_NETWORK_SUBNET:-172.28.0.0/16}
+      # 数据库与 Redis 走共享基建的服务名（两张网都挂着，见 networks:）
+      LAWVER_DATABASE_URL: ${LAWVER_DATABASE_URL:?在 compose.env 里配置数据库连接串}
+      LAWVER_REDIS_URL: ${LAWVER_REDIS_URL:-redis://redis:6379/0}
+      # 共享 Redis 时每实例必须不同，否则限流计数与布隆过滤器互串
+      LAWVER_REDIS_PREFIX: ${LAWVER_REDIS_PREFIX:-lawver}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080/}
+    volumes:
+      # 持久化根：data/ 放 settings/secrets/usage.log/APK；TEMP、Result 是工作区。
+      # 三者都从同一个宿主根展开，与现有 /srv/lawver 下的布局一致，便于运维与备份。
+      - ${LAWVER_DATA_HOST_DIR:-./data}:/app/data
+      - ${LAWVER_DATA_HOST_DIR:-./data}/TEMP:/app/TEMP
+      - ${LAWVER_DATA_HOST_DIR:-./data}/Result:/app/Result
+      # 应用配置：宿主 .env 只读挂入，容器内不产生第二份配置来源
+      - ${LAWVER_APP_ENV_FILE:-./.env}:/app/.env:ro
+      # 法库索引（210MB，含 manifest 与 build.lock）。命名卷不带 name: 键，
+      # 因此随项目名自动隔离——多实例各建各的，不会互相写坏。
+      - lawver-law-cache:/app/RAG/cache
+    networks:
+      # 自己的网给核心访问；基建网用来按服务名解析 postgres / redis / searxng。
+      # 核心只挂实例网——它不该直接连数据库。
+      - lawver
+      - lawver-infra
+    healthcheck:
+      # 首次启动可能要建法库索引（分钟级），start_period 给足以免被反复判失败
+      test: ['CMD', 'python', '-c', "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/api/health',timeout=5).status==200 else 1)"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 300s
+
+  intro:
+    image: ${LAWVER_INTRO_IMAGE:-ghcr.io/hill-1024/lawver-intro:latest}
+    restart: unless-stopped
+    environment:
+      LAWVER_INTRO_HOST: 0.0.0.0
+      LAWVER_INTRO_PORT: '8082'
+      # serve.py 每请求解析一次 current 符号链接，于是宿主上跑 tools/build.sh
+      # 就能热切换版本，容器不用重启——现有的零停机换版方式原样保留。
+      LAWVER_INTRO_ROOT: /intro/current
+    volumes:
+      # 挂整个介绍页仓库根（只读）：current 是指向 releases/<时间戳> 的相对符号链接，
+      # 必须与目标在同一挂载树里才能解析。
+      - ${LAWVER_INTRO_HOME:?Set LAWVER_INTRO_HOME to the Lawyance_Intro checkout}:/intro:ro
+    networks:
+      - lawver
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8082/healthz',timeout=5).status==200 else 1)"]
+      interval: 15s
+      timeout: 8s
+      retries: 3
+      start_period: 10s
+
+networks:
+  # 实例内网：核心凭服务名 app/intro 访问两侧。网段来自变量，多实例各取一段。
+  lawver:
+    ipam:
+      config:
+        - subnet: ${LAWVER_NETWORK_SUBNET:-172.28.0.0/16}
+  # 全机共享基建网，由 compose.infra.yml 创建
+  lawver-infra:
+    external: true
+
+volumes:
+  lawver-law-cache:
