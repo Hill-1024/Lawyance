@@ -38,7 +38,7 @@
 | # | 做什么 | 验收标准 |
 |---|---|---|
 | 1 | 系统用户与目录 | `id lawver` 存在；`/srv`、`/var/lib/lawver` 属主 lawver |
-| 2 | 拉两个仓库（`dev` 分支） | 两个目录下 `git log -1` 有输出 |
+| 2 | 拉两个仓库（`main` 分支） | 两个目录下 `git log -1` 有输出 |
 | 3 | Python 依赖（uv 同步） | `/srv/lawver/.venv/bin/python -c "import fastapi"` 无报错 |
 | 4 | PostgreSQL（Docker compose） | `pg_isready` 通过 |
 | 5 | 跑 Alembic 迁移 | `alembic upgrade head` 退出码 0 |
@@ -94,13 +94,17 @@ pnpm --version   # 期望 10.33.2
 ## 2. 拉取两个仓库
 
 ```bash
-sudo -u lawver git clone --branch dev https://github.com/Hill-1024/Lawyance.git       /srv/lawver
-sudo -u lawver git clone --branch dev https://github.com/Hill-1024/Lawyance_Intro.git /srv/lawver-intro
+sudo -u lawver git clone --branch main https://github.com/Hill-1024/Lawyance.git       /srv/lawver
+sudo -u lawver git clone --branch main https://github.com/Hill-1024/Lawyance_Intro.git /srv/lawver-intro
 ```
 
 两个仓库互不依赖，**更新也各自独立**（第 12 节）——这正是分开拉取的目的。
 
-**验收**：两个目录都存在且 `sudo -u lawver git -C <dir> branch --show-current` 输出 `dev`。
+> **分支模型（2026-10-16 起）**：`main` 是部署分支，`dev` 只用于迭代测试。
+> 部署机两个检出都在 `main`；改动先推 `dev`，在 dev 上验证通过后再合到 `main`。
+> 不要为了"试一下"把部署机切到 `dev`。
+
+**验收**：两个目录都存在且 `sudo -u lawver git -C <dir> branch --show-current` 输出 `main`。
 
 ---
 
