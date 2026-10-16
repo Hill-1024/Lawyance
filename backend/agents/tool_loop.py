@@ -21,6 +21,18 @@ from media import (
     MAX_VIEW_TOTAL_BYTES,
     flatten_content_to_text,
 )
+from services.tool_result_compression import maybe_compress_tool_result
+from tools.progressive import (
+    SELECT_TOOLS_NAME,
+    always_on_names_in_pool,
+    build_tool_catalog,
+    catalog_system_message,
+    inject_catalog_message,
+    normalize_selected_tool_names,
+    progressive_tools_enabled,
+    select_tools_response,
+)
+from tools.registry import registry
 
 
 _DEFAULT_MAX_ROUNDS = object()
@@ -120,6 +132,17 @@ class ToolLoopAgent:
         self.tool_choice_policy = tool_choice_policy
         self._memory_candidate_emitted = False
         self._allowed_tool_names = self._tool_names(tools) if tools is not None else None
+        self.progressive_tools = bool(tools) and progressive_tools_enabled()
+        self._always_on_tool_names = (
+            always_on_names_in_pool(self._allowed_tool_names or ())
+            if self.progressive_tools
+            else frozenset()
+        )
+        self._tool_catalog_text = (
+            build_tool_catalog(tools or [], exclude_names={SELECT_TOOLS_NAME})
+            if self.progressive_tools
+            else ""
+        )
 
         if max_rounds is _DEFAULT_MAX_ROUNDS:
             configured_stream_limit = self.DEFAULT_MAX_ROUNDS
@@ -199,7 +222,59 @@ class ToolLoopAgent:
             return False
         if self._allowed_tool_names is None:
             return True
-        return function_name in self._allowed_tool_names
+        if function_name not in self._allowed_tool_names:
+            return False
+        if not self.progressive_tools:
+            return True
+        if function_name in self._always_on_tool_names:
+            return True
+        # 渐进模式下业务工具须先经 select_tools 加载；执行阶段用 state 校验。
+        return True
+
+    def _tool_is_loaded(self, function_name: str, state: dict[str, Any]) -> bool:
+        if not self.progressive_tools:
+            return True
+        if function_name in self._always_on_tool_names:
+            return True
+        active = state.get("active_tools") or set()
+        return function_name in active
+
+    def _tools_for_round(self, state: dict[str, Any]) -> list | None:
+        if not self.progressive_tools or self.tools is None:
+            return self.tools
+        active = set(state.get("active_tools") or set())
+        wanted = set(self._always_on_tool_names) | active
+        return registry.schemas_by_name(wanted, pool=self.tools)
+
+    def _context_for_round(self, current_mem: list[dict], state: dict[str, Any]) -> list[dict]:
+        if not self.progressive_tools:
+            return current_mem
+        active = sorted(str(name) for name in (state.get("active_tools") or set()))
+        catalog_message = catalog_system_message(self._tool_catalog_text, loaded_tools=active)
+        return inject_catalog_message(current_mem, catalog_message)
+
+    def _activate_tools(self, arguments: dict[str, Any], state: dict[str, Any]) -> str:
+        raw = arguments.get("tools")
+        if raw is None:
+            raw = arguments.get("names")
+        if isinstance(raw, str):
+            requested = [part.strip() for part in raw.split(",") if part.strip()]
+        elif isinstance(raw, (list, tuple, set)):
+            requested = [str(item).strip() for item in raw if str(item).strip()]
+        else:
+            requested = []
+        loaded = normalize_selected_tool_names(
+            requested,
+            allowed_names=self._allowed_tool_names or (),
+        )
+        # 常驻控制工具无需经 select 加载。
+        loaded = [name for name in loaded if name not in self._always_on_tool_names]
+        active = set(state.get("active_tools") or set())
+        active.update(loaded)
+        state["active_tools"] = active
+        known = set(loaded) | set(self._always_on_tool_names)
+        unknown = [name for name in requested if name not in known]
+        return select_tools_response(requested=requested, loaded=sorted(active), unknown=unknown)
 
     @staticmethod
     def _authorization_error(function_name: str, capability: str) -> dict[str, Any]:
@@ -329,6 +404,7 @@ class ToolLoopAgent:
             "force_final": self.final_answer_source == "tool_arg" and self.mode == "plan_and_solve",
             "final_answer_submitted": False,
             "awaiting_user": False,
+            "active_tools": set(),
         }
 
     async def _process_tool_calls(
@@ -364,44 +440,74 @@ class ToolLoopAgent:
             if parse_error_content is not None:
                 result_content = parse_error_content
             else:
-                if self._tool_is_exposed(func_name):
-                    # PDF/DOCX parsing、HTTP 检索和 SQLite 记忆工具均为同步
-                    # 实现；在事件循环内直接调用会冻结所有 SSE/心跳连接。
-                    result = await asyncio.to_thread(self.execute_tool, func_name, args)
-                    if inspect.isawaitable(result):
-                        result = await result
-                else:
+                if not self._tool_is_exposed(func_name):
                     result = self._authorization_error(func_name, self.mode)
-                result_content = _json_content(result)
-
-                if self._is_authorization_error(result):
+                    result_content = _json_content(result)
                     events.append({
                         "type": "thought",
                         "content": f"工具 `{func_name}` 未获当前模式授权，已拒绝执行。\n",
                         "thought_type": "tool",
                         "mode": "new",
                     })
+                elif func_name == SELECT_TOOLS_NAME:
+                    result_content = self._activate_tools(args, state)
+                    result = _load_json_object(result_content)
+                    events.append({
+                        "type": "thought",
+                        "content": f"已选择工具: {', '.join(sorted(state.get('active_tools') or [])) or '（无）'}\n",
+                        "thought_type": "tool",
+                        "mode": "new",
+                    })
+                elif not self._tool_is_loaded(func_name, state):
+                    result = {
+                        "ok": False,
+                        "error": "tool_not_loaded",
+                        "tool": func_name,
+                        "message": f"业务工具 `{func_name}` 尚未加载。请先调用 `{SELECT_TOOLS_NAME}` 并传入该工具名。",
+                    }
+                    result_content = _json_content(result)
+                    events.append({
+                        "type": "thought",
+                        "content": f"工具 `{func_name}` 尚未经 `{SELECT_TOOLS_NAME}` 加载，已拒绝执行。\n",
+                        "thought_type": "tool",
+                        "mode": "new",
+                    })
                 else:
-                    # 控制面分支只能在 executor/registry 已确认授权后改变状态。
-                    if func_name == "submit_plan":
-                        steps = [str(step).strip() for step in args.get("steps", []) if str(step).strip()]
-                        state["plan_submitted"] = True
-                        state["force_final"] = False
+                    # PDF/DOCX parsing、HTTP 检索和 SQLite 记忆工具均为同步
+                    # 实现；在事件循环内直接调用会冻结所有 SSE/心跳连接。
+                    result = await asyncio.to_thread(self.execute_tool, func_name, args)
+                    if inspect.isawaitable(result):
+                        result = await result
+                    result_content = _json_content(result)
+
+                    if self._is_authorization_error(result):
                         events.append({
                             "type": "thought",
-                            "thought_type": "plan",
+                            "content": f"工具 `{func_name}` 未获当前模式授权，已拒绝执行。\n",
+                            "thought_type": "tool",
                             "mode": "new",
-                            "content": self._format_plan_steps(steps),
                         })
-                    elif func_name == "submit_final_answer":
-                        final_answer = str(args.get("answer") or "")
-                        state["final_answer_submitted"] = True
-                    elif func_name == ASK_USER_TOOL_NAME:
-                        events.append({"type": "thought", "content": "等待用户确认下一步\n", "thought_type": "tool", "mode": "new"})
-                        state["awaiting_user"] = True
-                        awaiting_user = True
                     else:
-                        events.append({"type": "thought", "content": f"执行: `{func_name}`\n", "thought_type": "tool", "mode": "new"})
+                        # 控制面分支只能在 executor/registry 已确认授权后改变状态。
+                        if func_name == "submit_plan":
+                            steps = [str(step).strip() for step in args.get("steps", []) if str(step).strip()]
+                            state["plan_submitted"] = True
+                            state["force_final"] = False
+                            events.append({
+                                "type": "thought",
+                                "thought_type": "plan",
+                                "mode": "new",
+                                "content": self._format_plan_steps(steps),
+                            })
+                        elif func_name == "submit_final_answer":
+                            final_answer = str(args.get("answer") or "")
+                            state["final_answer_submitted"] = True
+                        elif func_name == ASK_USER_TOOL_NAME:
+                            events.append({"type": "thought", "content": "等待用户确认下一步\n", "thought_type": "tool", "mode": "new"})
+                            state["awaiting_user"] = True
+                            awaiting_user = True
+                        else:
+                            events.append({"type": "thought", "content": f"执行: `{func_name}`\n", "thought_type": "tool", "mode": "new"})
 
             # image_reader 无法用纯文本返回画面：载荷先收集起来，等本轮所有 tool 消息
             # 追加完毕后再统一挂到一条 user 消息上。
@@ -425,6 +531,9 @@ class ToolLoopAgent:
                     loaded_images.append(part)
                     loaded_image_names.append(str(result.get("name") or "图片"))
                     result_content = f"图片 {result.get('name')} 已加载，画面见随后的消息，请直接依据画面作答。"
+
+            # 单条工具返回过大时压成摘要，避免后续轮次/本轮下一跳直接撞模型输入上限。
+            result_content = await maybe_compress_tool_result(func_name, result_content)
 
             tool_msg = {
                 "role": "tool",
@@ -515,12 +624,17 @@ class ToolLoopAgent:
                 return
 
             round_num += 1
-            print(f"[ToolLoopAgent 流式] 第 {round_num} 轮调用 mode={self.mode}")
+            tools_for_round = self._tools_for_round(state)
+            print(
+                f"[ToolLoopAgent 流式] 第 {round_num} 轮调用 mode={self.mode} "
+                f"tools={len(tools_for_round or [])}"
+                + (f" progressive_loaded={sorted(state.get('active_tools') or [])}" if self.progressive_tools else "")
+            )
             tool_choice = self._tool_choice(state)
             response = await call(
-                current_mem,
+                self._context_for_round(current_mem, state),
                 True,
-                tools_override=self.tools,
+                tools_override=tools_for_round,
                 tool_choice=tool_choice,
             )
             tool_calls: list[dict[str, Any]] = []
@@ -601,9 +715,9 @@ class ToolLoopAgent:
                     "mode": "new",
                 }
                 res = await call(
-                    current_mem,
+                    self._context_for_round(current_mem, state),
                     stream=False,
-                    tools_override=self.tools,
+                    tools_override=tools_for_round,
                     tool_choice=tool_choice,
                 )
                 assistant_content = getattr(res, "content", None) or ""
@@ -672,11 +786,16 @@ class ToolLoopAgent:
                 return
 
             round_num += 1
-            print(f"[ToolLoopAgent 非流式] 第 {round_num} 轮调用 mode={self.mode}")
+            tools_for_round = self._tools_for_round(state)
+            print(
+                f"[ToolLoopAgent 非流式] 第 {round_num} 轮调用 mode={self.mode} "
+                f"tools={len(tools_for_round or [])}"
+                + (f" progressive_loaded={sorted(state.get('active_tools') or [])}" if self.progressive_tools else "")
+            )
             res = await call(
-                current_mem,
+                self._context_for_round(current_mem, state),
                 stream=False,
-                tools_override=self.tools,
+                tools_override=tools_for_round,
                 tool_choice=self._tool_choice(state),
             )
             content_output = getattr(res, "content", None) or ""

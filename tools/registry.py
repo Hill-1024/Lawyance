@@ -59,12 +59,46 @@ class ToolRegistry:
     def schemas(self, exposure: str | None = None) -> list[dict[str, Any]]:
         return [entry.schema for entry in self._visible_entries(exposure)]
 
-    def format_descriptions(self, tool_defs: list[dict[str, Any]] | None = None) -> str:
+    def schemas_by_name(self, names: Iterable[str], *, pool: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        """按名称从完整 schema 池中取出子集，保持 pool / 注册表原有顺序。"""
+        wanted = {str(name) for name in names if name}
+        if not wanted:
+            return []
+        source = pool if pool is not None else [entry.schema for entry in self._entries]
+        selected: list[dict[str, Any]] = []
+        for tool in source:
+            if not isinstance(tool, dict):
+                continue
+            function = tool.get("function")
+            if not isinstance(function, dict):
+                continue
+            name = str(function.get("name") or "")
+            if name in wanted:
+                selected.append(tool)
+        return selected
+
+    def format_descriptions(
+        self,
+        tool_defs: list[dict[str, Any]] | None = None,
+        *,
+        max_desc_chars: int | None = None,
+        exclude_names: Iterable[str] | None = None,
+    ) -> str:
         selected_tools = tool_defs if tool_defs is not None else self.schemas("agent")
-        return "\n".join(
-            f"- {tool['function']['name']}: {tool['function']['description']}"
-            for tool in selected_tools
-        )
+        excluded = {str(name) for name in (exclude_names or ()) if name}
+        lines: list[str] = []
+        for tool in selected_tools:
+            function = tool.get("function") if isinstance(tool, dict) else None
+            if not isinstance(function, dict):
+                continue
+            name = str(function.get("name") or "")
+            if not name or name in excluded:
+                continue
+            description = str(function.get("description") or "").strip()
+            if max_desc_chars is not None and max_desc_chars > 0 and len(description) > max_desc_chars:
+                description = description[: max_desc_chars - 1].rstrip() + "…"
+            lines.append(f"- {name}: {description}" if description else f"- {name}")
+        return "\n".join(lines)
 
     def coerce_arguments(self, function_name: str, arguments: Any) -> dict[str, Any]:
         entry = self._by_name.get(function_name)
