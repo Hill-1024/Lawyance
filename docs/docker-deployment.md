@@ -91,7 +91,15 @@ df -h /                                             # 建议 ≥ 10GB 可用
 
 # 4) 出网：拉镜像（GHCR）、同步 APK（GitHub 私有仓需令牌，见 5.2）、法条远程检索（如启用）
 curl -s -o /dev/null -w '%{http_code}\n' https://ghcr.io/v2/   # 401 说明能连上（未认证正常）
+
+# 5) 两个仓库的检出都在 main（部署分支）
+sudo -u lawver git -C /srv/lawver branch --show-current        # main
+sudo -u lawver git -C /srv/lawver-intro branch --show-current  # main
 ```
+
+> **分支模型**：`main` 是部署分支，`dev` 只用于迭代测试。改动先推 `dev`、
+> 在 dev 上跑彩排/验收确认没问题，再合到 `main`；部署机各自目录 `git pull` 拉到的就是 `main`。
+> 容器化部署同样遵守这条——`LAWVER_APP_IMAGE` 指向的镜像也应从打过 tag 的 `main` 构建。
 
 镜像二选一：
 
@@ -402,10 +410,10 @@ sed -i 's#/lawver$#/lawver_<实例名>#' /srv/lawver-instances/<实例名>/compo
 
 | 事情 | 命令 |
 |---|---|
-| 更新应用镜像 | 拉新镜像或 `./build.sh --tag <版本>`，改 `compose.env` 的 `LAWVER_APP_IMAGE`，再 `run.sh up -d` |
+| 更新应用镜像 | 在 `main` 上打 tag 触发 GHCR 构建（或 `./build.sh --tag <版本>`），改 `compose.env` 的 `LAWVER_APP_IMAGE`，再 `run.sh up -d` |
 | 更新后迁移 | `run.sh exec -T -w /app/backend app alembic -c alembic.ini upgrade head` |
-| 介绍页换版 | 宿主 `cd /srv/lawver-intro && tools/build.sh`（**容器不重启**，符号链接原子翻转；实测生效） |
-| 语料更新 | `git -C <语料检出> pull` 后 `run.sh restart app`（启动期扫描走增量） |
+| 介绍页换版 | 宿主 `/srv/lawver-intro` 在 `main` 上 `git pull && tools/build.sh`（**容器不重启**，符号链接原子翻转；实测生效） |
+| 语料更新 | `git -C <语料检出> pull`（`main`）后 `run.sh restart app`（启动期扫描走增量） |
 | 备份 | `run.sh exec -T -w /app/backend app python -m workbench.maintenance backup /app/data/backup/$(date +%F)`，再 `... verify /app/data/backup/$(date +%F)`。**目的地必须落在挂载卷内**（`/app/data/...`），否则备份留在容器层 |
 | 计划维护 | `touch /srv/lawver-instances/<实例>/state/router/app.maintenance`（核心认这个标志位；删掉文件即恢复，进程不用重启） |
 | 看日志 | `run.sh logs -f app` / `router` / `intro`；或 `--since 10m` |

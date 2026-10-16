@@ -365,9 +365,15 @@ global.lawver.dev   → 隧道 → 海外机器：分流核心 8080 ─┴─ �
 |---|---|---|---|
 | 分流核心 | `/srv/lawver/deploy/router` | 8080 | **隧道唯一入口** |
 | 功能页 | `/srv/lawver`（本仓库） | 8081 | 只监听回环 |
-| 介绍页 | `/srv/lawver-intro`（`Hill-1024/Lawyance_Intro` 的 `dev`） | 8082 | 只监听回环 |
+| 介绍页 | `/srv/lawver-intro`（`Hill-1024/Lawyance_Intro`） | 8082 | 只监听回环 |
 
 三件套都只监听 `127.0.0.1`，公网流量一律经隧道落到 8080。`lawver.dev` 与 `global.lawver.dev` 各是一台机器，两台跑同一套布局。
+
+**分支模型（2026-10-16 起）**：`main` 是**部署分支**，`dev` 只用于**迭代测试**。
+部署机上两个仓库都检出 `main`；改动先推 `dev`，在 dev 上跑彩排/验收确认没问题，再合到 `main`
+供部署机拉取。**不要把部署机的检出切到 `dev`**——那会让"测过什么"和"线上是什么"脱钩。
+（历史例外：介绍页仓的 `main` 曾是另一条线——Cloudflare Pages 上的 Astro 旧站；2026-10-16 已由
+`dev` 覆盖，旧线存于标签 `legacy/astro-main`。）
 
 ### 1. 前置条件
 
@@ -389,11 +395,11 @@ corepack enable && corepack prepare pnpm@10.33.2 --activate
 ### 2. 拉代码（两个仓库各自独立）
 
 ```bash
-sudo -u lawver git clone --branch dev https://github.com/Hill-1024/Lawyance.git       /srv/lawver
-sudo -u lawver git clone --branch dev https://github.com/Hill-1024/Lawyance_Intro.git /srv/lawver-intro
+sudo -u lawver git clone --branch main https://github.com/Hill-1024/Lawyance.git       /srv/lawver
+sudo -u lawver git clone --branch main https://github.com/Hill-1024/Lawyance_Intro.git /srv/lawver-intro
 ```
 
-两个仓库互不依赖：功能页更新不影响介绍页，反之亦然——这正是分开拉取的目的。之后所有 `git pull` 都在各自目录里做。
+两个仓库互不依赖：功能页更新不影响介绍页，反之亦然——这正是分开拉取的目的。之后所有 `git pull` 都在各自目录里做，拉的都是 `main`（部署分支）。
 
 ### 3. Python 依赖（uv）
 
@@ -536,6 +542,8 @@ INTRO_REPO=/srv/lawver-intro bash /srv/lawver/deploy/router/rehearsal.sh
 
 ### 11. 日常维护
 
+流程：改动先推 `dev` 验证 → 合到 `main` → 在部署机各自目录里 `git pull`（检出都在 `main`）。
+
 **更新功能页**（会短暂中断服务，几秒到十几秒）：
 
 ```bash
@@ -582,7 +590,7 @@ curl -s 127.0.0.1:8080/__core/status | python3 -m json.tool   # 适合直接挂�
 |---|---|
 | 介绍页 | `current` 指回上一个 `releases/<时间戳>`；或 `git pull` 到上一个提交后重跑 `tools/build.sh` |
 | 功能页 | `git checkout <上一个 tag>` + 重跑依赖与迁移（迁移是增量新增，**不支持破坏性 downgrade**）+ 重启 |
-| 介绍页整站 | 把 `lawver.dev` 在隧道/DNS 层指回 `lawver-intro.pages.dev`（Astro 站与 `main` 分支一直保持在线） |
+| 介绍页整站 | 部署机切到上一版提交后重跑 `tools/build.sh`。若要退回更早的 Cloudflare Pages 托管形态，旧 Astro 站在标签 `legacy/astro-main`（2026-10-16 由 `dev` 覆盖前的 `main`），把它推成一条分支并让 Pages 指向它 |
 
 ### 12. 故障排查
 
