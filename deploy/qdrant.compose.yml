@@ -1,0 +1,13 @@
+# 本地 / 同机生产 Qdrant。仅绑定 127.0.0.1，勿直接暴露公网。
+# 用法：docker compose -f deploy/qdrant.compose.yml up -d
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.14.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - ../qdrant_storage:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: "6333"
