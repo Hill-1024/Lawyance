@@ -40,6 +40,20 @@ HISTORY_SUMMARY_INPUT_TOKEN_BUDGET = _positive_int_env(
     120_000,
 )
 
+# 单条工具返回超过阈值时，在写入 tool 消息前压缩为摘要（与对话历史压缩无关）。
+TOOL_RESULT_COMPRESSION_THRESHOLD_TOKENS = _positive_int_env(
+    "TOOL_RESULT_COMPRESSION_THRESHOLD_TOKENS",
+    20_000,
+)
+TOOL_RESULT_SUMMARY_TARGET_TOKENS = _positive_int_env(
+    "TOOL_RESULT_SUMMARY_TARGET_TOKENS",
+    2_000,
+)
+TOOL_RESULT_SUMMARY_INPUT_TOKEN_BUDGET = _positive_int_env(
+    "TOOL_RESULT_SUMMARY_INPUT_TOKEN_BUDGET",
+    80_000,
+)
+
 _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 _WHITESPACE_RE = re.compile(r"\s+")
 

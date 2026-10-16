@@ -21,6 +21,7 @@ from output_sanitizer import (
     strip_noise,
     detect_identity_leak,
 )
+from services.tool_result_compression import maybe_compress_tool_result
 
 load_dotenv(".env")
 
@@ -327,12 +328,13 @@ class OCPStatic:
                     print(f"[OCP-Static]   工具调用: {func_name}")
                     _remaining_seconds(deadline)
                     tool_result = await _run_ocp_tool(func_name, args, self.session_id)
+                    tool_content = await maybe_compress_tool_result(func_name, tool_result)
 
                     context.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "name": func_name,
-                        "content": str(tool_result)
+                        "content": tool_content,
                     })
 
         except (asyncio.TimeoutError, OCPTimeout) as e:
@@ -1020,7 +1022,13 @@ class OCPStream:
                         parsed_args = {}
                     _remaining_seconds(deadline)
                     res = await _run_ocp_tool(f_name, parsed_args, self.session_id)
-                    context.append({"role": "tool", "tool_call_id": tc["id"], "name": f_name, "content": str(res)})
+                    tool_content = await maybe_compress_tool_result(f_name, res)
+                    context.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "name": f_name,
+                        "content": tool_content,
+                    })
                     yield {'type': 'thought', 'content': f'- OCP 已接收{OCPStatic._describe_tool(f_name)}结果，继续修订\n', 'thought_type': 'ocp', 'mode': 'new'}
 
         except (asyncio.TimeoutError, OCPTimeout) as e:
