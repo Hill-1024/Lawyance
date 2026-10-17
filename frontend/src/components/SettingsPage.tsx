@@ -11,12 +11,14 @@ import {
   X,
   Search,
   Info,
+  Archive,
   BookOpen,
   Building2,
   Check,
   ChevronRight,
   CirclePlay,
   Clock3,
+  DatabaseBackup,
   ExternalLink,
   Folder,
   Gavel,
@@ -55,6 +57,8 @@ import { useBackButton } from '../hooks/useBackButton';
 import { SettingsEditContext, useSettingsEdit } from './settings/SettingsEditContext';
 import './settings/settings-modal.css';
 import { SettingsExtensions } from './settings/SettingsExtensions';
+import { SettingsArchivedConversations } from './settings/SettingsArchivedConversations';
+import { SettingsDataBackup } from './settings/SettingsDataBackup';
 import {
   PLAN_BADGES as SharedPLAN_BADGES,
   PLAN_LABEL_KEYS as SharedPLAN_LABEL_KEYS,
@@ -1105,7 +1109,10 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
   const categories = useMemo(() => [
     {id:'appearance', label:t('settings.categories.appearance'), icon:Palette, hint:t('settings.categories.appearanceHint')},
     {id:'account', label:t('settings.categories.account'), icon:KeyRound, hint:t('settings.categories.accountHint')},
+    // 归档入口从侧栏「归档与回收站」的混合弹窗里独立出来：归档不是删除，放在设置里更好找。
+    {id:'archived', label:t('settings.categories.archived'), icon:Archive, hint:t('settings.categories.archivedHint')},
     {id:'extensions', label:t('settings.categories.extensions'), icon:PlugZap, hint:t('settings.categories.extensionsHint')},
+    {id:'data', label:t('settings.categories.data'), icon:DatabaseBackup, hint:t('settings.categories.dataHint')},
     {id:'shortcuts', label:t('settings.categories.shortcuts'), icon:Keyboard, hint:t('settings.categories.shortcutsHint')},
     {id:'help', label:t('settings.categories.help'), icon:BookOpen, hint:t('settings.categories.helpHint')},
     {id:'about', label:t('settings.categories.about'), icon:Info, hint:t('settings.categories.aboutHint')},
@@ -1195,6 +1202,8 @@ export const SettingsPage: React.FC<{onClose?: () => void}> = ({onClose}) => {
   const select = (id: string) => {setQuery(''); navigate(`/settings/${id}`, {replace:true});};
   const renderPane = (key: string) => {
     if(key === 'extensions') return <SettingsExtensions/>;
+    if(key === 'archived') return <SettingsArchivedConversations/>;
+    if(key === 'data') return <SettingsDataBackup/>;
     if(key === 'account') return <><p className="settings-hint">{t('settings.accountHint')}</p><ProfileCard/><AccountCard/></>;
     if(key === 'appearance') return <><p className="settings-hint">{t('settings.appearanceHint')}</p><AppearanceCard {...theme} /></>;
     if(key === 'shortcuts') return <SettingsShortcuts/>;

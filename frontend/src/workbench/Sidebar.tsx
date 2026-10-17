@@ -9,6 +9,7 @@ import {
   Search,
   Settings,
   Sparkles,
+  Star,
   Trash2,
   Upload,
   User,
@@ -287,6 +288,13 @@ export function Sidebar({
                 <button onClick={() => onOpenFile(item)}>
                   <FileText size={14} />
                   <span>{item.title}</span>
+                  {item.data.favorite && (
+                    <Star
+                      size={12}
+                      className="wb-fav"
+                      aria-label={t("workbench.manage.favorite")}
+                    />
+                  )}
                 </button>
                 <button aria-label={t("workbench.sidebar.manageProject", { title: item.title })} onClick={() => onManageItem(item)}>
                   <MoreHorizontal size={13} />
@@ -335,12 +343,17 @@ export function Sidebar({
           <Sparkles size={17} />
           {t("workbench.shell.skillsAndPlugins")}
         </button>
-        <button onClick={() => onOpen("migration")}>
+        <button onClick={() => onOpen("/settings/archived")}>
           <Archive size={17} />
-          {t("workbench.shell.localArchive")}
+          {t("workbench.shell.archivedSessions")}
         </button>
         <div>
-          <button aria-label={t("workbench.sidebar.archive")} onClick={() => onOpen("trash")}>
+          {/* 归档与回收站是同一个管理面板：归档是收起、回收站是待清理，两段都在这里恢复。 */}
+          <button
+            aria-label={t("workbench.sidebar.archive")}
+            title={t("workbench.sidebar.archive")}
+            onClick={() => onOpen("trash")}
+          >
             <Trash2 size={16} />
           </button>
           {/* 图标档（与归档键同款 32px）：底部行要装下 归档+设置+账户 chip，文字档放不下 */}

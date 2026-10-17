@@ -228,6 +228,27 @@ def _reachable_projects(session, user, rows):
     )
 
 
+def _exclude_archived(query, user, kind):
+    """归档 = 从常规列表里移出，但随时可在「已归档」恢复（不同于移入回收站）。
+
+    条目自身的 archived_at 判一次；项目/会话/文件另外排除「所属项目已归档」的条目，
+    否则归档项目后，其内容仍会从个人空间的会话/文件列表里漏出来。
+    """
+    kinds = {kind} if isinstance(kind, str) else set(kind)
+    query = query.where(Item.archived_at.is_(None))
+    if kinds & {"conversation", "document", "court"}:
+        archived_projects = select(Item.id).where(
+            Item.owner == user,
+            Item.kind == "project",
+            Item.archived_at.is_not(None),
+            Item.deleted_at.is_(None),
+        )
+        query = query.where(
+            or_(Item.project_id.is_(None), Item.project_id.not_in(archived_projects))
+        )
+    return query
+
+
 def _encode_cursor(item) -> str:
     """不透明游标 = 最后一行 (updated_at, id) 的 base64（urlsafe，客户端原样回传）。"""
     raw = f"{item.updated_at.isoformat()}|{item.id}".encode()
@@ -329,6 +350,7 @@ def search(
     q: str = "",
     kind: str | None = None,
     space: str | None = None,
+    include_archived: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
     cursor: str | None = Query(default=None),
     user=Depends(gate),
@@ -350,6 +372,8 @@ def search(
                 Item.searchable.icontains(q, autoescape=True),
             ),
         )
+        if not include_archived:
+            query = _exclude_archived(query, user, kinds)
         if space == "personal":
             query = query.where(Item.project_id.is_(None))
         elif space:
@@ -411,6 +435,72 @@ def trash(user=Depends(gate)):
                 .limit(500)
             )
         ]
+
+
+@router.get("/archived")
+def archived(
+    kind: str | None = None,
+    limit: int = Query(default=200, ge=1, le=200),
+    cursor: str | None = Query(default=None),
+    user=Depends(gate),
+):
+    """已归档内容：独立于回收站，列表里看不到但可以逐条取消归档。
+
+    不能复用前端内存里的索引：归档条目会被常规分页排除，旧会话可能早已不在第一页。
+    设置页只关心会话，用 kind=conversation 过滤；project_title 供副标题显示归属。
+    """
+    if kind is not None and kind not in ("project", "conversation", "document"):
+        raise HTTPException(422, "不支持的归档类型")
+    with transaction() as s:
+        query = select(Item).where(
+            Item.owner == user,
+            Item.deleted_at.is_(None),
+            Item.archived_at.is_not(None),
+            Item.kind == kind
+            if kind
+            else Item.kind.in_(("project", "conversation", "document")),
+        )
+        page = limit
+        if cursor is not None:
+            query = _after_cursor(query, cursor)
+        rows = s.scalars(query.order_by(Item.updated_at.desc()).limit(page)).all()
+        reachable = _reachable_projects(s, user, rows)
+        # 所属项目名和条目同批取：设置页副标题要显示会话属于哪个项目，
+        # 项目本身可能也已归档，不能依赖常规 /projects 列表。
+        project_ids = {item.project_id for item in rows if item.project_id}
+        project_titles = (
+            dict(
+                s.execute(
+                    select(Item.id, Item.title).where(
+                        Item.owner == user,
+                        Item.id.in_(project_ids),
+                        Item.deleted_at.is_(None),
+                    )
+                ).all()
+            )
+            if project_ids
+            else {}
+        )
+        values = []
+        for item in rows:
+            if item.project_id and item.project_id not in reachable:
+                continue
+            value = public(item)
+            value["project_title"] = project_titles.get(item.project_id)
+            if item.kind == "conversation":
+                value["data"] = {
+                    k: v
+                    for k, v in value["data"].items()
+                    if k not in ("messages", "history")
+                }
+            if item.kind == "document":
+                value["data"] = {
+                    k: v
+                    for k, v in value["data"].items()
+                    if k not in ("content", "text", "import_content")
+                }
+            values.append(value)
+        return _page_envelope(rows, values, page)
 
 
 @router.post("/trash/{identifier}/restore")
@@ -799,6 +889,8 @@ def freeze_refs(s, user, project_id, refs):
                     Item.kind == "document",
                     Item.project_id == item.id,
                     Item.deleted_at.is_(None),
+                    # 归档文件从常规项目引用里移出；要引用单份归档文件仍可按 id 显式选择。
+                    Item.archived_at.is_(None),
                 )
             ).all()
             if len(docs) > 100:
@@ -993,7 +1085,7 @@ def court_context(identifier: str, user=Depends(gate)):
         project = get_item(s, user, identifier, "project")
         rows = s.scalars(select(Item).where(
             Item.owner == user, Item.kind == "conversation", Item.project_id == identifier,
-            Item.deleted_at.is_(None),
+            Item.deleted_at.is_(None), Item.archived_at.is_(None),
         ).order_by(Item.updated_at.desc())).all()
         sources, remaining, omitted = [], 40000, 0
         for row in rows:
@@ -1057,6 +1149,7 @@ def listing(
     family: str,
     project_id: str | None = None,
     include_session: bool = False,
+    include_archived: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
     cursor: str | None = Query(default=None),
     user=Depends(gate),
@@ -1069,6 +1162,8 @@ def listing(
         query = select(Item).where(
             Item.owner == user, Item.kind == kind, Item.deleted_at.is_(None)
         )
+        if not include_archived:
+            query = _exclude_archived(query, user, kind)
         if project_id:
             get_item(s, user, project_id, "project")
             query = query.where(Item.project_id == project_id)
@@ -1190,7 +1285,27 @@ def edit(family: str, identifier: str, body: Edit, user=Depends(gate)):
             if pid:
                 get_item(s, user, pid, "project")
             item.project_id = pid
-        allowed = {"archived", "favorite"} | (
+        if "archived" in fields:
+            # 归档是显式的可见性开关：归档时间用于「已归档」排序，取消归档置空。
+            archive = bool(fields.pop("archived"))
+            if archive and item.kind in ("project", "conversation"):
+                # 与移入回收站同一判定：归档会关掉会话标签，不能把正在跑的任务藏起来。
+                query = select(Item).where(Item.owner == user, Item.kind == "run")
+                query = (
+                    query.where(Item.project_id == item.id)
+                    if item.kind == "project"
+                    else query.where(Item.parent_id == item.id)
+                )
+                if any(
+                    run.data.get("status")
+                    in ("queued", "running", "waiting_confirmation")
+                    for run in s.scalars(query)
+                ):
+                    raise HTTPException(409, "请先停止正在执行的任务")
+            item.archived_at = now() if archive else None
+            # 旧版本把标记写在 data 里；升级后以列为准，顺手清掉历史残留。
+            item.data.pop("archived", None)
+        allowed = {"favorite"} | (
             {"instructions", "published", "enabled"}
             if item.kind == "skill"
             else {"enabled", "secret"}

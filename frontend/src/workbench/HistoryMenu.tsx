@@ -1,4 +1,4 @@
-import { ChevronDown, Gavel, History, MessageSquare, Plus } from "lucide-react";
+import { ChevronDown, Gavel, History, MessageSquare, Plus, Star } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Item } from "./client";
@@ -89,6 +89,13 @@ export function HistoryMenu({
               >
                 <MessageSquare size={14} />
                 <span>{item.title}</span>
+                {item.data.favorite && (
+                  <Star
+                    size={12}
+                    className="wb-fav"
+                    aria-label={t("workbench.manage.favorite")}
+                  />
+                )}
                 <small>
                   {new Date(item.updated_at).toDateString() === new Date().toDateString()
                     ? t("workbench.home.today")
