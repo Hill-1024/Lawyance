@@ -83,7 +83,8 @@ def _scoped(query, project_id: str | None):
 
 
 def _pick(rows, limit: int):
-    return [row for row in rows if not row.data.get("archived")][:limit]
+    # 归档内容已从工作区列表移出，首页建议也不该再拿它当素材。
+    return [row for row in rows if row.archived_at is None][:limit]
 
 
 def material_digest(user: str, project_id: str | None) -> tuple[str, str]:

@@ -154,6 +154,8 @@ export function useWorkbenchIndex(username: string, onError: (message: string) =
       },
       off = () => setOffline(true);
     const extensions = () => void reload();
+    // 设置页等其它表面改了会话归属/归档状态后通知工作台重拉索引，关闭设置时列表已是最新。
+    const workbenchUpdated = () => void reload();
     const courtsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ user: string; items: Item[] }>).detail;
       if (detail?.user !== username || !detail.items?.length) return;
@@ -167,11 +169,13 @@ export function useWorkbenchIndex(username: string, onError: (message: string) =
     window.addEventListener("offline", off);
     window.addEventListener("lawver:extensions-updated", extensions);
     window.addEventListener("lawver:courts-updated", courtsUpdated);
+    window.addEventListener("lawver:workbench-updated", workbenchUpdated);
     return () => {
       window.removeEventListener("online", online);
       window.removeEventListener("offline", off);
       window.removeEventListener("lawver:extensions-updated", extensions);
       window.removeEventListener("lawver:courts-updated", courtsUpdated);
+      window.removeEventListener("lawver:workbench-updated", workbenchUpdated);
     };
   }, [username, reload]);
   return {

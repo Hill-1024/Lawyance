@@ -80,6 +80,13 @@ import {
   withTabs,
 } from "./tabs";
 
+/** 收藏是服务端持久化状态，列表里应当真的起作用：收藏项置顶，其余保持原顺序。 */
+function favoritesFirst<T extends Item>(items: T[]): T[] {
+  return [...items].sort(
+    (a, b) => Number(!!b.data.favorite) - Number(!!a.data.favorite),
+  );
+}
+
 export default function Workbench({ username }: { username: string }) {
   const [textDialog, setTextDialog] = useState<{
     title: string;
@@ -258,14 +265,18 @@ export default function Workbench({ username }: { username: string }) {
     running =
       !!run &&
       ["queued", "running", "waiting_confirmation"].includes(run.data.status),
-    projectDocs = documents.filter(
-      (d) => (d.project_id || undefined) === projectId && !d.data.archived,
+    projectDocs = favoritesFirst(
+      documents.filter(
+        (d) => (d.project_id || undefined) === projectId && !d.data.archived,
+      ),
     ),
     spaceDocs = project
       ? projectDocs
-      : documents.filter((d) => !d.project_id && !d.data.archived),
-    spaceConversations = conversations.filter(
-      (c) => (c.project_id || undefined) === projectId && !c.data.archived,
+      : favoritesFirst(documents.filter((d) => !d.project_id && !d.data.archived)),
+    spaceConversations = favoritesFirst(
+      conversations.filter(
+        (c) => (c.project_id || undefined) === projectId && !c.data.archived,
+      ),
     ),
     spaceCourts = courtItems.filter((c) => c.project_id === projectId);
   // 首页问候语按本地时间走，避免固定文案显得像模板。
@@ -287,7 +298,11 @@ export default function Workbench({ username }: { username: string }) {
         item,
       })),
     ]
-      .sort((a, b) => new Date(b.item.updated_at).getTime() - new Date(a.item.updated_at).getTime());
+      .sort(
+        (a, b) =>
+          Number(!!b.item.data.favorite) - Number(!!a.item.data.favorite) ||
+          new Date(b.item.updated_at).getTime() - new Date(a.item.updated_at).getTime(),
+      );
     // 不再截前 6 条：列表本身已是服务端分页的第一页（50 条），尾部挂「加载更多」续拉。
 
   function createDocument() {
@@ -830,14 +845,30 @@ export default function Workbench({ username }: { username: string }) {
     });
     setMenu(undefined);
   }
-  // 归档与删除一样关掉标签：归档表示「不再在当前范围里出现」。
+  // 归档与删除一样关掉标签：归档表示「不再在当前范围里出现」，但可在归档列表恢复。
   function archiveItem(item: Item) {
     const archived = !item.data.archived;
-    void mutate(item, { archived }).then(() => {
-      if (archived && item.kind === "conversation")
+    void mutate(item, { archived }).then((ok) => {
+      if (!ok) return;
+      setNotice(
+        t(archived ? "workbench.manage.archivedNotice" : "workbench.manage.unarchivedNotice"),
+      );
+      if (!archived) return;
+      // 归档当前会话/当前项目后路由不能停在原处：标签已收起、空间入口也没了，
+      // 留在原路径会看到一个没有标签归属的幽灵页面。
+      if (item.kind === "conversation") {
         setTabBook((book) =>
           removeTab(book, space, tabKey({ kind: "conversation", id: item.id })),
         );
+        if (conv?.id === item.id) {
+          setConv(undefined);
+          navigate(projectId ? "/project/" + encodeURIComponent(projectId) : "/home", {
+            replace: true,
+          });
+        }
+      }
+      if (item.kind === "project" && projectId === item.id)
+        navigate("/home", { replace: true });
     });
   }
   function applySuggestion(item: { title: string; prompt: string }) {
@@ -1091,7 +1122,7 @@ export default function Workbench({ username }: { username: string }) {
     setAgentVisible(true);
     setMobile("会话");
   }
-  async function mutate(item: Item, patch: any, retry = true) {
+  async function mutate(item: Item, patch: any, retry = true): Promise<boolean> {
     try {
       const family =
         item.kind === "project"
@@ -1107,6 +1138,7 @@ export default function Workbench({ username }: { username: string }) {
       });
       setMenu(undefined);
       reload();
+      return true;
     } catch (e) {
       // 409 revision 冲突（常见于会话刚跑完、服务端异步写还没落盘）：后端在
       // detail.current 里带了最新版本。用它刷新本地索引并以新 revision 自动重试一次，
@@ -1116,6 +1148,7 @@ export default function Workbench({ username }: { username: string }) {
         return mutate(e.current, patch, false);
       }
       reportError(e);
+      return false;
     }
   }
   const composer = (
@@ -1514,9 +1547,6 @@ export default function Workbench({ username }: { username: string }) {
           tab={dialog}
           skills={skills}
           connectors={connectors}
-          projects={projects}
-          conversations={conversations}
-          documents={documents}
           onClose={() => setDialog("")}
           onReload={reload}
           onError={reportError}

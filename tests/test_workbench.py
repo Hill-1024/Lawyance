@@ -34,11 +34,9 @@ def client(tmp_path, monkeypatch):
     engine = engine_for(database_url())
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
-    from workbench.migration import router as migrations
     from workbench.backup import router as backups
 
     app = FastAPI()
-    app.include_router(migrations)
     app.include_router(backups)
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: "alice"
@@ -303,46 +301,32 @@ def test_stale_proposal_does_not_overwrite(client):
     assert "另一设备" in str(client.get("/api/workbench/documents/" + d["id"]).json())
 
 
-def test_migration_attachment_retry_and_backup(client):
-    payload = {
-        "source_id": "test",
-        "conversations": [
-            {
-                "id": "old",
-                "title": "旧会话",
-                "messages": [{"id": "m", "role": "user", "content": "材料"}],
-            }
-        ],
-        "files": [
-            {
-                "conversation_id": "old",
-                "name": "材料.txt",
-                "path": "TEMP/old/材料.txt",
-                "available": True,
-            }
-        ],
-    }
-    r = client.post(
-        "/api/workbench/migrations", json=payload, headers={"Idempotency-Key": "migration"}
+def test_backup_round_trip_restores_attachment(client):
+    """云端备份：附件随文档一起导出，恢复后 blob 仍可读。"""
+    p = project(client)
+    uploaded = client.post(
+        "/api/workbench/documents/upload",
+        files={"file": ("材料.txt", "虚构材料".encode(), "text/plain")},
+        data={"project_id": p["id"]},
+        headers={"Idempotency-Key": new_id()},
     )
-    assert r.status_code == 200, r.text
-    migration = r.json()
-    path = "/api/workbench/migrations/" + migration["id"] + "/files"
-    data = {"conversation_id": "old", "original_path": "TEMP/old/材料.txt"}
-    files = {"file": ("材料.txt", "虚构材料".encode(), "text/plain")}
-    first = client.post(path, data=data, files=files)
-    second = client.post(path, data=data, files=files)
-    assert first.status_code == 200, first.text
-    assert first.json()["id"] == second.json()["id"]
+    assert uploaded.status_code == 200, uploaded.text
     backup = client.get("/api/workbench/backup")
     assert backup.status_code == 200, backup.text[:200]
-    r = client.post(
+    restored = client.post(
         "/api/workbench/backup",
         files={"file": ("backup.zip", backup.content, "application/zip")},
         headers={"Idempotency-Key": "restore"},
     )
-    assert r.status_code == 200, r.text
-    assert r.json()["restored"] >= 3
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["restored"] >= 2
+
+    docs = client.get("/api/workbench/documents").json()["items"]
+    assert len(docs) == 2
+    copy = next(item for item in docs if item["id"] != uploaded.json()["id"])
+    blob = client.get(f"/api/workbench/documents/{copy['id']}/blob")
+    assert blob.status_code == 200
+    assert blob.content == "虚构材料".encode()
 
 
 def test_project_optional_description_roundtrip(client):
@@ -798,7 +782,7 @@ def test_backup_restore_requires_key_before_parsing_zip(client):
     # 带键才走到解析：此时拿到的是格式错误，而不是键错误。
     parsed = client.post("/api/workbench/backup", files=files, headers={"Idempotency-Key": "restore-1"})
     assert parsed.status_code == 422
-    assert parsed.json()["detail"] == "备份格式无效；旧版备份请从本地旧资料导入"
+    assert parsed.json()["detail"] == "备份格式无效；请选择由当前版本导出的备份文件"
 
 
 def test_listing_and_search_skip_items_whose_project_is_gone(client):
@@ -966,3 +950,184 @@ def test_pagination_contract_default_limit_bounds_and_exhaustion(client):
             cursor = body["next_cursor"]
             assert seen <= 55
         assert seen == 55
+
+
+def _conversation(c, project_id=None, title="归档会话"):
+    return c.post(
+        "/api/workbench/conversations",
+        json={"title": title, **({"project_id": project_id} if project_id else {})},
+        headers={"Idempotency-Key": new_id()},
+    ).json()
+
+
+def test_archive_hides_from_lists_search_and_can_be_restored(client):
+    """归档语义：常规列表/搜索看不到，/archived 能看到，取消归档后回到列表。"""
+    c = _conversation(client, title="归档对话")
+    archived = client.patch(
+        f"/api/workbench/conversations/{c['id']}",
+        json={"expected_revision": c["revision"], "archived": True},
+    )
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["data"]["archived"] is True
+    assert archived.json()["archived_at"]
+
+    assert c["id"] not in [
+        item["id"] for item in client.get("/api/workbench/conversations").json()["items"]
+    ]
+    assert c["id"] in [
+        item["id"]
+        for item in client.get(
+            "/api/workbench/conversations", params={"include_archived": True}
+        ).json()["items"]
+    ]
+    listed = client.get("/api/workbench/archived").json()
+    assert [item["id"] for item in listed["items"]] == [c["id"]]
+    assert listed["items"][0]["data"]["archived"] is True
+
+    assert client.get("/api/workbench/search", params={"q": "归档对话"}).json()["items"] == []
+    assert [
+        item["id"]
+        for item in client.get(
+            "/api/workbench/search",
+            params={"q": "归档对话", "include_archived": True},
+        ).json()["items"]
+    ] == [c["id"]]
+
+    restored = client.patch(
+        f"/api/workbench/conversations/{c['id']}",
+        json={"expected_revision": archived.json()["revision"], "archived": False},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["data"]["archived"] is False
+    assert restored.json()["archived_at"] is None
+    assert c["id"] in [
+        item["id"] for item in client.get("/api/workbench/conversations").json()["items"]
+    ]
+    assert client.get("/api/workbench/archived").json()["items"] == []
+
+
+def test_archived_project_hides_its_children_until_restored(client):
+    """归档项目 = 整个容器移出常规列表：项目内的会话/文件一并隐藏，取消归档恢复。"""
+    p = project(client)
+    c = _conversation(client, project_id=p["id"], title="项目内会话")
+    d = document(client, p)
+    both = client.get(
+        "/api/workbench/conversations", params={"project_id": p["id"]}
+    ).json()["items"]
+    assert [item["id"] for item in both] == [c["id"]]
+
+    patched = client.patch(
+        f"/api/workbench/projects/{p['id']}",
+        json={"expected_revision": p["revision"], "archived": True},
+    )
+    assert patched.status_code == 200, patched.text
+    assert client.get("/api/workbench/projects").json()["items"] == []
+    assert client.get(
+        "/api/workbench/conversations", params={"project_id": p["id"]}
+    ).json()["items"] == []
+    assert client.get(
+        "/api/workbench/documents", params={"project_id": p["id"]}
+    ).json()["items"] == []
+    # 归档列表只列项目本身，避免同一容器里的内容重复出现。
+    assert [item["id"] for item in client.get("/api/workbench/archived").json()["items"]] == [
+        p["id"]
+    ]
+
+    client.patch(
+        f"/api/workbench/projects/{p['id']}",
+        json={"expected_revision": patched.json()["revision"], "archived": False},
+    )
+    assert [item["id"] for item in client.get("/api/workbench/projects").json()["items"]] == [
+        p["id"]
+    ]
+    assert [
+        item["id"]
+        for item in client.get(
+            "/api/workbench/conversations", params={"project_id": p["id"]}
+        ).json()["items"]
+    ] == [c["id"]]
+    assert [
+        item["id"]
+        for item in client.get(
+            "/api/workbench/documents", params={"project_id": p["id"]}
+        ).json()["items"]
+    ] == [d["id"]]
+
+
+def test_archiving_a_conversation_with_a_running_task_is_refused(client):
+    """归档会关掉会话标签；正在跑的任务不能被藏起来，先要求停止（与移入回收站一致）。"""
+    c = _conversation(client, title="运行中的会话")
+    run = client.post(
+        "/api/workbench/runs",
+        json={"conversation_id": c["id"], "message": "开始", "references": []},
+        headers={"Idempotency-Key": new_id()},
+    )
+    assert run.status_code == 200, run.text
+    assert run.json()["data"]["status"] in ("queued", "running", "waiting_confirmation")
+
+    refused = client.patch(
+        f"/api/workbench/conversations/{c['id']}",
+        json={"expected_revision": c["revision"], "archived": True},
+    )
+    assert refused.status_code == 409
+    assert client.get("/api/workbench/archived").json()["items"] == []
+
+
+def test_backup_round_trip_preserves_archive_state(client):
+    """备份/恢复必须保留归档状态（否则恢复后归档内容会重新冒到列表里）。"""
+    c = _conversation(client, title="备份归档")
+    archived = client.patch(
+        f"/api/workbench/conversations/{c['id']}",
+        json={"expected_revision": c["revision"], "archived": True},
+    )
+    assert archived.status_code == 200, archived.text
+
+    backup = client.get("/api/workbench/backup")
+    assert backup.status_code == 200, backup.text[:200]
+    restored = client.post(
+        "/api/workbench/backup",
+        files={"file": ("backup.zip", backup.content, "application/zip")},
+        headers={"Idempotency-Key": new_id()},
+    )
+    assert restored.status_code == 200, restored.text[:500]
+
+    items = client.get(
+        "/api/workbench/conversations", params={"include_archived": True}
+    ).json()["items"]
+    copies = [item for item in items if item["title"] == "备份归档"]
+    assert len(copies) == 2
+    assert all(item["data"]["archived"] for item in copies)
+    assert all(item["archived_at"] for item in copies)
+
+
+def test_archived_endpoint_filters_kind_and_exposes_project_title(client):
+    """设置页只列会话：kind 过滤生效，副标题所需的项目名同批返回。"""
+    p = project(client)
+    c = _conversation(client, project_id=p["id"], title="项目归档会话")
+    d = document(client, p)
+    for family, item in (("conversations", c), ("documents", d)):
+        patched = client.patch(
+            f"/api/workbench/{family}/{item['id']}",
+            json={"expected_revision": item["revision"], "archived": True},
+        )
+        assert patched.status_code == 200, patched.text
+
+    page = client.get(
+        "/api/workbench/archived", params={"kind": "conversation"}
+    ).json()
+    assert [item["id"] for item in page["items"]] == [c["id"]]
+    assert page["items"][0]["project_title"] == "测试项目"
+
+    personal = _conversation(client, title="个人归档会话")
+    client.patch(
+        f"/api/workbench/conversations/{personal['id']}",
+        json={"expected_revision": personal["revision"], "archived": True},
+    )
+    page = client.get(
+        "/api/workbench/archived", params={"kind": "conversation"}
+    ).json()
+    by_id = {item["id"]: item for item in page["items"]}
+    assert by_id[personal["id"]]["project_title"] is None
+    assert client.get(
+        "/api/workbench/archived", params={"kind": "not-a-kind"}
+    ).status_code == 422
