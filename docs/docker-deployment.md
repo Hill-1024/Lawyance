@@ -126,6 +126,20 @@ sudo install -d -o lawver -g lawver -m 750 /srv/lawver-searxng
 
 **验收**：`ls -ld /srv/lawver-instances /srv/lawver-searxng` 属主都是 `lawver`。
 
+### 5.0.1 同步法库语料
+
+主仓不再包含 `RAG/data/`，自营实例需要先把语料同步到 `/srv/lawver/RAG/data`（容器只读挂载该目录）：
+
+```bash
+sudo -u lawver env LAWVER_RAG_DATA_REPO=git@github.com:Hill-1024/Lawyance-Law-Data.git \
+  /srv/lawver/scripts/sync-rag-data.sh v2026.10.17
+```
+
+没有数据仓凭证的机器可以传一份检出/目录，改用 `LAWVER_RAG_DATA_DIR=/path/to/data scripts/sync-rag-data.sh`。
+脚本先校验 `manifest.sha256` 再替换语料，失败不会破坏现有目录。
+
+**验收**：`find /srv/lawver/RAG/data -type f | wc -l` 输出 `5237`。
+
 ### 5.1 起共享基建（一台机器只做一次）
 
 ```bash
@@ -413,7 +427,7 @@ sed -i 's#/lawver$#/lawver_<实例名>#' /srv/lawver-instances/<实例名>/compo
 | 更新应用镜像 | 在 `main` 上打 tag 触发 GHCR 构建（或 `./build.sh --tag <版本>`），改 `compose.env` 的 `LAWVER_APP_IMAGE`，再 `run.sh up -d` |
 | 更新后迁移 | `run.sh exec -T -w /app/backend app alembic -c alembic.ini upgrade head` |
 | 介绍页换版 | 宿主 `/srv/lawver-intro` 在 `main` 上 `git pull && tools/build.sh`（**容器不重启**，符号链接原子翻转；实测生效） |
-| 语料更新 | `git -C <语料检出> pull`（`main`）后 `run.sh restart app`（启动期扫描走增量） |
+| 语料更新 | 在私有数据仓打新 tag 后，`LAWVER_RAG_DATA_REPO=... scripts/sync-rag-data.sh <tag>`，再 `run.sh restart app`（启动期扫描走增量） |
 | 备份 | `run.sh exec -T -w /app/backend app python -m workbench.maintenance backup /app/data/backup/$(date +%F)`，再 `... verify /app/data/backup/$(date +%F)`。**目的地必须落在挂载卷内**（`/app/data/...`），否则备份留在容器层 |
 | 计划维护 | `touch /srv/lawver-instances/<实例>/state/router/app.maintenance`（核心认这个标志位；删掉文件即恢复，进程不用重启） |
 | 看日志 | `run.sh logs -f app` / `router` / `intro`；或 `--since 10m` |

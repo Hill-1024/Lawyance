@@ -100,6 +100,24 @@ sudo -u lawver git clone --branch main https://github.com/Hill-1024/Lawyance_Int
 
 两个仓库互不依赖，**更新也各自独立**（第 12 节）——这正是分开拉取的目的。
 
+### 2.1 同步法库语料（主仓不再包含语料）
+
+法库语料在私有数据仓 `Hill-1024/Lawyance-Law-Data`，不随主仓 clone：
+
+```bash
+# 部署机有只读 deploy key / PAT 时：
+sudo -u lawver env LAWVER_RAG_DATA_REPO=git@github.com:Hill-1024/Lawyance-Law-Data.git \
+  /srv/lawver/scripts/sync-rag-data.sh v2026.10.17
+
+# 没有 GitHub 凭证时：在开发机检出/打包数据仓，传到部署机后：
+sudo -u lawver env LAWVER_RAG_DATA_DIR=/srv/lawver-law-data \
+  /srv/lawver/scripts/sync-rag-data.sh
+```
+
+脚本会先校验 `manifest.sha256` 再替换 `RAG/data/`；校验失败不会破坏现有语料。
+
+**验收**：`find /srv/lawver/RAG/data -type f | wc -l` 输出 `5237`。
+
 > **分支模型（2026-10-16 起）**：`main` 是部署分支，`dev` 只用于迭代测试。
 > 部署机两个检出都在 `main`；改动先推 `dev`，在 dev 上验证通过后再合到 `main`。
 > 不要为了"试一下"把部署机切到 `dev`。

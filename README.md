@@ -119,7 +119,14 @@ Python 依赖统一用 [uv](https://docs.astral.sh/uv/) 管理（`pyproject.toml
 pnpm run build
 ```
 
-启动完整应用：
+启动完整应用前，先同步法库语料（语料不在主仓，需要私有数据仓 `Hill-1024/Lawyance-Law-Data` 的读权限）：
+
+```bash
+LAWVER_RAG_DATA_REPO=git@github.com:Hill-1024/Lawyance-Law-Data.git \
+  ./scripts/sync-rag-data.sh v2026.10.17
+```
+
+然后：
 
 ```bash
 pnpm run dev
