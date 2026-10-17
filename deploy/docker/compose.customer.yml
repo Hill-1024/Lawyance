@@ -1,0 +1,68 @@
+# Customer-only deployment. Use the customer image target, never runtime.
+# Does not create or mount any RAG directory, index, service code or corpus.
+name: ${COMPOSE_PROJECT_NAME:-lawver-customer}
+services:
+  router:
+    image: ${LAWVER_CUSTOMER_IMAGE:?Set LAWVER_CUSTOMER_IMAGE to the verified customer image}
+    command: ['python', 'deploy/router/router.py']
+    restart: unless-stopped
+    environment:
+      LAWVER_ROUTER_HOST: 0.0.0.0
+      LAWVER_ROUTER_PORT: '8080'
+      LAWVER_ROUTER_APP_UPSTREAM: http://app:8081
+      LAWVER_ROUTER_INTRO_UPSTREAM: http://intro:8082
+      LAWVER_ROUTER_STATE_DIR: /state
+    volumes:
+      - ${LAWVER_ROUTER_STATE_DIR:?Set LAWVER_ROUTER_STATE_DIR}:/state
+    ports:
+      - '127.0.0.1:${LAWVER_ROUTER_PUBLISH_PORT:-8080}:8080'
+    networks: [lawver]
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/__core/status',timeout=5)"]
+      interval: 15s
+      timeout: 8s
+      retries: 3
+  app:
+    image: ${LAWVER_CUSTOMER_IMAGE:?Set LAWVER_CUSTOMER_IMAGE to the verified customer image}
+    restart: unless-stopped
+    environment:
+      LAWVER_HOST: 0.0.0.0
+      PORT: '8081'
+      LAWVER_DATA_DIR: /app/data
+      LAWVER_TRUSTED_PROXY_CIDRS: ${LAWVER_NETWORK_SUBNET:-172.28.0.0/16}
+      LAWVER_DATABASE_URL: ${LAWVER_DATABASE_URL:?Set LAWVER_DATABASE_URL}
+      LAWVER_REDIS_URL: ${LAWVER_REDIS_URL:-redis://redis:6379/0}
+      LAWVER_REDIS_PREFIX: ${LAWVER_REDIS_PREFIX:-lawver-customer}
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://searxng:8080/}
+      LAWVER_LAW_SOURCE: remote
+      LAWVER_LAW_SERVICE_URL: ${LAWVER_LAW_SERVICE_URL:?Set the HTTPS law service origin URL}
+      # Key stays in the mounted 0600 app .env; avoid duplicating it in compose.env.
+    volumes:
+      - ${LAWVER_DATA_HOST_DIR:?Set LAWVER_DATA_HOST_DIR}/data:/app/data
+      - ${LAWVER_DATA_HOST_DIR:?Set LAWVER_DATA_HOST_DIR}/TEMP:/app/TEMP
+      - ${LAWVER_DATA_HOST_DIR:?Set LAWVER_DATA_HOST_DIR}/Result:/app/Result
+      - ${LAWVER_APP_ENV_FILE:?Set LAWVER_APP_ENV_FILE}:/app/.env:ro
+    networks: [lawver, lawver-infra]
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/api/health',timeout=5)"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 60s
+  intro:
+    image: ${LAWVER_INTRO_IMAGE:?Set LAWVER_INTRO_IMAGE to the separate intro image}
+    restart: unless-stopped
+    environment:
+      LAWVER_INTRO_HOST: 0.0.0.0
+      LAWVER_INTRO_PORT: '8082'
+      LAWVER_INTRO_ROOT: ${LAWVER_INTRO_HOME:?Set LAWVER_INTRO_HOME}/current
+    volumes:
+      - ${LAWVER_INTRO_HOME:?Set LAWVER_INTRO_HOME}:${LAWVER_INTRO_HOME:?Set LAWVER_INTRO_HOME}:ro
+    networks: [lawver]
+networks:
+  lawver:
+    ipam:
+      config:
+        - subnet: ${LAWVER_NETWORK_SUBNET:-172.28.0.0/16}
+  lawver-infra:
+    external: true

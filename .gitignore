@@ -22,6 +22,7 @@ nul
 data/vector_index/
 qdrant_storage/
 RAG/cache/
+RAG/data/
 RAG/data_doc/
 RAG/__pycache__/
 .claude/
@@ -54,3 +55,15 @@ docs/research/
 
 # Product shots: generated from a seeded local instance, regenerate rather than commit.
 docs/visuals/
+
+# Independent law-service credentials, audit/state and local customer archives.
+deploy/law-service/keys.json
+deploy/law-service/environment
+deploy/law-service/compose.env
+**/law-service/keys.*.json
+!deploy/law-service/keys.example.json
+deploy/law-service/audit*
+customer-*.zip
+
+# Detailed operator acceptance records stay local.
+docs/issue-13-server-acceptance-*.md

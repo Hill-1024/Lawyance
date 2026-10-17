@@ -1,0 +1,40 @@
+{
+  "keys": [
+    {
+      "key": "REPLACE_WITH_GENERATED_CUSTOMER_KEY",
+      "name": "customer-example",
+      "enabled": true,
+      "rpm": 30,
+      "daily_quota": 20000
+    },
+    {
+      "key": "REPLACE_WITH_DEDICATED_MONITOR_KEY",
+      "name": "monitor",
+      "enabled": true,
+      "rpm": 30,
+      "daily_quota": 1000
+    },
+    {
+      "key": "REPLACE_WITH_GENERATED_ACCEPTANCE_KEY",
+      "name": "acceptance-api-test",
+      "enabled": true,
+      "rpm": 10,
+      "daily_quota": 100
+    },
+    {
+      "key": "REPLACE_WITH_GENERATED_RATE_TEST_KEY",
+      "name": "acceptance-rate-test",
+      "enabled": true,
+      "rpm": 1,
+      "daily_quota": 10
+    },
+    {
+      "key": "REPLACE_WITH_GENERATED_CANARY_TEST_KEY",
+      "name": "acceptance-canary-test",
+      "enabled": true,
+      "rpm": 5,
+      "daily_quota": 20,
+      "canary": true
+    }
+  ]
+}

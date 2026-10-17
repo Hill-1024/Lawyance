@@ -1,0 +1,11 @@
+# systemd EnvironmentFile syntax. Copy to /etc/lawver-law/environment (0600).
+# Set paths for this server; the defaults below are a sample layout only.
+LAW_LISTEN=127.0.0.1:8084
+LAW_DATA_DIR=/srv/lawver-law/data
+LAW_DB_PATH=/var/lib/lawver-law/cache/law.db
+LAW_KEYS_FILE=/etc/lawver-law/keys.json
+LAW_AUDIT_LOG=/var/lib/lawver-law/audit/audit.jsonl
+# Optional timers require this same key in keys.json (independent of customer keys).
+LAW_MONITOR_KEY=REPLACE_WITH_DEDICATED_MONITOR_KEY
+PYTHONUNBUFFERED=1
+PYTHONDONTWRITEBYTECODE=1

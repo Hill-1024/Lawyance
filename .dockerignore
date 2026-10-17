@@ -8,6 +8,13 @@
 # 机密与本地配置
 .env
 .env.*
+**/keys.json
+**/audit.jsonl*
+**/*.log
+**/secrets.json
+law_service/state/
+customer-releases/
+releases/
 data/
 backend/data/
 
