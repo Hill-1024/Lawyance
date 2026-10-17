@@ -1,11 +1,13 @@
 """
-模块描述：法条检索适配层。默认走本地法库；显式声明 `PKU_LAW_SOURCE=remote` 后改走
-北大法宝开放平台 MCP（streamableHttp），对外仍是同样三个函数、同样的 JSON 返回形态。
+模块描述：法条检索适配层。LAWVER_LAW_SOURCE 显式选择本地或自营法库服务；
+未设置时沿用 PKU_LAW_SOURCE 选择规则，保留北大法宝开放平台 MCP 接入。
+三个来源对外仍是同样三个函数、同样的 JSON 返回形态。
 
-两种数据源：
-  · local（默认）：本地法库（RAG/law_data_search + RAG/data），与既有部署完全一致；
-  · remote：北大法宝官方库，条文与链接可直接溯源到 pkulaw.com（工具名与参数按官方
-    接入文档对齐，见 `mcp/pkulaw_mcp.py`）。
+三种数据源：
+  · LAWVER_LAW_SOURCE=local：本地法库（RAG/law_data_search + RAG/data）；
+  · LAWVER_LAW_SOURCE=remote：自营 HTTP 法库，共用本地检索结果格式；
+  · 新开关留空时，PKU_LAW_SOURCE=remote 走北大法宝 MCP，其他值默认本地。
+    北大法宝接入文档与端点见 `mcp/pkulaw_mcp.py`。
 
 为什么要显式开关，而不是"有令牌就切远程"：历史 .env 里可能残留已停用的旧令牌，
 按存在与否判断会在无人察觉时把产品切到一个连不通或欠费的数据源上。切远程必须
@@ -15,7 +17,7 @@
 import json
 import logging
 
-from mcp import pkulaw_mcp
+from mcp import law_service_client, pkulaw_mcp
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +43,7 @@ def _clip(value: object, limit: int) -> str:
 
 
 def _remote_enabled() -> bool:
-    return pkulaw_mcp.is_configured()
+    return law_service_client.source() is None and pkulaw_mcp.is_configured()
 
 
 def _as_mapping_list(payload: object) -> list[dict]:
@@ -120,12 +122,27 @@ def _local_search_engine():
     return law_data_search
 
 
+def _law_search_engine():
+    """自营远程与本地返回相同原始契约，共用下方三个格式化路径。"""
+    if law_service_client.source() == "remote":
+        return law_service_client
+    return _local_search_engine()
+
+
 def ensure_law_database_ready(*, force_rebuild: bool = False) -> dict:
     """启动期法库准备。
 
     法宝模式不需要本地库：直接跳过对 RAG/data 的全量扫描与 trigram 建库，
     启动更快，也不要求部署里带上语料。
     """
+    if law_service_client.source() == "remote":
+        law_service_client.validate_configuration()
+        return {
+            "rebuilt": False,
+            "mode": "remote",
+            "file_count": 0,
+            "content_sha256": "",
+        }
     if _remote_enabled():
         return {
             "rebuilt": False,
@@ -141,8 +158,11 @@ def get_article(title: str, number: str):
     title = _clip(title, _MAX_TITLE_CHARS)
     number = _clip(number, _MAX_NUMBER_CHARS)
 
-    if _remote_enabled():
-        return _remote_get_article(title, number)
+    try:
+        if _remote_enabled():
+            return _remote_get_article(title, number)
+    except law_service_client.LawServiceError as exc:
+        return _error(str(exc))
     return _local_get_article(title, number)
 
 
@@ -150,8 +170,11 @@ def search_article(text: str):
     """根据语义检索相关的法律条文。"""
     text = _clip(text, _MAX_TEXT_CHARS)
 
-    if _remote_enabled():
-        return _remote_search_article(text)
+    try:
+        if _remote_enabled():
+            return _remote_search_article(text)
+    except law_service_client.LawServiceError as exc:
+        return _error(str(exc))
     return _local_search_article(text)
 
 
@@ -159,17 +182,20 @@ def get_linked_content(message: str):
     """根据输入文本返回相关法规信源链接。"""
     message = _clip(message, _MAX_TEXT_CHARS)
 
-    if _remote_enabled():
-        return _remote_get_linked_content(message)
+    try:
+        if _remote_enabled():
+            return _remote_get_linked_content(message)
+    except law_service_client.LawServiceError as exc:
+        return _error(str(exc))
     return _local_get_linked_content(message)
 
 
 def _local_get_article(title: str, number: str):
-    logger.info("正在调用本地法库:get_article")
+    logger.info("正在调用法库:get_article")
     try:
-        result = json.loads(_local_search_engine().law_exact_search(title or "", number or ""))
+        result = json.loads(_law_search_engine().law_exact_search(title or "", number or ""))
     except Exception as exc:
-        return _error(f"本地法库检索失败: {exc}")
+        return _error(f"法库检索失败: {exc}")
 
     if not result.get("success"):
         return _error(
@@ -192,12 +218,14 @@ def _local_get_article(title: str, number: str):
 
 
 def _local_search_article(text: str):
-    logger.info("正在调用本地法库:search_article")
+    logger.info("正在调用法库:search_article")
     try:
-        result = json.loads(_local_search_engine().law_fuzzy_search(text or "", limit=_SEARCH_LIMIT))
+        result = json.loads(_law_search_engine().law_fuzzy_search(text or "", limit=_SEARCH_LIMIT))
     except Exception as exc:
         return _error(f"搜索失败: {exc}")
 
+    if not result.get("success"):
+        return _error(result.get("message") or "未检索到相关法条,请调整输入的描述")
     items = result.get("data") or []
     if not items:
         return _error(result.get("message") or "未检索到相关法条,请调整输入的描述")
@@ -206,10 +234,10 @@ def _local_search_article(text: str):
 
 
 def _local_get_linked_content(message: str):
-    logger.info("正在调用本地法库:get_linked_content")
+    logger.info("正在调用法库:get_linked_content")
     try:
         result = json.loads(
-            _local_search_engine().law_link_search(message or "", limit=_SEARCH_LIMIT)
+            _law_search_engine().law_link_search(message or "", limit=_SEARCH_LIMIT)
         )
     except Exception as exc:
         return _error(f"获取链接失败: {exc}")
