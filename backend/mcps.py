@@ -18,6 +18,18 @@ from mcp.memory_client import (
 from memory_system import MemoryRevisionConflict, prune_conversation_memory
 from mcp.pkulaw_client import ensure_law_database_ready
 
+from tools.progressive import (
+    SELECT_TOOLS_NAME,
+    always_on_names_in_pool,
+    build_tool_catalog,
+    catalog_system_message,
+    inject_catalog_message,
+    normalize_selected_tool_names,
+    progressive_tools_enabled,
+    select_tools_response,
+)
+from tools.registry import registry as tool_registry
+
 
 default_tools = registry.schemas("agent")
 plan_and_solve_tools = registry.schemas("plan_and_solve")

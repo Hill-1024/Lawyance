@@ -14,7 +14,8 @@ from mcps import schemas, tools
 from context_usage import extract_cache_stats, record_context_usage
 from llm.retry import with_retry
 
-# 工具定义保持常态加载：从 mcps 导入后原样传给 API，不进入动态 prompt 加载链路。
+# 工具 schema 由调用方经 tools_override / tool_exposure 传入。
+# Agent 循环默认启用渐进式披露：先清单 + select_tools，再按需挂载业务工具完整 schema。
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,8 @@ class LLMConfigurationError(RuntimeError):
 def _runtime_llm_config() -> tuple[str, str, str, str]:
     """返回 (profile_id, model, base_url, api_key)，活动档案优先于环境变量。"""
     model, base_url, api_key, profile_id = LLM_MODEL, _ENV_BASE_URL, _ENV_API_KEY, ""
+    if os.getenv("BENCH_FORCE_ENV_LLM"):
+        return "", model, base_url, api_key
     try:
         from services import settings_service
         cfg = settings_service.resolve_active_llm_config() or {}

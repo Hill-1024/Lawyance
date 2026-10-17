@@ -10,7 +10,7 @@ import re
 from typing import Any
 
 from mcp.deli_client import match_legal_case
-from mcp.pkulaw_client import get_article, get_linked_content, search_article
+from mcp.legal_search_router import get_article, get_linked_content, search_article
 from mcp.searxng_client import web_fetch, web_search
 from mcp.PDF_processor import pdf_commit_by_sentence, pdf_text_reader
 from mcp.text_file_client import TEXT_FILE_EXTENSIONS, txt_md_reader, txt_md_writer
@@ -152,6 +152,25 @@ def _normalize_user_choice_options(options: Any) -> list[dict[str, str]]:
             item["description"] = description[:240]
         normalized.append(item)
     return normalized[:6]
+
+
+def _select_tools(arguments: dict[str, Any], _workspace_scope: str | None):
+    # 真正的加载状态由 ToolLoopAgent 维护；此处仅返回确认，便于未走 agent 循环的调试调用。
+    from tools.progressive import normalize_selected_tool_names, select_tools_response
+
+    requested_raw = arguments.get("tools")
+    if requested_raw is None:
+        requested_raw = arguments.get("names")
+    allowed = set(registry.names("agent")) | set(registry.names("plan_and_solve")) | set(registry.names("court"))
+    loaded = normalize_selected_tool_names(requested_raw, allowed_names=allowed)
+    if isinstance(requested_raw, str):
+        requested = [part.strip() for part in requested_raw.split(",") if part.strip()]
+    elif isinstance(requested_raw, (list, tuple, set)):
+        requested = [str(item).strip() for item in requested_raw if str(item).strip()]
+    else:
+        requested = []
+    unknown = [name for name in requested if name not in loaded]
+    return select_tools_response(requested=requested, loaded=loaded, unknown=unknown)
 
 
 def _ask_user(arguments: dict[str, Any], _workspace_scope: str | None):
@@ -317,6 +336,25 @@ def _write_txt_md(arguments: dict[str, Any], workspace_scope: str | None):
 
 
 def _register_agent_tools() -> None:
+    registry.register(
+        name="select_tools",
+        schema=_tool_schema(
+            "select_tools",
+            "渐进式披露入口：在调用任何业务工具之前，先用本工具声明本轮需要的业务工具名称。"
+            "系统会在下一轮挂载这些工具的完整参数 schema；未先 select 的业务工具不可用。"
+            "可多次调用以追加加载。常驻控制工具（ask_user / submit_plan / submit_final_answer）无需 select。",
+            {
+                "tools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "要加载的业务工具名列表，必须来自系统提供的工具清单，例如 [\"search_article\", \"get_article\"]。",
+                },
+            },
+            ["tools"],
+        ),
+        handler=_select_tools,
+        exposure=AGENT_PLAN_AND_SOLVE_COURT,
+    )
     registry.register(
         name="ask_user",
         schema=_tool_schema(
