@@ -3,6 +3,7 @@
 Meteor109 上游的多法域路由包含东盟三套法系；国内版只保留中国法主库。
 当 ``LAWVER_VECTOR_RETRIEVAL_ENABLED=1`` 且向量库可用时优先走混合检索，
 失败或未启用时回退到原有的 ``mcp.pkulaw_client`` 路径。
+显式自营远程模式始终直接调用法库服务，不导入本地混合检索引擎。
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import json
 import logging
 from typing import Any
 
+from mcp import law_service_client
 from mcp.pkulaw_client import (
     get_article as china_get_article,
     get_linked_content as china_get_linked_content,
@@ -65,7 +67,13 @@ def get_article(title: str, number: str, jurisdiction: str = "") -> str:
 
 
 def search_article(text: str, jurisdiction: str = "") -> str:
-    """中国法关键词/混合检索；混合检索失败时回退旧路径。"""
+    """显式远程优先；本地模式保留混合检索和原有降级路径。"""
+    try:
+        source = law_service_client.source()
+    except law_service_client.LawServiceError as exc:
+        return json.dumps({"success": False, "message": str(exc)}, ensure_ascii=False)
+    if source == "remote":
+        return china_search_article(text)
     hybrid = _hybrid_search_article(text)
     return hybrid if hybrid is not None else china_search_article(text)
 
