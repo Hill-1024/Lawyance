@@ -67,7 +67,10 @@ services:
     volumes:
       # 持久化根：data/ 放 settings/secrets/usage.log/APK；TEMP、Result 是工作区。
       # 三者都从同一个宿主根展开，与现有 /srv/lawver 下的布局一致，便于运维与备份。
-      - ${LAWVER_DATA_HOST_DIR:-./data}:/app/data
+      # 注意 data 子目录：new-instance.sh 建的是 <实例>/data/{data,TEMP,Result}，
+      # 应用的 /app/data 对应其中的 data/，不能把父目录直接挂进来（否则附件/配置
+      # 会落到 /app/data/data 下面，应用读到的是空目录）。
+      - ${LAWVER_DATA_HOST_DIR:-./data}/data:/app/data
       - ${LAWVER_DATA_HOST_DIR:-./data}/TEMP:/app/TEMP
       - ${LAWVER_DATA_HOST_DIR:-./data}/Result:/app/Result
       # 应用配置：宿主 .env 只读挂入，容器内不产生第二份配置来源
