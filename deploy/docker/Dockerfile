@@ -44,7 +44,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 ########## 3. 运行镜像 ##########
-FROM ${PYTHON_IMAGE} AS runtime
+FROM ${PYTHON_IMAGE} AS runtime-base
 
 # UID/GID 要与宿主持久化目录的属主一致，否则 data/、TEMP/、Result/ 写不进去。
 # 注意部署机上的 lawver 用户**不是** 1000（实测 996/993），所以默认值只是兜底：
@@ -71,6 +71,25 @@ ENV PATH=/opt/venv/bin:$PATH \
 COPY --from=deps /opt/venv /opt/venv
 
 WORKDIR /app
+
+########## 4. 客户源码清洗（中间层永不推送给客户） ##########
+FROM deps AS customer-source
+COPY . /src
+RUN /opt/venv/bin/python scripts/package-customer.py --no-git-context --output-dir /customer
+
+########## 5. 客户镜像：完全不含 RAG/ 与自营服务 ##########
+FROM runtime-base AS customer
+ENV LAWVER_LAW_SOURCE=remote
+COPY --from=customer-source /customer /app
+COPY --from=web /src/dist ./dist
+RUN mkdir -p /app/data /app/TEMP /app/Result \
+ && chown -R lawver:lawver /app/data /app/TEMP /app/Result
+USER lawver
+EXPOSE 8080 8081
+CMD ["python", "agent.py"]
+
+########## 6. 自营镜像：保留本地检索引擎，语料另行挂载 ##########
+FROM runtime-base AS runtime
 # 代码进镜像（多实例共享同一份镜像，不再需要每实例一套源码树）
 COPY . .
 COPY --from=web /src/dist ./dist

@@ -482,13 +482,16 @@ sudo systemctl start lawver-router lawver-app lawver-intro
 | 首次建索引 | 14 秒（full rebuild，4937 源文件 → 197MB `law.db`） |
 | 索引就绪后再启动 | 12～31 秒（`mode=unchanged`） |
 
-## 13. 还没做的（下一轮）
+## 13. 独立法库服务与后续工作
 
-- **自营法库服务**：`law_service/`（`/v1` 三端点 + keys.json + 限流 + 审计 + canary）尚未实现，
-  见 [law-service-split-plan.md](law-service-split-plan.md)。位置已在 `compose.self-hosted.yml`
-  里以注释标好（`law-db` 服务 + `LAWVER_LAW_SERVICE_URL`）。落地后：自营实例去掉语料挂载、
-  改指该服务；前沿实例从 `PKU_LAW_SOURCE=remote`（第三方付费）换成自营法库，实例侧不用改代码
-  ——那是同一个适配层的第三个数据源。
+- **自营法库服务（issue #13）**：代码与部署模板已提供，服务器由操作者手动上传验收。
+  用独立 [法库部署说明](law-service-deployment.md) 和 `compose.law-service.yml` 部署我方 API，
+  使用 `LAWVER_LAW_SERVICE_URL` / `LAWVER_LAW_SERVICE_KEY` 连接；监控见
+  [运营说明](law-service-operations.md)。原有本地语料实例仍使用本手册前面的 `runtime` 镜像与自营 overlay。
+- **客户交付边界**：客户必须使用 Dockerfile 的 `customer` target 和 `compose.customer.yml`，
+  不能直接使用本手册默认 `build.sh` 构建的自营 `runtime` 镜像。客户镜像不含整个 `RAG/`
+  或自营服务；归档用 `scripts/package-customer.py` 生成并复验。客户操作步骤见
+  [客户部署说明](../deploy/customer/README.md)，不要给客户执行本手册的语料同步/索引构建步骤。
 - 外部服务池化（[external-services-pool-plan.md](external-services-pool-plan.md)）未实现。
 - 部署机 `/srv/lawver` 目前无法 `git pull`（主仓转私有后该机没有凭证），
   更新要走"配只读 PAT 或从开发机同步"两条路之一。

@@ -1,0 +1,49 @@
+# Independent first-party deployment; no PostgreSQL/Redis/app dependencies.
+# docker compose --env-file /etc/lawver-law/compose.env -f deploy/docker/compose.law-service.yml up -d
+name: ${LAW_COMPOSE_PROJECT_NAME:-lawver-law}
+services:
+  law-service:
+    image: ${LAW_IMAGE:?Set LAW_IMAGE to an immutable first-party law-service image tag}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      LAW_LISTEN: 0.0.0.0:8084
+      LAW_DATA_DIR: /law/data
+      LAW_DB_PATH: /var/lib/lawver-law/cache/law.db
+      LAW_KEYS_FILE: /etc/lawver-law/keys.json
+      LAW_AUDIT_LOG: /var/lib/lawver-law/audit/audit.jsonl
+    volumes:
+      - type: bind
+        source: ${LAW_DATA_HOST_DIR:?Set LAW_DATA_HOST_DIR to first-party corpus directory}
+        target: /law/data
+        read_only: true
+        bind:
+          create_host_path: false
+      # Mount the directory so atomic keys.json replacement is visible in-container.
+      - type: bind
+        source: ${LAW_KEYS_HOST_DIR:?Set LAW_KEYS_HOST_DIR to directory containing keys.json}
+        target: /etc/lawver-law
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LAW_STATE_HOST_DIR:?Set LAW_STATE_HOST_DIR to writable state directory}
+        target: /var/lib/lawver-law
+        bind:
+          create_host_path: false
+    ports:
+      - '127.0.0.1:${LAW_PUBLISH_PORT:-8084}:8084'
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8084/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
