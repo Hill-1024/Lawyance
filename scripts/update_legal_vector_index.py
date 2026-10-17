@@ -19,7 +19,6 @@ load_dotenv(REPO_ROOT / ".env")
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Incrementally update Lawver legal vector index")
-    parser.add_argument("--china-only", action="store_true")
     parser.add_argument(
         "--source-id",
         action="append",
@@ -32,7 +31,6 @@ def main() -> int:
 
     stats = update_index(
         changed_source_ids=args.source_id or None,
-        include_asean=not args.china_only,
     )
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0

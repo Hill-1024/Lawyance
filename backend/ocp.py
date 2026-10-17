@@ -21,7 +21,7 @@ from output_sanitizer import (
     strip_noise,
     detect_identity_leak,
 )
-from services.tool_result_compression import maybe_compress_tool_result
+from tool_result_compression import maybe_compress_tool_result
 
 load_dotenv(".env")
 

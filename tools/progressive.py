@@ -25,7 +25,8 @@ CATALOG_DESC_CHARS = 120
 def progressive_tools_enabled() -> bool:
     raw = os.getenv("LAWVER_PROGRESSIVE_TOOLS")
     if raw is None or not str(raw).strip():
-        return True
+        # 国内版保持既有工具暴露行为；需要时显式设置 LAWVER_PROGRESSIVE_TOOLS=1。
+        return False
     return str(raw).strip().lower() not in {"0", "false", "off", "no"}
 
 

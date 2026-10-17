@@ -21,8 +21,7 @@ from media import (
     MAX_VIEW_TOTAL_BYTES,
     flatten_content_to_text,
 )
-from services.tool_result_compression import maybe_compress_tool_result
-from tools.progressive import (
+from mcps import (
     SELECT_TOOLS_NAME,
     always_on_names_in_pool,
     build_tool_catalog,
@@ -31,8 +30,9 @@ from tools.progressive import (
     normalize_selected_tool_names,
     progressive_tools_enabled,
     select_tools_response,
+    tool_registry,
 )
-from tools.registry import registry
+from tool_result_compression import maybe_compress_tool_result
 
 
 _DEFAULT_MAX_ROUNDS = object()
@@ -244,7 +244,7 @@ class ToolLoopAgent:
             return self.tools
         active = set(state.get("active_tools") or set())
         wanted = set(self._always_on_tool_names) | active
-        return registry.schemas_by_name(wanted, pool=self.tools)
+        return tool_registry.schemas_by_name(wanted, pool=self.tools)
 
     def _context_for_round(self, current_mem: list[dict], state: dict[str, Any]) -> list[dict]:
         if not self.progressive_tools:

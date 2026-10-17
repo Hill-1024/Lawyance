@@ -380,12 +380,12 @@ class VectorStoreDenseAndRerankTests(unittest.TestCase):
         changed = _changed_sources_by_hash(old, [c1, c2])
         self.assertEqual(changed, {"s1"})
 
-    def test_normalize_asean_jurisdiction(self):
+    def test_normalize_china_jurisdiction(self):
         from vector_store.ingest import _normalize_jurisdiction
 
-        self.assertEqual(_normalize_jurisdiction("indonesia"), "ID")
-        self.assertEqual(_normalize_jurisdiction("TH"), "TH")
-        self.assertEqual(_normalize_jurisdiction("", default="MM"), "MM")
+        self.assertEqual(_normalize_jurisdiction("cn"), "CN")
+        self.assertEqual(_normalize_jurisdiction("中国"), "CN")
+        self.assertEqual(_normalize_jurisdiction("", default="CN"), "CN")
 
     def test_agents_do_not_import_vector_store(self):
         """架构边界：Agent 不得直连 vector_store / qdrant。"""

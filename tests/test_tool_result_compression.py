@@ -12,7 +12,7 @@ import unittest
 
 class ToolResultCompressionTests(unittest.TestCase):
     def test_below_threshold_returns_original(self):
-        service = importlib.import_module("services.tool_result_compression")
+        service = importlib.import_module("tool_result_compression")
 
         async def run():
             return await service.maybe_compress_tool_result(
@@ -24,13 +24,13 @@ class ToolResultCompressionTests(unittest.TestCase):
         self.assertEqual(asyncio.run(run()), "短结果")
 
     def test_skip_control_tools(self):
-        service = importlib.import_module("services.tool_result_compression")
+        service = importlib.import_module("tool_result_compression")
         huge = "法条" * 120_000
         should, _ = service.should_compress_tool_result(huge, tool_name="submit_plan")
         self.assertFalse(should)
 
     def test_over_threshold_summarizes(self):
-        service = importlib.import_module("services.tool_result_compression")
+        service = importlib.import_module("tool_result_compression")
         original_call = service.call
 
         async def fake_call(messages, stream=False, include_tools=True):
@@ -56,7 +56,7 @@ class ToolResultCompressionTests(unittest.TestCase):
         self.assertNotIn(huge[:80], compressed)
 
     def test_summary_failure_falls_back_to_truncate(self):
-        service = importlib.import_module("services.tool_result_compression")
+        service = importlib.import_module("tool_result_compression")
         original_call = service.call
 
         async def boom(*_args, **_kwargs):

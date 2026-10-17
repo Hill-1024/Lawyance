@@ -63,7 +63,7 @@ def normalize_article_number(article_number: str) -> str:
         if main is None:
             return ""
         return f"{main}-{sub}" if sub is not None else str(main)
-    # 东盟等非「第N条」写法：提取首个数字段
+    # 非「第N条」写法：提取首个数字段
     digits = re.search(r"(\d+)\s*([a-zA-Z])?", text)
     if digits:
         suffix = (digits.group(2) or "").lower()

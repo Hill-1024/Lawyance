@@ -14,6 +14,7 @@ from tools import registry
 
 
 EXPECTED_AGENT_TOOL_NAMES = [
+    "select_tools",
     "ask_user",
     "match_legal_case",
     "get_article",

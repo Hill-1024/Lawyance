@@ -33,27 +33,8 @@ logger = logging.getLogger(__name__)
 RAG_DATA = REPO_ROOT / "RAG" / "data"
 CHINA_CATEGORIES = ("法律", "行政法规", "司法解释", "地方性法规")
 
-# 东盟 SQLite / 目录名 → ISO 国家码（与 retrieval.SYSTEM_TO_JURISDICTIONS 对齐）
+# 中国法语料目录/代码 → ISO 国家码（与 retrieval.SYSTEM_TO_JURISDICTIONS 对齐）
 _JURISDICTION_ALIASES = {
-    "id": "ID",
-    "indonesia": "ID",
-    "印度尼西亚": "ID",
-    "印尼": "ID",
-    "th": "TH",
-    "thailand": "TH",
-    "泰国": "TH",
-    "vn": "VN",
-    "vietnam": "VN",
-    "越南": "VN",
-    "my": "MY",
-    "malaysia": "MY",
-    "马来西亚": "MY",
-    "mm": "MM",
-    "myanmar": "MM",
-    "缅甸": "MM",
-    "sg": "SG",
-    "singapore": "SG",
-    "新加坡": "SG",
     "cn": "CN",
     "china": "CN",
     "中国": "CN",
@@ -181,128 +162,12 @@ def iter_china_chunks(
                 yield chunk
 
 
-def _iter_sqlite_articles(
-    db_path: Path,
-    *,
-    legal_system: str,
-    default_jurisdiction: str = "",
-) -> Iterator[LawChunk]:
-    if not db_path.exists():
-        return
-    import sqlite3
-    from contextlib import closing
-
-    with closing(sqlite3.connect(str(db_path))) as conn:
-        conn.row_factory = sqlite3.Row
-        # 各库 schema 略有差异：优先 laws.country，兼容平表 articles
-        rows = None
-        for sql in (
-            """
-            SELECT
-                articles.content AS content,
-                articles.article_number AS article_number,
-                laws.law_name AS law_name,
-                COALESCE(laws.url, '') AS url,
-                COALESCE(laws.country, '') AS country,
-                COALESCE(laws.country_label, '') AS country_label,
-                COALESCE(laws.jurisdiction, '') AS jurisdiction_label,
-                COALESCE(laws.legal_system, '') AS law_type
-            FROM articles
-            JOIN laws ON laws.id = articles.law_id
-            """,
-            """
-            SELECT
-                articles.content AS content,
-                articles.article_number AS article_number,
-                laws.law_name AS law_name,
-                COALESCE(laws.url, '') AS url,
-                COALESCE(laws.country, '') AS country,
-                '' AS country_label,
-                '' AS jurisdiction_label,
-                COALESCE(laws.category, '') AS law_type
-            FROM articles
-            JOIN laws ON laws.id = articles.law_id
-            """,
-            """
-            SELECT content, article_number, law_name,
-                   COALESCE(url, '') AS url,
-                   COALESCE(country, '') AS country,
-                   '' AS country_label,
-                   '' AS jurisdiction_label,
-                   COALESCE(category, '') AS law_type,
-                   COALESCE(source_id, '') AS source_id,
-                   COALESCE(status, '') AS status
-            FROM articles
-            """,
-        ):
-            try:
-                rows = conn.execute(sql).fetchall()
-                break
-            except sqlite3.Error:
-                rows = None
-        if rows is None:
-            logger.warning("cannot read %s: no compatible schema", db_path)
-            return
-
-        for row in rows:
-            number = str(row["article_number"] or "").strip()
-            body = str(row["content"] or "").strip()
-            law_name = clean_law_name(str(row["law_name"] or ""))
-            if not number or not body or not law_name:
-                continue
-            keys = set(row.keys())
-            source_id = str(row["source_id"] or "") if "source_id" in keys else ""
-            if not source_id:
-                source_id = content_hash(f"{legal_system}:{law_name}:{number}")[:32]
-            status = str(row["status"] or "") if "status" in keys else ""
-            jurisdiction = _normalize_jurisdiction(
-                str(row["country"] or ""),
-                str(row["country_label"] or ""),
-                str(row["jurisdiction_label"] or ""),
-                default=default_jurisdiction,
-            )
-            chunk = LawChunk(
-                text=body,
-                law_name=law_name,
-                short_name="",
-                article_number=number,
-                article_number_normalized=normalize_article_number(number),
-                article_id="",
-                source_id=source_id,
-                source_file=db_path.as_posix(),
-                content_hash=content_hash(body),
-                law_type=str(row["law_type"] or legal_system),
-                jurisdiction=jurisdiction,
-                legal_system=legal_system,
-                effective_status=map_effective_status("", status) if status else "in_force",
-                source_url=str(row["url"] or ""),
-            )
-            chunk.ensure_ids()
-            yield chunk
-
-
-def iter_asean_chunks(config: LegalVectorConfig | None = None) -> Iterator[LawChunk]:
-    del config  # reserved for future filters
-    civil_db = REPO_ROOT / "RAG" / "civil_law" / "cache" / "civil_law.db"
-    islamic_db = REPO_ROOT / "RAG" / "islamic_law" / "cache" / "islamic_law.db"
-    myanmar_db = REPO_ROOT / "RAG" / "common_law" / "cache" / "myanmar.db"
-    singapore_db = REPO_ROOT / "RAG" / "common_law" / "cache" / "singapore.db"
-    # civil/islamic 国家码从 laws.country 读取；单国库给明确缺省
-    yield from _iter_sqlite_articles(civil_db, legal_system="civil")
-    yield from _iter_sqlite_articles(islamic_db, legal_system="islamic")
-    yield from _iter_sqlite_articles(myanmar_db, legal_system="common", default_jurisdiction="MM")
-    yield from _iter_sqlite_articles(singapore_db, legal_system="common", default_jurisdiction="SG")
-
-
 def iter_all_chunks(
     *,
-    include_asean: bool = True,
     limit_files: int | None = None,
     config: LegalVectorConfig | None = None,
 ) -> Iterator[LawChunk]:
     yield from iter_china_chunks(config=config, limit_files=limit_files)
-    if include_asean:
-        yield from iter_asean_chunks(config=config)
 
 
 def _write_manifest(path: Path, payload: dict[str, Any]) -> None:
@@ -324,7 +189,6 @@ def load_manifest(path: Path | None = None) -> dict[str, Any]:
 
 def build_index(
     *,
-    include_asean: bool = True,
     limit_files: int | None = None,
     recreate_collection: bool = False,
     skip_qdrant: bool = False,
@@ -332,7 +196,7 @@ def build_index(
     config: LegalVectorConfig | None = None,
 ) -> dict[str, Any]:
     cfg = config or get_legal_vector_config()
-    chunks = list(iter_all_chunks(include_asean=include_asean, limit_files=limit_files, config=cfg))
+    chunks = list(iter_all_chunks(limit_files=limit_files, config=cfg))
     # 过滤无正文 / 废止默认仍入库，检索时再 filter
     chunks = [chunk for chunk in chunks if chunk.text.strip()]
     stats: dict[str, Any] = {
@@ -416,7 +280,6 @@ def _changed_sources_by_hash(
 def update_index(
     *,
     changed_source_ids: Iterable[str] | None = None,
-    include_asean: bool = True,
     config: LegalVectorConfig | None = None,
 ) -> dict[str, Any]:
     """按 content_hash / source_id 增量：删除旧 point 后 upsert 新 chunk。"""
@@ -427,9 +290,9 @@ def update_index(
         previous.get("embedding_version") != cfg.embedding_version
         or previous.get("chunking_version") != cfg.chunking_version
     ):
-        return build_index(include_asean=include_asean, recreate_collection=True, config=cfg)
+        return build_index(recreate_collection=True, config=cfg)
 
-    all_chunks = list(iter_all_chunks(include_asean=include_asean, config=cfg))
+    all_chunks = list(iter_all_chunks(config=cfg))
     targets = set(changed_source_ids or [])
     if not targets:
         targets = _changed_sources_by_hash(previous, all_chunks)

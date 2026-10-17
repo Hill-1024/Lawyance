@@ -24,9 +24,6 @@ CITATION_RE = re.compile(
 
 SYSTEM_TO_JURISDICTIONS = {
     "china": ["CN"],
-    "civil": ["ID", "TH", "VN"],
-    "islamic": ["MY", "ID"],
-    "common": ["MM", "SG"],
 }
 
 
@@ -42,34 +39,12 @@ def extract_citations(query: str) -> list[tuple[str, str]]:
 def _legacy_fuzzy_hits(system: str, query: str, limit: int = 10) -> list[LawChunk]:
     items: list[dict[str, Any]] = []
     try:
-        if system == "china":
-            from RAG.law_data_search import law_fuzzy_search
+        from RAG.law_data_search import law_fuzzy_search
 
-            payload = json.loads(law_fuzzy_search(query, limit=limit))
-            items = [item for item in (payload.get("data") or []) if isinstance(item, dict)]
-            jurisdiction = "CN"
-            legal_system = "china"
-        elif system == "civil":
-            from RAG.civil_law import fuzzy_search
-
-            payload = json.loads(fuzzy_search(query, limit))
-            items = [item for item in (payload.get("data") or []) if isinstance(item, dict)]
-            jurisdiction = ""
-            legal_system = "civil"
-        elif system == "islamic":
-            from RAG.islamic_law import semantic_search
-
-            payload = json.loads(semantic_search(query, limit))
-            items = [item for item in (payload.get("data") or []) if isinstance(item, dict)]
-            jurisdiction = ""
-            legal_system = "islamic"
-        else:
-            from RAG.common_law import fuzzy_search
-
-            payload = json.loads(fuzzy_search(query, limit))
-            items = [item for item in (payload.get("data") or []) if isinstance(item, dict)]
-            jurisdiction = ""
-            legal_system = "common"
+        payload = json.loads(law_fuzzy_search(query, limit=limit))
+        items = [item for item in (payload.get("data") or []) if isinstance(item, dict)]
+        jurisdiction = "CN"
+        legal_system = "china"
     except Exception as exc:  # noqa: BLE001
         logger.warning("legacy fuzzy failed: %s", exc)
         return []
@@ -117,34 +92,12 @@ def _exact_hits(system: str, query: str) -> list[LawChunk]:
     hits: list[LawChunk] = []
     for title, number in citations:
         try:
-            if system == "china":
-                from RAG.law_data_search import law_exact_search
+            from RAG.law_data_search import law_exact_search
 
-                payload = json.loads(law_exact_search(title, number))
-                data = payload.get("data") if payload.get("success") else None
-                jurisdiction = "CN"
-                legal_system = "china"
-            elif system == "civil":
-                from RAG.civil_law import exact_search
-
-                payload = json.loads(exact_search(title, number))
-                data = payload.get("data") if payload.get("success") else None
-                jurisdiction = str((data or {}).get("country") or "")
-                legal_system = "civil"
-            elif system == "islamic":
-                from RAG.islamic_law import exact_search
-
-                payload = json.loads(exact_search(title, number))
-                data = payload.get("data") if payload.get("success") else None
-                jurisdiction = str((data or {}).get("country") or "")
-                legal_system = "islamic"
-            else:
-                from RAG.common_law import exact_search
-
-                payload = json.loads(exact_search(title, number))
-                data = payload.get("data") if payload.get("success") else None
-                jurisdiction = str((data or {}).get("country") or "")
-                legal_system = "common"
+            payload = json.loads(law_exact_search(title, number))
+            data = payload.get("data") if payload.get("success") else None
+            jurisdiction = "CN"
+            legal_system = "china"
         except Exception as exc:  # noqa: BLE001
             logger.warning("exact search failed: %s", exc)
             continue

@@ -10,7 +10,7 @@ import re
 from typing import Any
 
 from mcp.deli_client import match_legal_case
-from mcp.pkulaw_client import get_article, get_linked_content, search_article
+from mcp.legal_search_router import get_article, get_linked_content, search_article
 from mcp.searxng_client import web_fetch, web_search
 from mcp.PDF_processor import pdf_commit_by_sentence, pdf_text_reader
 from mcp.text_file_client import TEXT_FILE_EXTENSIONS, txt_md_reader, txt_md_writer
