@@ -1,4 +1,4 @@
-import { Gavel, MessageSquare, MoreHorizontal, Plus, RefreshCw } from "lucide-react";
+import { Gavel, MessageSquare, MoreHorizontal, Plus, RefreshCw, Star } from "lucide-react";
 import { useT } from "../i18n";
 import React from "react";
 import { Item } from "./client";
@@ -58,9 +58,16 @@ export function HomeView({
     ? projects
         .filter((item) => !item.data.archived)
         .slice()
-        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .sort(
+          (a, b) =>
+            Number(!!b.data.favorite) - Number(!!a.data.favorite) ||
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+        )
         .slice(0, 6)
-    : projects.filter((item) => !item.data.archived);
+    : projects
+        .filter((item) => !item.data.archived)
+        .slice()
+        .sort((a, b) => Number(!!b.data.favorite) - Number(!!a.data.favorite));
   return (
     <section className="wb-home">
       {project ? (
@@ -120,6 +127,13 @@ export function HomeView({
               {tab.kind === "court" ? <Gavel size={17} /> : <MessageSquare size={17} />}
               <span>
                 {item.title}
+                {item.data.favorite && (
+                  <Star
+                    size={12}
+                    className="wb-fav"
+                    aria-label={t("workbench.manage.favorite")}
+                  />
+                )}
                 <small>
                   {new Date(item.updated_at).toDateString() === new Date().toDateString()
                     ? t("workbench.home.today")
@@ -186,7 +200,16 @@ export function HomeView({
                 style={{ "--i": index } as React.CSSProperties}
                 onClick={() => onOpenProject(item.id)}
               >
-                <strong>{item.title}</strong>
+                <strong>
+                  {item.title}
+                  {item.data.favorite && (
+                    <Star
+                      size={12}
+                      className="wb-fav"
+                      aria-label={t("workbench.manage.favorite")}
+                    />
+                  )}
+                </strong>
                 {item.data.desc && <small className="wb-project-card-desc">{item.data.desc}</small>}
                 <span className="wb-project-card-meta">
                   {t("workbench.home.lastModified")}{" "}

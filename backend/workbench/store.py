@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime
@@ -15,6 +16,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Index,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from fastapi import HTTPException
@@ -61,6 +64,11 @@ class Item(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 归档是独立于删除的可见性状态：非空表示已归档，值保留归档时间。
+    # 旧版本把它写在 data["archived"] 里，迁移负责回填；读写都走这一列。
+    archived_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     __table_args__ = (
@@ -115,7 +123,35 @@ def ensure_tables() -> None:
     if _READY_URL == url:
         return
     # 走共享的串行建表入口：这里建的是全部表，正好与账号引导等线程里的单表建表撞车。
-    shared.create_tables(engine_for(url), metadata=Base.metadata)
+    engine = engine_for(url)
+    shared.create_tables(engine, metadata=Base.metadata)
+    # create_all 不会给已存在的表补列：新增列在这里做一次，旧库才不会在 SELECT 时炸。
+    with engine.begin() as connection:
+        columns = {c["name"] for c in inspect(connection).get_columns("workbench_items")}
+        if "archived_at" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE workbench_items ADD COLUMN archived_at "
+                    + ("DATETIME" if connection.dialect.name == "sqlite" else "TIMESTAMP WITH TIME ZONE")
+                )
+            )
+            # 旧版本把归档标记放在 data JSON 里；新列建好后按 updated_at 回填一次。
+            for identifier, data in connection.execute(
+                text("SELECT id, data FROM workbench_items WHERE archived_at IS NULL")
+            ):
+                if isinstance(data, str):
+                    try:
+                        data = json.loads(data)
+                    except ValueError:
+                        continue
+                if isinstance(data, dict) and data.get("archived"):
+                    connection.execute(
+                        text(
+                            "UPDATE workbench_items SET archived_at = updated_at "
+                            "WHERE id = :identifier"
+                        ),
+                        {"identifier": identifier},
+                    )
     _READY_URL = url
 
 
@@ -175,6 +211,10 @@ def public(item):
         for k, v in item.data.items()
         if k not in {"encrypted_secret", "blob_key", "lease_until", "worker_id"}
     }
+    # 归档状态以列为准（旧数据里可能残留 data["archived"]，一律覆盖成当前值），
+    # 同时保留 data.archived 这个历史字段，避免旧版客户端读到相反的状态。
+    data.pop("archived", None)
+    data["archived"] = item.archived_at is not None
     if item.kind == "connector":
         data["has_secret"] = bool(item.data.get("encrypted_secret"))
     return dict(
@@ -187,6 +227,7 @@ def public(item):
         data=data,
         created_at=item.created_at.isoformat(),
         updated_at=item.updated_at.isoformat(),
+        archived_at=item.archived_at.isoformat() if item.archived_at else None,
         deleted_at=item.deleted_at.isoformat() if item.deleted_at else None,
     )
 

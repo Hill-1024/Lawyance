@@ -28,5 +28,5 @@ export function SettingsExtensions() {
   if(error && !data) return <Banner tone="danger">{error}<button className="settings-back" onClick={() => void load()}>{t('common.retry')}</button></Banner>;
   if(enabled === false) return <Banner>{t('settings.extensions.disabled')}</Banner>;
   if(!data) return <CenteredSpinner label={t('settings.extensions.loading')}/>;
-  return <><p className="settings-hint">{t("settings.extensions.hint")}</p>{error && <Banner tone="danger">{error}</Banner>}<div className="wb-app wb-settings-extensions"><ManageDialog embedded tab="skills" skills={data.skills} connectors={data.connectors} projects={[]} conversations={[]} documents={[]} onClose={() => {}} onReload={() => {void load();window.dispatchEvent(new Event('lawver:extensions-updated'));}} onError={setError}/></div></>;
+  return <><p className="settings-hint">{t("settings.extensions.hint")}</p>{error && <Banner tone="danger">{error}</Banner>}<div className="wb-app wb-settings-extensions"><ManageDialog embedded tab="skills" skills={data.skills} connectors={data.connectors} onClose={() => {}} onReload={() => {void load();window.dispatchEvent(new Event('lawver:extensions-updated'));}} onError={setError}/></div></>;
 }

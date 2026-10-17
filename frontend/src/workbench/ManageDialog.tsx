@@ -1,20 +1,14 @@
 import React, { useEffect, useEffectEvent, useId, useState } from "react";
-import { CheckBox } from "../components/CheckBox";
 import { X, Plus, Plug, Sparkles } from "lucide-react";
 import { useAppDialog } from "../contexts/DialogContext";
 import { useSettingsEdit } from "../components/settings/SettingsEditContext";
-import { api, Item } from "./client";
-import { fileDB } from "../lib/db";
-import { downloadApiFile } from "../lib/download";
+import { api, Item, Page } from "./client";
 import { useT } from "../i18n";
 export function ManageDialog({
   tab,
   embedded = false,
   skills,
   connectors,
-  projects,
-  conversations,
-  documents,
   onClose,
   onReload,
   onError,
@@ -23,9 +17,6 @@ export function ManageDialog({
   embedded?: boolean;
   skills: Item[];
   connectors: Item[];
-  projects: Item[];
-  conversations: Item[];
-  documents: Item[];
   onClose: () => void;
   onReload: () => void;
   onError: (s: string) => void;
@@ -42,29 +33,20 @@ export function ManageDialog({
     [secret, setSecret] = useState(""),
     [busy, setBusy] = useState(false),
     [trash, setTrash] = useState<Item[]>([]),
-    [locals, setLocals] = useState<any[]>([]),
-    [courts, setCourts] = useState<any[]>([]),
-    [files, setFiles] = useState<any[]>([]),
-    [selected, setSelected] = useState<string[]>([]),
-    [progress, setProgress] = useState("");
+    [archived, setArchived] = useState<Item[]>([]);
   useEffect(() => {if(embedded) reportEdit("extensions", Boolean(editing));}, [editing, embedded, reportEdit]);
   // 报错是「拉取之后要做的事」，不是重新拉取的理由：onError 放进 effect event，切页签才重拉。
   const reportLoadError = useEffectEvent((message: string) => onError(message));
   useEffect(() => {
-    if (tab === "trash")
+    if (tab === "trash") {
+      // 归档列表必须单独取：常规分页已排除归档条目，内存索引里看不到旧会话。
       api<Item[]>("/trash")
         .then(setTrash)
         .catch((e) => reportLoadError(e.message));
-    if (tab === "migration")
-      Promise.all([
-        fileDB.getConversations(),
-        fileDB.getCourtSessions(),
-        fileDB.getAllFiles(),
-      ]).then(([c, t, f]) => {
-        setLocals(c);
-        setCourts(t);
-        setFiles(f);
-      });
+      api<Page>("/archived?limit=200")
+        .then((page) => setArchived(page.items))
+        .catch((e) => reportLoadError(e.message));
+    }
   }, [tab]);
   async function switchSection(next: string) {
     if (next === section) return;
@@ -119,60 +101,6 @@ export function ManageDialog({
       onError(e.message);
     }
   }
-  async function migrate() {
-    setBusy(true);
-    try {
-      const chosen = locals.filter((c) => selected.includes(c.id));
-      const manifest = files
-        .filter((f) => selected.includes(f.convId))
-        .map((f) => ({
-          conversation_id: f.convId,
-          name: f.fileName,
-          path: f.path,
-          available: !!f.blob,
-        }));
-      const payload = {
-        source_id: "browser-" + location.origin,
-        conversations: chosen,
-        court_sessions: courts,
-        files: manifest,
-      };
-      const hash = Array.from(
-        new Uint8Array(
-          await crypto.subtle.digest(
-            "SHA-256",
-            new TextEncoder().encode(JSON.stringify(payload)),
-          ),
-        ),
-      )
-        .map((x) => x.toString(16).padStart(2, "0"))
-        .join("");
-      const result = await api(
-        "/migrations",
-        "POST",
-        payload,
-        "migration-" + hash,
-      );
-      setProgress(
-        t("workbench.manage.migrated", { sessions: chosen.length, courts: courts.length }),
-      );
-      for (const f of files.filter((f) => selected.includes(f.convId))) {
-        if (!f.blob) continue;
-        const body = new FormData();
-        body.append("file", f.blob, f.fileName);
-        body.append("conversation_id", f.convId);
-        body.append("original_path", f.path);
-        await api("/migrations/" + result.id + "/files", "POST", body);
-      }
-      setProgress(t("workbench.manage.migratedDone"));
-      onReload();
-    } catch (e) {
-      setProgress(t("workbench.manage.migratedInterrupted"));
-      onError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
   const dismiss = embedded || busy ? undefined : onClose;
   return (
     <div
@@ -188,11 +116,9 @@ export function ManageDialog({
       >
         {!embedded && <header>
           <h2>
-            {tab === "migration"
-              ? t("workbench.shell.localArchive")
-              : tab === "trash"
-                ? t("workbench.sidebar.archive")
-                : t("workbench.shell.skillsAndPlugins")}
+            {tab === "trash"
+              ? t("workbench.sidebar.archive")
+              : t("workbench.shell.skillsAndPlugins")}
           </h2>
           <button aria-label={t("common.close")} onClick={onClose}>
             <X size={20} />
@@ -377,27 +303,52 @@ export function ManageDialog({
         )}
         {tab === "trash" && (
           <>
-            <h3>{t("workbench.manage.archived")}</h3>
-            {[...projects, ...conversations, ...documents]
-              .filter((i) => i.data.archived)
-              .map((item) => (
-                <div className="wb-row" key={item.id}>
+            <h3>
+              {t("workbench.manage.archived")}
+              {archived.length ? ` · ${archived.length}` : ""}
+            </h3>
+            {/* 归档不是删除：这里必须始终有出口，否则用户点完归档会觉得会话丢了。 */}
+            {!archived.length && (
+              <p className="wb-empty">{t("workbench.manage.emptyArchived")}</p>
+            )}
+            {archived.map((item) => (
+              <div className="wb-row" key={item.id}>
+                <span>
                   {item.title}
-                  <button
-                    onClick={async () => {
+                  <small>
+                    {item.kind === "project"
+                      ? t("workbench.manage.kindProject")
+                      : item.kind === "conversation"
+                        ? t("workbench.manage.kindConversation")
+                        : t("workbench.manage.kindDocument")}
+                  </small>
+                </span>
+                <button
+                  onClick={async () => {
+                    try {
                       await api(
                         `/${item.kind === "project" ? "projects" : item.kind === "conversation" ? "conversations" : "documents"}/${item.id}`,
                         "PATCH",
                         { expected_revision: item.revision, archived: false },
                       );
+                      setArchived(
+                        (await api<Page>("/archived?limit=200")).items,
+                      );
                       onReload();
-                    }}
-                  >
-                    {t("workbench.manage.unarchive")}
-                  </button>
-                </div>
-              ))}
-            <h3>{t("workbench.manage.trashGroup")}</h3>
+                    } catch (e) {
+                      onError(e.message);
+                    }
+                  }}
+                >
+                  {t("workbench.manage.unarchive")}
+                </button>
+              </div>
+            ))}
+            <h3>
+              {t("workbench.manage.trashGroup")}
+              {trash.length ? ` · ${trash.length}` : ""}
+            </h3>
+            {!trash.length && <p className="wb-empty">{t("workbench.manage.emptyTrash")}</p>}
             {trash.map((item) => (
               <div className="wb-row" key={item.id}>
                 {item.title}
@@ -416,88 +367,6 @@ export function ManageDialog({
                 </button>
               </div>
             ))}
-          </>
-        )}
-        {tab === "migration" && (
-          <>
-            <div className="wb-row">
-              <button
-                onClick={() =>
-                  downloadApiFile(
-                    "/api/workbench/backup",
-                    "lawver-workbench-v5.zip",
-                  ).catch((e) => onError(e.message))
-                }
-              >
-                {t("workbench.manage.exportBackup")}
-              </button>
-              <label className="wb-file-button">
-                {t("workbench.manage.restoreV5")}
-                <input
-                  type="file"
-                  hidden
-                  accept=".zip"
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    setBusy(true);
-                    try {
-                      const body = new FormData();
-                      body.append("file", f);
-                      const result = await api(
-                        "/backup",
-                        "POST",
-                        body,
-                        crypto.randomUUID(),
-                      );
-                      setProgress(result.message);
-                      onReload();
-                    } catch (e) {
-                      onError(e.message);
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                />
-              </label>
-            </div>
-            <p>
-              {t("workbench.manage.migrationIntro", { sessions: locals.length, courts: courts.length, attachments: files.length })}
-              {t("workbench.manage.migrationSelectHint")}
-            </p>
-            <a href="/legacy">{t("workbench.manage.legacyLink")}</a>
-            <CheckBox
-              label={t("workbench.manage.selectAll")}
-              checked={selected.length === locals.length && !!locals.length}
-              onCheckedChange={(next) =>
-                setSelected(next ? locals.map((c) => c.id) : [])
-              }
-            />
-            {locals.map((c) => (
-              <label key={c.id}>
-                <CheckBox
-                  ariaLabel={c.title}
-                  checked={selected.includes(c.id)}
-                  onCheckedChange={(next) =>
-                    setSelected(
-                      next
-                        ? [...selected, c.id]
-                        : selected.filter((id) => id !== c.id),
-                    )
-                  }
-                />
-                {t("workbench.manage.sessionMeta", { title: c.title, count: c.messages.length })}
-              </label>
-            ))}
-            <p>{progress}</p>
-            <button
-              disabled={busy || !selected.length}
-              className="wb-primary"
-              onClick={migrate}
-            >
-              {busy ? t("workbench.manage.migrating") : t("workbench.manage.copyToCloud")}
-            </button>
-            <p>{t("workbench.manage.migrationKeepOpen")}</p>
           </>
         )}
       </section>

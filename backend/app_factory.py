@@ -11,7 +11,7 @@ from fastapi import FastAPI
 import auth as auth_service
 from infra import redis_backend
 from memory_system import reload_embedding_config
-from workbench import api as workbench_api, worker as workbench_worker, migration as workbench_migration, backup as workbench_backup
+from workbench import api as workbench_api, worker as workbench_worker, backup as workbench_backup
 from routes import (
     admin,
     announcements,
@@ -87,7 +87,6 @@ def create_app() -> FastAPI:
     app.include_router(settings.router)
     app.include_router(workspace.router)
     app.include_router(workbench_backup.router)
-    app.include_router(workbench_migration.router)
     app.include_router(workbench_api.router)
 
     # 3. SPA catch-all 必须最后注册，避免吞掉 /api/*。

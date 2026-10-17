@@ -7,6 +7,7 @@ import os
 import tempfile
 import zipfile
 import hashlib
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, UploadFile, File, Header, HTTPException
@@ -30,6 +31,8 @@ class BackupItem(BaseModel):
     data: dict
     project_id: str | None = None
     parent_id: str | None = None
+    # 旧版 v5 备份没有这个字段：缺省 None 表示未归档，向后兼容。
+    archived_at: datetime | None = None
 
 
 class BackupVersion(BaseModel):
@@ -209,7 +212,7 @@ def _restore_backup(stream, idempotency_key: str | None, user: str):
             raise ValueError()
         manifest = BackupManifest.model_validate(json.loads(archive.read("manifest.json")))
     except Exception:
-        raise HTTPException(422, "备份格式无效；旧版备份请从本地旧资料导入")
+        raise HTTPException(422, "备份格式无效；请选择由当前版本导出的备份文件")
 
     # 本次恢复新落盘的 blob 键：事务中途失败回滚后，这些文件成无人引用的孤儿，
     # 逐个清掉。只在「落盘前不存在」时记录——与他人共享的既有 blob 不能动。
@@ -277,6 +280,7 @@ def _restore_backup(stream, idempotency_key: str | None, user: str):
                         parent_id=ids.get(x.parent_id),
                         revision=x.revision,
                         data=value,
+                        archived_at=x.archived_at,
                     )
                     s.add(item)
                 for v in manifest.versions:

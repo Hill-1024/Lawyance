@@ -60,7 +60,7 @@ python -m workbench.maintenance verify /secure/backups/lawver/YYYY-MM-DD
 
 所有**创建/恢复类** POST 端点强制要求 `Idempotency-Key` 请求头：
 
-- 覆盖端点：`POST /{family}`（创建项目/会话/文档/技能/插件）、`POST /runs`、`POST /conversations/{id}/branch`、`POST /documents/upload`、`POST /documents/{id}/restore-version`、`POST /documents/{id}/editable-copy`、`POST /trash/{identifier}/restore`、`POST /runs/{id}/confirmation`、`POST /change-proposals/{id}/decision`、`POST /backup`（恢复）、`POST /migrations`。备份恢复与附件上传的路由层会先做键存在性预检，无键请求在解析压缩包/附件之前即被拒。
+- 覆盖端点：`POST /{family}`（创建项目/会话/文档/技能/插件）、`POST /runs`、`POST /conversations/{id}/branch`、`POST /documents/upload`、`POST /documents/{id}/restore-version`、`POST /documents/{id}/editable-copy`、`POST /trash/{identifier}/restore`、`POST /runs/{id}/confirmation`、`POST /change-proposals/{id}/decision`、`POST /backup`（恢复）。备份恢复与附件上传的路由层会先做键存在性预检，无键请求在解析压缩包/附件之前即被拒。
 - 明确豁免（保持无键）：`POST /suggestions`（查询类）、`POST /connectors/{identifier}/test`（连接探测，要求带键会挡住「再测一次」）、`POST /runs/{id}/stop`（紧急取消，重放无副作用）。
 - **重试必须复用同一个键**：服务端按 `sha256(user:key)` 去重（PostgreSQL 上另加 advisory lock 串行化同键并发提交）。同键同载荷返回首次的结果（内容一字不差）；同键不同载荷返回 `409 幂等键已经用于不同请求`。网络超时后原样重发（同键同体）是安全的；换内容重试必须换新键。
 - 422 语义：键缺失或长度超过 128 字符时返回 `422 {"detail": "需要有效的 Idempotency-Key"}`。这与请求体校验失败共用同一状态码，客户端按 `detail` 文案区分。
@@ -68,4 +68,4 @@ python -m workbench.maintenance verify /secure/backups/lawver/YYYY-MM-DD
 
 ## 监控与敏感数据
 
-监控 HTTP 409 保存冲突、迁移状态 awaiting_files/complete_with_missing、任务 failed/interrupted、插件连接失败与附件缺失。日志只使用运行 ID、错误类型与状态，禁止记录正文、密钥或插件认证头。部署还需配置磁盘与数据库容量、备份结果以及过期任务告警。
+监控 HTTP 409 保存冲突、任务 failed/interrupted、插件连接失败与附件缺失。日志只使用运行 ID、错误类型与状态，禁止记录正文、密钥或插件认证头。部署还需配置磁盘与数据库容量、备份结果以及过期任务告警。
