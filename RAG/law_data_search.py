@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -21,10 +22,10 @@ except ImportError:  # pragma: no cover - non-Unix fallback
     fcntl = None
 
 BASE_DIR = Path(__file__).resolve().parent
-RAW_DATA_DIR = BASE_DIR / "data"
-CACHE_DIR = BASE_DIR / "cache"
-DB_PATH = CACHE_DIR / "law.db"
-MANIFEST_PATH = CACHE_DIR / "manifest.json"
+RAW_DATA_DIR = Path(os.environ.get("LAW_DATA_DIR") or BASE_DIR / "data").expanduser()
+DB_PATH = Path(os.environ.get("LAW_DB_PATH") or BASE_DIR / "cache" / "law.db").expanduser()
+CACHE_DIR = DB_PATH.parent
+MANIFEST_PATH = Path(os.environ.get("LAW_MANIFEST_PATH") or CACHE_DIR / "manifest.json").expanduser()
 SCHEMA_VERSION = 5
 MAX_TITLE_CHARS = 160
 MAX_ARTICLE_NUMBER_CHARS = 40
@@ -341,6 +342,7 @@ class LawSearchEngine:
                     }
                 )
 
+        references = references[:safe_limit]
         text = format_references(references)
         payload = {
             "success": bool(references),
@@ -813,6 +815,7 @@ def database_build_lock():
 
 
 def write_manifest(source_manifest: Dict[str, object]) -> None:
+    MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
     MANIFEST_PATH.write_text(
         json.dumps(source_manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
