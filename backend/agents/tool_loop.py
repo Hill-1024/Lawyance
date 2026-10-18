@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import json
 import os
+import re
 import time
 from typing import Any, Callable
 
@@ -49,6 +50,10 @@ _TRANSIENT_STREAM_ERROR_MARKERS = (
     "timed out",
 )
 ASK_USER_TOOL_NAME = "ask_user"
+_CHOICE_TAG_RE = re.compile(
+    r"</?(?:question|options?|option|final_answer|think|response)[^>]*>",
+    re.IGNORECASE,
+)
 
 
 def _optional_positive_int_env(name: str, default: int | None = None):
@@ -83,9 +88,27 @@ def _forced_tool_choice(name: str) -> dict[str, Any]:
     return {"type": "function", "function": {"name": name}}
 
 
+# 用户明确要求「先问我/给我选项/哪条路」时，模型偶尔仍会直接作答。
+# 这类请求用一次强制 tool_choice 兜底，保证先出选择卡片；普通提问不受影响。
+_ASK_USER_FORCE_PATTERNS = (
+    r"ask_user",
+    r"先问我",
+    r"先询问我",
+    r"让我(?:先)?(?:确认|选|挑|决定)",
+    r"给我.{0,8}选项",
+    r"哪(?:条|个)(?:路|方向|方案|路径)",
+    r"确认(?:一下)?方向",
+    r"先确认(?:一下)?(?:方向|范围)",
+    r"选(?:一个|一条|个方向)",
+)
+
+
 def plan_and_solve_tool_choice_policy(state: dict[str, Any]):
     if not state.get("plan_submitted"):
         return _forced_tool_choice("submit_plan")
+    if state.get("force_ask_user") and not state.get("force_ask_user_used"):
+        state["force_ask_user_used"] = True
+        return _forced_tool_choice(ASK_USER_TOOL_NAME)
     if state.get("force_final"):
         return _forced_tool_choice("submit_final_answer")
     return "auto"
@@ -303,6 +326,38 @@ class ToolLoopAgent:
         return isinstance(limit, int) and limit >= 0 and round_num >= limit
 
     @staticmethod
+    def _normalize_tool_call_ids(tool_calls: list[Any]) -> list[dict[str, Any]]:
+        """保证每个 tool_call 有唯一 id，assistant 消息与 tool 消息才能一一配对。
+
+        流式聚合通常自带 id；非流式或兼容端点偶尔缺 id。缺 id 时如果 assistant
+        消息由 sanitize_messages 补一个、tool 消息又用本地 fallback 补另一个，
+        下一轮历史就会出现“有 tool_calls 没有对应 tool 消息”的 400。
+        """
+        normalized: list[dict[str, Any]] = []
+        used: set[str] = set()
+        stamp = int(time.time() * 1000)
+        for index, raw in enumerate(tool_calls or []):
+            tool_call = ToolLoopAgent._tool_call_dict(raw)
+            function = tool_call.get("function")
+            if not isinstance(function, dict):
+                function = {"name": "", "arguments": ""}
+            identifier = str(tool_call.get("id") or f"call_{stamp}_{index}")
+            while identifier in used:
+                identifier = f"{identifier}_{index}"
+            used.add(identifier)
+            normalized.append(
+                {
+                    "id": identifier,
+                    "type": tool_call.get("type") or "function",
+                    "function": {
+                        "name": str(function.get("name") or ""),
+                        "arguments": function.get("arguments") or "",
+                    },
+                }
+            )
+        return normalized
+
+    @staticmethod
     def _tool_call_dict(tool_call: Any) -> dict[str, Any]:
         if isinstance(tool_call, dict):
             return tool_call
@@ -352,12 +407,18 @@ class ToolLoopAgent:
         return "\n".join(lines)
 
     @staticmethod
+    def _clean_choice_text(value: Any, limit: int) -> str:
+        return _CHOICE_TAG_RE.sub("", str(value or "")).strip()[:limit]
+
+    @staticmethod
     def _user_choice_payload(result_content: str, fallback_args: dict[str, Any]) -> dict[str, Any]:
         payload = _load_json_object(result_content)
         if not payload:
             payload = fallback_args
 
-        question = str(payload.get("question") or fallback_args.get("question") or "").strip()
+        question = ToolLoopAgent._clean_choice_text(
+            payload.get("question") or fallback_args.get("question"), 1000
+        )
         raw_options = payload.get("options")
         if not isinstance(raw_options, list):
             raw_options = fallback_args.get("options") if isinstance(fallback_args.get("options"), list) else []
@@ -365,12 +426,16 @@ class ToolLoopAgent:
         options: list[dict[str, str]] = []
         for index, raw_option in enumerate(raw_options or [], 1):
             if isinstance(raw_option, dict):
-                label = str(raw_option.get("label") or raw_option.get("value") or "").strip()
-                value = str(raw_option.get("value") or label).strip()
-                description = str(raw_option.get("description") or "").strip()
+                label = ToolLoopAgent._clean_choice_text(
+                    raw_option.get("label") or raw_option.get("value"), 120
+                )
+                value = ToolLoopAgent._clean_choice_text(raw_option.get("value"), 1000) or label
+                description = ToolLoopAgent._clean_choice_text(
+                    raw_option.get("description"), 240
+                )
                 option_id = str(raw_option.get("id") or f"option_{index}").strip()
             else:
-                label = str(raw_option or "").strip()
+                label = ToolLoopAgent._clean_choice_text(raw_option, 120)
                 value = label
                 description = ""
                 option_id = f"option_{index}"
@@ -385,16 +450,73 @@ class ToolLoopAgent:
             "id": f"ask_{int(time.time() * 1000)}",
             "question": question or "我需要你补充一个选择后才能继续。",
             "options": options,
-            "allow_free_text": False if payload.get("allow_free_text") is False else True,
-            "allow_ignore": False if payload.get("allow_ignore") is False else True,
-            "free_text_label": str(payload.get("free_text_label") or "自定义"),
-            "ignore_label": str(payload.get("ignore_label") or "忽略此问题"),
-            "ignore_value": str(payload.get("ignore_value") or "忽略此问题，请根据现有信息自行判断并继续。"),
+            # 自定义与忽略是等待态的兜底出口，始终保留。
+            "allow_free_text": True,
+            "allow_ignore": True,
+            "free_text_label": ToolLoopAgent._clean_choice_text(
+                payload.get("free_text_label"), 80
+            )
+            or "自定义",
+            "ignore_label": ToolLoopAgent._clean_choice_text(
+                payload.get("ignore_label"), 80
+            )
+            or "忽略此问题",
+            "ignore_value": ToolLoopAgent._clean_choice_text(
+                payload.get("ignore_value"), 500
+            )
+            or "忽略此问题，请根据现有信息自行判断并继续。",
         }
+
+    @staticmethod
+    def _choice_args_are_usable(arguments: dict[str, Any]) -> bool:
+        """模型被强制调用时偶尔会交占位参数：至少要有问题和 2 个互斥选项。"""
+        question = str(arguments.get("question") or "").strip()
+        if len(question) < 4 or question in {"...", "…", "请选择", "需要确认"}:
+            return False
+        options = arguments.get("options")
+        return isinstance(options, list) and len(options) >= 2
+
+    @staticmethod
+    def _last_user_text(memory: list | None) -> str:
+        for message in reversed(memory or []):
+            if not isinstance(message, dict) or message.get("role") != "user":
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return " ".join(
+                    str(part.get("text") or "")
+                    for part in content
+                    if isinstance(part, dict)
+                )
+            return ""
+        return ""
+
+    def _should_force_ask_user(self) -> bool:
+        """用户明确要求先确认方向时，强制一轮 ask_user，避免模型直接作答。
+
+        只在 ask_user 确实在工具池里时生效；庭审等没有该工具的模式保持原样。
+        """
+        if (
+            self._allowed_tool_names is not None
+            and ASK_USER_TOOL_NAME not in self._allowed_tool_names
+        ):
+            return False
+        text = self._last_user_text(self.memory)
+        if not text:
+            return False
+        return any(
+            re.search(pattern, text, flags=re.IGNORECASE)
+            for pattern in _ASK_USER_FORCE_PATTERNS
+        )
 
     def _tool_choice(self, state: dict[str, Any]):
         if self.tool_choice_policy:
             return self.tool_choice_policy(state)
+        if state.get("force_ask_user") and not state.get("force_ask_user_used"):
+            state["force_ask_user_used"] = True
+            return _forced_tool_choice(ASK_USER_TOOL_NAME)
         return "auto"
 
     def _new_state(self) -> dict[str, Any]:
@@ -405,6 +527,8 @@ class ToolLoopAgent:
             "final_answer_submitted": False,
             "awaiting_user": False,
             "active_tools": set(),
+            "force_ask_user": self._should_force_ask_user(),
+            "force_ask_user_used": False,
         }
 
     async def _process_tool_calls(
@@ -418,6 +542,7 @@ class ToolLoopAgent:
         state: dict[str, Any],
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         events: list[dict[str, Any]] = []
+        tool_calls = self._normalize_tool_call_ids(tool_calls)
         assistant_msg = create_assistant_message(
             content=assistant_content or "",
             reasoning_content=reasoning_content,
@@ -429,12 +554,15 @@ class ToolLoopAgent:
 
         final_answer: str | None = None
         awaiting_user = False
+        retry_choice = False
         loaded_images: list[dict[str, Any]] = []
         loaded_image_names: list[str] = []
+        processed_call_ids: set[str] = set()
         for tool_call in tool_calls:
             function = tool_call.get("function") or {}
             func_name = function.get("name") or ""
             args_str = function.get("arguments") or ""
+            call_id = str(tool_call.get("id") or "")
             args, parse_error_content = self._parse_arguments(func_name, args_str)
             result: Any = None
             if parse_error_content is not None:
@@ -489,6 +617,24 @@ class ToolLoopAgent:
                         })
                     else:
                         # 控制面分支只能在 executor/registry 已确认授权后改变状态。
+                        if func_name == ASK_USER_TOOL_NAME:
+                            retries = int(state.get("force_ask_user_retries", 0))
+                            if not self._choice_args_are_usable(args) and retries < 2:
+                                retry_choice = True
+                                state["force_ask_user_retries"] = retries + 1
+                                state["force_ask_user_used"] = False
+                                result_content = json.dumps(
+                                    {
+                                        "ok": False,
+                                        "error": "invalid_ask_user",
+                                        "tool": ASK_USER_TOOL_NAME,
+                                        "message": (
+                                            "ask_user 需要一句明确的问题和 2-6 个互斥选项；"
+                                            "当前参数不完整。请重新调用 ask_user，补全 question 与 options。"
+                                        ),
+                                    },
+                                    ensure_ascii=False,
+                                )
                         if func_name == "submit_plan":
                             steps = [str(step).strip() for step in args.get("steps", []) if str(step).strip()]
                             state["plan_submitted"] = True
@@ -503,9 +649,17 @@ class ToolLoopAgent:
                             final_answer = str(args.get("answer") or "")
                             state["final_answer_submitted"] = True
                         elif func_name == ASK_USER_TOOL_NAME:
-                            events.append({"type": "thought", "content": "等待用户确认下一步\n", "thought_type": "tool", "mode": "new"})
-                            state["awaiting_user"] = True
-                            awaiting_user = True
+                            if retry_choice:
+                                events.append({
+                                    "type": "thought",
+                                    "content": "选择参数不完整，正在重新询问\n",
+                                    "thought_type": "tool",
+                                    "mode": "new",
+                                })
+                            else:
+                                events.append({"type": "thought", "content": "等待用户确认下一步\n", "thought_type": "tool", "mode": "new"})
+                                state["awaiting_user"] = True
+                                awaiting_user = True
                         else:
                             events.append({"type": "thought", "content": f"执行: `{func_name}`\n", "thought_type": "tool", "mode": "new"})
 
@@ -537,13 +691,16 @@ class ToolLoopAgent:
 
             tool_msg = {
                 "role": "tool",
-                "tool_call_id": tool_call.get("id") or f"call_{int(time.time())}",
+                "tool_call_id": call_id or f"call_{int(time.time())}",
                 "name": func_name,
                 "content": result_content,
             }
             current_mem.append(tool_msg)
+            processed_call_ids.add(call_id)
             events.append({"type": "history_trace", "content": [self._history_context_message(tool_msg)]})
 
+            if retry_choice:
+                break
             if awaiting_user:
                 events.append({
                     "type": "user_choice_request",
@@ -571,6 +728,43 @@ class ToolLoopAgent:
                     "thought_type": "tool",
                     "mode": "new",
                 })
+
+        # 提前返回（ask_user 暂停 / 参数重试 / submit_final_answer）时，同一 assistant
+        # 消息里排在后面的 tool_calls 还没有执行。assistant 的 tool_calls 已经整组写入历史，
+        # 这里必须为它们补占位 tool 消息，否则下一轮请求会因缺 tool 响应被端点 400。
+        if awaiting_user or final_answer is not None or retry_choice:
+            if retry_choice:
+                skipped_error = "tool_skipped_for_choice_retry"
+                skipped_message = "本轮在重新收集选择参数，未执行该工具；下一轮可重新调用。"
+            elif awaiting_user:
+                skipped_error = "tool_skipped_due_to_user_choice"
+                skipped_message = "本轮在 ask_user 处暂停，未执行该工具；用户回答后可重新调用。"
+            else:
+                skipped_error = "tool_skipped_after_final_answer"
+                skipped_message = "本轮已提交最终回答，未执行该工具。"
+            for tool_call in tool_calls:
+                call_id = str(tool_call.get("id") or "")
+                if call_id in processed_call_ids:
+                    continue
+                function = tool_call.get("function") or {}
+                skipped_name = str(function.get("name") or "")
+                skipped_content = json.dumps(
+                    {
+                        "ok": False,
+                        "error": skipped_error,
+                        "tool": skipped_name,
+                        "message": skipped_message,
+                    },
+                    ensure_ascii=False,
+                )
+                skipped_msg = {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "name": skipped_name,
+                    "content": skipped_content,
+                }
+                current_mem.append(skipped_msg)
+                events.append({"type": "history_trace", "content": [self._history_context_message(skipped_msg)]})
 
         return events, final_answer, awaiting_user
 

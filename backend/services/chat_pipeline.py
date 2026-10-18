@@ -262,6 +262,10 @@ async def run_agent_stream(prepared: PreparedChatTurn) -> AsyncIterator[dict]:
                         full_result = str(chunk.get("content") or "")
                     elif chunk_type == "user_choice_request":
                         awaiting_user_choice = True
+                        if not full_result:
+                            payload = chunk.get("content") or {}
+                            if isinstance(payload, dict):
+                                full_result = str(payload.get("question") or "")
                     elif chunk_type == "memory_candidate":
                         if not memory_written:
                             yield {"type": "thought", "thought_type": "memory", "mode": "new", "content": "正在整理记忆"}

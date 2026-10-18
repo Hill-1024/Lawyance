@@ -3,6 +3,7 @@
 """
 
 import os
+import json
 import threading
 import types
 import unittest
@@ -304,6 +305,293 @@ class AgentResourceGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(choice_events[0]["content"]["allow_ignore"])
         self.assertEqual(choice_events[0]["content"]["ignore_label"], "忽略此问题")
         self.assertFalse(any(event.get("type") == "content" for event in events))
+
+    async def test_paused_tool_calls_remain_paired_for_every_parallel_position(self):
+        """ask_user 在并行 tool_calls 的首/中/末位时，都必须为未执行的调用补 tool 消息。
+
+        否则 assistant 的 tool_calls 有 N 项、tool 消息只有前 K 项，下一轮模型请求
+        会因缺 tool 响应被严格端点 400 拒绝，表现成“模型没有正确调用”。
+        """
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        ask_args = '{"question":"选哪个方向？","options":[{"label":"赔偿"},{"label":"解除"}]}'
+
+        for position in ("first", "middle", "last"):
+            calls = [
+                _NonStreamToolCall("search_article", '{"query":"劳动"}', "call_search_1"),
+                _NonStreamToolCall("ask_user", ask_args, "call_ask"),
+                _NonStreamToolCall("get_article", '{"title":"民法典","number":"第一条"}', "call_article_2"),
+            ]
+            if position == "first":
+                calls = [calls[1], calls[0], calls[2]]
+            elif position == "last":
+                calls = [calls[0], calls[2], calls[1]]
+            expected_executed = {
+                "first": {"ask_user"},
+                "middle": {"search_article", "ask_user"},
+                "last": {"search_article", "get_article", "ask_user"},
+            }[position]
+            if position == "middle":
+                expected_skipped = {"get_article"}
+            elif position == "first":
+                expected_skipped = {"search_article", "get_article"}
+            else:
+                expected_skipped = set()
+
+            executed: list[str] = []
+            original_call = tool_loop_module.call
+
+            async def fake_call(context, stream=False, **kwargs):
+                return types.SimpleNamespace(content="", tool_calls=calls)
+
+            def execute_tool(name, args):
+                executed.append(name)
+                return {"ok": True, "tool": name, "arguments": args}
+
+            try:
+                tool_loop_module.call = fake_call
+                agent = ToolLoopAgent(
+                    memory=[{"role": "user", "content": "x"}],
+                    use_ocp=False,
+                    execute_tool=execute_tool,
+                )
+                events = [event async for event in agent.run(stream=False)]
+            finally:
+                tool_loop_module.call = original_call
+
+            assistant_tool_calls = [
+                tool_call
+                for event in events
+                if event.get("type") == "history_trace"
+                for message in event.get("content") or []
+                if message.get("role") == "assistant"
+                for tool_call in message.get("tool_calls") or []
+            ]
+            tool_messages = {
+                message.get("tool_call_id"): message
+                for event in events
+                if event.get("type") == "history_trace"
+                for message in event.get("content") or []
+                if message.get("role") == "tool"
+            }
+            call_ids = [tool_call.get("id") for tool_call in assistant_tool_calls]
+            self.assertEqual(len(call_ids), 3, position)
+            self.assertEqual(set(call_ids), set(tool_messages), position)
+            self.assertEqual(len(tool_messages), 3, position)
+            self.assertEqual(set(executed), expected_executed, position)
+            self.assertEqual(
+                len([event for event in events if event.get("type") == "user_choice_request"]),
+                1,
+                position,
+            )
+
+            skipped_names = set()
+            for call_id, message in tool_messages.items():
+                payload = json.loads(message["content"])
+                if payload.get("error") == "tool_skipped_due_to_user_choice":
+                    skipped_names.add(payload.get("tool"))
+            self.assertEqual(skipped_names, expected_skipped, position)
+
+    async def test_explicit_direction_request_forces_ask_user_once(self):
+        """用户明确说“先用 ask_user/哪条路”时，即使模型想直接答，也先强制出选择卡片。"""
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        choices = []
+
+        async def fake_call(context, stream=False, **kwargs):
+            choices.append(kwargs.get("tool_choice"))
+            return types.SimpleNamespace(
+                content="",
+                tool_calls=[
+                    _NonStreamToolCall(
+                        "ask_user",
+                        '{"question":"选哪条路？","options":[{"label":"A"},{"label":"B"}]}',
+                        "call_forced_ask",
+                    )
+                ],
+            )
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[
+                    {
+                        "role": "user",
+                        "content": "现在不确定先走哪条路，请先用 ask_user 给我选项。",
+                    }
+                ],
+                use_ocp=False,
+                execute_tool=lambda _name, _args: {"acknowledged": True},
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(
+            choices,
+            [{"type": "function", "function": {"name": "ask_user"}}],
+        )
+        self.assertEqual(
+            [event["type"] for event in events if event.get("type") == "user_choice_request"],
+            ["user_choice_request"],
+        )
+
+    async def test_normal_message_does_not_force_ask_user(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        choices = []
+
+        async def fake_call(context, stream=False, **kwargs):
+            choices.append(kwargs.get("tool_choice"))
+            return types.SimpleNamespace(
+                content="<final_answer>完成</final_answer>", tool_calls=None
+            )
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[{"role": "user", "content": "帮我写一份买卖合同"}],
+                use_ocp=False,
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(choices, ["auto"])
+        self.assertEqual(events[-1], {"type": "content", "content": "完成"})
+
+    async def test_plan_mode_waits_for_plan_then_forces_ask_user(self):
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent, plan_and_solve_tool_choice_policy
+
+        original_call = tool_loop_module.call
+        choices = []
+        responses = [
+            types.SimpleNamespace(
+                content="",
+                tool_calls=[
+                    _NonStreamToolCall("submit_plan", '{"steps":["检索"]}', "call_plan")
+                ],
+            ),
+            types.SimpleNamespace(
+                content="",
+                tool_calls=[
+                    _NonStreamToolCall(
+                        "ask_user",
+                        '{"question":"选哪条路？","options":[{"label":"A"},{"label":"B"}]}',
+                        "call_plan_ask",
+                    )
+                ],
+            ),
+        ]
+
+        async def fake_call(context, stream=False, **kwargs):
+            choices.append(kwargs.get("tool_choice"))
+            return responses.pop(0)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[
+                    {
+                        "role": "user",
+                        "content": "先让我确认方向，再按计划执行。",
+                    }
+                ],
+                use_ocp=False,
+                execute_tool=lambda _name, _args: {"acknowledged": True},
+                mode="plan_and_solve",
+                final_answer_source="tool_arg",
+                tool_choice_policy=plan_and_solve_tool_choice_policy,
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(
+            choices[0], {"type": "function", "function": {"name": "submit_plan"}}
+        )
+        self.assertEqual(
+            choices[1], {"type": "function", "function": {"name": "ask_user"}}
+        )
+        self.assertTrue(
+            any(event.get("type") == "user_choice_request" for event in events)
+        )
+
+    async def test_invalid_forced_choice_retries_with_tool_error(self):
+        """强制 ask_user 但模型交了占位参数时，先把错误回给模型并强制重试一次。"""
+        import agents.tool_loop as tool_loop_module
+        from agents.tool_loop import ToolLoopAgent
+
+        original_call = tool_loop_module.call
+        choices = []
+        responses = [
+            types.SimpleNamespace(
+                content="",
+                tool_calls=[
+                    _NonStreamToolCall(
+                        "ask_user", '{"question":"...","options":[]}', "call_bad_ask"
+                    )
+                ],
+            ),
+            types.SimpleNamespace(
+                content="",
+                tool_calls=[
+                    _NonStreamToolCall(
+                        "ask_user",
+                        '{"question":"选哪条路？","options":[{"label":"A"},{"label":"B"}]}',
+                        "call_good_ask",
+                    )
+                ],
+            ),
+        ]
+
+        async def fake_call(context, stream=False, **kwargs):
+            choices.append(kwargs.get("tool_choice"))
+            return responses.pop(0)
+
+        try:
+            tool_loop_module.call = fake_call
+            agent = ToolLoopAgent(
+                memory=[
+                    {
+                        "role": "user",
+                        "content": "先让我确认方向，请给我选项。",
+                    }
+                ],
+                use_ocp=False,
+                execute_tool=lambda _name, _args: {"acknowledged": True},
+            )
+            events = [event async for event in agent.run(stream=False)]
+        finally:
+            tool_loop_module.call = original_call
+
+        self.assertEqual(
+            choices,
+            [
+                {"type": "function", "function": {"name": "ask_user"}},
+                {"type": "function", "function": {"name": "ask_user"}},
+            ],
+        )
+        tool_payloads = [
+            json.loads(message["content"])
+            for event in events
+            if event.get("type") == "history_trace"
+            for message in event.get("content") or []
+            if message.get("role") == "tool"
+        ]
+        self.assertTrue(
+            any(payload.get("error") == "invalid_ask_user" for payload in tool_payloads)
+        )
+        self.assertEqual(
+            [event["type"] for event in events if event.get("type") == "user_choice_request"],
+            ["user_choice_request"],
+        )
 
     async def test_final_answer_without_expected_tools_is_emitted_asis(self):
         """缺口修复已移除：未按执行策略调用工具时，也不得再插入提醒或重跑模型。

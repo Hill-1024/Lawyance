@@ -38,6 +38,27 @@ class ControlPlaneToolTests(unittest.TestCase):
             ],
         )
 
+    def test_ask_user_strips_protocol_tags_and_keeps_escape_hatches(self):
+        result = registry.dispatch(
+            "ask_user",
+            {
+                "question": "下一步按哪个方向处理？</question>",
+                "options": [
+                    {"label": "先检索</option>", "description": "<option>优先找法条</option>"}
+                ],
+                "allow_free_text": False,
+                "allow_ignore": False,
+            },
+            "tester/conv",
+            capability="agent",
+        )
+
+        self.assertEqual(result["question"], "下一步按哪个方向处理？")
+        self.assertEqual(result["options"][0]["label"], "先检索")
+        self.assertEqual(result["options"][0]["description"], "优先找法条")
+        self.assertTrue(result["allow_free_text"])
+        self.assertTrue(result["allow_ignore"])
+
     def test_submit_plan_returns_acknowledged_steps(self):
         result = registry.dispatch(
             "submit_plan",
