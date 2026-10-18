@@ -498,6 +498,8 @@ async def _execute_turn(identifier, user):
     answer = ""
     trace = []
     failure = False
+    # ask_user 暂停时保存问题本身作为 assistant 消息：用户看到问题，下一轮历史也有完整提问。
+    awaiting_choice: dict | None = None
     # 失败原因要落到 run 上：界面只能读 run/消息，日志对用户和客服都看不见。
     failure_reason = ""
     import time
@@ -512,6 +514,10 @@ async def _execute_turn(identifier, user):
                 answer = event.get("content", "")
             elif event.get("type") == "history_trace":
                 trace.extend(event.get("content", []))
+            elif event.get("type") == "user_choice_request":
+                payload = event.get("content")
+                awaiting_choice = payload if isinstance(payload, dict) else {}
+                answer = str(awaiting_choice.get("question") or "").strip() or answer
             elif event.get("type") == "error":
                 failure = True
                 failure_reason = str(event.get("content") or "").strip()[:300]
@@ -578,16 +584,29 @@ async def _execute_turn(identifier, user):
                     "content": "一份工具产物无法归档，请检查任务结果。",
                 },
             )
-    await _offload(
-        change_state,
-        identifier,
-        status="failed" if failure else "completed",
-        **(
-            {"error": failure_reason or "任务执行失败；过程和已完成产物已保留。"}
-            if failure
-            else {}
-        ),
-    )
+    if failure:
+        await _offload(
+            change_state,
+            identifier,
+            status="failed",
+            error=failure_reason or "任务执行失败；过程和已完成产物已保留。",
+        )
+    elif awaiting_choice is not None:
+        # 暂停而不是结束：前端据此展示选择卡片，作答接口会以新 run 续接同一会话。
+        choice = {
+            **awaiting_choice,
+            "answered": False,
+            "created_at": now().isoformat(),
+        }
+        await _offload(
+            change_state,
+            identifier,
+            status="waiting_user",
+            pending_choice=choice,
+            error=None,
+        )
+    else:
+        await _offload(change_state, identifier, status="completed")
     await _offload(emit, identifier, {"type": "done"})
 
 

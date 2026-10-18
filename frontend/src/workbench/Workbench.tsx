@@ -215,6 +215,7 @@ export default function Workbench({ username }: { username: string }) {
   // run 的渲染期镜像：异步回调里判断「此刻的运行」要用最新值，不能用闭包捕获的旧值。
   const runValue = useRef<Item>(undefined);
   runValue.current = run;
+  const answeringChoice = useRef(false);
   // 活动标签由路由决定：/conversation/:id、/court/:id，其余路径都是该空间的「新会话」标签。
   const documentCache = useRef<Record<string, Item>>({}),
     activeKeyRef = useRef("");
@@ -1052,6 +1053,43 @@ export default function Workbench({ username }: { username: string }) {
       reportError(e);
     }
   }
+  /** ask_user 作答：旧 run 已结束，这里以选中值发起同一会话的下一个 run。 */
+  async function answerChoice(runId: string, choiceId: string, value: string) {
+    if (answeringChoice.current) return;
+    answeringChoice.current = true;
+    try {
+      const next = await api<Item>(
+        `/runs/${runId}/choice`,
+        "POST",
+        { choice_id: choiceId, value },
+        crypto.randomUUID(),
+      );
+      const parent = next.parent_id || conv?.id;
+      setLive("");
+      setEvents([]);
+      setRun(next);
+      if (parent) {
+        recordRun("conversation:" + parent, next.id, next.data.status);
+        const fresh = await api<Item>("/conversations/" + parent);
+        remember(username, "conversation:" + fresh.id, fresh);
+        if (active.current === fresh.id) setConv(fresh);
+      }
+      stick.current = true;
+      followRun.current = parent;
+      requestAnimationFrame(() => {
+        const el = scroll.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    } catch (e) {
+      // 选择已失效（另一端已发新消息/已作答）：刷新会话，让旧卡片消失。
+      if (e instanceof Conflict && e.status === 409 && conv?.id) {
+        void loadConversation(conv.id);
+      }
+      throw e;
+    } finally {
+      answeringChoice.current = false;
+    }
+  }
   async function upload(files: File[]) {
     setUploading(true);
     // 逐文件处理：一个文件失败不该把剩下的静默丢掉，也要逐条给出原因——
@@ -1189,11 +1227,26 @@ export default function Workbench({ username }: { username: string }) {
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
   }, []);
   // 流式钉底：只在运行中且用户本就在底部附近时跟随，回看历史不被打扰。
+  // waiting_user 是阻塞交互：无论用户刚才滚到哪里，都把选择卡片顶部滚进消息区。
   React.useEffect(() => {
-    if (!running || !stick.current) return;
     const el = scroll.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [running, live, activityBlocks, messages]);
+    if (!el) return;
+    if (run?.data.status === "waiting_user") {
+      const card = el.querySelector(".wb-ask") as HTMLElement | null;
+      if (card) {
+        const cardRect = card.getBoundingClientRect();
+        const areaRect = el.getBoundingClientRect();
+        el.scrollTo({
+          top: el.scrollTop + cardRect.top - areaRect.top - 12,
+          behavior: "auto",
+        });
+      }
+      return;
+    }
+    if (!stick.current) return;
+    if (!running) return;
+    el.scrollTop = el.scrollHeight;
+  }, [running, run?.data.status, live, activityBlocks, messages]);
   const chat = (
     <SessionView
       courtSelection={courtSelection}
@@ -1233,6 +1286,7 @@ export default function Workbench({ username }: { username: string }) {
       onSelectCourt={(id, pid) => openCourt(pid, id)}
       onCancelCourt={() => quick(projectId)}
       onClearCourtReference={() => setCourtReference(undefined)}
+      onAnswerChoice={answerChoice}
       onError={reportError}
     />
   );

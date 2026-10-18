@@ -126,6 +126,18 @@ def _submit_final_answer(arguments: dict[str, Any], _workspace_scope: str | None
     return {"acknowledged": True}
 
 
+_CHOICE_TAG_RE = re.compile(
+    r"</?(?:question|options?|option|final_answer|think|response)[^>]*>",
+    re.IGNORECASE,
+)
+
+
+def _clean_choice_text(value: Any, limit: int) -> str:
+    """去掉模型偶尔混进选择卡片里的协议/XML 残片，再按字段长度截断。"""
+    text = _CHOICE_TAG_RE.sub("", str(value or "")).strip()
+    return text[:limit]
+
+
 def _normalize_user_choice_options(options: Any) -> list[dict[str, str]]:
     if not isinstance(options, list):
         return []
@@ -133,11 +145,13 @@ def _normalize_user_choice_options(options: Any) -> list[dict[str, str]]:
     normalized: list[dict[str, str]] = []
     for index, option in enumerate(options, 1):
         if isinstance(option, dict):
-            label = str(option.get("label") or option.get("title") or option.get("value") or "").strip()
-            value = str(option.get("value") or label).strip()
-            description = str(option.get("description") or "").strip()
+            label = _clean_choice_text(
+                option.get("label") or option.get("title") or option.get("value"), 120
+            )
+            value = _clean_choice_text(option.get("value"), 1000) or label
+            description = _clean_choice_text(option.get("description"), 240)
         else:
-            label = str(option or "").strip()
+            label = _clean_choice_text(option, 120)
             value = label
             description = ""
         if not label:
@@ -145,11 +159,11 @@ def _normalize_user_choice_options(options: Any) -> list[dict[str, str]]:
 
         item = {
             "id": str(option.get("id") or f"option_{index}").strip() if isinstance(option, dict) else f"option_{index}",
-            "label": label[:120],
-            "value": value[:1000],
+            "label": label,
+            "value": value,
         }
         if description:
-            item["description"] = description[:240]
+            item["description"] = description
         normalized.append(item)
     return normalized[:6]
 
@@ -174,24 +188,26 @@ def _select_tools(arguments: dict[str, Any], _workspace_scope: str | None):
 
 
 def _ask_user(arguments: dict[str, Any], _workspace_scope: str | None):
-    question = str(arguments.get("question") or "").strip()
+    question = _clean_choice_text(arguments.get("question"), 1000)
     if not question:
         question = "我需要你补充一个选择后才能继续。"
     options = _normalize_user_choice_options(arguments.get("options"))
-    allow_free_text = arguments.get("allow_free_text")
-    allow_ignore = arguments.get("allow_ignore")
-    free_text_label = str(arguments.get("free_text_label") or "自定义").strip() or "自定义"
-    ignore_label = str(arguments.get("ignore_label") or "忽略此问题").strip() or "忽略此问题"
-    ignore_value = str(arguments.get("ignore_value") or "忽略此问题，请根据现有信息自行判断并继续。").strip()
+    free_text_label = _clean_choice_text(arguments.get("free_text_label"), 80) or "自定义"
+    ignore_label = _clean_choice_text(arguments.get("ignore_label"), 80) or "忽略此问题"
+    ignore_value = (
+        _clean_choice_text(arguments.get("ignore_value"), 500)
+        or "忽略此问题，请根据现有信息自行判断并继续。"
+    )
     return {
         "acknowledged": True,
-        "question": question[:1000],
+        "question": question,
         "options": options,
-        "allow_free_text": False if allow_free_text is False else True,
-        "allow_ignore": False if allow_ignore is False else True,
-        "free_text_label": free_text_label[:80],
-        "ignore_label": ignore_label[:80],
-        "ignore_value": ignore_value[:500],
+        # 自定义与忽略是等待态的兜底出口，始终保留；模型传 false 也不关闭。
+        "allow_free_text": True,
+        "allow_ignore": True,
+        "free_text_label": free_text_label,
+        "ignore_label": ignore_label,
+        "ignore_value": ignore_value,
     }
 
 
@@ -359,7 +375,10 @@ def _register_agent_tools() -> None:
         name="ask_user",
         schema=_tool_schema(
             "ask_user",
-            "当下一步执行方向存在实质不确定性，且擅自选择会影响结果质量或用户成本时，向用户提交一个简短问题和可选方案并暂停本轮。仅在必须由用户裁决方向、范围、优先级或缺失关键信息时调用；不要用于普通澄清寒暄。调用时 options 应为 2-6 个互斥选项，界面会自动提供可自填选项和“忽略此问题”选项。",
+            "当下一步执行方向存在实质不确定性，且擅自选择会影响结果质量或用户成本时，向用户提交一个简短问题和可选方案并暂停本轮。"
+            "典型情形：案由/诉讼策略/文书类型/审查立场/目标法院存在多个合理方向，或缺失关键事实导致无法确定范围。"
+            "这类情形必须先询问，不要自行假设后直接作答；事实已足够或只是普通澄清寒暄时不要调用。"
+            "调用时 options 应为 2-6 个互斥选项，界面会自动提供可自填选项和“忽略此问题”选项。",
             {
                 "question": {
                     "type": "string",

@@ -1,12 +1,14 @@
-import { ChevronDown, CircleAlert, FileText, Pause, X } from "lucide-react";
+import { ChevronDown, CircleAlert, CircleHelp, FileText, Pause, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import React from "react";
 import { Markdown } from "./markdown";
 import { BrandMark } from "../components/Brand";
 import { WorkflowStatusIcon } from "../components/WorkflowStatusIcon";
 import { currentActivityLabel, ThoughtBlock } from "./activity";
+import { ChoicePrompt } from "./ChoicePrompt";
 import { useT } from "../i18n";
 import { api, Item, Reference } from "./client";
+import type { UserChoiceRequest } from "../types";
 
 const CourtConversation = React.lazy(() => import("./CourtConversation"));
 
@@ -43,6 +45,7 @@ export type SessionViewProps = {
   onSelectCourt: (id: string, projectId?: string) => void;
   onCancelCourt: () => void;
   onClearCourtReference: () => void;
+  onAnswerChoice: (runId: string, choiceId: string, value: string) => Promise<void>;
   onError: (message: string) => void;
 };
 
@@ -71,6 +74,7 @@ export function SessionView({
   onSelectCourt,
   onCancelCourt,
   onClearCourtReference,
+  onAnswerChoice,
   onError,
 }: SessionViewProps) {
   // 全部 hook 都放在庭审早退之前、无条件调用：Workbench 在庭审与普通会话之间切换时
@@ -83,6 +87,18 @@ export function SessionView({
   React.useEffect(() => {
     if (running) setTimelineOpen(true);
   }, [running]);
+  // run.data 是断线/换标签后的恢复源；事件是旧 run 或 data 缺失时的兜底。
+  const pendingChoice = React.useMemo(() => {
+    if (run?.data.status !== "waiting_user") return undefined;
+    const stored = run.data.pending_choice;
+    if (stored && stored.answered !== true) return stored as UserChoiceRequest;
+    const event = [...events]
+      .reverse()
+      .find((item) => item.type === "user_choice_request");
+    const payload = event?.content;
+    if (payload && payload.answered !== true) return payload as UserChoiceRequest;
+    return undefined;
+  }, [run, events]);
   if (courtSelection)
     return (
       <section
@@ -115,6 +131,7 @@ export function SessionView({
     queued: t("workbench.session.runQueued"),
     running: t("workbench.session.runRunning"),
     waiting_confirmation: t("workbench.session.runWaiting"),
+    waiting_user: t("workbench.session.runWaitingChoice"),
     completed: t("workbench.session.runCompleted"),
     failed: t("workbench.session.runFailed"),
     interrupted: t("workbench.session.runInterrupted"),
@@ -127,6 +144,8 @@ export function SessionView({
       <WorkflowStatusIcon status="running" />
     ) : status === "failed" ? (
       <CircleAlert size={14} />
+    ) : status === "waiting_user" ? (
+      <CircleHelp size={14} />
     ) : (
       <Pause size={14} />
     );
@@ -279,6 +298,16 @@ export function SessionView({
             {timeline}
             {live && <Markdown>{live}</Markdown>}
           </article>
+        )}
+        {pendingChoice && run && (
+          <ChoicePrompt
+            key={`${run.id}:${pendingChoice.id}`}
+            choice={pendingChoice}
+            disabled={offline}
+            onSubmit={(value) =>
+              onAnswerChoice(run.id, pendingChoice.id, value)
+            }
+          />
         )}
         {run?.data.status === "waiting_confirmation" && (
           <div className="wb-confirmation">

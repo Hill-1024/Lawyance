@@ -947,6 +947,55 @@ def freeze_refs(s, user, project_id, refs):
     return frozen
 
 
+def _append_run(
+    session,
+    user: str,
+    conv: Item,
+    *,
+    message: str,
+    references: list[dict],
+    mode: str,
+    use_ocp: bool,
+) -> Item:
+    """在会话末尾追加一条用户消息并创建一个排队 run。
+
+    start_run 与 ask_user 作答接口共用：两条路径的消息、引用和搜索索引行为必须一致，
+    否则「直接发消息」与「点选项续接」会在历史里长出两种不同形状。
+    """
+    run = Item(
+        id=new_id(),
+        owner=user,
+        kind="run",
+        parent_id=conv.id,
+        project_id=conv.project_id,
+        title=message[:80],
+        data={
+            "status": "queued",
+            "message": message,
+            "references": references,
+            "mode": mode,
+            "use_ocp": use_ocp,
+        },
+    )
+    messages = [
+        *conv.data.get("messages", []),
+        {
+            "id": new_id(),
+            "role": "user",
+            "content": message,
+            "references": references,
+            "run_id": run.id,
+            "created_at": now().isoformat(),
+        },
+    ]
+    conv.data = {**conv.data, "messages": messages}
+    conv.updated_at = now()
+    conv.searchable += "\n" + message
+    session.add(run)
+    session.flush()
+    return run
+
+
 @router.post("/runs")
 def start_run(
     body: RunInput, idempotency_key: str | None = Header(None), user=Depends(gate)
@@ -966,44 +1015,35 @@ def start_run(
                     Item.owner == user, Item.kind == "run", Item.parent_id == conv.id
                 )
             ):
-                if active.data.get("status") in (
-                    "queued",
-                    "running",
-                    "waiting_confirmation",
-                ):
+                status = active.data.get("status")
+                if status in ("queued", "running", "waiting_confirmation"):
                     raise HTTPException(409, "此会话已有运行中的任务")
+                if status == "waiting_user":
+                    # 熔断兜底：用户不点选项、直接发新消息时，旧提问自动作废，
+                    # 新消息带着完整历史继续，不让会话卡在等待态。
+                    choice = active.data.get("pending_choice") or {}
+                    active.data = {
+                        **active.data,
+                        "status": "completed",
+                        "pending_choice": {
+                            **choice,
+                            "answered": False,
+                            "superseded": True,
+                            "superseded_reason": "new_message",
+                            "superseded_at": now().isoformat(),
+                        },
+                    }
+                    active.updated_at = now()
             refs = freeze_refs(s, user, conv.project_id, body.references)
-            run = Item(
-                id=new_id(),
-                owner=user,
-                kind="run",
-                parent_id=conv.id,
-                project_id=conv.project_id,
-                title=body.message[:80],
-                data={
-                    "status": "queued",
-                    "message": body.message,
-                    "references": refs,
-                    "mode": body.mode,
-                    "use_ocp": body.use_ocp,
-                },
+            run = _append_run(
+                s,
+                user,
+                conv,
+                message=body.message,
+                references=refs,
+                mode=body.mode,
+                use_ocp=body.use_ocp,
             )
-            messages = [
-                *conv.data.get("messages", []),
-                {
-                    "id": new_id(),
-                    "role": "user",
-                    "content": body.message,
-                    "references": refs,
-                    "run_id": run.id,
-                    "created_at": now().isoformat(),
-                },
-            ]
-            conv.data = {**conv.data, "messages": messages}
-            conv.updated_at = now()
-            conv.searchable += "\n" + body.message
-            s.add(run)
-            s.flush()
             return public(run)
 
         return receipt(s, user, idempotency_key, body.model_dump(), apply)
@@ -1037,7 +1077,22 @@ def stop(identifier: str, user=Depends(gate)):
     # 幂等键豁免：紧急取消必须随手可用，重放 stop 也无副作用（只是置停止标记）。
     with transaction() as s:
         run = get_item(s, user, identifier, "run", lock=True)
-        if run.data["status"] in ("queued", "running", "waiting_confirmation"):
+        status = run.data["status"]
+        if status == "waiting_user":
+            # 等待选择不是执行中：停在这里时直接收尾，避免 run 永远挂在等待态。
+            choice = run.data.get("pending_choice") or {}
+            run.data = {
+                **run.data,
+                "status": "stopped",
+                "pending_choice": {
+                    **choice,
+                    "answered": False,
+                    "cancelled": True,
+                    "cancelled_at": now().isoformat(),
+                },
+            }
+            run.updated_at = now()
+        elif status in ("queued", "running", "waiting_confirmation"):
             run.data = {**run.data, "stop_requested": True}
         return public(run)
 
@@ -1069,6 +1124,78 @@ def confirmation(
 
         return receipt(
             s, user, idempotency_key, {"id": identifier, **body.model_dump()}, apply
+        )
+
+
+class ChoiceAnswer(Body):
+    choice_id: str = Field(min_length=1, max_length=100)
+    value: str = Field(min_length=1, max_length=10000)
+
+
+@router.post("/runs/{identifier}/choice")
+def answer_choice(
+    identifier: str,
+    body: ChoiceAnswer,
+    idempotency_key: str | None = Header(None),
+    user=Depends(gate),
+):
+    """把用户选择作为新的用户消息续接同一会话。
+
+    ask_user 的 run 在 worker 侧已经结束（不占执行槽），因此作答不是“唤醒旧进程”，
+    而是带着旧 run 的完整 trace 和引用发起下一个 run。旧 run 置 answered，
+    选择卡片随之消失；断线后也能从 run.data.pending_choice 恢复。
+    """
+    allowed, refusal = billing.can_spend(user)
+    if not allowed:
+        raise HTTPException(402, refusal)
+    with transaction() as s:
+
+        def apply():
+            # 先拿会话 id 再按 conv → run 的固定顺序加锁，避免与 start_run 交叉死锁。
+            current = get_item(s, user, identifier, "run")
+            conv = get_item(s, user, current.parent_id, "conversation", lock=True)
+            run = get_item(s, user, identifier, "run", lock=True)
+            choice = run.data.get("pending_choice") or {}
+            answered_run_id = choice.get("answer_run_id")
+            if answered_run_id:
+                # 双击或网络重试：第一次作答已经创建了续接 run，直接返回同一个。
+                return public(get_item(s, user, str(answered_run_id), "run"))
+            if (
+                run.data.get("status") != "waiting_user"
+                or not choice
+                or choice.get("id") != body.choice_id
+            ):
+                raise HTTPException(409, "选择请求已失效，请刷新会话后重试")
+            new_run = _append_run(
+                s,
+                user,
+                conv,
+                message=body.value,
+                references=copy.deepcopy(run.data.get("references") or []),
+                mode=str(run.data.get("mode") or "default"),
+                use_ocp=bool(run.data.get("use_ocp", True)),
+            )
+            run.data = {
+                **run.data,
+                "status": "completed",
+                "pending_choice": {
+                    **choice,
+                    "answered": True,
+                    "selected_value": body.value,
+                    "answered_at": now().isoformat(),
+                    "answer_run_id": new_run.id,
+                },
+            }
+            run.updated_at = now()
+            s.flush()
+            return public(new_run)
+
+        return receipt(
+            s,
+            user,
+            idempotency_key,
+            {"id": identifier, **body.model_dump()},
+            apply,
         )
 
 
@@ -1298,7 +1425,7 @@ def edit(family: str, identifier: str, body: Edit, user=Depends(gate)):
                 )
                 if any(
                     run.data.get("status")
-                    in ("queued", "running", "waiting_confirmation")
+                    in ("queued", "running", "waiting_confirmation", "waiting_user")
                     for run in s.scalars(query)
                 ):
                     raise HTTPException(409, "请先停止正在执行的任务")
@@ -1340,7 +1467,8 @@ def delete(family: str, identifier: str, user=Depends(gate)):
                 else query.where(Item.parent_id == identifier)
             )
             if any(
-                r.data.get("status") in ("queued", "running", "waiting_confirmation")
+                r.data.get("status")
+                in ("queued", "running", "waiting_confirmation", "waiting_user")
                 for r in s.scalars(query)
             ):
                 raise HTTPException(409, "请先停止项目内正在执行的任务")

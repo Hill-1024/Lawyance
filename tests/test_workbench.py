@@ -1,4 +1,5 @@
 import os
+import asyncio
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -1131,3 +1132,244 @@ def test_archived_endpoint_filters_kind_and_exposes_project_title(client):
     assert client.get(
         "/api/workbench/archived", params={"kind": "not-a-kind"}
     ).status_code == 422
+
+
+def _seed_waiting_run(conv_id, *, choice_id="choice-1", references=None):
+    """造一个 worker 暂停后的 run，模拟 ask_user 已发 user_choice_request。"""
+    with transaction() as s:
+        run = Item(
+            id=new_id(),
+            owner="alice",
+            kind="run",
+            parent_id=conv_id,
+            title="等待选择",
+            data={
+                "status": "waiting_user",
+                "message": "帮我看看这个合同",
+                "references": references or [],
+                "mode": "default",
+                "use_ocp": True,
+                "pending_choice": {
+                    "id": choice_id,
+                    "question": "先审查哪一部分？",
+                    "options": [
+                        {"id": "option_1", "label": "付款条款", "value": "先审查付款条款"},
+                        {"id": "option_2", "label": "违约责任", "value": "先审查违约责任"},
+                    ],
+                    "allow_free_text": True,
+                    "allow_ignore": True,
+                    "free_text_label": "自定义",
+                    "ignore_label": "忽略此问题",
+                    "ignore_value": "忽略此问题，请根据现有信息自行判断并继续。",
+                    "answered": False,
+                },
+            },
+        )
+        s.add(run)
+        s.flush()
+        return run.id
+
+
+def test_waiting_user_choice_answer_creates_continuation_run(client):
+    conv = _conversation(client, title="选择续接")
+    references = [{"kind": "document", "id": "doc-1", "revision": 1, "title": "合同"}]
+    run_id = _seed_waiting_run(conv["id"], references=references)
+
+    listed = client.get("/api/workbench/runs/" + run_id).json()
+    assert listed["data"]["status"] == "waiting_user"
+    assert listed["data"]["pending_choice"]["question"] == "先审查哪一部分？"
+
+    body = {"choice_id": "choice-1", "value": "先审查付款条款"}
+    answered = client.post(
+        "/api/workbench/runs/" + run_id + "/choice",
+        json=body,
+        headers={"Idempotency-Key": "choice-answer-1"},
+    )
+    assert answered.status_code == 200, answered.text
+    next_run = answered.json()
+    assert next_run["data"]["status"] == "queued"
+    assert next_run["data"]["message"] == "先审查付款条款"
+    assert next_run["data"]["references"] == references
+    assert next_run["parent_id"] == conv["id"]
+
+    old_run = client.get("/api/workbench/runs/" + run_id).json()
+    assert old_run["data"]["status"] == "completed"
+    assert old_run["data"]["pending_choice"]["answered"] is True
+    assert old_run["data"]["pending_choice"]["selected_value"] == "先审查付款条款"
+    assert old_run["data"]["pending_choice"]["answer_run_id"] == next_run["id"]
+
+    conversation = client.get("/api/workbench/conversations/" + conv["id"]).json()
+    tail = conversation["data"]["messages"][-1]
+    assert tail["role"] == "user"
+    assert tail["content"] == "先审查付款条款"
+    assert tail["run_id"] == next_run["id"]
+
+    # 同一幂等键重放、以及换个键再次提交，都必须回到第一次创建的 run，而不是再发一轮。
+    replay = client.post(
+        "/api/workbench/runs/" + run_id + "/choice",
+        json=body,
+        headers={"Idempotency-Key": "choice-answer-1"},
+    )
+    assert replay.status_code == 200
+    assert replay.json()["id"] == next_run["id"]
+    duplicate = client.post(
+        "/api/workbench/runs/" + run_id + "/choice",
+        json=body,
+        headers={"Idempotency-Key": "choice-answer-2"},
+    )
+    assert duplicate.status_code == 200
+    assert duplicate.json()["id"] == next_run["id"]
+
+    assert client.post(
+        "/api/workbench/runs/" + run_id + "/choice",
+        json=body,
+    ).status_code == 422
+
+
+def test_waiting_user_rejects_stale_choice_and_stop_closes_it(client):
+    conv = _conversation(client, title="失效选择")
+    run_id = _seed_waiting_run(conv["id"], choice_id="choice-live")
+
+    stale = client.post(
+        "/api/workbench/runs/" + run_id + "/choice",
+        json={"choice_id": "choice-old", "value": "继续"},
+        headers={"Idempotency-Key": new_id()},
+    )
+    assert stale.status_code == 409
+
+    stopped = client.post("/api/workbench/runs/" + run_id + "/stop")
+    assert stopped.status_code == 200
+    data = stopped.json()["data"]
+    assert data["status"] == "stopped"
+    assert data["pending_choice"]["cancelled"] is True
+    assert data["pending_choice"]["answered"] is False
+
+
+def test_new_message_supersedes_waiting_choice_but_running_task_still_blocks(client):
+    conv = _conversation(client, title="熔断兜底")
+    waiting_id = _seed_waiting_run(conv["id"])
+
+    started = client.post(
+        "/api/workbench/runs",
+        json={"conversation_id": conv["id"], "message": "换个方向处理"},
+        headers={"Idempotency-Key": new_id()},
+    )
+    assert started.status_code == 200, started.text
+    new_run = started.json()
+    assert new_run["data"]["status"] == "queued"
+
+    old_run = client.get("/api/workbench/runs/" + waiting_id).json()
+    assert old_run["data"]["status"] == "completed"
+    assert old_run["data"]["pending_choice"]["superseded"] is True
+    assert old_run["data"]["pending_choice"]["answered"] is False
+
+    with transaction() as s:
+        s.add(
+            Item(
+                id=new_id(),
+                owner="alice",
+                kind="run",
+                parent_id=conv["id"],
+                title="执行中",
+                data={"status": "running", "message": "占位"},
+            )
+        )
+    blocked = client.post(
+        "/api/workbench/runs",
+        json={"conversation_id": conv["id"], "message": "再发一条"},
+        headers={"Idempotency-Key": new_id()},
+    )
+    assert blocked.status_code == 409
+
+
+def test_execute_turn_marks_waiting_user_and_persists_question(client, tmp_path, monkeypatch):
+    """worker 收到 user_choice_request 后不能落 completed：状态、问题消息和 pending_choice 都要留下。"""
+    from workbench import worker
+
+    conv = _conversation(client, title="worker 暂停")
+    run = client.post(
+        "/api/workbench/runs",
+        json={"conversation_id": conv["id"], "message": "帮我处理合同"},
+        headers={"Idempotency-Key": new_id()},
+    ).json()
+    choice = {
+        "id": "choice-worker",
+        "question": "先审查哪一部分？",
+        "options": [
+            {"id": "option_1", "label": "付款条款", "value": "先审查付款条款"},
+            {"id": "option_2", "label": "违约责任", "value": "先审查违约责任"},
+        ],
+        "allow_free_text": True,
+        "allow_ignore": True,
+        "free_text_label": "自定义",
+        "ignore_label": "忽略此问题",
+        "ignore_value": "忽略此问题，请根据现有信息自行判断并继续。",
+    }
+
+    class FakeAgent:
+        memory = []
+        tools = []
+        execute_tool = None
+        _allowed_tool_names = None
+
+        @staticmethod
+        def _tool_names(_tools):
+            return frozenset()
+
+    async def fake_prepare(_request, _user):
+        return SimpleNamespace(agent=FakeAgent(), workspace_scope="scope")
+
+    async def fake_stream(_prepared):
+        yield {
+            "type": "history_trace",
+            "content": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_ask",
+                            "type": "function",
+                            "function": {"name": "ask_user", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_ask",
+                    "name": "ask_user",
+                    "content": "{}",
+                },
+            ],
+        }
+        yield {"type": "user_choice_request", "content": choice}
+
+    monkeypatch.setattr(
+        "services.chat_pipeline.prepare_chat_turn", fake_prepare
+    )
+    monkeypatch.setattr(
+        "services.chat_pipeline.run_agent_stream", fake_stream
+    )
+    monkeypatch.setattr(
+        "services.agent_builder.build_tool_executor",
+        lambda *_args, **_kwargs: (lambda _name, _args: "ok"),
+    )
+    monkeypatch.setattr(
+        "services.workspace_service.get_workspace_dirs",
+        lambda *_args, **_kwargs: (str(tmp_path / "temp"), str(tmp_path / "result")),
+    )
+
+    asyncio.run(worker._execute_turn(run["id"], "alice"))
+
+    with transaction() as s:
+        stored_run = s.get(Item, run["id"])
+        stored_conv = s.get(Item, conv["id"])
+        data = stored_run.data
+        messages = stored_conv.data["messages"]
+    assert data["status"] == "waiting_user"
+    assert data["pending_choice"]["id"] == "choice-worker"
+    assert data["pending_choice"]["answered"] is False
+    assert data["pending_choice"]["question"] == "先审查哪一部分？"
+    assert messages[-1]["role"] == "assistant"
+    assert messages[-1]["content"] == "先审查哪一部分？"
+    assert any(item.get("role") == "tool" for item in messages[-1]["trace"])
