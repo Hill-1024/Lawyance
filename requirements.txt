@@ -20,6 +20,11 @@ redis>=5.0.0
 # 否则应用在导入阶段即抛 ImportError。
 socksio>=1.0.0
 
+# 会话导出 Word：用 markdown-it-py 结构化解析消息 Markdown（CommonMark 规范实现），
+# mdit-py-plugins 提供 GFM 表格支持；纯 Python，无编译依赖。
+markdown-it-py>=3.0,<4
+mdit-py-plugins>=0.5,<1
+
 # Cloud workbench persistence and remote MCP
 SQLAlchemy>=2.0,<3
 alembic>=1.16,<2

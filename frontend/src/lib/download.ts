@@ -115,8 +115,16 @@ export const downloadApiFile = async (path: string, name: string) => {
     return;
   }
   const response = await apiFetch(path);
-  // UserFacingError：文案已按当前语言取词，describeError 原样放行，不再被兜底改写。
-  if (!response.ok) throw new UserFacingError(translate("errors.downloadFailed"));
+  if (!response.ok) {
+    // 后端 detail（如「会话正在运行任务，请等待完成后再导出」）是面向用户的中文文案，
+    // 原样抛出让 describeError 放行；没有 detail 时仍走本地化兜底，不影响既有下载。
+    const detail = (
+      (await response.json().catch(() => null)) as { detail?: unknown } | null
+    )?.detail;
+    if (typeof detail === "string" && detail) throw new Error(detail);
+    // UserFacingError：文案已按当前语言取词，describeError 原样放行，不再被兜底改写。
+    throw new UserFacingError(translate("errors.downloadFailed"));
+  }
   const href = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = href;
