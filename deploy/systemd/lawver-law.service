@@ -1,0 +1,28 @@
+[Unit]
+Description=Lawver independent law search service
+Documentation=https://github.com/Hill-1024/Lawyance/blob/dev/docs/law-service-deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Example installation layout: replace these three values for your server.
+User=lawver-law
+Group=lawver-law
+WorkingDirectory=/srv/lawver-law/current
+EnvironmentFile=/etc/lawver-law/environment
+ExecStart=/usr/bin/python3 -m law_service
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/lawver-law
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

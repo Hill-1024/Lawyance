@@ -1,0 +1,15 @@
+[Unit]
+Description=Lawver law service weekly usage report (journal output)
+
+[Service]
+Type=oneshot
+User=lawver-law
+Group=lawver-law
+WorkingDirectory=/srv/lawver-law/current
+ExecStart=/usr/bin/python3 scripts/law_service_ops.py report --audit /var/lib/lawver-law/audit/audit.jsonl --days 7
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

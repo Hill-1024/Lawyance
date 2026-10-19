@@ -1,0 +1,22 @@
+# Independent, first-party service. Never distribute this image to customers.
+# Build context is repository root. Only the engine and server code are copied;
+# corpus, index, keys and audit logs are mounted at runtime.
+ARG PYTHON_IMAGE=python:3.13-slim-bookworm
+FROM ${PYTHON_IMAGE}
+ARG LAW_UID=1000
+ARG LAW_GID=1000
+RUN groupadd --gid "${LAW_GID}" lawver-law \
+ && useradd --uid "${LAW_UID}" --gid "${LAW_GID}" --no-create-home --shell /usr/sbin/nologin lawver-law
+WORKDIR /app
+COPY law_service ./law_service
+COPY RAG/law_data_search.py ./RAG/law_data_search.py
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    LAW_LISTEN=0.0.0.0:8084 \
+    LAW_DATA_DIR=/law/data \
+    LAW_DB_PATH=/var/lib/lawver-law/cache/law.db \
+    LAW_KEYS_FILE=/etc/lawver-law/keys.json \
+    LAW_AUDIT_LOG=/var/lib/lawver-law/audit/audit.jsonl
+USER lawver-law
+EXPOSE 8084
+CMD ["python", "-m", "law_service"]
