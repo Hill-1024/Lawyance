@@ -50,6 +50,9 @@ def read_events(audit: Path, since: datetime) -> tuple[list[dict], int]:
 
 
 def summarize(events: list[dict], invalid: int = 0) -> dict:
+    # Also exclude historical probes in current/rotated audit files. Validation
+    # stays in read_events, so malformed health rows still raise audit alerts.
+    events = [event for event in events if event.get("endpoint") != "/healthz"]
     grouped = defaultdict(list)
     for event in events:
         grouped[str(event.get("key_name") or "unauthenticated")].append(event)

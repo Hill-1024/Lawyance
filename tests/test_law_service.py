@@ -156,6 +156,38 @@ class LawServiceTests(unittest.TestCase):
         self.token = other["key"]
         self.assertEqual(self.request("/v1/meta")[0], 200)
 
+    def test_health_probes_do_not_write_audit_but_meta_still_does(self):
+        audit_path = self.root / "audit.jsonl"
+        original = audit_path.read_bytes()
+        with patch.object(self.state.audit, "record", wraps=self.state.audit.record) as record:
+            for _ in range(3):
+                self.assertEqual(self.request("/healthz", key=False)[:2], (200, {"ready": True}))
+            self.state.ready = False
+            self.assertEqual(self.request("/healthz", key=False)[:2], (503, {"ready": False}))
+            self.state.ready = True
+            self.assertEqual(self.request("/healthz", {"fixture": "ignored"}, key=False)[0], 405)
+            self.assertEqual(self.request("/healthz", key=False, method="HEAD")[0], 405)
+            record.assert_not_called()
+        self.assertEqual(audit_path.read_bytes(), original)
+        self.assertEqual(self.request("/v1/meta")[0], 200)
+        events = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([event["endpoint"] for event in events], ["/v1/meta"])
+
+    def test_only_exact_health_path_is_exempt_from_audit(self):
+        for path in ("/healthz?fixture=1", "/healthz/"):
+            self.assertEqual(self.request(path, key=False)[0], 404)
+        events = [json.loads(line) for line in (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(events), 2)
+        self.assertTrue(all(event["endpoint"] == "unknown" and event["status"] == 404 for event in events))
+
+    def test_audit_ip_is_tcp_peer_despite_forwarded_headers(self):
+        self.assertEqual(self.request("/v1/meta", headers={
+            "X-Forwarded-For": "198.51.100.42", "CF-Connecting-IP": "203.0.113.9",
+        })[0], 200)
+        event = json.loads((self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(event["ip"], "127.0.0.1")
+        self.assertEqual(event["key_name"], "customer-a")
+
     def test_readiness_and_meta_visibility(self):
         self.assertEqual(self.request("/healthz", key=False)[:2], (200, {"ready": True}))
         self.assertEqual(self.request("/v1/meta")[1]["content_sha256"], "abc")
@@ -218,10 +250,15 @@ class LawServiceTests(unittest.TestCase):
     def test_audit_write_failure_prevents_corpus_disclosure(self):
         handler = self.state.audit._handler
         with patch.object(handler, "shouldRollover", side_effect=OSError("private-path-disk-full")):
-            status, data, _ = self.request("/v1/laws/search", {"query": "敏感查询"})
-            self.assertEqual(status, 503)
-            self.assertEqual(data, {"success": False, "message": "Audit log unavailable"})
-            self.assertEqual(self.request("/healthz", key=False)[:2], (503, {"ready": False}))
+            cases = [("/v1/laws/search", {"query": "敏感查询"}),
+                     ("/v1/laws/exact", {"title": "测试法", "number": "第一条"}),
+                     ("/v1/laws/links", {"text": "测试法第一条"}), ("/v1/meta", None)]
+            for endpoint, payload in cases:
+                with self.subTest(endpoint=endpoint):
+                    status, data, _ = self.request(endpoint, payload)
+                    self.assertEqual(status, 503)
+                    self.assertEqual(data, {"success": False, "message": "Audit log unavailable"})
+            self.assertEqual(self.request("/healthz", key=False)[:2], (200, {"ready": True}))
         self.assertEqual(self.request("/v1/laws/search", {"query": "敏感查询"})[0], 200)
 
     def test_header_limits_and_duplicate_auth_are_rejected(self):

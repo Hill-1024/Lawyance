@@ -101,6 +101,14 @@ class LawServiceEndToEndTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(len(result["references"]), 1)
 
+    def test_authenticated_monitor_detects_audit_failure_when_health_is_ready(self):
+        self.assertTrue(ops.probe(self.url, self.key))
+        handler = self.state.audit._handler
+        with patch.object(handler, "shouldRollover", side_effect=OSError("fixture-audit-unavailable")):
+            # The live /healthz check succeeds, but authenticated /v1/meta must fail.
+            self.assertFalse(ops.probe(self.url, self.key))
+        self.assertTrue(ops.probe(self.url, self.key))
+
 
 if __name__ == "__main__":
     unittest.main()
