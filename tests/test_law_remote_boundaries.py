@@ -97,7 +97,7 @@ class RemoteLawApplicationBoundaryTests(unittest.TestCase):
                     def close(self):
                         pass
 
-                with mock.patch.object(law_service_client.requests, "post") as post:
+                with mock.patch.object(law_service_client.requests.Session, "post") as post:
                     import agent
                     import mcps
                     with TestClient(agent.app) as client:

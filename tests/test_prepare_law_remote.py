@@ -25,6 +25,7 @@ def test_missing_environment_files_is_an_empty_optional_property():
     '# comment\nLAWVER_DATABASE_URL="postgresql://dummy:dummy@127.0.0.1/lawver"\nSECRET_KEY=unchanged\n',
     'MULTILINE="first\nsecond"\nLAWVER_LAW_SOURCE=local\nLAWVER_LAW_SOURCE=local\n',
     "EMPTY=\nBARE\nQUOTED='value with spaces # kept'\nREF=${OTHER:-fallback}\n",
+    'HTTP_PROXY="http://proxy.invalid:3128"\nNO_PROXY="model.internal"\nno_proxy="search.internal"\n',
 ])
 def test_candidate_preserves_non_law_configuration_and_original_file(tmp_path, source_text):
     original = tmp_path / "original.env"

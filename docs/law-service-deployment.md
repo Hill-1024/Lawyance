@@ -15,7 +15,9 @@ python3 --version
 python3 -c "import sqlite3; c=sqlite3.connect(':memory:'); c.execute(\"CREATE VIRTUAL TABLE t USING fts5(x, tokenize='trigram')\"); print(sqlite3.sqlite_version)"
 ```
 
-主仓 `git ls-files RAG/data/` 必须为空，磁盘上的私有语料可保留。阶段 0 已完成的历史清洗、私有数据仓访问与 manifest 校验沿用 [数据同步说明](../scripts/sync-rag-data.sh)。数据仓凭据仅留在我方机器。请勿在客户机执行任何语料同步或索引预构建步骤。
+主仓 `git ls-files RAG/data/` 必须为空，磁盘上的私有语料可保留。私有数据仓访问与
+manifest 校验见 [数据同步说明](../RAG/README.md)。取消当前版本的跟踪不清除 Git 历史，
+本修复不表示历史已清洗。数据仓凭据仅留在我方机器。请勿在客户机执行语料同步或索引预构建。
 
 ## 2. 我方 Linux 服务器：systemd
 
@@ -230,6 +232,13 @@ GitHub 发布工作流对 `customer` 使用相同准备流程，自营 `runtime`
 ## 6. 客户出网与隐私边界
 
 客户服务器需允许 DNS 和到指定法库域名的 TCP/443 出站，证书链可验证；其他第三方模型/搜索服务依赖沿用既有部署配置。HTTPS 入口不可用、缺少 URL/key 或 key 被吊销时，客户法条功能报告不可用；纯离线客户不适用此远程架构。
+
+主应用的远程法库适配器使用独立直连会话，不读取 `HTTP_PROXY`、`HTTPS_PROXY`、
+`ALL_PROXY`、`NO_PROXY` 的大小写变体或 `.netrc`。同一进程内模型、搜索等其它客户端
+仍按各自配置联网；配置准备脚本也不再补写 `NO_PROXY/no_proxy`，以免影响它们。
+该适配器仍启用 Requests 默认信任库与 TLS 证书/主机名校验，但不读取环境中的
+`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`。要求出口代理或私有 CA 的环境需要另外明确
+设计其法库网络与信任配置，并在目标机验收；不能用关闭证书校验的方式接入。
 
 账号、完整对话、附件、工作区和记忆仍由客户主应用保管；法库服务收到调用工具所需的 `title/number`、搜索 `query` 或引用抽取 `text`。这些字段可能含案件信息，因此不能承诺“没有客户内容出网”。应在客户网络/隐私约定中明确这次外呼，并尽量仅传法名、条号、最小检索短语。服务无查询/结果磁盘缓存，审计不落原文；入口代理、隧道、APM 同样禁记请求体与 Authorization。法条返回值可能作为客户已有业务对话的一部分保留，服务端不会向客户交付整库/索引或建立独立法库缓存。
 

@@ -53,7 +53,7 @@ class LawServiceTransportTests(unittest.TestCase):
         for function, args, suffix, body, result in cases:
             with self.subTest(suffix=suffix):
                 response = FakeResponse(result)
-                with mock.patch.object(law_service_client.requests, "post", return_value=response) as post:
+                with mock.patch.object(law_service_client.requests.Session, "post", return_value=response) as post:
                     self.assertEqual(json.loads(function(*args)), result)
                 post.assert_called_once_with(
                     f"https://law.example.test/prefix/v1/laws/{suffix}",
@@ -65,11 +65,77 @@ class LawServiceTransportTests(unittest.TestCase):
                 )
                 self.assertTrue(response.closed)
 
+    def test_each_call_has_an_isolated_closed_session_and_retries_reuse_it(self):
+        session_type = requests.Session
+        batches = [
+            [FakeResponse(status=503), FakeResponse({"success": True, "data": ARTICLE})],
+            [FakeResponse({"success": True, "data": ARTICLE})],
+        ]
+        sessions = []
+
+        def make_session():
+            batch = batches[len(sessions)]
+            replies = iter(batch)
+            session = session_type()
+            session.close = mock.Mock(wraps=session.close)
+
+            def reply(*args, **kwargs):
+                self.assertFalse(session.trust_env)
+                self.assertTrue(session.verify)
+                if session.post.call_count == 2:
+                    self.assertTrue(batch[0].closed)
+                return next(replies)
+
+            session.post = mock.Mock(side_effect=reply)
+            sessions.append(session)
+            return session
+
+        with mock.patch.object(law_service_client.requests, "Session", side_effect=make_session) as factory:
+            for _ in range(2):
+                self.assertTrue(json.loads(law_service_client.law_exact_search("测试法", "第一条"))["success"])
+        self.assertEqual(factory.call_count, 2)
+        self.assertIsNot(sessions[0], sessions[1])
+        self.assertEqual([session.post.call_count for session in sessions], [2, 1])
+        for session in sessions:
+            session.close.assert_called_once_with()
+        self.assertTrue(all(response.closed for batch in batches for response in batch))
+
+    def test_sessions_close_on_service_parse_network_and_unexpected_errors(self):
+        session_type = requests.Session
+        stream_error = FakeResponse({"success": True, "data": ARTICLE})
+        stream_error.iter_content = mock.Mock(side_effect=requests.RequestException("private query"))
+        cases = [
+            (FakeResponse(status=401), law_service_client.LawServiceError, 1),
+            (FakeResponse(body=b"not JSON"), law_service_client.LawServiceError, 1),
+            (stream_error, law_service_client.LawServiceError, 1),
+            (requests.Timeout("private query"), law_service_client.LawServiceError, 2),
+            (requests.ConnectionError("private query"), law_service_client.LawServiceError, 2),
+            (requests.RequestException("private query"), law_service_client.LawServiceError, 1),
+            (RuntimeError("unexpected"), RuntimeError, 1),
+        ]
+        for outcome, error, attempts in cases:
+            with self.subTest(outcome=type(outcome).__name__):
+                session = session_type()
+                session.close = mock.Mock(wraps=session.close)
+                if isinstance(outcome, Exception):
+                    session.post = mock.Mock(side_effect=outcome)
+                else:
+                    session.post = mock.Mock(return_value=outcome)
+                with mock.patch.object(law_service_client.requests, "Session", return_value=session) as factory:
+                    with self.assertRaises(error):
+                        law_service_client.law_exact_search("测试法", "第一条")
+                factory.assert_called_once_with()
+                self.assertEqual(session.post.call_count, attempts)
+                self.assertFalse(session.trust_env)
+                session.close.assert_called_once_with()
+                if isinstance(outcome, FakeResponse):
+                    self.assertTrue(outcome.closed)
+
     def test_local_http_and_custom_positive_timeout_are_supported(self):
         for host in ("localhost", "127.0.0.1", "[::1]"):
             with self.subTest(host=host):
                 with mock.patch.dict(os.environ, {"LAWVER_LAW_SERVICE_URL": f"http://{host}:8084", "LAWVER_LAW_SERVICE_TIMEOUT": "1.5"}):
-                    with mock.patch.object(law_service_client.requests, "post", return_value=FakeResponse({"success": False, "message": "未找到"})) as post:
+                    with mock.patch.object(law_service_client.requests.Session, "post", return_value=FakeResponse({"success": False, "message": "未找到"})) as post:
                         law_service_client.law_exact_search("测试法", "第一条")
                 self.assertEqual(post.call_args.kwargs["timeout"], (1.5, 1.5))
 
@@ -77,7 +143,7 @@ class LawServiceTransportTests(unittest.TestCase):
         for host in ("law.example.test", "203.0.113.10", "192.168.1.20", "law-service", "localhost.example.test", "127.0.0.1.example.test"):
             url = f"http://{host}:8084"
             with self.subTest(host=host), mock.patch.dict(os.environ, {"LAWVER_LAW_SERVICE_URL": url}):
-                with mock.patch.object(law_service_client.requests, "post") as post:
+                with mock.patch.object(law_service_client.requests.Session, "post") as post:
                     with self.assertRaisesRegex(law_service_client.LawServiceError, "HTTPS") as caught:
                         law_service_client.law_exact_search("测试法", "第一条")
                     result = json.loads(pkulaw_client.get_article("测试法", "第一条"))
@@ -95,7 +161,7 @@ class LawServiceTransportTests(unittest.TestCase):
         ]
         for function, args, body in cases:
             with self.subTest(function=function.__name__):
-                with mock.patch.object(law_service_client.requests, "post", return_value=FakeResponse({"success": False, "message": "未找到"})) as post:
+                with mock.patch.object(law_service_client.requests.Session, "post", return_value=FakeResponse({"success": False, "message": "未找到"})) as post:
                     function(*args)
                 self.assertEqual(post.call_args.kwargs["json"], body)
 
@@ -112,16 +178,16 @@ class LawServiceTransportTests(unittest.TestCase):
         ]
         for config in cases:
             with self.subTest(config=config), mock.patch.dict(os.environ, config):
-                with mock.patch.object(law_service_client.requests, "post") as post:
+                with mock.patch.object(law_service_client.requests, "Session") as session:
                     with self.assertRaises(law_service_client.LawServiceError):
                         law_service_client.law_exact_search("测试法", "第一条")
-                post.assert_not_called()
+                session.assert_not_called()
 
     def test_transient_network_and_server_errors_retry_once_then_recover(self):
         for failure in (requests.Timeout("private query"), requests.ConnectionError("secret"), *(FakeResponse(status=status) for status in (500, 502, 503, 504))):
             with self.subTest(failure=type(failure).__name__):
                 success = FakeResponse({"success": True, "data": ARTICLE})
-                with mock.patch.object(law_service_client.requests, "post", side_effect=[failure, success]) as post:
+                with mock.patch.object(law_service_client.requests.Session, "post", side_effect=[failure, success]) as post:
                     self.assertTrue(json.loads(law_service_client.law_exact_search("测试法", "第一条"))["success"])
                 self.assertEqual(post.call_count, 2)
                 self.assertTrue(success.closed)
@@ -130,14 +196,14 @@ class LawServiceTransportTests(unittest.TestCase):
 
     def test_repeated_failures_stop_after_two_attempts(self):
         for failure in (requests.Timeout("lvk_secret in URL"), requests.ConnectionError("private query")):
-            with mock.patch.object(law_service_client.requests, "post", side_effect=failure) as post:
+            with mock.patch.object(law_service_client.requests.Session, "post", side_effect=failure) as post:
                 with self.assertRaises(law_service_client.LawServiceError) as caught:
                     law_service_client.law_exact_search("测试法", "第一条")
             self.assertEqual(post.call_count, 2)
             self.assertNotIn("lvk_secret", str(caught.exception))
             self.assertNotIn("private query", str(caught.exception))
         responses = [FakeResponse(status=503), FakeResponse(status=503)]
-        with mock.patch.object(law_service_client.requests, "post", side_effect=responses) as post:
+        with mock.patch.object(law_service_client.requests.Session, "post", side_effect=responses) as post:
             with self.assertRaisesRegex(law_service_client.LawServiceError, "503"):
                 law_service_client.law_exact_search("测试法", "第一条")
         self.assertEqual(post.call_count, 2)
@@ -147,7 +213,7 @@ class LawServiceTransportTests(unittest.TestCase):
         for status in (301, 400, 401, 403, 404, 429):
             with self.subTest(status=status):
                 response = FakeResponse(status=status, body=b"private query lvk_secret")
-                with mock.patch.object(law_service_client.requests, "post", return_value=response) as post:
+                with mock.patch.object(law_service_client.requests.Session, "post", return_value=response) as post:
                     with self.assertRaisesRegex(law_service_client.LawServiceError, str(status)) as caught:
                         law_service_client.law_exact_search("测试法", "第一条")
                 self.assertNotIn("lvk_secret", str(caught.exception))
@@ -161,7 +227,7 @@ class LawServiceTransportTests(unittest.TestCase):
             FakeResponse({"success": True, "data": {"content": 42}}),
             FakeResponse(body=b"x" * (law_service_client._MAX_RESPONSE_BYTES + 1)),
         ):
-            with mock.patch.object(law_service_client.requests, "post", return_value=response) as post:
+            with mock.patch.object(law_service_client.requests.Session, "post", return_value=response) as post:
                 with self.assertRaises(law_service_client.LawServiceError):
                     law_service_client.law_exact_search("测试法", "第一条")
             post.assert_called_once()
@@ -180,7 +246,7 @@ class LawServiceToolCompatibilityTests(unittest.TestCase):
             with mock.patch.object(pkulaw_client, "_local_search_engine", return_value=local_engine):
                 local = [function(*args) for function, args in calls]
         with mock.patch.dict(os.environ, REMOTE_ENV):
-            with mock.patch.object(law_service_client.requests, "post", side_effect=[FakeResponse(payload) for payload in raw]):
+            with mock.patch.object(law_service_client.requests.Session, "post", side_effect=[FakeResponse(payload) for payload in raw]):
                 with mock.patch.object(pkulaw_client, "_local_search_engine") as local_import:
                     remote = [function(*args) for function, args in calls]
         self.assertEqual(local, remote)
@@ -189,7 +255,7 @@ class LawServiceToolCompatibilityTests(unittest.TestCase):
 
     def test_explicit_source_overrides_legacy_pkulaw_and_uses_no_rag(self):
         with mock.patch.dict(os.environ, {**REMOTE_ENV, "PKU_LAW_SOURCE": "remote"}):
-            with mock.patch.object(law_service_client.requests, "post", return_value=FakeResponse({"success": True, "data": ARTICLE})):
+            with mock.patch.object(law_service_client.requests.Session, "post", return_value=FakeResponse({"success": True, "data": ARTICLE})):
                 with mock.patch.object(pkulaw_client, "_remote_client") as pku, mock.patch.object(pkulaw_client, "_local_search_engine") as local:
                     self.assertTrue(json.loads(pkulaw_client.get_article("测试法", "第一条"))["success"])
                     self.assertEqual(pkulaw_client.ensure_law_database_ready()["mode"], "remote")
@@ -203,7 +269,7 @@ class LawServiceToolCompatibilityTests(unittest.TestCase):
         local.law_fuzzy_search.return_value = json.dumps({"success": True, "data": [ARTICLE]})
         with mock.patch.dict(os.environ, {**REMOTE_ENV, "LAWVER_LAW_SOURCE": "", "PKU_LAW_SOURCE": ""}):
             with mock.patch.object(pkulaw_client, "_local_search_engine", return_value=local):
-                with mock.patch.object(law_service_client.requests, "post") as post:
+                with mock.patch.object(law_service_client.requests.Session, "post") as post:
                     self.assertTrue(json.loads(pkulaw_client.search_article("测试"))["success"])
             post.assert_not_called()
 
@@ -219,7 +285,7 @@ class LawServiceToolCompatibilityTests(unittest.TestCase):
 
     def test_startup_rejects_missing_remote_configuration_without_import_or_network(self):
         with mock.patch.dict(os.environ, {**REMOTE_ENV, "LAWVER_LAW_SERVICE_KEY": ""}):
-            with mock.patch.object(pkulaw_client, "_local_search_engine") as local, mock.patch.object(law_service_client.requests, "post") as post:
+            with mock.patch.object(pkulaw_client, "_local_search_engine") as local, mock.patch.object(law_service_client.requests.Session, "post") as post:
                 with self.assertRaisesRegex(law_service_client.LawServiceError, "LAWVER_LAW_SERVICE_KEY"):
                     pkulaw_client.ensure_law_database_ready()
         local.assert_not_called()

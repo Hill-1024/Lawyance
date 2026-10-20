@@ -68,13 +68,10 @@ sys.path.insert(0, str(Path.cwd() / 'backend'))
 sys.path.insert(0, str(Path.cwd()))
 from mcp import law_service_client, pkulaw_client
 from mcp import legal_search_router as router
-from requests.utils import get_environ_proxies
 
 if law_service_client.source() != 'remote':
     raise SystemExit('CN probe: effective LAWVER_LAW_SOURCE is not remote.')
 law_service_client.validate_configuration()
-if get_environ_proxies(os.environ['LAWVER_LAW_SERVICE_URL']):
-    raise SystemExit('CN probe: proxy settings would route the law-service request through a proxy.')
 
 def forbid_local(*args, **kwargs):
     raise RuntimeError('Local retrieval is forbidden during this remote probe.')
@@ -176,13 +173,6 @@ def main():
     desired = dict(zip(LAW_NAMES, ('remote', args.service_url, policy['key'], format(args.timeout, 'g'))))
     conflicts = [name for name in LAW_NAMES if name in initial and initial[name] != desired[name]]
     require(not conflicts, 'Inherited systemd law settings conflict: ' + ', '.join(conflicts))
-    before = dict(dotenv_values(env_path, interpolate=False))
-    items = []
-    for name in ('NO_PROXY', 'no_proxy'):
-        items.extend(str(initial.get(name, before.get(name) or '')).split(','))
-    items = [item.strip() for item in items if item.strip()]
-    bypass = ','.join(dict.fromkeys(items + ['127.0.0.1', 'localhost', '::1']))
-    desired.update(NO_PROXY=bypass, no_proxy=bypass)
 
     work = Path(tempfile.mkdtemp(prefix='cn-law-config-', dir=ROOT / 'TEMP'))
     candidate = work / '.env'

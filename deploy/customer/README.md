@@ -37,6 +37,11 @@ LAWVER_LAW_SERVICE_TIMEOUT=10
 
 URL 改成发放的真实法库服务域名；不要禁用 TLS 校验。URL 不带账户、密码或路径。不能访问我方 API 的纯离线环境不适用此方案。
 
+法库客户端始终直连，不读取环境代理、`NO_PROXY` 或 `.netrc`；其它模型/搜索客户端
+的代理配置按各自规则生效。TLS 默认校验保留；`REQUESTS_CA_BUNDLE` 与
+`CURL_CA_BUNDLE` 不用于该法库客户端。若网络强制代理或使用私有 CA，先由部署方
+明确配置与验收方案，再接入法库服务。
+
 新业务库首次启动还需要设置至少 32 字符的随机 `SECRET_KEY` 和强随机的
 `INITIAL_ADMIN_PASSWORD`，用于初始化用户名为 `admin`、角色为 `sudo` 的账号。
 通过 `LAWVER_WORKBENCH_USERS` 显式启用需要使用工作台的账号，例如首次验收设为
