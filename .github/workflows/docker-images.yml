@@ -4,7 +4,7 @@ name: Docker Images
 #
 # 为什么单独走 GHCR 而不是在部署机上构建：2B 交付时客户只拿到 compose 文件与镜像，
 # 源码与法律语料都不落到客户机器上（docs/law-service-split-plan.md §6 的硬要求）。
-# 语料本来就不在镜像里（.dockerignore 排除 RAG/data），客户侧再只读挂自营法库即可。
+# customer 先从 Git 跟踪清单生成受控上下文；客户通过远程 API 使用自营法库。
 on:
   push:
     tags:
@@ -52,6 +52,10 @@ jobs:
           echo "image=ghcr.io/${OWNER}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare customer build context
+        if: matrix.target == 'customer'
+        run: python3 scripts/package-customer.py --build-context "$RUNNER_TEMP/lawver-customer-context"
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -65,8 +69,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: deploy/docker/Dockerfile
+          context: ${{ matrix.target == 'customer' && format('{0}/lawver-customer-context', runner.temp) || '.' }}
+          file: ${{ matrix.target == 'customer' && format('{0}/lawver-customer-context/deploy/docker/Dockerfile', runner.temp) || 'deploy/docker/Dockerfile' }}
           target: ${{ matrix.target }}
           push: true
           tags: |

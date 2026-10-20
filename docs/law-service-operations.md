@@ -4,7 +4,11 @@
 
 ## 巡检和告警
 
-先在受限环境文件配置 `LAW_MONITOR_KEY`，与 `keys.json` 中独立监控 key 相同。巡检必须使用该 key 同时检查 `/healthz` 与鉴权后的 `/v1/meta`；仅存活正常而密钥配置失效也会告警。缺少监控 key 会报告 `monitor_key_missing`，不能作为健康检查通过。
+先在受限环境文件配置 `LAW_MONITOR_KEY`，与 `keys.json` 中独立监控 key 相同。
+巡检必须同时检查 `/healthz` 与带该 key 的 `/v1/meta`。`/healthz` 只检查索引就绪，
+不写用量审计，也不验证密钥或审计写入；密钥配置失效或审计不可写会使 `/v1/meta`
+失败，双探针仍会告警。不能将巡检缩减为只请求 `/healthz`。
+缺少监控 key 会报告 `monitor_key_missing`，不能作为健康检查通过。
 
 ```bash
 python3 scripts/law_service_ops.py check \
@@ -18,6 +22,12 @@ python3 scripts/law_service_ops.py check \
 将退出状态和 JSON 输出接入现有监控即可；脚本不会主动发送邮件或第三方消息。部署目录有可选 systemd 巡检/周报 timer 示例。启用后以 `systemctl list-timers 'lawver-law-*'` 核对调度；实际告警通知由既有监控的 failed-unit 或日志规则负责，启用 timer 本身不代表已接通通知。
 
 审计日志按 UTC 记时；周报窗口是执行时刻之前的滚动 7 天。脚本读取当前日志及数字后缀的轮转文件。需让巡检用户有读取权限，禁止把审计目录发布到公网。服务固定每份 10 MiB、保留 7 份轮转备份；确认实际流量下覆盖至少 7 天，高流量时由运维外部归档，避免周报缺失旧数据。
+
+审计字段 `ip` 仅为 TCP 直连对端地址。服务位于回环隧道/反向代理或容器网桥后时，
+它通常是 `127.0.0.1` 或网桥/代理地址，不能据此认定客户的真实出口 IP。
+客户用量和异常调用按 `key_name` 维度分析；来源取证另查可信入口日志。
+服务不会根据请求中的 `X-Forwarded-For` 或 `CF-Connecting-IP` 改写该字段，
+不要将它当作经过验证的客户端来源地址。
 
 ## Canary 验收
 
@@ -41,6 +51,11 @@ python3 scripts/law_service_ops.py report \
 ```
 
 报告包含每个 key 的请求量、端点分布、HTTP 状态分布、429、5xx、p95、每分钟峰值和哈希去重率。不输出查询正文、查询哈希、来源 IP 或 API key。异常行只计数，不原样回显。
+
+精确端点 `/healthz` 不计入请求量、key 分组、p95、峰值或调用模式告警；历史当前及
+轮转日志中合法的健康检查记录也会在汇总时排除，原始日志不改写。
+格式损坏的行仍计入 `invalid_lines` 并触发 `audit_invalid`。
+鉴权失败、未知端点及 `/v1/meta` 继续统计；监控 key 的元数据请求保留在其独立分组。
 
 试运行先用示例的 30 rpm / 20000 次日配额。按周报里的正常峰值留出余量再调整，观察 429 与 p95 是否下降。修改 `keys.json` 时先在同目录写完整临时文件，再原子替换，避免重载读到半份 JSON；禁用单个 key 用 `enabled: false`。限流/日配额为单进程内存状态，重启会重置，服务只运行一个进程；有严格持久额度要求时另行接入计量存储。调用量接入 credit 扣费作为 issue 允许的后续迭代。
 

@@ -123,35 +123,39 @@ def _validate_result(path: str, payload: dict) -> dict:
 
 def _request(path: str, payload: dict) -> str:
     base_url, key, timeout = _configuration()
-    for attempt in range(2):
-        response = None
-        try:
-            response = requests.post(
-                f"{base_url}{path}",
-                json=payload,
-                headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
-                timeout=timeout,
-                # 不跟随重定向，避免将客户密钥发送到其他服务。
-                allow_redirects=False,
-                stream=True,
-            )
-            status = response.status_code
-            if status in _TRANSIENT_STATUSES and attempt == 0:
-                continue
-            if not 200 <= status < 300:
-                hint = _HTTP_HINTS.get(status, "请求失败，请检查服务配置")
-                raise LawServiceError(f"法库服务返回 {status}：{hint}")
-            return json.dumps(_validate_result(path, _read_json(response)), ensure_ascii=False)
-        except (requests.Timeout, requests.ConnectionError):
-            if attempt == 0:
-                continue
-            raise LawServiceError("法条检索暂不可用：连接失败或超时，请稍后重试") from None
-        except requests.RequestException:
-            # 不串接 requests 的异常文本，其中可能包含 URL、代理凭据等部署信息。
-            raise LawServiceError("法条检索暂不可用：网络请求失败") from None
-        finally:
-            if response is not None:
-                response.close()
+    with requests.Session() as session:
+        # 每次工具调用独立会话，禁用环境代理和 netrc 等隐式凭据来源。
+        # TLS 仍使用 requests 默认验证；本次调用的两次尝试复用同一会话。
+        session.trust_env = False
+        for attempt in range(2):
+            response = None
+            try:
+                response = session.post(
+                    f"{base_url}{path}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
+                    timeout=timeout,
+                    # 不跟随重定向，避免将客户密钥发送到其他服务。
+                    allow_redirects=False,
+                    stream=True,
+                )
+                status = response.status_code
+                if status in _TRANSIENT_STATUSES and attempt == 0:
+                    continue
+                if not 200 <= status < 300:
+                    hint = _HTTP_HINTS.get(status, "请求失败，请检查服务配置")
+                    raise LawServiceError(f"法库服务返回 {status}：{hint}")
+                return json.dumps(_validate_result(path, _read_json(response)), ensure_ascii=False)
+            except (requests.Timeout, requests.ConnectionError):
+                if attempt == 0:
+                    continue
+                raise LawServiceError("法条检索暂不可用：连接失败或超时，请稍后重试") from None
+            except requests.RequestException:
+                # 不串接 requests 的异常文本，其中可能包含 URL、代理凭据等部署信息。
+                raise LawServiceError("法条检索暂不可用：网络请求失败") from None
+            finally:
+                if response is not None:
+                    response.close()
     raise LawServiceError("法条检索暂不可用")  # pragma: no cover
 
 

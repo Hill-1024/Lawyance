@@ -23,7 +23,9 @@ class RemoteLawApplicationBoundaryTests(unittest.TestCase):
             )
             packager = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(packager)
-            manifest = packager.export_directory(REPO_ROOT, root, no_git_context=True)
+            context = Path(tmp) / "customer-build-context"
+            packager.build_context(REPO_ROOT, context)
+            manifest = packager.export_directory(context, root, no_git_context=True)
             self.assertFalse((root / "RAG").exists())
             self.assertFalse((root / "backend/vector_store").exists())
             self.assertFalse((root / "law_service").exists())
@@ -95,7 +97,7 @@ class RemoteLawApplicationBoundaryTests(unittest.TestCase):
                     def close(self):
                         pass
 
-                with mock.patch.object(law_service_client.requests, "post") as post:
+                with mock.patch.object(law_service_client.requests.Session, "post") as post:
                     import agent
                     import mcps
                     with TestClient(agent.app) as client:

@@ -476,6 +476,11 @@ class LawHandler(BaseHTTPRequestHandler):
             retry_after = 5
         except Exception:
             status, result = 500, {"success": False, "message": "Law service error"}
+        if path == "/healthz":
+            # Readiness probes return no corpus and must not pollute usage audit.
+            # Monitor authenticated /v1/meta as well to detect key/audit failures.
+            self._respond(status, result, retry_after)
+            return
         try:
             self.server.state.audit.record(
                 timestamp=datetime.now(timezone.utc).isoformat(), key_name=details["key_name"],
@@ -487,7 +492,7 @@ class LawHandler(BaseHTTPRequestHandler):
             # Never disclose corpus content without its audit record. In particular,
             # rotating-file failures must not become silent successful responses.
             status = 503
-            result = {"ready": False} if path == "/healthz" else {"success": False, "message": "Audit log unavailable"}
+            result = {"success": False, "message": "Audit log unavailable"}
             retry_after = 5
         self._respond(status, result, retry_after)
 

@@ -23,6 +23,9 @@ data/vector_index/
 qdrant_storage/
 RAG/cache/
 RAG/data/
+RAG/data.backup.*/
+RAG/.data-sync.*/
+RAG/.data-sync.lock/
 RAG/data_doc/
 RAG/__pycache__/
 .claude/

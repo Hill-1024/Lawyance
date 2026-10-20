@@ -15,7 +15,9 @@ python3 --version
 python3 -c "import sqlite3; c=sqlite3.connect(':memory:'); c.execute(\"CREATE VIRTUAL TABLE t USING fts5(x, tokenize='trigram')\"); print(sqlite3.sqlite_version)"
 ```
 
-主仓 `git ls-files RAG/data/` 必须为空，磁盘上的私有语料可保留。阶段 0 已完成的历史清洗、私有数据仓访问与 manifest 校验沿用 [数据同步说明](../scripts/sync-rag-data.sh)。数据仓凭据仅留在我方机器。请勿在客户机执行任何语料同步或索引预构建步骤。
+主仓 `git ls-files RAG/data/` 必须为空，磁盘上的私有语料可保留。私有数据仓访问与
+manifest 校验见 [数据同步说明](../RAG/README.md)。取消当前版本的跟踪不清除 Git 历史，
+本修复不表示历史已清洗。数据仓凭据仅留在我方机器。请勿在客户机执行语料同步或索引预构建。
 
 ## 2. 我方 Linux 服务器：systemd
 
@@ -108,7 +110,10 @@ sudo ss -ltnp '( sport = :8084 )'
 curl --fail --silent --show-error http://127.0.0.1:8084/healthz
 ```
 
-监听应只有回环地址；构建索引期间 `/healthz` 返回 `503 {"ready":false}`，就绪后返回 `200`。首次构建等待完成，不要因短暂 `503` 连续重启。构建失败会保持未就绪，修复文件/权限后重启。首次发请求前确认 audit 目录可写。
+监听应只有回环地址；构建索引期间 `/healthz` 返回 `503 {"ready":false}`，就绪后返回 `200`。
+它不写用量审计，也不验证密钥或审计可写性；完整巡检还须带监控 key 请求 `/v1/meta`。
+首次构建等待完成，不要因短暂 `503` 连续重启。构建失败会保持未就绪，修复文件/权限后重启。
+首次业务请求前确认 audit 目录可写；审计失败时三个检索端点与 `/v1/meta` 均返回 `503`。
 
 ### 2.4 独立 HTTPS 入口
 
@@ -192,16 +197,18 @@ python scripts/package-customer.py --verify customer-RELEASE_COMMIT.zip
 
 `git ls-files` 必须零输出。归档带 `CUSTOMER-MANIFEST.json`，包含所交付文件的 SHA-256，验证命令同时检查敏感路径和所有文件校验和。输出归档已存在时拒绝覆盖；目录导出用 `--output-dir NEW_OR_EMPTY_DIRECTORY`，非空目录拒绝写入。默认不带 `dist`，需要预构建网页时先从同一提交执行 `pnpm exec vite build`，再加 `--include-dist`。客户源码包不包含自营 Dockerfile；镜像由我方从主仓构建。
 
-`--no-git-context` 只供 Docker 构建上下文使用，因为 `.git` 在上下文外；该模式仍按同一允许清单排除敏感路径、拒绝符号链接。正常本地发布请保持默认 Git 模式，以保留 `RAG/data` 脱跟踪门禁。
+`--no-git-context` 只消费由可信 Git 导出流程生成的 `CUSTOMER-MANIFEST.json`，
+校验清单、文件 SHA-256 与完整成员集合；缺失清单、内容变化或混入额外文件即拒绝。
+它不会扫描原始工作区选择源码。正常源码归档保持默认 Git 模式，以保留语料脱跟踪门禁。
+清单用于验证已批准导出物的完整性，不能替代通过可信渠道核验版本与发布摘要。
 
 ### 5.2 客户专用镜像
 
 客户只能使用 `deploy/docker/Dockerfile` 的 **`customer` target**，不能使用保留本地检索引擎的 `runtime` target，也不要直接执行默认自营 `build.sh` 作为客户交付。构建/导出例：
 
 ```bash
-docker build -f deploy/docker/Dockerfile --target customer \
-  --build-arg APP_UID=1000 --build-arg APP_GID=1000 \
-  -t lawver-customer:RELEASE_COMMIT .
+LAWVER_APP_UID=1000 LAWVER_APP_GID=1000 \
+  bash deploy/docker/build-customer.sh --tag RELEASE_COMMIT
 docker run --rm --entrypoint python lawver-customer:RELEASE_COMMIT \
   -c "from pathlib import Path; p=Path('/app'); assert not (p/'RAG').exists(); assert not (p/'law_service').exists(); assert not (p/'.git').exists(); assert not (p/'.env').exists(); print('customer image boundary OK')"
 docker save -o lawver-customer-RELEASE_COMMIT.tar lawver-customer:RELEASE_COMMIT
@@ -209,9 +216,32 @@ docker save -o lawver-customer-RELEASE_COMMIT.tar lawver-customer:RELEASE_COMMIT
 
 UID/GID 用客户持久化目录实际值，1000 只是示例。只交付最终 `customer` 镜像，不能推送/导出包含自营代码的构建中间 stage、构建缓存或完整主仓副本。客户 Compose 使用 `compose.customer.yml`，其 app 不创建任何 RAG 卷；不要叠加 `compose.self-hosted.yml`，也不运行 `prebuild-law-db.sh`。
 
+构建脚本先从 Git 已跟踪文件生成独立临时上下文，只包含清单内应用文件及
+`scripts/package-customer.py`、`deploy/docker/Dockerfile` 两个构建辅助文件。
+未跟踪的内部源码不会被送入 Docker；无 Git 导出会校验上下文的成员与哈希，
+两个辅助文件不进入客户应用层。网页从这份受控源码重新构建，不复用工作区 `dist`。
+脚本只构建本地 `lawver-customer:<tag>`，不推送，结束时清理其临时目录。
+
+只准备上下文（无需 Docker，也不构建镜像）可执行：
+
+```bash
+python scripts/package-customer.py --build-context TEMP/customer-build-RELEASE_COMMIT
+```
+
+目标须为新目录或空目录；此模式不接受 `--include-dist`。后续手动构建的 context
+和 Dockerfile 路径都必须指向该目录，不能把原始仓库根目录作为客户构建上下文。
+GitHub 发布工作流对 `customer` 使用相同准备流程，自营 `runtime` 继续使用原有上下文。
+
 ## 6. 客户出网与隐私边界
 
 客户服务器需允许 DNS 和到指定法库域名的 TCP/443 出站，证书链可验证；其他第三方模型/搜索服务依赖沿用既有部署配置。HTTPS 入口不可用、缺少 URL/key 或 key 被吊销时，客户法条功能报告不可用；纯离线客户不适用此远程架构。
+
+主应用的远程法库适配器使用独立直连会话，不读取 `HTTP_PROXY`、`HTTPS_PROXY`、
+`ALL_PROXY`、`NO_PROXY` 的大小写变体或 `.netrc`。同一进程内模型、搜索等其它客户端
+仍按各自配置联网；配置准备脚本也不再补写 `NO_PROXY/no_proxy`，以免影响它们。
+该适配器仍启用 Requests 默认信任库与 TLS 证书/主机名校验，但不读取环境中的
+`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`。要求出口代理或私有 CA 的环境需要另外明确
+设计其法库网络与信任配置，并在目标机验收；不能用关闭证书校验的方式接入。
 
 账号、完整对话、附件、工作区和记忆仍由客户主应用保管；法库服务收到调用工具所需的 `title/number`、搜索 `query` 或引用抽取 `text`。这些字段可能含案件信息，因此不能承诺“没有客户内容出网”。应在客户网络/隐私约定中明确这次外呼，并尽量仅传法名、条号、最小检索短语。服务无查询/结果磁盘缓存，审计不落原文；入口代理、隧道、APM 同样禁记请求体与 Authorization。法条返回值可能作为客户已有业务对话的一部分保留，服务端不会向客户交付整库/索引或建立独立法库缓存。
 

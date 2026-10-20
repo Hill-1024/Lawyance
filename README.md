@@ -119,7 +119,17 @@ Python 依赖统一用 [uv](https://docs.astral.sh/uv/) 管理（`pyproject.toml
 pnpm run build
 ```
 
-启动完整应用：
+使用本地法库启动应用前，在获授权的开发环境同步私有语料（Windows 可使用 Git Bash）：
+
+```bash
+LAWVER_RAG_DATA_REPO=git@github.com:Hill-1024/Lawyance-Law-Data.git \
+  bash scripts/sync-rag-data.sh v2026.10.17
+```
+
+语料不再由当前代码版本跟踪；来源目录、校验与更新流程见 [RAG/README.md](RAG/README.md)。
+配置 `LAWVER_LAW_SOURCE=remote` 的主应用无需同步语料，客户部署只使用远程法库。
+
+随后启动应用：
 
 ```bash
 pnpm run dev

@@ -70,7 +70,7 @@ def forbid_local_retrieval():
 def test_remote_search_bypasses_enabled_hybrid_and_calls_only_remote():
     response = Response({"success": True, "data": [ARTICLE]})
     with mock.patch.dict(os.environ, REMOTE_ENV), forbid_local_retrieval(), mock.patch.object(
-        law_service_client.requests, "post", return_value=response,
+        law_service_client.requests.Session, "post", return_value=response,
     ) as post:
         result = json.loads(legal_search_router.search_article("contract", jurisdiction="中国"))
 
@@ -96,7 +96,7 @@ def test_remote_failures_never_fall_back_to_hybrid(failure, attempts):
         responses = [Response({"success": False, "message": "no match"}, status) for _ in range(attempts)]
         effect = responses
     with mock.patch.dict(os.environ, REMOTE_ENV), forbid_local_retrieval(), mock.patch.object(
-        law_service_client.requests, "post", side_effect=effect,
+        law_service_client.requests.Session, "post", side_effect=effect,
     ) as post:
         result = json.loads(legal_search_router.search_article("contract"))
 
@@ -108,7 +108,7 @@ def test_remote_failures_never_fall_back_to_hybrid(failure, attempts):
 
 def test_invalid_explicit_source_reports_error_without_importing_hybrid():
     with mock.patch.dict(os.environ, {**REMOTE_ENV, "LAWVER_LAW_SOURCE": "invalid"}), forbid_local_retrieval(), mock.patch.object(
-        law_service_client.requests, "post",
+        law_service_client.requests.Session, "post",
     ) as post:
         result = json.loads(legal_search_router.search_article("contract"))
     assert result["success"] is False

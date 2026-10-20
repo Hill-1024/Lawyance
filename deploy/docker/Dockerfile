@@ -73,7 +73,10 @@ COPY --from=deps /opt/venv /opt/venv
 WORKDIR /app
 
 ########## 4. 客户源码清洗（中间层永不推送给客户） ##########
+# customer 必须使用 package-customer.py --build-context 生成的受控上下文。
+# 无 Git 导出只验证该上下文的 manifest，不从原始工作区递归选择源码。
 FROM deps AS customer-source
+COPY CUSTOMER-MANIFEST.json /src/CUSTOMER-MANIFEST.json
 COPY . /src
 RUN /opt/venv/bin/python scripts/package-customer.py --no-git-context --output-dir /customer
 
