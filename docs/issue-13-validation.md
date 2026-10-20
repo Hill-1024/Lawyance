@@ -1,7 +1,8 @@
 # Issue #13 验证清单
 
-本清单用于功能分支测试、dev 集成与部署交接。功能分支测试结果及复跑命令见
-[分支验证记录](issue-13-branch-validation-2026-10-19.md)。
+本清单用于功能分支测试、dev 集成与部署交接。原功能分支测试结果及复跑命令见
+[分支验证记录](issue-13-branch-validation-2026-10-19.md)；后续审查修复的结果与尚待
+Linux 复验的边界见[修复汇总验收](issue-13-review-gates-validation-2026-10-20.md)。
 
 ## 代码与接口
 
