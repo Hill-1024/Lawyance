@@ -31,7 +31,9 @@
 
 ## 分发边界
 
-当前基线的完整 Git 树仍跟踪 RAG/data。默认客户导出模式会拒绝该上下文；
-Docker 构建使用排除本地资产的上下文，再以同一清洗规则导出客户应用。
+本修复取消当前版本对 `RAG/data/` 的跟踪；验收时确认 `git ls-files RAG/data` 为空，
+工作区语料仍完整，默认客户导出命令可以通过。新检出的本地法库从私有数据源同步，
+见 [RAG/README.md](../RAG/README.md)。
+Docker 无 Git 上下文的导出还须单独验证：未跟踪的内部源码不能进入客户镜像。
 客户交付物与主仓历史分别核对，详见 [GitHub 协作说明](law-service-github-collaboration.md)。
 该清单不表示所有部署环境已完成验收。credit 对接及其它后续项按 Issue #13 维护。

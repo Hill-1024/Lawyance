@@ -20,6 +20,9 @@ backend/data/
 
 # 语料与索引：运行期只读挂载（RAG/data）+ 命名卷（RAG/cache）
 RAG/data/
+RAG/data.backup.*/
+RAG/.data-sync.*/
+RAG/.data-sync.lock/
 RAG/cache/
 RAG/data_doc/
 

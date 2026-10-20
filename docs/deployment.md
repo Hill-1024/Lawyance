@@ -106,6 +106,28 @@ sudo -u lawver git clone --branch main https://github.com/Hill-1024/Lawyance_Int
 
 **验收**：两个目录都存在且 `sudo -u lawver git -C <dir> branch --show-current` 输出 `main`。
 
+### 2.1 本地法库语料（仅开发及自营环境）
+
+当前代码版本不再跟踪 `RAG/data/`。使用本地检索的自营实例，或承载独立法库的
+候选目录，需要单独取得私有数据仓的读权限。远程主应用和客户实例跳过本节。
+
+将 `CANDIDATE_ROOT` 替换为首次部署或未被运行服务使用的候选代码目录：
+
+```bash
+CANDIDATE_ROOT=/absolute/path/to/candidate
+sudo -u lawver env LAWVER_RAG_DATA_REPO=git@github.com:Hill-1024/Lawyance-Law-Data.git \
+  bash "$CANDIDATE_ROOT/scripts/sync-rag-data.sh" v2026.10.17
+```
+
+目标是脚本所属项目的 `RAG/data/`，由脚本路径决定，不由执行时的工作目录决定。
+无法从 GitHub 拉取时，使用已检出且包含 `manifest.sha256` 的私有目录，
+通过 `LAWVER_RAG_DATA_DIR=/absolute/path/to/data` 传入；源目录不得与目标重叠。
+脚本先验证暂存副本再备份和替换，失败尝试回滚。数据源、依赖与恢复说明见
+[RAG/README.md](../RAG/README.md)。当前默认版本预期 5,237 个语料文件。
+
+独立法库的配置须指向实际同步的数据目录。该脚本不构建索引、不重启服务；
+运行服务的换版另按已审查版本发布新 release 并切换 `current`。
+
 ---
 
 ## 3. Python 依赖（uv 统一管理）
