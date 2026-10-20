@@ -58,6 +58,185 @@ def build_candidate(original, candidate, desired):
             'An unrelated configuration value changed; stopping.')
 
 
+def _identity(details):
+    return details.st_dev, details.st_ino
+
+
+def _owns_record(path, identities):
+    try:
+        details = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISREG(details.st_mode) and _identity(details) in identities
+
+
+def _fsync_directory(path):
+    # Windows cannot open directories for fsync. Linux deployment must exercise it.
+    if os.name != 'posix':
+        return
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_file(path):
+    # Windows' CRT requires a writable descriptor for os.fsync/_commit.
+    with path.open('r+b' if os.name == 'nt' else 'rb') as source:
+        os.fsync(source.fileno())
+
+
+def _write_record_fd(descriptor, record):
+    data = memoryview((json.dumps(record, indent=2) + '\n').encode('utf-8'))
+    while data:
+        written = os.write(descriptor, data)
+        require(written > 0, 'Preparation record write made no progress.')
+        data = data[written:]
+    os.fsync(descriptor)
+
+
+def _exclusive_record(path, record, identities):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_BINARY', 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        identities.add(_identity(os.fstat(descriptor)))
+        _write_record_fd(descriptor, record)
+    finally:
+        os.close(descriptor)
+    _fsync_directory(path.parent)
+
+
+def _remove_owned_record(path, identities):
+    require(_owns_record(path, identities),
+            'Preparation record ownership changed; refusing to remove it: ' + str(path))
+    path.unlink()
+    _fsync_directory(path.parent)
+
+
+def _publish_record(path, record, identities):
+    descriptor, temporary_name = tempfile.mkstemp(prefix='.' + path.name + '-', dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        identities.add(_identity(os.fstat(descriptor)))
+        try:
+            _write_record_fd(descriptor, record)
+        finally:
+            os.close(descriptor)
+        require(_owns_record(path, identities),
+                'Preparation record ownership changed; refusing to overwrite it: ' + str(path))
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        if _owns_record(temporary, identities):
+            temporary.unlink()
+
+
+def _original_matches(env_path, state):
+    if env_path.is_symlink() or not env_path.is_file():
+        return False
+    details = env_path.stat()
+    return (sha(env_path) == state['old_env_sha256']
+            and stat.S_IMODE(details.st_mode) == state['config_mode']
+            and (os.name != 'posix' or (details.st_uid, details.st_gid)
+                 == (state['config_uid'], state['config_gid'])))
+
+
+def _restore_configuration(env_path, state):
+    if _original_matches(env_path, state):
+        return
+    backup = Path(state['config_backup'])
+    require(not backup.is_symlink() and backup.is_file() and sha(backup) == state['old_env_sha256'],
+            'Original configuration backup SHA256 mismatch; manual recovery is required.')
+    descriptor, temporary_name = tempfile.mkstemp(prefix='.env-restore-', dir=env_path.parent)
+    temporary = Path(temporary_name)
+    identity = _identity(os.fstat(descriptor))
+    try:
+        with os.fdopen(descriptor, 'wb') as output:
+            output.write(backup.read_bytes())
+            output.flush()
+            if os.name == 'posix':
+                os.chown(temporary, state['config_uid'], state['config_gid'])
+            os.chmod(temporary, state['config_mode'])
+            os.fsync(output.fileno())
+        require(_original_matches(temporary, state), 'Restored configuration candidate verification failed.')
+        os.replace(temporary, env_path)
+        _fsync_directory(env_path.parent)
+        require(_original_matches(env_path, state), 'Restored CN configuration SHA256/mode verification failed.')
+    finally:
+        if _owns_record(temporary, {identity}):
+            temporary.unlink()
+
+
+def prepare_configuration(env_path, candidate, state_file, state):
+    """Commit a probed candidate, or restore the old file after ordinary failures.
+
+    The exclusive central record is a cooperative deployment lock. An interrupted
+    run deliberately leaves it in place; inspect old/new SHA256 before recovery.
+    The backup record is an immutable recovery snapshot, never a success marker.
+    """
+    env_path, candidate, state_file = map(Path, (env_path, candidate, state_file))
+    backup = Path(state['config_backup'])
+    backup_record = backup.parent / 'state.json'
+    require(not state_file.exists() and not state_file.is_symlink(),
+            'Preparation record already exists; report this without rerunning deployment.')
+    require(len({path.resolve() for path in (env_path, candidate, state_file, backup, backup_record)}) == 5,
+            'Preparation and recovery paths must be distinct.')
+    require(_original_matches(env_path, state), 'Original CN configuration changed before preparation.')
+    require(not candidate.is_symlink() and candidate.is_file() and sha(candidate) == state['new_env_sha256'],
+            'Candidate CN configuration SHA256 mismatch.')
+    require(not backup.is_symlink() and backup.is_file() and sha(backup) == state['old_env_sha256'],
+            'Original CN configuration backup SHA256 mismatch.')
+    preparing = {**state, 'config_path': str(env_path.absolute()), 'phase': 'preparing'}
+    prepared = {**preparing, 'phase': 'prepared'}
+    _fsync_file(backup)
+    _fsync_directory(backup.parent)
+    backup_identities = set()
+    try:
+        _exclusive_record(backup_record, preparing, backup_identities)
+    except Exception:
+        if _owns_record(backup_record, backup_identities):
+            _remove_owned_record(backup_record, backup_identities)
+        raise
+
+    identities = set()
+    transition_attempted = False
+    try:
+        # No production change is allowed before the complete journal is durable.
+        _exclusive_record(state_file, preparing, identities)
+        _fsync_file(candidate)
+        require(_original_matches(env_path, state), 'CN configuration changed during preparation.')
+        require(sha(candidate) == state['new_env_sha256'], 'Candidate CN configuration changed during preparation.')
+        transition_attempted = True
+        os.replace(candidate, env_path)
+        _fsync_file(env_path)
+        _fsync_directory(env_path.parent)
+        require(sha(env_path) == state['new_env_sha256'], 'Updated CN configuration SHA256 mismatch.')
+        _publish_record(state_file, prepared, identities)
+        return prepared
+    except Exception as failure:
+        # A failed exclusive create owns nothing; another run's record is untouched.
+        if not identities:
+            raise
+        try:
+            if transition_attempted:
+                _restore_configuration(env_path, preparing)
+            require(_original_matches(env_path, preparing), 'Original CN configuration could not be verified.')
+        except Exception as recovery_failure:
+            raise RuntimeError(
+                'CN configuration rollback failed or could not be verified. Do not rerun preparation; '
+                f'recovery records/backups retained: {state_file}, {backup_record}, {backup}'
+            ) from recovery_failure
+        try:
+            _remove_owned_record(state_file, identities)
+        except Exception as record_failure:
+            raise RuntimeError(
+                'Original CN configuration SHA256/mode verified, but preparation record cleanup failed. '
+                f'Do not rerun until the record is inspected: {state_file}; recovery backup: {backup}'
+            ) from record_failure
+        raise RuntimeError('CN preparation failed; original configuration SHA256/mode verified and owned record removed.') from failure
+
+
 PROBE = r'''
 import json, os, sys
 from pathlib import Path
@@ -208,12 +387,8 @@ def main():
     if FRONTEND is not None:
         state.update(frontend_staging=str(FRONTEND),
                      frontend_index_sha256=sha(FRONTEND / 'index.html'))
-    (backup / 'state.json').write_text(json.dumps(state, indent=2) + '\n')
     print('CN_ENV_BACKUP_OK: ' + str(backup), flush=True)
-    os.replace(candidate, env_path)
-    require(sha(env_path) == state['new_env_sha256'], 'Updated CN configuration SHA256 mismatch.')
-    with STATE.open('x') as output:
-        output.write(json.dumps(state, indent=2) + '\n')
+    prepare_configuration(env_path, candidate, STATE, state)
     try:
         work.rmdir()
     except OSError:
