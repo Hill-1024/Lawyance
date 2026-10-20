@@ -509,7 +509,9 @@ sudo systemctl start lawver-router lawver-app lawver-intro
   [运营说明](law-service-operations.md)。原有本地语料实例仍使用本手册前面的 `runtime` 镜像与自营 overlay。
 - **客户交付边界**：客户必须使用 Dockerfile 的 `customer` target 和 `compose.customer.yml`，
   不能直接使用本手册默认 `build.sh` 构建的自营 `runtime` 镜像。客户镜像不含整个 `RAG/`
-  或自营服务；归档用 `scripts/package-customer.py` 生成并复验。客户操作步骤见
+  或自营服务；由我方用 `bash deploy/docker/build-customer.sh --tag RELEASE_TAG`
+  从 Git 跟踪清单准备独立上下文后构建，原始工作区不能直接作为客户镜像上下文。
+  该脚本仅构建本地镜像，不推送；归档用 `scripts/package-customer.py` 生成并复验。客户操作步骤见
   [客户部署说明](../deploy/customer/README.md)，不要给客户执行本手册的语料同步/索引构建步骤。
 - 外部服务池化（[external-services-pool-plan.md](external-services-pool-plan.md)）未实现。
 - 部署机 `/srv/lawver` 目前无法 `git pull`（主仓转私有后该机没有凭证），

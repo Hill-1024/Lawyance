@@ -192,22 +192,40 @@ python scripts/package-customer.py --verify customer-RELEASE_COMMIT.zip
 
 `git ls-files` 必须零输出。归档带 `CUSTOMER-MANIFEST.json`，包含所交付文件的 SHA-256，验证命令同时检查敏感路径和所有文件校验和。输出归档已存在时拒绝覆盖；目录导出用 `--output-dir NEW_OR_EMPTY_DIRECTORY`，非空目录拒绝写入。默认不带 `dist`，需要预构建网页时先从同一提交执行 `pnpm exec vite build`，再加 `--include-dist`。客户源码包不包含自营 Dockerfile；镜像由我方从主仓构建。
 
-`--no-git-context` 只供 Docker 构建上下文使用，因为 `.git` 在上下文外；该模式仍按同一允许清单排除敏感路径、拒绝符号链接。正常本地发布请保持默认 Git 模式，以保留 `RAG/data` 脱跟踪门禁。
+`--no-git-context` 只消费由可信 Git 导出流程生成的 `CUSTOMER-MANIFEST.json`，
+校验清单、文件 SHA-256 与完整成员集合；缺失清单、内容变化或混入额外文件即拒绝。
+它不会扫描原始工作区选择源码。正常源码归档保持默认 Git 模式，以保留语料脱跟踪门禁。
+清单用于验证已批准导出物的完整性，不能替代通过可信渠道核验版本与发布摘要。
 
 ### 5.2 客户专用镜像
 
 客户只能使用 `deploy/docker/Dockerfile` 的 **`customer` target**，不能使用保留本地检索引擎的 `runtime` target，也不要直接执行默认自营 `build.sh` 作为客户交付。构建/导出例：
 
 ```bash
-docker build -f deploy/docker/Dockerfile --target customer \
-  --build-arg APP_UID=1000 --build-arg APP_GID=1000 \
-  -t lawver-customer:RELEASE_COMMIT .
+LAWVER_APP_UID=1000 LAWVER_APP_GID=1000 \
+  bash deploy/docker/build-customer.sh --tag RELEASE_COMMIT
 docker run --rm --entrypoint python lawver-customer:RELEASE_COMMIT \
   -c "from pathlib import Path; p=Path('/app'); assert not (p/'RAG').exists(); assert not (p/'law_service').exists(); assert not (p/'.git').exists(); assert not (p/'.env').exists(); print('customer image boundary OK')"
 docker save -o lawver-customer-RELEASE_COMMIT.tar lawver-customer:RELEASE_COMMIT
 ```
 
 UID/GID 用客户持久化目录实际值，1000 只是示例。只交付最终 `customer` 镜像，不能推送/导出包含自营代码的构建中间 stage、构建缓存或完整主仓副本。客户 Compose 使用 `compose.customer.yml`，其 app 不创建任何 RAG 卷；不要叠加 `compose.self-hosted.yml`，也不运行 `prebuild-law-db.sh`。
+
+构建脚本先从 Git 已跟踪文件生成独立临时上下文，只包含清单内应用文件及
+`scripts/package-customer.py`、`deploy/docker/Dockerfile` 两个构建辅助文件。
+未跟踪的内部源码不会被送入 Docker；无 Git 导出会校验上下文的成员与哈希，
+两个辅助文件不进入客户应用层。网页从这份受控源码重新构建，不复用工作区 `dist`。
+脚本只构建本地 `lawver-customer:<tag>`，不推送，结束时清理其临时目录。
+
+只准备上下文（无需 Docker，也不构建镜像）可执行：
+
+```bash
+python scripts/package-customer.py --build-context TEMP/customer-build-RELEASE_COMMIT
+```
+
+目标须为新目录或空目录；此模式不接受 `--include-dist`。后续手动构建的 context
+和 Dockerfile 路径都必须指向该目录，不能把原始仓库根目录作为客户构建上下文。
+GitHub 发布工作流对 `customer` 使用相同准备流程，自营 `runtime` 继续使用原有上下文。
 
 ## 6. 客户出网与隐私边界
 

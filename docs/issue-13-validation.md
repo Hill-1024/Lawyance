@@ -34,6 +34,9 @@
 本修复取消当前版本对 `RAG/data/` 的跟踪；验收时确认 `git ls-files RAG/data` 为空，
 工作区语料仍完整，默认客户导出命令可以通过。新检出的本地法库从私有数据源同步，
 见 [RAG/README.md](../RAG/README.md)。
-Docker 无 Git 上下文的导出还须单独验证：未跟踪的内部源码不能进入客户镜像。
+Docker 客户构建先用 `--build-context` 从 Git 跟踪清单导出独立目录，再将其作为上下文。
+无 Git 导出校验已有 manifest、哈希及成员集合，不从磁盘扩选源码。
+验收时在临时工作区加入未跟踪的 `backend/private.py`、`frontend/src/private_token.ts`
+等合成样本，确认不进入构建上下文、客户 ZIP 或镜像；篡改上下文或追加文件应被拒绝。
 客户交付物与主仓历史分别核对，详见 [GitHub 协作说明](law-service-github-collaboration.md)。
 该清单不表示所有部署环境已完成验收。credit 对接及其它后续项按 Issue #13 维护。
