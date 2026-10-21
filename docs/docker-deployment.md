@@ -427,6 +427,13 @@ sed -i 's#/lawver$#/lawver_<实例名>#' /srv/lawver-instances/<实例名>/compo
 
 ## 9. 日常维护
 
+应用镜像的 `customer` 与 `runtime` target 共用 PostgreSQL 17 客户端，匹配基建模板的
+PostgreSQL 17。构建从[官方 PGDG 仓库](https://www.postgresql.org/download/linux/debian/)
+安装 `postgresql-client-17`，并执行 `pg_dump`、`pg_restore` 的版本检查；版本不符会让构建失败。
+维护前在实际应用容器中核对两者均为 17 系列，不能使用 Bookworm 默认的 15 版客户端
+备份 17 版服务器，详见[版本兼容规则](https://www.postgresql.org/docs/17/app-pgdump.html#APP-PGDUMP-NOTES)。
+备份时暂停工作台写入，执行真实备份及清单校验；构建检查不能替代这一步。
+
 | 事情 | 命令 |
 |---|---|
 | 更新应用镜像 | 在 `main` 上打 tag 触发 GHCR 构建（或 `./build.sh --tag <版本>`），改 `compose.env` 的 `LAWVER_APP_IMAGE`，再 `run.sh up -d` |
