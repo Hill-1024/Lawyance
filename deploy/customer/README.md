@@ -51,6 +51,14 @@ URL 改成发放的真实法库服务域名；不要禁用 TLS 校验。URL 不�
 
 PostgreSQL、Redis、SearXNG 沿用现有部署；新机器可用 `deploy/docker/compose.infra.yml` 创建。复制 `infra.env.example` 为受限的 `infra.env`，设置强随机数据库口令；复制 SearXNG `settings.yml` 到指定可写配置目录并更改其 `secret_key`。Compose 的 `LAWVER_SEARXNG_DIR` 指向该目录，属主按所用 SearXNG 镜像要求设置（现有模板镜像为 uid 977）。不向公网发布数据库或缓存端口。
 
+基建模板使用 PostgreSQL 17，交付镜像中的 `pg_dump` 和 `pg_restore` 固定为 17 系列，
+构建时检查两个实际命令的版本。自行制作镜像时，在应用容器内核对
+`pg_dump --version`、`pg_restore --version`；旧版 `pg_dump` 会拒绝备份更高主版本的
+服务器，不能用 15 版客户端备份 17 版数据库。参见
+[PostgreSQL 版本兼容说明](https://www.postgresql.org/docs/17/app-pgdump.html#APP-PGDUMP-NOTES)。
+投产验收还需暂停工作台写入，通过应用维护命令实际生成备份并校验清单；备份目录放在
+持久化挂载卷中，仅核对工具版本不代表备份已经成功。
+
 ```bash
 docker compose --env-file /etc/lawver-customer/infra.env \
   -f deploy/docker/compose.infra.yml up -d

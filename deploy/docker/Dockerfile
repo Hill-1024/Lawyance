@@ -53,11 +53,35 @@ FROM ${PYTHON_IMAGE} AS runtime-base
 ARG APP_UID=1000
 ARG APP_GID=1000
 
-# postgresql-client：备份链路（python -m workbench.maintenance backup 内部调 pg_dump）
-# 需要它。基建容器不再往宿主发布 5432，所以备份只能在容器内执行。
-RUN apt-get update \
- && apt-get install -y --no-install-recommends postgresql-client \
- && rm -rf /var/lib/apt/lists/*
+# 与 compose.infra.yml 的 PostgreSQL 17 对齐。Bookworm 默认客户端为 15，
+# pg_dump 不能备份更高主版本的服务器；从 PGDG 安装客户端并在构建时校验。
+# customer/runtime 共用这一层，维护命令调用的 pg_dump/pg_restore 都必须为 17。
+RUN set -eu; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    install -d -m 0755 /usr/share/postgresql-common/pgdg; \
+    curl --fail --silent --show-error --location --proto '=https' \
+        --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+        https://www.postgresql.org/media/keys/ACCC4CF8.asc; \
+    chmod 0644 /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc; \
+    . /etc/os-release; \
+    test "${ID}" = debian; \
+    printf '%s\n' \
+        'Types: deb' \
+        'URIs: https://apt.postgresql.org/pub/repos/apt' \
+        "Suites: ${VERSION_CODENAME:?Debian codename is required}-pgdg" \
+        'Components: main' \
+        'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+        > /etc/apt/sources.list.d/pgdg.sources; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends postgresql-client-17; \
+    pg_dump_version="$(pg_dump --version)"; \
+    pg_restore_version="$(pg_restore --version)"; \
+    case "${pg_dump_version}" in 'pg_dump (PostgreSQL) 17.'*) ;; \
+        *) printf 'Unexpected pg_dump version: %s\n' "${pg_dump_version}" >&2; exit 1 ;; esac; \
+    case "${pg_restore_version}" in 'pg_restore (PostgreSQL) 17.'*) ;; \
+        *) printf 'Unexpected pg_restore version: %s\n' "${pg_restore_version}" >&2; exit 1 ;; esac; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid "${APP_GID}" lawver \
  && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /usr/sbin/nologin lawver
