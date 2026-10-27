@@ -857,7 +857,10 @@ def export_conversation(identifier: str, user=Depends(gate)):
             )
         ):
             if run.data.get("status") in ("queued", "running", "waiting_confirmation"):
-                raise HTTPException(409, "会话正在运行任务，请等待完成后再导出")
+                raise HTTPException(
+                    409,
+                    {"code": "export_running", "message": "会话正在运行任务，请等待完成后再导出"},
+                )
         title = item.title
         messages = [
             {
@@ -869,7 +872,7 @@ def export_conversation(identifier: str, user=Depends(gate)):
         ]
     formal = formal_messages(messages)
     if not formal:
-        raise HTTPException(422, "会话还没有可导出的消息")
+        raise HTTPException(422, {"code": "export_empty", "message": "会话还没有可导出的消息"})
     raw = build_conversation_docx(title, formal)
     return Response(
         raw,

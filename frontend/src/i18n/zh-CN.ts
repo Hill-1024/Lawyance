@@ -336,6 +336,7 @@ export const zhCN = {
       exportWord: "导出 Word",
       exportRunning: "任务运行中，请等待完成后再导出",
       exportEmpty: "会话还没有可导出的消息",
+      exportTooLarge: "会话内容过多，暂不支持导出",
       toolRequest: "插件请求执行工具",
       toolConfirm: "确认后将把上述参数发送给外部插件，可能产生外部变更。",
       allowOnce: "允许本次调用",

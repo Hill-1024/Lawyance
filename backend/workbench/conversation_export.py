@@ -62,10 +62,8 @@ def formal_messages(messages):
             }
         )
         total += len(content)
-    if len(picked) > MAX_EXPORT_MESSAGES:
-        raise HTTPException(422, f"会话消息超过 {MAX_EXPORT_MESSAGES} 条，暂不支持导出")
-    if total > MAX_EXPORT_CHARS:
-        raise HTTPException(422, "会话正文总量过大，暂不支持导出")
+    if len(picked) > MAX_EXPORT_MESSAGES or total > MAX_EXPORT_CHARS:
+        raise HTTPException(422, {"code": "export_too_large", "message": "会话内容过多，暂不支持导出"})
     return picked
 
 

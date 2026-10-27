@@ -201,7 +201,7 @@ def test_export_refused_while_running_and_when_empty(client):
     ).json()
     refused = client.get(f"/api/workbench/conversations/{empty['id']}/export")
     assert refused.status_code == 422
-    assert "还没有可导出的消息" in refused.json()["detail"]
+    assert refused.json()["detail"]["code"] == "export_empty"
 
     # 运行中：409 明确冲突，不静默导出半截回答。
     conv = _conversation(client, "运行会话", _rich_messages())
@@ -211,10 +211,9 @@ def test_export_refused_while_running_and_when_empty(client):
         headers={"Idempotency-Key": new_id()},
     )
     assert started.status_code == 200
-    assert (
-        client.get(f"/api/workbench/conversations/{conv['id']}/export").status_code
-        == 409
-    )
+    running = client.get(f"/api/workbench/conversations/{conv['id']}/export")
+    assert running.status_code == 409
+    assert running.json()["detail"]["code"] == "export_running"
 
 
 def test_export_branch_isolation(client):
@@ -277,13 +276,13 @@ def test_export_resource_limits(client, monkeypatch):
     monkeypatch.setattr(conversation_export, "MAX_EXPORT_MESSAGES", 1)
     too_many = client.get(f"/api/workbench/conversations/{conv['id']}/export")
     assert too_many.status_code == 422
-    assert "超过" in too_many.json()["detail"]
+    assert too_many.json()["detail"]["code"] == "export_too_large"
 
     monkeypatch.setattr(conversation_export, "MAX_EXPORT_MESSAGES", 2000)
     monkeypatch.setattr(conversation_export, "MAX_EXPORT_CHARS", 10)
     too_large = client.get(f"/api/workbench/conversations/{conv['id']}/export")
     assert too_large.status_code == 422
-    assert "总量过大" in too_large.json()["detail"]
+    assert too_large.json()["detail"]["code"] == "export_too_large"
 
 
 def test_export_headers_use_safe_chinese_filename(client):

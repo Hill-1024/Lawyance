@@ -91,34 +91,33 @@ export function SessionView({
   React.useEffect(() => {
     if (running) setTimelineOpen(true);
   }, [running]);
-// dev 的用户选择功能
-const pendingChoice = React.useMemo(() => {
-  if (run?.data.status !== "waiting_user") return undefined;
-  const stored = run.data.pending_choice;
-  if (stored && stored.answered !== true) return stored as UserChoiceRequest;
-  const event = [...events]
-    .reverse()
-    .find((item) => item.type === "user_choice_request");
-  const payload = event?.content;
-  if (payload && payload.answered !== true) return payload as UserChoiceRequest;
-  return undefined;
-}, [run, events]);
+  // run.data 是断线/换标签后的恢复源；事件是旧 run 或 data 缺失时的兜底。
+  const pendingChoice = React.useMemo(() => {
+    if (run?.data.status !== "waiting_user") return undefined;
+    const stored = run.data.pending_choice;
+    if (stored && stored.answered !== true) return stored as UserChoiceRequest;
+    const event = [...events]
+      .reverse()
+      .find((item) => item.type === "user_choice_request");
+    const payload = event?.content;
+    if (payload && payload.answered !== true) return payload as UserChoiceRequest;
+    return undefined;
+  }, [run, events]);
 
-// 你的 DOCX 导出功能
-async function exportWord() {
-  if (!conv || running || exporting) return;
-  setExporting(true);
-  try {
-    await downloadApiFile(
-      `/api/workbench/conversations/${encodeURIComponent(conv.id)}/export`,
-      (conv.title || t("workbench.session.untitled")) + ".docx",
-    );
-  } catch (e) {
-    onError(describeError(e));
-  } finally {
-    setExporting(false);
+  async function exportWord() {
+    if (!conv || running || exporting) return;
+    setExporting(true);
+    try {
+      await downloadApiFile(
+        `/api/workbench/conversations/${encodeURIComponent(conv.id)}/export`,
+        (conv.title || t("workbench.session.untitled")) + ".docx",
+      );
+    } catch (e) {
+      onError(describeError(e));
+    } finally {
+      setExporting(false);
+    }
   }
-}
   if (courtSelection)
     return (
       <section

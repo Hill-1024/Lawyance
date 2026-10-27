@@ -333,6 +333,7 @@ export const enUS = {
       exportWord: "Export to Word",
       exportRunning: "A task is running — export after it finishes",
       exportEmpty: "Nothing to export yet",
+      exportTooLarge: "This conversation is too large to export",
       toolRequest: "Plugin requests to run a tool",
       toolConfirm: "The parameters above will be sent to an external plugin and may cause outside changes.",
       allowOnce: "Allow this call",
