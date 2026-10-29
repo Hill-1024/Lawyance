@@ -25,6 +25,14 @@ ROLE_LABELS = {"user": "用户", "assistant": "Lawver 助手"}
 
 _PARSER = None
 
+# XML 1.0 permits tabs/newlines/CR, but not the other C0 controls, surrogate
+# code points or U+FFFE/U+FFFF. Keep word boundaries when replacing bad input.
+_INVALID_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
+def _xml_text(text):
+    return _INVALID_XML.sub(" ", text)
+
 
 def _parser():
     global _PARSER
@@ -79,6 +87,8 @@ def safe_filename(title):
 def _safe_url(url):
     """只有 http/https 能成为超链接；其余协议（javascript: 等）按纯文本渲染。"""
     if not isinstance(url, str):
+        return None
+    if _INVALID_XML.search(url) or any(ord(char) < 32 for char in url):
         return None
     value = url.strip()
     return value if value.lower().startswith(("http://", "https://")) else None
@@ -198,21 +208,28 @@ def _hyperlink(paragraph, text, url, *, sup=False, sub=False, bold=False, italic
     run.append(props)
     text_node = OxmlElement("w:t")
     text_node.set(qn("xml:space"), "preserve")
-    text_node.text = text
+    text_node.text = _xml_text(text)
     run.append(text_node)
     link.append(run)
     paragraph._p.append(link)
 
 
 def _shade_paragraph(paragraph, fill):
-    """段落底纹。调用时机固定：先设置缩进/间距，最后加底纹（append 落在 pPr 末尾）。"""
+    """按 OOXML 顺序插入底纹，必须在 spacing / ind 之前。"""
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
 
     shade = OxmlElement("w:shd")
     shade.set(qn("w:val"), "clear")
     shade.set(qn("w:fill"), fill)
-    paragraph._p.get_or_add_pPr().append(shade)
+    paragraph._p.get_or_add_pPr().insert_element_before(
+        shade, "w:tabs", "w:suppressAutoHyphens", "w:kinsoku", "w:wordWrap",
+        "w:overflowPunct", "w:topLinePunct", "w:autoSpaceDE", "w:autoSpaceDN",
+        "w:bidi", "w:adjustRightInd", "w:snapToGrid", "w:spacing", "w:ind",
+        "w:contextualSpacing", "w:mirrorIndents", "w:suppressOverlap", "w:jc",
+        "w:textDirection", "w:textAlignment", "w:textboxTightWrap", "w:outlineLvl",
+        "w:divId", "w:cnfStyle", "w:rPr", "w:sectPr", "w:pPrChange",
+    )
 
 
 def _bottom_rule(paragraph):
@@ -227,7 +244,9 @@ def _bottom_rule(paragraph):
     bottom.set(qn("w:space"), "1")
     bottom.set(qn("w:color"), "BFBFBF")
     borders.append(bottom)
-    paragraph._p.get_or_add_pPr().append(borders)
+    paragraph._p.get_or_add_pPr().insert_element_before(
+        borders, "w:shd", "w:tabs", "w:spacing", "w:ind", "w:jc", "w:rPr", "w:sectPr",
+    )
 
 
 def _full_width_table(table):
@@ -290,7 +309,7 @@ class _DocxBuilder:
         if url:
             _hyperlink(paragraph, text, url, sup=sup, sub=sub, bold=bold, italic=italic)
             return
-        run = paragraph.add_run(text)
+        run = paragraph.add_run(_xml_text(text))
         if bold:
             run.bold = True
         if italic:
@@ -471,7 +490,7 @@ class _DocxBuilder:
         for index, line in enumerate(lines):
             if index:
                 run.add_break()
-            run.add_text(line if line else " ")
+            run.add_text(_xml_text(line) if line else " ")
 
     def _table(self, rows):
         """rows: [[([inline tokens], align), ...]]；首行为表头。"""
@@ -517,7 +536,7 @@ class _DocxBuilder:
         tokens = _parser().parse(text)
         list_stack = []  # [{ordered, counter}]，嵌套列表各占一层
         quote_depth = 0
-        item_paragraph_used = False
+        item_paragraphs = []  # one flag per open list_item, including parent items
         table_rows = []
         in_cell = None  # ([children], align)：单元格内容暂存，闭合时归行
         i = 0
@@ -542,10 +561,10 @@ class _DocxBuilder:
             elif kind == "inline":
                 if in_cell is not None:
                     in_cell[0].extend(token.children or [])
-                elif list_stack and not item_paragraph_used:
+                elif list_stack and item_paragraphs and not item_paragraphs[-1]:
                     paragraph = self._list_paragraph(list_stack, quote_depth > 0)
                     self.render_inline(paragraph, token.children)
-                    item_paragraph_used = True
+                    item_paragraphs[-1] = True
                 else:
                     paragraph = self._paragraph(quote=quote_depth > 0)
                     self.render_inline(paragraph, token.children)
@@ -556,12 +575,12 @@ class _DocxBuilder:
                         "counter": int(token.attrGet("start") or 1) - 1,
                     }
                 )
-                item_paragraph_used = False
             elif kind in ("bullet_list_close", "ordered_list_close"):
                 list_stack.pop()
-                item_paragraph_used = False
             elif kind == "list_item_open":
-                item_paragraph_used = False
+                item_paragraphs.append(False)
+            elif kind == "list_item_close":
+                item_paragraphs.pop()
             elif kind == "blockquote_open":
                 quote_depth += 1
             elif kind == "blockquote_close":
@@ -638,7 +657,7 @@ def build_conversation_docx(title, messages):
     doc = Document()
     _configure_document(doc)
 
-    _east_asia(doc.add_heading((title or "会话导出").strip() or "会话导出", level=0).style, "黑体")
+    _east_asia(doc.add_heading(_xml_text(title or "会话导出").strip() or "会话导出", level=0).style, "黑体")
 
     local = datetime.now().astimezone()
     offset = local.utcoffset() or timedelta(0)

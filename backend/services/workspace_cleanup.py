@@ -70,6 +70,14 @@ async def cleanup_task():
     """
     while True:
         try:
+            from infra.database import cloud_database_ready
+            from workbench.sharing import purge_expired_shares
+
+            if cloud_database_ready():
+                await asyncio.to_thread(purge_expired_shares)
+        except Exception as e:
+            print(f"[清理] 会话分享快照清理失败: {e}")
+        try:
             now = time.time()
             one_hour_ago = now - 3600
 
