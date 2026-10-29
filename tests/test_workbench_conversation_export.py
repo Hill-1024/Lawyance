@@ -3,6 +3,7 @@
 import io
 import os
 import re
+import zipfile
 from datetime import datetime
 
 import pytest
@@ -13,6 +14,46 @@ from sqlalchemy import select
 from workbench.api import router
 from workbench.store import Base, engine_for, database_url, transaction, Item, new_id
 from services.auth_dependencies import get_current_user
+
+
+@pytest.mark.parametrize("bad", ["\x01", "\x0b", "\x0c", "\ufffe"])
+def test_xml_invalid_characters_in_title_text_code_and_html(client, bad):
+    from lxml import etree
+
+    content = f'前{bad}后\n\n```text\n前{bad}后\n```\n\n<a href="https://example.com/{bad}">链接</a>'
+    conv = _conversation(client, f"标题{bad}测试", [{"role": "assistant", "content": content}])
+    response = client.get(f"/api/workbench/conversations/{conv['id']}/export")
+    assert response.status_code == 200
+    doc, text, _ = _reopen(response)
+    assert "标题 测试" in text and "前 后" in text and "链接" in text
+    assert not any(rel.reltype.endswith("/hyperlink") for rel in doc.part.rels.values())
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        for name in archive.namelist():
+            if name.endswith((".xml", ".rels")):
+                etree.fromstring(archive.read(name))
+
+
+def test_percent_encoded_link_and_legal_xml_whitespace():
+    from workbench.conversation_export import _safe_url, _xml_text
+
+    assert _safe_url("https://example.com/%01") == "https://example.com/%01"
+    assert _safe_url("https://example.com/\x01") is None
+    assert _xml_text("a\tb\nc\rd😀") == "a\tb\nc\rd😀"
+    assert _xml_text("a\ud800b") == "a b"
+
+
+def test_nested_list_continuation_and_paragraph_order():
+    from docx import Document
+    from docx.oxml.ns import qn
+    from workbench.conversation_export import build_conversation_docx
+
+    raw = build_conversation_docx("test", [{"role": "assistant", "content": "- 条目\n  - 嵌套\n\n  条目后半段\n\n```text\n代码\n```"}])
+    doc = Document(io.BytesIO(raw))
+    continuation = next(p for p in doc.paragraphs if p.text == "条目后半段")
+    assert not continuation.style.name.startswith("List Bullet")
+    code = next(p for p in doc.paragraphs if p.text == "代码")
+    tags = [element.tag for element in code._p.pPr]
+    assert tags.index(qn("w:shd")) < tags.index(qn("w:spacing"))
 
 
 @pytest.fixture

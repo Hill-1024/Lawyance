@@ -23,6 +23,7 @@ import { AnnouncementBanner } from './components/AnnouncementBanner';
 import { useT } from './i18n';
 
 const Workbench = React.lazy(() => import('./workbench/Workbench'));
+const SharedConversation = React.lazy(() => import('./workbench/SharedConversation'));
 const AdminDashboard = React.lazy(() => import('./components/AdminDashboard').then(module => ({ default: module.AdminDashboard })));
 const BusinessConsole = React.lazy(() => import('./business/BusinessConsole'));
 const UsageConsole = React.lazy(() => import('./usage/UsageConsole'));
@@ -363,4 +364,16 @@ function WorkbenchUnavailable({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-export default App;
+// Public links never mount account probes or authenticated route guards.
+function AppEntry() {
+  const location = useLocation();
+  if (location.pathname.startsWith('/share/')) {
+    return <React.Suspense fallback={<RouteLoadingFallback />}><Routes>
+      <Route path="/share/:token" element={<SharedConversation key={location.pathname} />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes></React.Suspense>;
+  }
+  return <App />;
+}
+
+export default AppEntry;

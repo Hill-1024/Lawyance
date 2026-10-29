@@ -1,4 +1,4 @@
-import { ChevronDown, CircleAlert, CircleHelp, FileDown, FileText, Pause, X } from "lucide-react";
+import { ChevronDown, CircleAlert, CircleHelp, FileText, Pause, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import React from "react";
 import { Markdown } from "./markdown";
@@ -9,8 +9,7 @@ import { ChoicePrompt } from "./ChoicePrompt";
 import { useT } from "../i18n";
 import { api, Item, Reference } from "./client";
 import type { UserChoiceRequest } from "../types";
-import { downloadApiFile } from "../lib/download";
-import { describeError } from "../lib/errors";
+import { ConversationShare } from "./ConversationShare";
 
 const CourtConversation = React.lazy(() => import("./CourtConversation"));
 
@@ -85,13 +84,13 @@ export function SessionView({
   const { t } = useT();
   // 执行过程挂在「Lawver」标签行右侧：状态本身就是开关标签，展开后时间线出现在标签行下方。
   const [timelineOpen, setTimelineOpen] = React.useState(false);
-  // 导出 Word 的进行中标记：请求期间禁用按钮防重复点击，失败后恢复。
-  const [exporting, setExporting] = React.useState(false);
   const reduceMotion = useReducedMotion();
   React.useEffect(() => {
     if (running) setTimelineOpen(true);
   }, [running]);
+
   // run.data 是断线/换标签后的恢复源；事件是旧 run 或 data 缺失时的兜底。
+
   const pendingChoice = React.useMemo(() => {
     if (run?.data.status !== "waiting_user") return undefined;
     const stored = run.data.pending_choice;
@@ -103,21 +102,6 @@ export function SessionView({
     if (payload && payload.answered !== true) return payload as UserChoiceRequest;
     return undefined;
   }, [run, events]);
-
-  async function exportWord() {
-    if (!conv || running || exporting) return;
-    setExporting(true);
-    try {
-      await downloadApiFile(
-        `/api/workbench/conversations/${encodeURIComponent(conv.id)}/export`,
-        (conv.title || t("workbench.session.untitled")) + ".docx",
-      );
-    } catch (e) {
-      onError(describeError(e));
-    } finally {
-      setExporting(false);
-    }
-  }
   if (courtSelection)
     return (
       <section
@@ -252,21 +236,8 @@ export function SessionView({
           <h2>{conv?.title || t("workbench.session.untitled")}</h2>
         </div>
         <div className="wb-thread-tools">
-          <button
-            className="wb-thread-tool"
-            aria-label={t("workbench.session.exportWord")}
-            title={
-              running
-                ? t("workbench.session.exportRunning")
-                : messages.length
-                  ? t("workbench.session.exportWord")
-                  : t("workbench.session.exportEmpty")
-            }
-            disabled={running || exporting || !conv || !messages.length}
-            onClick={() => void exportWord()}
-          >
-            <FileDown size={16} />
-          </button>
+          {conv && <ConversationShare key={conv.id} id={conv.id} title={conv.title}
+            blocked={running || run?.data.status === "waiting_user" || !messages.length} offline={offline} />}
           {showDoc && (
             <button
               className="wb-desktop-only"

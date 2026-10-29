@@ -84,7 +84,10 @@ async def serve_spa(request: Request, full_path: str):
         return Response(
             content=_with_root_base(html),
             media_type="text/html",
-            headers={"Cache-Control": cache_control},
+            headers={"Cache-Control": cache_control, **(
+                {"X-Robots-Tag": "noindex, nofollow, noarchive", "Referrer-Policy": "no-referrer"}
+                if full_path.startswith("share/") else {}
+            )},
         )
 
     return FileResponse(asset_path, headers={"Cache-Control": cache_control})

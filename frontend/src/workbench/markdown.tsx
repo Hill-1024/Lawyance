@@ -10,11 +10,16 @@ import remarkGfm from "remark-gfm";
  * 模型输出不可信，raw 之后紧跟 GitHub 级白名单消毒（默认 schema 已含 sup/sub/a），
  * script/事件属性/危险协议都在这一层拦掉。
  */
-export function Markdown({ children }: { children?: string }) {
+export function Markdown({ children, publicShare = false }: { children?: string; publicShare?: boolean }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      components={publicShare ? {
+        // Public snapshots must not trigger remote tracking images automatically.
+        img: ({ alt }) => <span>{alt ? `〔${alt}〕` : "〔image〕"}</span>,
+        a: ({ href, children: label }) => <a href={href} rel="noreferrer noopener nofollow" referrerPolicy="no-referrer">{label}</a>,
+      } : undefined}
     >
       {children || ""}
     </ReactMarkdown>

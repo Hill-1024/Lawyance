@@ -39,6 +39,7 @@ from workbench.store import (
     check_revision,
     now,
     new_id,
+    revoke_conversation_shares,
 )
 from workbench.documents import (
     native,
@@ -856,10 +857,18 @@ def export_conversation(identifier: str, user=Depends(gate)):
                 Item.deleted_at.is_(None),
             )
         ):
-            if run.data.get("status") in ("queued", "running", "waiting_confirmation"):
+            if run.data.get("status") in (
+                "queued",
+                "running",
+                "waiting_confirmation",
+                "waiting_user",
+            ):
                 raise HTTPException(
                     409,
-                    {"code": "export_running", "message": "会话正在运行任务，请等待完成后再导出"},
+                    {
+                        "code": "export_running",
+                        "message": "会话正在运行任务，请等待完成后再导出",
+                    },
                 )
         title = item.title
         messages = [
@@ -1528,5 +1537,11 @@ def delete(family: str, identifier: str, user=Depends(gate)):
                 for r in s.scalars(query)
             ):
                 raise HTTPException(409, "请先停止项目内正在执行的任务")
+        if item.kind == "conversation":
+            revoke_conversation_shares(s, user, [item.id])
+        elif item.kind == "project":
+            revoke_conversation_shares(s, user, select(Item.id).where(
+                Item.owner == user, Item.kind == "conversation", Item.project_id == item.id,
+            ))
         item.deleted_at = now()
         return {"deleted": True, "retention_days": 30}
