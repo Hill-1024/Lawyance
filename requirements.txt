@@ -20,6 +20,10 @@ redis>=5.0.0
 # 否则应用在导入阶段即抛 ImportError。
 socksio>=1.0.0
 
+# 会话导出 Word：用 markdown-it-py 结构化解析消息 Markdown（CommonMark 规范实现），
+# 使用内置 table / strikethrough 规则支持表格与删除线。
+markdown-it-py>=3.0,<4
+
 # Cloud workbench persistence and remote MCP
 SQLAlchemy>=2.0,<3
 alembic>=1.16,<2

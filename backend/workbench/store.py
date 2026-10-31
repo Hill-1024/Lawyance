@@ -76,6 +76,31 @@ class Item(Base):
     )
 
 
+class ConversationShare(Base):
+    """One current URL share per conversation; DOCX files are never persisted here."""
+
+    __tablename__ = "workbench_conversation_shares"
+    conversation_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    owner: Mapped[str] = mapped_column(String(200), index=True)
+    token: Mapped[str] = mapped_column(String(36), unique=True)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+def revoke_conversation_shares(session, owner, conversation_ids):
+    """Also used by trash operations so restoring content never restores public access."""
+    from sqlalchemy import update
+
+    session.execute(
+        update(ConversationShare).where(
+            ConversationShare.owner == owner,
+            ConversationShare.conversation_id.in_(conversation_ids),
+        ).values(revoked_at=now(), snapshot={})
+    )
+
+
 class Version(Base):
     __tablename__ = "workbench_versions"
     id: Mapped[str] = mapped_column(String(100), primary_key=True, default=new_id)

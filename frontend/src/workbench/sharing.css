@@ -1,0 +1,27 @@
+.conversation-share { width: min(520px, calc(100vw - 32px)); max-height: 85dvh; margin: auto; overflow: auto; padding: 24px; border: 1px solid var(--border-subtle); border-radius: 24px; background: var(--bg-surface); color: var(--fg-1); box-shadow: var(--shadow-4); }
+.conversation-share::backdrop { background: var(--bg-overlay); }
+.conversation-share header, .conversation-share h3, .share-actions { display: flex; align-items: center; gap: 12px; }
+.conversation-share header { justify-content: space-between; }
+.conversation-share h2 { font-family: var(--font-serif); font-size: 22px; }
+.conversation-share h3 { font-size: 16px; margin-bottom: 8px; }
+.conversation-share section { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--border-subtle); }
+.conversation-share p { font-size: 13px; line-height: 1.65; margin: 8px 0; color: var(--fg-2); }
+.conversation-share button, .conversation-share select { border: 1px solid var(--border-default); border-radius: 10px; padding: 8px 12px; margin-top: 8px; cursor: pointer; }
+.conversation-share select { background: var(--bg-surface); }
+.conversation-share button:disabled { opacity: .5; cursor: default; }
+.conversation-share input { width: 100%; padding: 10px; border: 1px solid var(--border-default); border-radius: 10px; }
+.conversation-share [role=alert] p { color: var(--color-danger-500); }
+.shared-conversation { min-height: 100dvh; padding: 40px 20px; background: var(--bg-app); color: var(--fg-1); overflow-wrap: anywhere; }
+.shared-paper { max-width: 860px; margin: auto; padding: clamp(20px, 5vw, 56px); border-radius: 28px; background: var(--bg-surface); box-shadow: var(--shadow-3); overflow-wrap: anywhere; }
+.shared-paper h1 { font-family: var(--font-serif); font-size: 28px; margin: 12px 0; }
+.shared-paper article { padding: 24px 0; border-top: 1px solid var(--border-subtle); line-height: 1.8; }
+.shared-paper article > strong { display: block; margin-bottom: 10px; }
+.shared-paper pre { white-space: pre-wrap; background: var(--bg-inset); padding: 12px; border-radius: 8px; }
+.shared-paper table { display: block; overflow-x: auto; }
+.shared-paper th, .shared-paper td { padding: 8px; border: 1px solid var(--border-default); }
+.shared-paper article h2 { font-size: 22px; margin: 12px 0; }
+.shared-paper article h3 { font-size: 18px; margin: 10px 0; }
+.shared-paper article ul { list-style: disc; padding-left: 24px; }
+.shared-paper article ol { list-style: decimal; padding-left: 24px; }
+.shared-paper a { color: var(--accent); text-decoration: underline; }
+.shared-paper article blockquote { border-left: 3px solid var(--border-default); padding-left: 14px; color: var(--fg-2); }

@@ -39,6 +39,7 @@ from workbench.store import (
     check_revision,
     now,
     new_id,
+    revoke_conversation_shares,
 )
 from workbench.documents import (
     native,
@@ -830,6 +831,70 @@ def branch(
         )
 
 
+@router.get("/conversations/{identifier}/export")
+def export_conversation(identifier: str, user=Depends(gate)):
+    """导出当前普通会话为 Word：认证与取数在这里，排版在 conversation_export。
+
+    只导出该会话自己持有的消息快照（含分支继承的前缀），不递归父会话、
+    不混入兄弟分支，也不导出 trace 内部历史与工具事件。
+    """
+    from urllib.parse import quote
+
+    from workbench.conversation_export import (
+        build_conversation_docx,
+        formal_messages,
+        safe_filename,
+    )
+
+    # 快照后立即收尾事务：DOCX 生成是纯内存计算，不占数据库会话。
+    with transaction() as s:
+        item = get_item(s, user, identifier, "conversation")
+        for run in s.scalars(
+            select(Item).where(
+                Item.owner == user,
+                Item.kind == "run",
+                Item.parent_id == identifier,
+                Item.deleted_at.is_(None),
+            )
+        ):
+            if run.data.get("status") in (
+                "queued",
+                "running",
+                "waiting_confirmation",
+                "waiting_user",
+            ):
+                raise HTTPException(
+                    409,
+                    {
+                        "code": "export_running",
+                        "message": "会话正在运行任务，请等待完成后再导出",
+                    },
+                )
+        title = item.title
+        messages = [
+            {
+                "role": message.get("role"),
+                "content": message.get("content"),
+                "created_at": message.get("created_at"),
+            }
+            for message in item.data.get("messages", [])
+        ]
+    formal = formal_messages(messages)
+    if not formal:
+        raise HTTPException(422, {"code": "export_empty", "message": "会话还没有可导出的消息"})
+    raw = build_conversation_docx(title, formal)
+    return Response(
+        raw,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            # quote 转义非 ASCII 与 CR/LF：中文文件名可用，也无响应头注入空间。
+            "Content-Disposition": "attachment; filename=\"conversation.docx\"; "
+            "filename*=UTF-8''" + quote(safe_filename(title) + ".docx"),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.post("/connectors/{identifier}/test")
 async def test_connector(identifier: str, user=Depends(gate)):
     # 幂等键豁免：连接探测只回写测试时间/工具清单，不创建内容；要求带键反而挡住「再测一次」。
@@ -1472,5 +1537,11 @@ def delete(family: str, identifier: str, user=Depends(gate)):
                 for r in s.scalars(query)
             ):
                 raise HTTPException(409, "请先停止项目内正在执行的任务")
+        if item.kind == "conversation":
+            revoke_conversation_shares(s, user, [item.id])
+        elif item.kind == "project":
+            revoke_conversation_shares(s, user, select(Item.id).where(
+                Item.owner == user, Item.kind == "conversation", Item.project_id == item.id,
+            ))
         item.deleted_at = now()
         return {"deleted": True, "retention_days": 30}

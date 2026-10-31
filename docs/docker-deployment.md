@@ -126,6 +126,25 @@ sudo install -d -o lawver -g lawver -m 750 /srv/lawver-searxng
 
 **验收**：`ls -ld /srv/lawver-instances /srv/lawver-searxng` 属主都是 `lawver`。
 
+### 5.0.1 本地语料挂载（仅自营环境）
+
+当前代码版本不再跟踪 `RAG/data/`。使用本地法库的自营 overlay，或独立法库服务，
+须在构建/启动前准备其只读挂载的数据目录；客户远程实例跳过此步骤。
+
+将 `CANDIDATE_ROOT` 替换为首次部署或未被运行容器使用的候选代码目录：
+
+```bash
+CANDIDATE_ROOT=/absolute/path/to/candidate
+sudo -u lawver env LAWVER_RAG_DATA_REPO=git@github.com:Hill-1024/Lawyance-Law-Data.git \
+  bash "$CANDIDATE_ROOT/scripts/sync-rag-data.sh" v2026.10.17
+```
+
+目标是脚本所属项目的 `RAG/data/`，由脚本路径决定，不由执行时的工作目录决定。
+已有私有数据目录时可设置 `LAWVER_RAG_DATA_DIR`；目录须有 `manifest.sha256`，
+并与目标分开。脚本先校验暂存副本，再备份和替换；不会重启容器或重建索引。
+默认版本预期 5,237 个语料文件。核对 compose 实际挂载路径、数据版本和三个检索
+端点后再发布。同步与备份说明见 [RAG/README.md](../RAG/README.md)。
+
 ### 5.1 起共享基建（一台机器只做一次）
 
 ```bash
@@ -408,12 +427,19 @@ sed -i 's#/lawver$#/lawver_<实例名>#' /srv/lawver-instances/<实例名>/compo
 
 ## 9. 日常维护
 
+应用镜像的 `customer` 与 `runtime` target 共用 PostgreSQL 17 客户端，匹配基建模板的
+PostgreSQL 17。构建从[官方 PGDG 仓库](https://www.postgresql.org/download/linux/debian/)
+安装 `postgresql-client-17`，并执行 `pg_dump`、`pg_restore` 的版本检查；版本不符会让构建失败。
+维护前在实际应用容器中核对两者均为 17 系列，不能使用 Bookworm 默认的 15 版客户端
+备份 17 版服务器，详见[版本兼容规则](https://www.postgresql.org/docs/17/app-pgdump.html#APP-PGDUMP-NOTES)。
+备份时暂停工作台写入，执行真实备份及清单校验；构建检查不能替代这一步。
+
 | 事情 | 命令 |
 |---|---|
 | 更新应用镜像 | 在 `main` 上打 tag 触发 GHCR 构建（或 `./build.sh --tag <版本>`），改 `compose.env` 的 `LAWVER_APP_IMAGE`，再 `run.sh up -d` |
 | 更新后迁移 | `run.sh exec -T -w /app/backend app alembic -c alembic.ini upgrade head` |
 | 介绍页换版 | 宿主 `/srv/lawver-intro` 在 `main` 上 `git pull && tools/build.sh`（**容器不重启**，符号链接原子翻转；实测生效） |
-| 语料更新 | `git -C <语料检出> pull`（`main`）后 `run.sh restart app`（启动期扫描走增量） |
+| 语料更新 | 在候选目录用 `bash scripts/sync-rag-data.sh <已批准数据版本>` 同步私有语料，校验索引与三个端点，再按自营实例或独立服务的发布流程换版 |
 | 备份 | `run.sh exec -T -w /app/backend app python -m workbench.maintenance backup /app/data/backup/$(date +%F)`，再 `... verify /app/data/backup/$(date +%F)`。**目的地必须落在挂载卷内**（`/app/data/...`），否则备份留在容器层 |
 | 计划维护 | `touch /srv/lawver-instances/<实例>/state/router/app.maintenance`（核心认这个标志位；删掉文件即恢复，进程不用重启） |
 | 看日志 | `run.sh logs -f app` / `router` / `intro`；或 `--since 10m` |
@@ -482,13 +508,18 @@ sudo systemctl start lawver-router lawver-app lawver-intro
 | 首次建索引 | 14 秒（full rebuild，4937 源文件 → 197MB `law.db`） |
 | 索引就绪后再启动 | 12～31 秒（`mode=unchanged`） |
 
-## 13. 还没做的（下一轮）
+## 13. 独立法库服务与后续工作
 
-- **自营法库服务**：`law_service/`（`/v1` 三端点 + keys.json + 限流 + 审计 + canary）尚未实现，
-  见 [law-service-split-plan.md](law-service-split-plan.md)。位置已在 `compose.self-hosted.yml`
-  里以注释标好（`law-db` 服务 + `LAWVER_LAW_SERVICE_URL`）。落地后：自营实例去掉语料挂载、
-  改指该服务；前沿实例从 `PKU_LAW_SOURCE=remote`（第三方付费）换成自营法库，实例侧不用改代码
-  ——那是同一个适配层的第三个数据源。
+- **自营法库服务（issue #13）**：代码与部署模板已提供，服务器由操作者手动上传验收。
+  用独立 [法库部署说明](law-service-deployment.md) 和 `compose.law-service.yml` 部署我方 API，
+  使用 `LAWVER_LAW_SERVICE_URL` / `LAWVER_LAW_SERVICE_KEY` 连接；监控见
+  [运营说明](law-service-operations.md)。原有本地语料实例仍使用本手册前面的 `runtime` 镜像与自营 overlay。
+- **客户交付边界**：客户必须使用 Dockerfile 的 `customer` target 和 `compose.customer.yml`，
+  不能直接使用本手册默认 `build.sh` 构建的自营 `runtime` 镜像。客户镜像不含整个 `RAG/`
+  或自营服务；由我方用 `bash deploy/docker/build-customer.sh --tag RELEASE_TAG`
+  从 Git 跟踪清单准备独立上下文后构建，原始工作区不能直接作为客户镜像上下文。
+  该脚本仅构建本地镜像，不推送；归档用 `scripts/package-customer.py` 生成并复验。客户操作步骤见
+  [客户部署说明](../deploy/customer/README.md)，不要给客户执行本手册的语料同步/索引构建步骤。
 - 外部服务池化（[external-services-pool-plan.md](external-services-pool-plan.md)）未实现。
 - 部署机 `/srv/lawver` 目前无法 `git pull`（主仓转私有后该机没有凭证），
   更新要走"配只读 PAT 或从开发机同步"两条路之一。

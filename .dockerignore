@@ -8,11 +8,21 @@
 # 机密与本地配置
 .env
 .env.*
+**/keys.json
+**/audit.jsonl*
+**/*.log
+**/secrets.json
+law_service/state/
+customer-releases/
+releases/
 data/
 backend/data/
 
 # 语料与索引：运行期只读挂载（RAG/data）+ 命名卷（RAG/cache）
 RAG/data/
+RAG/data.backup.*/
+RAG/.data-sync.*/
+RAG/.data-sync.lock/
 RAG/cache/
 RAG/data_doc/
 

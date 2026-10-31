@@ -33,6 +33,25 @@
 .wb-chat-heading small {
   font-size: 10px;
 }
+/* 会话头部工具按钮（导出 Word / 收起对话）：与文档窗格收起按钮同规格的 28px 图标钮。 */
+.wb-thread-tool {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--wb-muted);
+}
+.wb-thread-tool:hover:not(:disabled) {
+  color: var(--wb-ink);
+  background: var(--wb-hover);
+}
+.wb-thread-tool:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: transparent;
+}
 .wb-messages {
   flex: 1;
   min-height: 0;

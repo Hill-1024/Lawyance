@@ -44,7 +44,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 ########## 3. 运行镜像 ##########
-FROM ${PYTHON_IMAGE} AS runtime
+FROM ${PYTHON_IMAGE} AS runtime-base
 
 # UID/GID 要与宿主持久化目录的属主一致，否则 data/、TEMP/、Result/ 写不进去。
 # 注意部署机上的 lawver 用户**不是** 1000（实测 996/993），所以默认值只是兜底：
@@ -53,11 +53,35 @@ FROM ${PYTHON_IMAGE} AS runtime
 ARG APP_UID=1000
 ARG APP_GID=1000
 
-# postgresql-client：备份链路（python -m workbench.maintenance backup 内部调 pg_dump）
-# 需要它。基建容器不再往宿主发布 5432，所以备份只能在容器内执行。
-RUN apt-get update \
- && apt-get install -y --no-install-recommends postgresql-client \
- && rm -rf /var/lib/apt/lists/*
+# 与 compose.infra.yml 的 PostgreSQL 17 对齐。Bookworm 默认客户端为 15，
+# pg_dump 不能备份更高主版本的服务器；从 PGDG 安装客户端并在构建时校验。
+# customer/runtime 共用这一层，维护命令调用的 pg_dump/pg_restore 都必须为 17。
+RUN set -eu; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    install -d -m 0755 /usr/share/postgresql-common/pgdg; \
+    curl --fail --silent --show-error --location --proto '=https' \
+        --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+        https://www.postgresql.org/media/keys/ACCC4CF8.asc; \
+    chmod 0644 /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc; \
+    . /etc/os-release; \
+    test "${ID}" = debian; \
+    printf '%s\n' \
+        'Types: deb' \
+        'URIs: https://apt.postgresql.org/pub/repos/apt' \
+        "Suites: ${VERSION_CODENAME:?Debian codename is required}-pgdg" \
+        'Components: main' \
+        'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+        > /etc/apt/sources.list.d/pgdg.sources; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends postgresql-client-17; \
+    pg_dump_version="$(pg_dump --version)"; \
+    pg_restore_version="$(pg_restore --version)"; \
+    case "${pg_dump_version}" in 'pg_dump (PostgreSQL) 17.'*) ;; \
+        *) printf 'Unexpected pg_dump version: %s\n' "${pg_dump_version}" >&2; exit 1 ;; esac; \
+    case "${pg_restore_version}" in 'pg_restore (PostgreSQL) 17.'*) ;; \
+        *) printf 'Unexpected pg_restore version: %s\n' "${pg_restore_version}" >&2; exit 1 ;; esac; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid "${APP_GID}" lawver \
  && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /usr/sbin/nologin lawver
@@ -71,6 +95,28 @@ ENV PATH=/opt/venv/bin:$PATH \
 COPY --from=deps /opt/venv /opt/venv
 
 WORKDIR /app
+
+########## 4. 客户源码清洗（中间层永不推送给客户） ##########
+# customer 必须使用 package-customer.py --build-context 生成的受控上下文。
+# 无 Git 导出只验证该上下文的 manifest，不从原始工作区递归选择源码。
+FROM deps AS customer-source
+COPY CUSTOMER-MANIFEST.json /src/CUSTOMER-MANIFEST.json
+COPY . /src
+RUN /opt/venv/bin/python scripts/package-customer.py --no-git-context --output-dir /customer
+
+########## 5. 客户镜像：完全不含 RAG/ 与自营服务 ##########
+FROM runtime-base AS customer
+ENV LAWVER_LAW_SOURCE=remote
+COPY --from=customer-source /customer /app
+COPY --from=web /src/dist ./dist
+RUN mkdir -p /app/data /app/TEMP /app/Result \
+ && chown -R lawver:lawver /app/data /app/TEMP /app/Result
+USER lawver
+EXPOSE 8080 8081
+CMD ["python", "agent.py"]
+
+########## 6. 自营镜像：保留本地检索引擎，语料另行挂载 ##########
+FROM runtime-base AS runtime
 # 代码进镜像（多实例共享同一份镜像，不再需要每实例一套源码树）
 COPY . .
 COPY --from=web /src/dist ./dist

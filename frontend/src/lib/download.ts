@@ -115,8 +115,30 @@ export const downloadApiFile = async (path: string, name: string) => {
     return;
   }
   const response = await apiFetch(path);
-  // UserFacingError：文案已按当前语言取词，describeError 原样放行，不再被兜底改写。
-  if (!response.ok) throw new UserFacingError(translate("errors.downloadFailed"));
+  if (!response.ok) {
+    // 导出接口用稳定 code 选当前语言的词条，不把后端中文 detail 直接展示给英文界面。
+    // 其它下载失败仍走本地化兜底。
+    if (path.includes("/conversations/") && path.endsWith("/export")) {
+      const detail = (
+        (await response.json().catch(() => null)) as { detail?: unknown } | null
+      )?.detail;
+      const code =
+        detail && typeof detail === "object" && "code" in detail
+          ? (detail as { code?: unknown }).code
+          : undefined;
+      if (response.status === 409 || code === "export_running") {
+        throw new UserFacingError(translate("workbench.session.exportRunning"));
+      }
+      if (code === "export_too_large") {
+        throw new UserFacingError(translate("workbench.session.exportTooLarge"));
+      }
+      if (response.status === 422 || code === "export_empty") {
+        throw new UserFacingError(translate("workbench.session.exportEmpty"));
+      }
+    }
+    // UserFacingError：文案已按当前语言取词，describeError 原样放行，不再被兜底改写。
+    throw new UserFacingError(translate("errors.downloadFailed"));
+  }
   const href = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = href;

@@ -9,6 +9,7 @@ import { ChoicePrompt } from "./ChoicePrompt";
 import { useT } from "../i18n";
 import { api, Item, Reference } from "./client";
 import type { UserChoiceRequest } from "../types";
+import { ConversationShare } from "./ConversationShare";
 
 const CourtConversation = React.lazy(() => import("./CourtConversation"));
 
@@ -87,7 +88,9 @@ export function SessionView({
   React.useEffect(() => {
     if (running) setTimelineOpen(true);
   }, [running]);
+
   // run.data 是断线/换标签后的恢复源；事件是旧 run 或 data 缺失时的兜底。
+
   const pendingChoice = React.useMemo(() => {
     if (run?.data.status !== "waiting_user") return undefined;
     const stored = run.data.pending_choice;
@@ -233,6 +236,8 @@ export function SessionView({
           <h2>{conv?.title || t("workbench.session.untitled")}</h2>
         </div>
         <div className="wb-thread-tools">
+          {conv && <ConversationShare key={conv.id} id={conv.id} title={conv.title}
+            blocked={running || run?.data.status === "waiting_user" || !messages.length} offline={offline} />}
           {showDoc && (
             <button
               className="wb-desktop-only"
